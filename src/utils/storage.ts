@@ -77,7 +77,7 @@ export function startStorageMonitor(
 }
 
 // ===== IndexedDB (substitui localStorage) =====
-const DB_NAME = "push-p2p-store";
+const DB_NAME = "loco-store";
 const STORE_NAME = "data";
 const customStore = createStore(DB_NAME, STORE_NAME);
 
@@ -278,7 +278,7 @@ export async function getOPFSUsage(): Promise<number> {
 }
 
 // ===== Cache API =====
-const CACHE_NAME = "push-p2p-assets-v1";
+const CACHE_NAME = "loco-assets-v1";
 
 export async function cacheAsset(url: string, response: Response): Promise<void> {
   try {

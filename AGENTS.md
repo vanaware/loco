@@ -1,8 +1,8 @@
-AGENTS.md - Regras e Contexto do Projeto Push P2P Chat
+AGENTS.md - Regras e Contexto do Projeto Loco
 
 1. Visão Geral
 
-O Push P2P Chat é um PWA (Progressive Web App) de mensagens descentralizado com interface Material Design 3, comunicação híbrida (Web Push + WebRTC) e arquitetura de armazenamento robusta e escalável. O app prioriza a privacidade, o controle granular de dados pelo usuário e a resistência à evicção automática pelo navegador.
+O Loco é um PWA (Progressive Web App) de mensagens descentralizado com interface Material Design 3, comunicação híbrida (Web Push + WebRTC) e arquitetura de armazenamento robusta e escalável. O app prioriza a privacidade, o controle granular de dados pelo usuário e a resistência à evicção automática pelo navegador.
 
 Características Principais
 - Zero Servidor: Toda comunicação é P2P ou via Web Push direto
@@ -375,7 +375,7 @@ Storage Persist   Proteção contra evicção   Backup manual   src/utils/storag
 
 9. Estrutura de Arquivos
 
-push-p2p/
+loco/
 ├── .gitignore                          # Git ignore rules
 ├── LICENSE                             # MIT License
 ├── README.md                           # Documentação do projeto
@@ -567,8 +567,8 @@ Instalar Deno (se necessário)
 curl -fsSL https://deno.land/install.sh | sh
 
 Clonar repositório
-git clone https://github.com/seu-usuario/push-p2p.git
-cd push-p2p
+git clone https://github.com/seu-usuario/loco.git
+cd loco
 
 Build (transpile TypeScript)
 deno task build
@@ -588,11 +588,11 @@ Deno Deploy (automático)
 git push origin main
 
 Ou manual
-deno deploy --project=push-p2p
+deno deploy --project=loco
 
 Docker (alternativo)
-docker build -t push-p2p .
-docker run -p 8000:8000 push-p2p
+docker build -t loco .
+docker run -p 8000:8000 loco
 
 Manutenção
 
@@ -697,11 +697,10 @@ Este projeto está licenciado sob a MIT License - veja o arquivo LICENSE para de
 
 16. Contato
 
-- Autor: [Seu Nome]
-- Email: [seu@email.com]
-- GitHub: @seu-usuario
-- Website: seu-site.com
+- Autor: Ademar Arvati Filho
+- Email: arvati@hotmail.com
+- GitHub: @arvati
+- Website: vanaware.com
 
 Última atualização: 2026-07-26  
-Versão: 1.0.0  
-Status: ✅ Completo e funcional
+Versão: 1.0.0

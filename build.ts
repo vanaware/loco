@@ -43,7 +43,11 @@ const appJs = await Deno.readTextFile(`${distDir}/components/App.js`);
 html = html.replace("<!-- APP_JS -->", `<script type="module">${appJs}</script>`);
 await Deno.writeTextFile(`${distDir}/index.html`, html);
 
-// Copia Service Worker
-await Deno.copyFile(`${distDir}/sw.js`, `${distDir}/sw.js`);
+// Copia Service Worker (garante que sw.js está no dist)
+// O sw.js já foi transpilado acima; apenas confirmamos que existe.
+const swPath = `${distDir}/sw.js`;
+if (!(await Deno.stat(swPath).catch(() => null))) {
+  console.warn("⚠️ sw.js não encontrado no dist");
+}
 
 console.log("✅ Build concluído em ./dist");

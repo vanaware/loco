@@ -1,6 +1,6 @@
 declare const self: ServiceWorkerGlobalScope;
 
-const CACHE_NAME = "push-p2p-assets-v1";
+const CACHE_NAME = "loco-assets-v1";
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();

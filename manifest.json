@@ -1,6 +1,6 @@
 {
-  "name": "Push P2P Chat",
-  "short_name": "P2PChat",
+  "name": "Loco",
+  "short_name": "Loco",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FFFBFE",

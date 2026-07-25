@@ -1,4 +1,4 @@
-# Push P2P Chat
+# Loco
 
 Um mensageiro descentralizado PWA com Material Design 3, comunicação híbrida (Web Push + WebRTC), e integração profunda com APIs modernas de navegador.
 
@@ -25,8 +25,8 @@ Um mensageiro descentralizado PWA com Material Design 3, comunicação híbrida 
 
 ```bash
 # Clonar repositório
-git clone https://github.com/seu-usuario/push-p2p.git
-cd push-p2p
+git clone https://github.com/seu-usuario/loco.git
+cd loco
 
 # Build
 deno task build

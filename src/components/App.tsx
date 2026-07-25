@@ -77,7 +77,7 @@ export function App() {
           <md-icon-button onClick={() => (menuOpen.value = !menuOpen.value)}>
             <md-icon>menu</md-icon>
           </md-icon-button>
-          <span class="top-bar-title">Push P2P Chat</span>
+          <span class="top-bar-title">Loco</span>
         </div>
       )}
 

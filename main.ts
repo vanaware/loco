@@ -12,4 +12,4 @@ serve(async (req) => {
   });
 }, { port: 8000 });
 
-console.log("🚀 Push P2P Chat rodando em http://localhost:8000");
+console.log("🚀 Loco rodando em http://localhost:8000");

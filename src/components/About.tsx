@@ -4,7 +4,7 @@ export function About() {
       <md-elevated-card>
         <div class="settings-card">
           <h3 style="font:var(--md-sys-typescale-headline-medium); margin-bottom:1rem;">
-            ℹ️ Sobre o Push P2P Chat
+            ℹ️ Sobre o Loco
           </h3>
 
           <div style="font:var(--md-sys-typescale-body-large); line-height:1.6;">
