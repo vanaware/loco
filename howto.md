@@ -3,7 +3,7 @@
 
 ```bash
 # Clonar/criar repositório
-mkdir push-p2p && cd push-p2p
+mkdir loco && cd loco
 # (crie os arquivos acima)
 
 # Instalar Deno (se necessário)
