@@ -8,17 +8,17 @@ import { createBackup, restoreBackup, type BackupOptions } from "../utils/backup
 import { formatBytes } from "../utils/storage.ts";
 import { detectCapabilities } from "../utils/capabilities.ts";
 
-const selectedContact = signal<string | null>(null);
-const backupOptions = signal<BackupOptions>({
-  profile: true,
-  config: true,
-  contacts: true,
-  conversations: true,
-  files: false,
-});
-const isProcessing = signal(false);
-
 export function Settings() {
+  const selectedContact = signal<string | null>(null);
+  const backupOptions = signal<BackupOptions>({
+    profile: true,
+    config: true,
+    contacts: true,
+    conversations: true,
+    files: false,
+  });
+  const isProcessing = signal(false);
+
   const contactsMap = contacts.value;
   const config = appConfig.value;
   const caps = detectCapabilities();

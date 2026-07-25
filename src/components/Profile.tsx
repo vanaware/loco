@@ -6,9 +6,9 @@ import {
 } from "../store.ts";
 import { detectCapabilities } from "../utils/capabilities.ts";
 
-const nameInput = signal(myDisplayName.value);
-
 export function Profile() {
+  const nameInput = signal(myDisplayName.value);
+
   useEffect(() => {
     generateQRCode();
   }, []);

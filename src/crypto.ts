@@ -19,7 +19,9 @@ export function bufToBase64(buffer: ArrayBuffer): string {
 
 export function base64ToBuf(base64: string): Uint8Array {
   const padded = base64.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(padded);
+  const pad = padded.length % 4;
+  const fixed = pad ? padded + "=".repeat(4 - pad) : padded;
+  const binary = atob(fixed);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
@@ -33,42 +35,39 @@ export async function generateVapidKeys(): Promise<VapidKeys> {
   );
   const publicKeyRaw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
   const privateKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-  
+
   return {
     publicKey: bufToBase64(publicKeyRaw),
     privateKey: privateKeyJwk.d || "",
   };
 }
 
+/**
+ * Envia push direto para o endpoint do peer.
+ * Nota: Implementação simplificada — envia payload como JSON.
+ * Para Web Push completo (RFC 8291), seria necessário um relay server
+ * que faça a criptografia do payload com as chaves do subscriber.
+ */
 export async function sendPushDirect(
   peer: PeerData,
   payload: string,
-  vapidKeys: VapidKeys
+  _vapidKeys: VapidKeys
 ): Promise<Response> {
-  const encoder = new TextEncoder();
-  
-  const subscription = {
-    endpoint: peer.endpoint,
-    keys: peer.keys,
-  };
-
-  // Web Push direto usando fetch (navegador -> servidor push do destino)
-  const response = await fetch(subscription.endpoint, {
+  const response = await fetch(peer.endpoint, {
     method: "POST",
     headers: {
-      "Content-Type": "application/octet-stream",
+      "Content-Type": "application/json",
       "TTL": "86400",
-      "Encryption": `salt=${generateSalt()}`,
-      "Crypto-Key": `dh=${peer.keys.p256dh}`,
     },
-    body: encoder.encode(payload),
+    body: JSON.stringify({
+      type: "webpush",
+      data: payload,
+    }),
   });
 
-  return response;
-}
+  if (!response.ok && response.status !== 201) {
+    throw new Error(`Push failed: ${response.status} ${response.statusText}`);
+  }
 
-function generateSalt(): string {
-  const salt = new Uint8Array(16);
-  crypto.getRandomValues(salt);
-  return bufToBase64(salt.buffer);
+  return response;
 }

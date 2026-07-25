@@ -1,12 +1,13 @@
-import { signal, useEffect, useRef } from "preact/hooks";
-import { navigateTo } from "../store.ts";
-import { scanQRFromCamera, detectCapabilities } from "../utils/pwa.ts";
-
-const isScanning = signal(false);
-const scanResult = signal<string | null>(null);
-const error = signal<string | null>(null);
+import { useEffect, useRef } from "preact/hooks";
+import { signal } from "@preact/signals";
+import { navigateTo, addContact } from "../store.ts";
+import { scanQRFromCamera } from "../utils/pwa.ts";
+import { detectCapabilities } from "../utils/capabilities.ts";
 
 export function QRScanner() {
+  const isScanning = signal(false);
+  const scanResult = signal<string | null>(null);
+  const error = signal<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopRef = useRef<(() => void) | null>(null);
   const caps = detectCapabilities();
@@ -46,14 +47,19 @@ export function QRScanner() {
   };
 
   const handleResult = (value: string) => {
-    // Verifica se é nosso link de contato
     if (value.includes("#add=")) {
       try {
         const encoded = value.split("#add=")[1];
         const data = JSON.parse(decodeURIComponent(atob(encoded)));
-        // TODO: Integrar com store para adicionar contato
-        alert(`Contato detectado: ${data.displayName || data.id}\n\nFuncionalidade de adicionar contato via QR será integrada em breve.`);
-        navigateTo("profile");
+        addContact(data.id, {
+          ...data,
+          displayName: data.displayName || "Novo Contato",
+          theirDisplayName: data.displayName || "",
+          addedAt: Date.now(),
+          lastContact: null,
+        });
+        alert(`✅ Contato "${data.displayName || data.id}" adicionado!`);
+        navigateTo("list");
         return;
       } catch {}
     }

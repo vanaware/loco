@@ -31,8 +31,8 @@ export function detectCapabilities(): Capabilities {
     fileSystemAccess: typeof window !== 'undefined' && 
       'showOpenFilePicker' in window,
 
-    shareTarget: typeof window !== 'undefined' && 
-      location.search.includes('shared_'),
+    shareTarget: typeof window !== 'undefined' &&
+      'launchQueue' in window,
 
     contactPicker: typeof navigator !== 'undefined' && 
       'contacts' in navigator && 

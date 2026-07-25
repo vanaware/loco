@@ -70,9 +70,25 @@ self.addEventListener("notificationclick", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   
-  // Share Target handler
+  // Share Target handler — extrai dados do POST e redireciona com query params
   if (url.pathname === "/share-target" && event.request.method === "POST") {
-    event.respondWith(Response.redirect("/?share_received=true", 303));
+    event.respondWith(
+      (async () => {
+        try {
+          const formData = await event.request.formData();
+          const params = new URLSearchParams();
+          const title = formData.get("title")?.toString();
+          const text = formData.get("text")?.toString();
+          const urlStr = formData.get("url")?.toString();
+          if (title) params.set("shared_title", title);
+          if (text) params.set("shared_text", text);
+          if (urlStr) params.set("shared_url", urlStr);
+          return Response.redirect(`/?${params.toString()}`, 303);
+        } catch {
+          return Response.redirect("/?share_received=true", 303);
+        }
+      })()
+    );
     return;
   }
 

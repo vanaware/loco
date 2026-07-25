@@ -1,11 +1,12 @@
 import { signal, computed } from "@preact/signals";
 import { toCanvas } from "@libs/qrcode";
-import { sendPushDirect, type VapidKeys, type PeerData } from "./crypto.ts";
+import { sendPushDirect, generateVapidKeys, type VapidKeys, type PeerData } from "./crypto.ts";
 import { resizeImage } from "./utils/imageProcessor.ts";
 import { logCapabilities } from "./utils/capabilities.ts";
 import {
   storageGet, storageSet, loadFromIDB,
   saveFileToOPFS, deleteFileFromOPFS, exportFileFromOPFS,
+  readFileFromOPFS,
   type StoredFile,
   requestPersistentStorage, startStorageMonitor,
   type StorageStatus,
@@ -13,6 +14,7 @@ import {
 import { setAppBadge } from "./utils/pwa.ts";
 import { navigateWithTransition } from "./utils/pwa.ts";
 import { pendingShare, processIncomingShare } from "./utils/webShareTarget.ts";
+export { pendingShare };
 
 // ============================================================
 // TIPOS
@@ -178,6 +180,29 @@ export async function initApp() {
   );
   storedFiles.value = new Map(Object.entries(filesMeta));
 
+  // Gera myId se não existir (primeira execução)
+  if (!myId.value) {
+    myId.value = `user_${Date.now()}_${crypto.randomUUID()}`;
+    await storageSet("myId", myId.value);
+    console.log("🆔 Novo ID gerado:", myId.value);
+  }
+
+  // Gera VAPID keys se não existirem
+  if (!myVapidKeys.value) {
+    try {
+      myVapidKeys.value = await generateVapidKeys();
+      await storageSet("myVapidKeys", myVapidKeys.value);
+      console.log("🔑 VAPID keys geradas");
+    } catch (e) {
+      console.error("Erro ao gerar VAPID keys:", e);
+    }
+  }
+
+  // Inicializa masterKey para criptografia local
+  if (appConfig.value.encryptMessages) {
+    await initMasterKey();
+  }
+
   processIncomingShare();
   updateBadge();
   checkBiometricSupport();
@@ -233,13 +258,23 @@ export function updateContactSettings(
   }
 }
 
-export function deleteContact(contactId: string) {
+export async function deleteContact(contactId: string) {
+  // Limpa arquivos OPFS das mensagens deste contato
+  const session = chatSessions.value.get(contactId);
+  if (session) {
+    for (const msg of session.messages) {
+      if (msg.fileId) {
+        await deleteFile(msg.fileId);
+      }
+    }
+  }
+
   contactsRaw.value = contactsRaw.value.filter(([cid]) => cid !== contactId);
   chatSessionsRaw.value = chatSessionsRaw.value.filter(
     ([cid]) => cid !== contactId
   );
-  saveContacts();
-  saveSessions();
+  await saveContacts();
+  await saveSessions();
 }
 
 // ============================================================
@@ -302,7 +337,7 @@ export async function smartSendMessage(
   }
 
   await sendMessageViaPush(contactId, msg);
-  addMessage(contactId, { ...msg, status: "delivered" });
+  addMessage(contactId, { ...msg, status: "sent" });
 }
 
 async function sendMessageViaPush(contactId: string, msg: Message) {
@@ -525,16 +560,14 @@ function getP2PWorker(): Worker {
             status: "completed",
             progress: 100,
           };
-          // Registra no OPFS e adiciona mensagem
           if (currentChatContact.value) {
             const msgId = `file_${Date.now()}`;
-            fetch(payload.blobUrl || "")
-              .then((r) => r.blob())
-              .then((blob) => {
-                const f = new File([blob], payload.fileName, {
-                  type: blob.type,
-                });
-                handleFileReceived(f, msgId, currentChatContact.value!);
+            const opfsPath = `opfs://chat_files/${payload.fileName}`;
+            readFileFromOPFS(opfsPath)
+              .then((file) => {
+                if (file && currentChatContact.value) {
+                  handleFileReceived(file, msgId, currentChatContact.value);
+                }
               })
               .catch(console.error);
           }
@@ -708,6 +741,27 @@ export function checkBiometricSupport() {
   }
 }
 
+async function initMasterKey(): Promise<void> {
+  const rawKey = await loadFromIDB<string | null>("masterKeyRaw", null);
+  let keyData: ArrayBuffer;
+
+  if (rawKey) {
+    keyData = Uint8Array.from(atob(rawKey), c => c.charCodeAt(0)).buffer;
+  } else {
+    keyData = crypto.getRandomValues(new Uint8Array(32)).buffer;
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(keyData)));
+    await storageSet("masterKeyRaw", b64);
+  }
+
+  masterKey = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
 export async function encryptMessage(text: string): Promise<string> {
   if (!masterKey) return text;
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -748,6 +802,9 @@ export async function decryptMessage(
 export function updateConfig(updates: Partial<AppConfig>) {
   appConfig.value = { ...appConfig.value, ...updates };
   saveConfig();
+  if (updates.encryptMessages && !masterKey) {
+    initMasterKey();
+  }
 }
 
 // ============================================================

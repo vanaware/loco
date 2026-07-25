@@ -1,4 +1,5 @@
-import { signal, useEffect } from "preact/hooks";
+import { useEffect } from "preact/hooks";
+import { signal } from "@preact/signals";
 import {
   currentChatContact,
   contacts,
@@ -285,7 +286,7 @@ export function ChatWindow() {
           onInput={(e) =>
             (inputText.value = (e.target as HTMLInputElement).value)
           }
-          onKeyPress={(e) => e.key === "Enter" && handleSend()}
+          onKeyDown={(e) => e.key === "Enter" && handleSend()}
           placeholder="Mensagem..."
           autocomplete="off"
         />

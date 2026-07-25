@@ -14,12 +14,23 @@ self.onmessage = async (e) => {
       case 'P2P_START_SEED': {
         const { file } = payload;
         const { default: WebTorrent } = await import('https://esm.sh/webtorrent@2.5.1?bundle');
-        
+
         if (client) client.destroy();
         client = new WebTorrent();
 
-        client.seed(file, (torrent) => {
+        client.seed(file, async (torrent) => {
           currentTorrent = torrent;
+          
+          // Auto-termina seed quando não há peers conectados
+          let lastPeerCount = 0;
+          const interval = setInterval(() => {
+            if (torrent.numPeers === 0 && lastPeerCount === 0) {
+              clearInterval(interval);
+              finalizarSessao('SEED_COMPLETO');
+            }
+            lastPeerCount = torrent.numPeers;
+          }, 5000);
+
           self.postMessage({
             type: 'P2P_SEED_READY',
             payload: {
@@ -49,7 +60,7 @@ self.onmessage = async (e) => {
       case 'P2P_START_DOWNLOAD': {
         const { magnetURI, fileName } = payload;
         const { default: WebTorrent } = await import('https://esm.sh/webtorrent@2.5.1?bundle');
-        
+
         if (client) client.destroy();
         client = new WebTorrent();
 
@@ -71,8 +82,15 @@ self.onmessage = async (e) => {
 
           torrent.on('done', async () => {
             try {
-              const blob = await new Promise(resolve => torrent.files[0].getBlob(resolve));
-              
+              // Usa stream API para maior compatibilidade
+              const fileObj = torrent.files[0];
+              const stream = fileObj.createReadStream();
+              const chunks = [];
+              for await (const chunk of stream) {
+                chunks.push(chunk);
+              }
+              const blob = new Blob(chunks, { type: fileObj._getMimeType() });
+
               // Salva no OPFS
               const root = await navigator.storage.getDirectory();
               const fileHandle = await root.getFileHandle(fileName, { create: true });
@@ -91,7 +109,7 @@ self.onmessage = async (e) => {
               }
             });
 
-            finalizarSessao('COMPLETO');
+            finalizarSessao('DOWNLOAD_COMPLETO');
           });
         });
         break;

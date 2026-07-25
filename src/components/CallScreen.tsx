@@ -1,23 +1,25 @@
-import { signal, useEffect, useRef } from "preact/hooks";
-import { 
-  currentChatContact, contacts, navigateTo, 
-  checkCallAvailability 
+import { useRef } from "preact/hooks";
+import { signal } from "@preact/signals";
+import {
+  currentChatContact, contacts, navigateTo,
+  checkCallAvailability
 } from "../store.ts";
-import { 
-  requestWakeLock, releaseWakeLock, 
-  enterPiP, exitPiP, detectCapabilities 
+import {
+  requestWakeLock, releaseWakeLock,
+  enterPiP, exitPiP,
 } from "../utils/pwa.ts";
-
-const callActive = signal(false);
-const isVideoEnabled = signal(false);
-const isAudioEnabled = signal(true);
-const camera = signal<"front" | "back">("front");
-const localStream = signal<MediaStream | null>(null);
-const remoteStream = signal<MediaStream | null>(null);
-const peerConnection = signal<RTCPeerConnection | null>(null);
-const isPiP = signal(false);
+import { detectCapabilities } from "../utils/capabilities.ts";
 
 export function CallScreen() {
+  const callActive = signal(false);
+  const isVideoEnabled = signal(false);
+  const isAudioEnabled = signal(true);
+  const camera = signal<"front" | "back">("front");
+  const localStream = signal<MediaStream | null>(null);
+  const remoteStream = signal<MediaStream | null>(null);
+  const peerConnection = signal<RTCPeerConnection | null>(null);
+  const isPiP = signal(false);
+
   const id = currentChatContact.value;
   const contact = id ? contacts.value.get(id) : null;
   const localVideoRef = useRef<HTMLVideoElement>(null);

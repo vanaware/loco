@@ -79,7 +79,7 @@ export function startStorageMonitor(
 // ===== IndexedDB (substitui localStorage) =====
 const DB_NAME = "loco-store";
 const STORE_NAME = "data";
-const customStore = createStore(DB_NAME, STORE_NAME);
+const customStore = typeof globalThis.indexedDB !== "undefined" ? createStore(DB_NAME, STORE_NAME) : null as any;
 
 export async function storageGet<T>(key: string): Promise<T | null> {
   try {
@@ -302,14 +302,4 @@ export function formatBytes(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-}
-
-export function getLocalStorageSize(): number {
-  if (typeof localStorage === 'undefined') return 0;
-  let total = 0;
-  for (const key of Object.keys(localStorage)) {
-    const value = localStorage.getItem(key);
-    if (value) total += (key.length + value.length) * 2;
-  }
-  return total;
 }
