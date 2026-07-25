@@ -526,4 +526,182 @@ Acessibilidade:
 
 - Mensagens de voz: Gravar e enviar áudios via OPFS
 - Chamadas em grupo: WebRTC mesh network para múltiplos participantes
-- Reações: Emojis de reação em me
+- Reações: Emojis de reação em mensagens
+- Edição de mensagens: Editar mensagens enviadas recentemente
+- Apagar para todos: Retractar mensagens em ambos os lados
+- Busca: Pesquisar mensagens e arquivos no histórico
+- Filtros: Filtrar conversas por tipo (texto, mídia, localização)
+- Notificações customizadas: Sons e vibrações por contato
+- Status online: Indicador de presença em tempo real
+- Digitando...: Indicador de digitação em tempo real
+
+11.2. Melhorias Técnicas
+
+- Virtualização de listas: React Window ou similar para listas longas
+- Compressão de imagens: WebP/AVIF para reduzir tamanho
+- Streaming de vídeo: Video streaming via WebTorrent
+- Criptografia E2E: Signal Protocol para criptografia ponta-a-ponta real
+- Sincronização multi-dispositivo: Sync entre dispositivos do mesmo usuário
+- Backup automático: Backup periódico para cloud (opcional)
+- Análise de storage: Gráficos de uso de espaço por tipo de arquivo
+- Limpeza automática: Apagar arquivos antigos automaticamente
+- Modo escuro: Tema escuro automático baseado em preferências do sistema
+- Internacionalização: Suporte a múltiplos idiomas (i18n)
+
+11.3. Integrações
+
+- Calendário: Compartilhar eventos de calendário
+- Contatos do sistema: Sync bidirecional com agenda do dispositivo
+- Notificações ricas: Ações em notificações (responder, marcar como lido)
+- Widgets: Widgets para tela inicial (Android/iOS)
+- Atalhos de teclado: Atalhos para desktop (Ctrl+N, Ctrl+F, etc.)
+- Compartilhamento de tela: Screen sharing em chamadas
+- Anotações: Desenhar em imagens compartilhadas
+- OCR: Extrair texto de imagens compartilhadas
+
+12. Comandos e Scripts
+
+Desenvolvimento
+
+Instalar Deno (se necessário)
+curl -fsSL https://deno.land/install.sh | sh
+
+Clonar repositório
+git clone https://github.com/seu-usuario/push-p2p.git
+cd push-p2p
+
+Build (transpile TypeScript)
+deno task build
+
+Executar servidor de desenvolvimento (com watch)
+deno task dev
+
+Executar servidor de produção
+deno task start
+
+Executar testes
+deno task test
+
+Deploy
+
+Deno Deploy (automático)
+git push origin main
+
+Ou manual
+deno deploy --project=push-p2p
+
+Docker (alternativo)
+docker build -t push-p2p .
+docker run -p 8000:8000 push-p2p
+
+Manutenção
+
+Limpar cache do Deno
+deno cache --reload src/main.ts
+
+Verificar tipos
+deno check src/**/*.ts
+
+Formatar código
+deno fmt
+
+Lint
+deno lint
+
+Atualizar dependências
+deno run -A https://deno.land/x/udd/main.ts deno.json
+
+13. Troubleshooting
+
+Problemas Comuns
+
+"OPFS indisponível"
+- Causa: Navegador não suporta OPFS (Firefox) ou contexto inseguro (HTTP)
+- Solução: Usar HTTPS e navegador compatível (Chrome/Edge/Safari)
+
+"Storage não persistente"
+- Causa: Navegador negou pedido de persistência
+- Solução: Tentar novamente em Settings ou fazer backup manual
+
+"Falha ao enviar via Push"
+- Causa: Servidor push do destino indisponível ou subscription expirada
+- Solução: Re-adicionar contato ou tentar P2P
+
+"Transferência P2P falhou"
+- Causa: NAT restritivo ou firewall bloqueando WebRTC
+- Solução: Usar servidor TURN (não implementado) ou enviar via Push
+
+"QR Code não detectado"
+- Causa: Navegador não suporta BarcodeDetector ou câmera sem permissão
+- Solução: Conceder permissão de câmera ou usar compartilhamento por link
+
+"Chamada não conecta"
+- Causa: Permissões de mídia negadas ou WebRTC bloqueado
+- Solução: Verificar permissões no navegador e tentar novamente
+
+"Backup muito grande"
+- Causa: Muitos arquivos armazenados no OPFS
+- Solução: Excluir arquivos antigos antes de fazer backup
+
+"App lento após muito uso"
+- Causa: IndexedDB com muitas mensagens ou OPFS cheio
+- Solução: Limpar conversas antigas ou excluir arquivos
+
+Debug
+
+Ver logs do Service Worker
+chrome://serviceworker-internals/
+
+Ver storage do app
+chrome://settings/siteData
+
+Ver OPFS
+chrome://indexeddb-internals/
+
+Ver cache
+chrome://cache/
+
+Testar notificações
+chrome://flags/#enable-experimental-web-platform-features
+
+14. Contribuição
+
+Como Contribuir
+
+1. Fork o repositório
+2. Crie uma branch para sua feature (git checkout -b feature/AmazingFeature)
+3. Commit suas mudanças (git commit -m 'Add some AmazingFeature')
+4. Push para a branch (git push origin feature/AmazingFeature)
+5. Abra um Pull Request
+
+Guidelines
+
+- Siga as regras de desenvolvimento deste documento
+- Escreva testes para novas funcionalidades
+- Atualize a documentação (README, AGENTS.md)
+- Use conventional commits (feat:, fix:, docs:, etc.)
+- Mantenha o código formatado (deno fmt)
+- Verifique tipos (deno check)
+
+Reportar Bugs
+
+- Use GitHub Issues
+- Inclua passos para reproduzir
+- Mencione navegador e versão
+- Anexe screenshots se aplicável
+- Inclua logs do console se possível
+
+15. Licença
+
+Este projeto está licenciado sob a MIT License - veja o arquivo LICENSE para detalhes.
+
+16. Contato
+
+- Autor: [Seu Nome]
+- Email: [seu@email.com]
+- GitHub: @seu-usuario
+- Website: seu-site.com
+
+Última atualização: 2026-07-26  
+Versão: 1.0.0  
+Status: ✅ Completo e funcional
