@@ -92,19 +92,39 @@ Prioriza privacidade, controle granular de dados pelo usuário e resistência à
 7.  **Limpeza:** Ao excluir conversa, remover arquivos do OPFS primeiro.
 
 ## 8. Estrutura de Arquivos
-src/
-├── utils/
-│   ├── storage.ts          ← Wrapper unificado (IDB + OPFS + Cache)
-│   ├── capabilities.ts     ← Feature detection central
-│   ├── pwa.ts              ← Badging, Wake Lock, PiP, etc.
-│   ├── backup.ts           ← Lógica de ZIP
-│   ├── imageProcessor.ts   ← Redimensionamento
-│   └── webShareTarget.ts   ← Share target handler
-├── components/             ← Preact components
-├── types/                  ← TypeScript declarations
-├── crypto.ts
-├── sw.ts                   ← Service Worker
-└── store.ts                ← Estado global
+
+lilo/
+├── AGENTS.md
+├── deno.json
+├── build.ts
+├── main.ts
+├── public/
+│   └── p2p-transfer.worker.js
+├── src/
+│   ├── index.html
+│   ├── sw.ts
+│   ├── store.ts
+│   ├── crypto.ts
+│   ├── types/
+│   │   └── material-web.d.ts
+│   ├── utils/
+│   │   ├── storage.ts
+│   │   ├── capabilities.ts
+│   │   ├── pwa.ts
+│   │   ├── backup.ts
+│   │   ├── imageProcessor.ts
+│   │   └── webShareTarget.ts
+│   └── components/
+│       ├── App.tsx
+│       ├── ChatWindow.tsx
+│       ├── Profile.tsx
+│       ├── Settings.tsx
+│       ├── About.tsx
+│       └── TransferDock.tsx
+└── tests/
+    ├── storage.test.ts
+    └── crypto.test.ts
+
 
 
 
