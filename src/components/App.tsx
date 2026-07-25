@@ -9,12 +9,13 @@ import { Profile } from "./Profile.tsx";
 import { Settings } from "./Settings.tsx";
 import { About } from "./About.tsx";
 import { TransferDock } from "./TransferDock.tsx";
+import { CallScreen } from "./CallScreen.tsx";      // ← NOVO
+import { QRScanner } from "./QRScanner.tsx";       // ← NOVO
 
 export function App() {
   useEffect(() => {
     initApp();
 
-    // Registra Service Worker
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(console.error);
     }
@@ -23,7 +24,29 @@ export function App() {
     if (location.hash.startsWith("#action=")) {
       const action = location.hash.split("=")[1];
       if (action === "share-profile") navigateTo("profile");
+      else if (action === "scan-qr") navigateTo("scanner");     // ← NOVO
       else if (action === "open-chats") navigateTo("list");
+    }
+
+    // Processa hash #add= para adicionar contato
+    if (location.hash.startsWith("#add=")) {
+      try {
+        const encoded = location.hash.split("#add=")[1];
+        const data = JSON.parse(decodeURIComponent(atob(encoded)));
+        import("../store.ts").then(({ addContact }) => {
+          addContact(data.id, {
+            ...data,
+            displayName: data.displayName || "Novo Contato",
+            theirDisplayName: data.displayName || "",
+            addedAt: Date.now(),
+            lastContact: null,
+          });
+          alert(`✅ Contato "${data.displayName || data.id}" adicionado!`);
+        });
+        history.replaceState(null, "", "/");
+      } catch (e) {
+        console.error("Erro ao processar link de contato:", e);
+      }
     }
 
     const badgeInterval = setInterval(updateBadge, 5000);
@@ -40,18 +63,23 @@ export function App() {
       case "settings": return <Settings />;
       case "about": return <About />;
       case "chat": return <ChatWindow />;
+      case "call": return <CallScreen />;        // ← NOVO
+      case "scanner": return <QRScanner />;       // ← NOVO
       default: return <ContactList />;
     }
   };
 
   return (
     <div class="app-container">
-      <div class="top-bar">
-        <md-icon-button onClick={() => (menuOpen.value = !menuOpen.value)}>
-          <md-icon>menu</md-icon>
-        </md-icon-button>
-        <span class="top-bar-title">Push P2P Chat</span>
-      </div>
+      {/* QRScanner ocupa tela cheia, não mostra top-bar */}
+      {currentView.value !== "scanner" && (
+        <div class="top-bar">
+          <md-icon-button onClick={() => (menuOpen.value = !menuOpen.value)}>
+            <md-icon>menu</md-icon>
+          </md-icon-button>
+          <span class="top-bar-title">Push P2P Chat</span>
+        </div>
+      )}
 
       <div class={`drawer ${menuOpen.value ? "open" : ""}`}>
         <md-list>
@@ -62,6 +90,10 @@ export function App() {
           <md-list-item onClick={() => { navigateTo("profile"); menuOpen.value = false; }}>
             <md-icon slot="start">person</md-icon>
             <div slot="headline">Perfil</div>
+          </md-list-item>
+          <md-list-item onClick={() => { navigateTo("scanner"); menuOpen.value = false; }}>
+            <md-icon slot="start">qr_code_scanner</md-icon>
+            <div slot="headline">Escanear QR Code</div>
           </md-list-item>
           <md-list-item onClick={() => { navigateTo("settings"); menuOpen.value = false; }}>
             <md-icon slot="start">settings</md-icon>
@@ -79,7 +111,7 @@ export function App() {
         <div class="drawer-overlay open" onClick={() => (menuOpen.value = false)} />
       )}
 
-      {pendingShare.value && (
+      {pendingShare.value && currentView.value !== "scanner" && (
         <div style="background:var(--md-sys-color-primary-container); padding:0.75rem 1rem; display:flex; align-items:center; gap:0.5rem;">
           <md-icon>share</md-icon>
           <span style="flex:1; font:var(--md-sys-typescale-body-medium);">
@@ -135,6 +167,8 @@ function ContactList() {
                 {last
                   ? last.type === "location"
                     ? "📍 Localização"
+                    : last.type === "file"
+                    ? "📎 Arquivo"
                     : last.text.slice(0, 40)
                   : "Toque para conversar"}
               </div>
@@ -146,6 +180,5 @@ function ContactList() {
   );
 }
 
-// Renderiza
 import { render } from "preact";
 render(<App />, document.body);
