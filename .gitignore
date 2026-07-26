@@ -1,4 +1,4 @@
-```
+
 # Build artifacts
 dist/
 build/
@@ -6,9 +6,9 @@ build/
 node_modules/
 
 # Build outputs
-dist/
-build/
 target/
+
+proto/*/dist/
 
 # Python
 __pycache__/
@@ -90,4 +90,3 @@ htmlcov/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
-```
