@@ -395,12 +395,19 @@ export function addMessage(contactId: string, message: Message) {
       {
         ...current[idx][1],
         messages: [...current[idx][1].messages, message],
+        unreadCount: message.from !== myId.value
+          ? current[idx][1].unreadCount + 1
+          : current[idx][1].unreadCount,
       },
     ];
   } else {
     current.push([
       contactId,
-      { contactId, messages: [message], unreadCount: 0 },
+      {
+        contactId,
+        messages: [message],
+        unreadCount: message.from !== myId.value ? 1 : 0,
+      },
     ]);
   }
 
@@ -411,6 +418,44 @@ export function addMessage(contactId: string, message: Message) {
   updateContactSettings(contactId, { lastContact: message.timestamp });
 
   updateBadge();
+}
+
+export function handleIncomingPushMessage(payload: {
+  from?: string;
+  text?: string;
+  type?: string;
+  location?: { lat: number; lng: number };
+  isEncrypted?: boolean;
+  displayName?: string;
+  timestamp?: number;
+}) {
+  if (!payload.from || payload.from === myId.value) return;
+
+  // Garante que o contato exista
+  if (!contacts.value.has(payload.from)) {
+    addContact(payload.from, {
+      id: payload.from,
+      displayName: payload.displayName || payload.from,
+      theirDisplayName: payload.displayName || "",
+      addedAt: Date.now(),
+      lastContact: payload.timestamp || Date.now(),
+    });
+  }
+
+  const message: Message = {
+    id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    from: payload.from,
+    to: myId.value || "",
+    text: payload.text || "",
+    timestamp: payload.timestamp || Date.now(),
+    status: "delivered",
+    channel: "push",
+    type: payload.type === "LOCATION_MESSAGE" ? "location" : "text",
+    location: payload.location,
+    isEncrypted: payload.isEncrypted || false,
+  };
+
+  addMessage(payload.from, message);
 }
 
 export function clearSession(contactId: string) {
@@ -509,23 +554,19 @@ export async function deleteFile(messageId: string) {
   storedFiles.value = current;
   await saveFiles();
 
-  const sessions = [...chatSessionsRaw.value];
-  let changed = false;
-  for (const [, session] of sessions) {
+  const sessions = [...chatSessionsRaw.value].map(([contactId, session]) => {
     const msgIdx = session.messages.findIndex((m) => m.fileId === messageId);
-    if (msgIdx !== -1) {
-      session.messages[msgIdx] = {
-        ...session.messages[msgIdx],
-        text: "🗑️ Arquivo excluído",
-        fileId: undefined,
-      };
-      changed = true;
-    }
-  }
-  if (changed) {
-    chatSessionsRaw.value = sessions;
-    saveSessions();
-  }
+    if (msgIdx === -1) return [contactId, session] as [string, ChatSession];
+    const newMessages = [...session.messages];
+    newMessages[msgIdx] = {
+      ...newMessages[msgIdx],
+      text: "🗑️ Arquivo excluído",
+      fileId: undefined,
+    };
+    return [contactId, { ...session, messages: newMessages }] as [string, ChatSession];
+  });
+  chatSessionsRaw.value = sessions;
+  saveSessions();
 }
 
 export async function downloadFile(messageId: string) {
@@ -649,9 +690,6 @@ export function cancelTransfer() {
 
 export function getShareLink() {
   const data = {
-    endpoint: mySubscription.value?.endpoint,
-    keys: mySubscription.value?.keys,
-    vapidPublicKey: myVapidKeys.value?.publicKey,
     id: myId.value,
     displayName: myDisplayName.value,
   };

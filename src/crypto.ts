@@ -4,9 +4,9 @@ export interface VapidKeys {
 }
 
 export interface PeerData {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-  vapidPublicKey: string;
+  endpoint?: string;
+  keys?: { p256dh: string; auth: string };
+  vapidPublicKey?: string;
   id: string;
 }
 
@@ -58,7 +58,11 @@ export async function sendPushDirect(
   peer: PeerData,
   payload: string,
   _vapidKeys: VapidKeys,
-): Promise<Response> {
+): Promise<Response | void> {
+  if (!peer.endpoint) {
+    console.warn("Endpoint do peer não disponível");
+    return;
+  }
   const response = await fetch(peer.endpoint, {
     method: "POST",
     headers: {

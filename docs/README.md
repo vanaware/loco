@@ -23,6 +23,8 @@ Loco.
   Preact Signals, IndexedDB e OPFS.
 - [ui-components.md](./ui-components.md) — Componentes da interface, onboarding
   e PWA Share Target.
+- [known-issues.md](./known-issues.md) — Problemas, limitações e funcionalidades
+  ainda não implementadas.
 
 ## Em breve
 

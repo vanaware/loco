@@ -17,7 +17,19 @@ declare const self: ServiceWorkerGlobalScope;
 
 const CACHE_NAME = "loco-assets-v1";
 
-self.addEventListener("install", () => {
+const PRECACHE_ASSETS = [
+  "/",
+  "/index.html",
+  "/main.js",
+  "/worker.js",
+  "/sw.js",
+  "/manifest.json",
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_ASSETS)),
+  );
   self.skipWaiting();
 });
 
@@ -46,6 +58,18 @@ self.addEventListener("push", (event) => {
   try {
     if (event.data) data = event.data.json();
   } catch { /* ignore */ }
+
+  // Envia a mensagem para os clients abertos
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clients) => {
+      for (const client of clients) {
+        client.postMessage({
+          type: "PUSH_MESSAGE",
+          payload: data,
+        });
+      }
+    }),
+  );
 
   const title = data.type === "TEXT_MESSAGE"
     ? `💬 ${data.displayName || "Alguém"}`

@@ -5,6 +5,7 @@ import {
   contacts,
   currentChatContact,
   currentView,
+  handleIncomingPushMessage,
   initApp,
   menuOpen,
   navigateTo,
@@ -16,8 +17,8 @@ import { Profile } from "./Profile.tsx";
 import { Settings } from "./Settings.tsx";
 import { About } from "./About.tsx";
 import { TransferDock } from "./TransferDock.tsx";
-import { CallScreen } from "./CallScreen.tsx"; // ← NOVO
-import { QRScanner } from "./QRScanner.tsx"; // ← NOVO
+import { CallScreen } from "./CallScreen.tsx";
+import { QRScanner } from "./QRScanner.tsx";
 
 export function App() {
   useEffect(() => {
@@ -25,20 +26,25 @@ export function App() {
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(console.error);
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.type === "PUSH_MESSAGE") {
+          handleIncomingPushMessage(event.data.payload);
+        }
+      });
     }
 
     // App shortcuts
     if (location.hash.startsWith("#action=")) {
-      const action = location.hash.split("=")[1];
+      const action = location.hash.slice("#action=".length);
       if (action === "share-profile") navigateTo("profile");
-      else if (action === "scan-qr") navigateTo("scanner"); // ← NOVO
+      else if (action === "scan-qr") navigateTo("scanner");
       else if (action === "open-chats") navigateTo("list");
     }
 
     // Processa hash #add= para adicionar contato
     if (location.hash.startsWith("#add=")) {
       try {
-        const encoded = location.hash.split("#add=")[1];
+        const encoded = location.hash.slice("#add=".length);
         const data = JSON.parse(decodeURIComponent(atob(encoded)));
         import("../store.ts").then(({ addContact }) => {
           addContact(data.id, {

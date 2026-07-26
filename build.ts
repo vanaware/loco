@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+
 import { copy, ensureDir } from "@std/fs";
 import { join } from "@std/path";
 
@@ -148,7 +150,7 @@ await build();
 if (opts.watch) {
   console.log("👀 Watch mode ativo. Pressione Ctrl+C para parar.\n");
   const watcher = Deno.watchFs(SRC_DIR);
-  let debounce: number | undefined;
+  let debounce: ReturnType<typeof setTimeout> | undefined;
 
   for await (const event of watcher) {
     if (

@@ -1,7 +1,9 @@
+/// <reference lib="deno.ns" />
+
 import { serveDir } from "@std/http/file-server";
 import { join } from "@std/path";
 
-Deno.serve({ port: 8000 }, async (req) => {
+Deno.serve({ port: 8000 }, async (req: Request) => {
   const url = new URL(req.url);
   if (url.pathname === "/") {
     const file = await Deno.open("./dist/index.html", { read: true });
@@ -22,7 +24,7 @@ Deno.serve({ port: 8000 }, async (req) => {
   }
 
   return serveDir(req, {
-    fsDir: "./dist",
+    fsRoot: "./dist",
     urlRoot: "",
     showDirListing: false,
     quiet: true,

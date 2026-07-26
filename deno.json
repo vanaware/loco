@@ -27,7 +27,7 @@
     "start": "deno task build && deno run --allow-read --allow-net main.ts",
     "dev": "deno task build && deno run --allow-read --allow-net --watch main.ts",
     "test": "deno test --allow-env --allow-net tests/",
-    "typecheck": "deno check src/**/*.ts src/**/*.tsx"
+    "typecheck": "deno check main.ts build.ts src/**/*.ts src/**/*.tsx"
   },
   "exclude": ["dist/", "public/"]
 }
