@@ -221,3 +221,201 @@ Deno.serve(async (req) => {
 ```
 
 ------------------------------
+
+Perfeito. Com a inscrição manual, o destinatário irá copiar um bloco de texto gerado pelo seu navegador (contendo a Subscription + o par de chaves VAPID) e colará no dispositivo do remetente.
+Abaixo está o código JavaScript completo e unificado para o cliente. Ele cobre três etapas fundamentais:
+
+   1. Geração das chaves VAPID e Registro do Push (Destinatário).
+   2. Criptografia do Payload (RFC 8188 / AES-128-GCM) exigida pelo protocolo Web Push (Remetente).
+   3. Assinatura JWT e Envio via Proxy Deno (Remetente).
+
+Este script utiliza apenas a Web Crypto API nativa do navegador, eliminando a necessidade de bibliotecas externas.
+## Script do Cliente (main.js)
+
+// ==========================================// 1. UTILITÁRIOS DE CONVERSÃO E BASE64URL// ==========================================function bufferToBase64Url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+function base64UrlToBuffer(base64Url) {
+  const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+// ==========================================// 2. CONFIGURAÇÃO E GERAÇÃO (DESTINATÁRIO)// ==========================================async function gerarPacoteInscricaoManual() {
+  // 1. Registra o Service Worker obrigatoriamente
+  const registro = await navigator.serviceWorker.register("sw.js");
+  await navigator.serviceWorker.ready;
+
+  // 2. Gera o par de chaves VAPID locais no navegador
+  const parDeChavesVapid = await window.crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"]
+  );
+
+  const publicJwk = await window.crypto.subtle.exportKey("jwk", parDeChavesVapid.publicKey);
+  const privateJwk = await window.crypto.subtle.exportKey("jwk", parDeChavesVapid.privateKey);
+
+  // 3. Converte a chave pública para Uint8Array para registrar no PushManager
+  const rawPublic = await window.crypto.subtle.exportKey("raw", parDeChavesVapid.publicKey);
+  
+  // 4. Inscreve o navegador no Push Service da BigTech usando a própria chave pública
+  const subscription = await registro.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: new Uint8Array(rawPublic)
+  });
+
+  // 5. Monta o bloco de texto para cópia manual
+  const pacoteCompleto = {
+    subscription: subscription.toJSON(),
+    vapidPublicKeyJwk: publicJwk,
+    vapidPrivateKeyJwk: privateJwk
+  };
+
+  const stringParaCopiar = btoa(JSON.stringify(pacoteCompleto));
+  console.log("Copie este código e envie ao remetente:", stringParaCopiar);
+  return stringParaCopiar;
+}
+// ==========================================// 3. CRIPTOGRAFIA DO PAYLOAD (RFC 8188)// ==========================================async function criptografarPayloadWebPush(textoMensagem, keysDestinatario) {
+  const encoder = new TextEncoder();
+  const plaintext = encoder.encode(textoMensagem);
+
+  // Importa as chaves de criptografia da Subscription do Destinatário
+  const p256dhBuffer = base64UrlToBuffer(keysDestinatario.p256dh);
+  const authBuffer = base64UrlToBuffer(keysDestinatario.auth);
+
+  const receiverPublic = await window.crypto.subtle.importKey(
+    "raw", p256dhBuffer, { name: "ECDH", namedCurve: "P-256" }, false, []
+  );
+
+  // Gera par de chaves efêmeras para o segredo de Diffie-Hellman
+  const localEphemeral = await window.crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]
+  );
+  const localEphemeralPublicRaw = await window.crypto.subtle.exportKey("raw", localEphemeral.publicKey);
+
+  // Computa o segredo compartilhado (IKM)
+  const sharedSecret = await window.crypto.subtle.deriveBits(
+    { name: "ECDH", public: receiverPublic }, localEphemeral.privateKey, 256
+  );
+
+  // Derivação de chaves simplificada baseada na RFC 8188 (AES-128-GCM)
+  const salt = window.crypto.getRandomValues(new Uint8Array(16));
+  
+  const infoKey = encoder.encode("WebPush: info\0");
+  const ikmKey = await window.crypto.subtle.importKey("raw", authBuffer, { name: "HKDF" }, false, ["deriveKey"]);
+  const prkKey = await window.crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: sharedSecret, info: infoKey },
+    ikmKey, { name: "AES-GCM", length: 128 }, false, ["encrypt"]
+  );
+
+  // Criação do vetor de inicialização (IV) de 12 bytes
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+  // Criptografa usando AES-GCM
+  const ciphertext = await window.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv },
+    prkKey,
+    plaintext
+  );
+
+  // Montagem do bloco final concatenando os metadados necessários para o Service Worker descriptografar
+  const resultadoFinal = new Uint8Array(salt.length + 4 + localEphemeralPublicRaw.byteLength + ciphertext.byteLength);
+  resultadoFinal.set(salt, 0);
+  // Tamanho do registro padrão da RFC 8188 (4096 bytes codificado em 4 bytes em dedução Big-Endian)
+  resultadoFinal.set([0, 0, 16, 0], salt.length); 
+  resultadoFinal.set(new Uint8Array(localEphemeralPublicRaw), salt.length + 4);
+  resultadoFinal.set(new Uint8Array(ciphertext), salt.length + 4 + localEphemeralPublicRaw.byteLength);
+
+  return resultadoFinal;
+}
+// ==========================================// 4. ASSINATURA JWT VAPID E DISPARO (REMETENTE)// ==========================================async function criarTokenJwtVapid(privateJwk, endpoint) {
+  const urlObj = new URL(endpoint);
+  const origemPushService = `${urlObj.protocol}//${urlObj.host}`;
+
+  const chavePrivada = await window.crypto.subtle.importKey(
+    "jwk", privateJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]
+  );
+
+  const cabecalho = { alg: "ES256", typ: "JWT" };
+  const payload = {
+    aud: origemPushService,
+    exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+    sub: "mailto:p2p-manual@exemplo.com"
+  };
+
+  const cabecalhoCodificado = bufferToBase64Url(new TextEncoder().encode(JSON.stringify(cabecalho)));
+  const payloadCodificado = bufferToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const dadosParaAssinar = new TextEncoder().encode(`${cabecalhoCodificado}.${payloadCodificado}`);
+
+  const assinaturaBuffer = await window.crypto.subtle.sign(
+    { name: "ECDSA", hash: { name: "SHA-256" } },
+    chavePrivada,
+    dadosParaAssinar
+  );
+
+  return `${cabecalhoCodificado}.${payloadCodificado}.${bufferToBase64Url(assinaturaBuffer)}`;
+}
+async function enviarMensagemManual(stringPacoteDestinatario, textoMensagem) {
+  // Desembrulha a string colada manualmente pelo remetente
+  const dadosDestinatario = JSON.parse(atob(stringPacoteDestinatario));
+  const { subscription, vapidPrivateKeyJwk, vapidPublicKeyJwk } = dadosDestinatario;
+
+  // 1. Assina o token JWT usando a chave privada recebida
+  const jwtToken = await criarTokenJwtVapid(vapidPrivateKeyJwk, subscription.endpoint);
+
+  // 2. Extrai e converte a chave pública para String do cabeçalho Crypto-Key
+  const rawPublic = await window.crypto.subtle.exportKey(
+    "raw", 
+    await window.crypto.subtle.importKey("jwk", vapidPublicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"])
+  );
+  const chavePublicaString = bufferToBase64Url(rawPublic);
+
+  // 3. Criptografa o corpo do texto de forma estrita de ponta a ponta
+  const payloadCriptografado = await criptografarPayloadWebPush(textoMensagem, subscription.keys);
+
+  // 4. Encaminha via Rota de Proxy local do Deno
+  const urlDoProxy = `/proxy/${subscription.endpoint}`;
+
+  const resposta = await fetch(urlDoProxy, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Encoding": "aes128gcm", // Define a codificação RFC 8188 para o Push Service
+      "TTL": "86400",
+      "Authorization": `WebPush ${jwtToken}`,
+      "Crypto-Key": `p256ecdsa=${chavePublicaString}`
+    },
+    body: payloadCriptografado
+  });
+
+  if (resposta.ok) {
+    console.log("Mensagem enviada com sucesso!");
+  } else {
+    console.error("Erro ao enviar:", await resposta.text());
+  }
+}
+
+## Código Obrigatório do Service Worker (sw.js)
+Coloque este arquivo na mesma pasta raiz dos arquivos estáticos para receber e ler o payload.
+
+self.addEventListener("push", function (event) {
+  let titulo = "Nova Mensagem P2P";
+  let opções = { body: "Conteúdo criptografado ou ilegível." };
+
+  if (event.data) {
+    // O próprio navegador cuida da descriptografia automática usando as chaves
+    // internas associadas à Subscription e joga o texto limpo aqui.
+    opções.body = event.data.text();
+  }
+
+  event.waitUntil(self.registration.showNotification(titulo, opções));
+});
+
+Se desejar, o que você gostaria de ajustar em seguida? Podemos estruturar a interface visual simples para copiar e colar essas chaves, ou refinar as permissões no servidor Deno.
+
+
