@@ -15,7 +15,7 @@ deno task build
 deno task start
 ```
 
-Abra `http://localhost:8080` no navegador.
+Abra `http://localhost:8000` no navegador.
 
 ## Estrutura
 

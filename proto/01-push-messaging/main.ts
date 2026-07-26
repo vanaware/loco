@@ -3,7 +3,7 @@
 import { serveDir } from "@std/http/file-server";
 import * as webpush from "@negrel/webpush";
 
-const PORT = 8080;
+const PORT = 8000;
 const VAPID_FILE = "./vapid.json";
 
 interface PushSubscription {

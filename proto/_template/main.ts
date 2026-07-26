@@ -2,7 +2,7 @@
 
 import { serveDir } from "@std/http/file-server";
 
-const PORT = 8080;
+const PORT = 8000;
 
 Deno.serve({ port: PORT }, (req) => {
   return serveDir(req, {

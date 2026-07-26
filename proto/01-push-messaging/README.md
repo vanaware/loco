@@ -19,7 +19,7 @@ deno task start
 ```
 
 Abra **duas janelas de navegadores diferentes** (por exemplo, Chrome e Edge)
-ambas em `http://localhost:8080`.
+ambas em `http://localhost:8000`.
 
 > Aviso: abrir duas abas no mesmo navegador compartilha o Service Worker e a
 > subscription push, o que pode confundir os testes.
