@@ -79,7 +79,7 @@ async function build() {
     entrypoints: [join(SRC_DIR, "app.tsx")],
     output: DIST_DIR,
     platform: "browser",
-    minify: true,
+    minify: false,
     jsx: "react-jsx",
     jsxImportSource: "preact",
   });
@@ -91,7 +91,7 @@ async function build() {
       entrypoints: [join(SRC_DIR, "sw.ts")],
       output: DIST_DIR,
       platform: "browser",
-      minify: true,
+      minify: false,
     });
     await writeOutput(swResult, "sw.js");
     console.log("   ✅ sw.js gerado");

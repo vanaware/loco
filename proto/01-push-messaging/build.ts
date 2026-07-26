@@ -79,9 +79,13 @@ async function build() {
     entrypoints: [join(SRC_DIR, "app.tsx")],
     output: DIST_DIR,
     platform: "browser",
+    format: "esm",
+    bundle: true,
     minify: true,
-    jsx: "react-jsx",
-    jsxImportSource: "preact",
+    jsx: "automatic",
+    jsxImportSource: "preact", 
+    jsxFactory: "h",
+    jsxFragment: "Fragment",
   });
   await writeOutput(appResult, "app.js");
   console.log("   ✅ app.js gerado");
