@@ -5,7 +5,7 @@
  * - Cache API: assets estáticos do app (offline)
  */
 
-import { get, set, del, clear, keys as idbKeys, createStore } from "idb-keyval";
+import { clear, createStore, del, get, keys as idbKeys, set } from "idb-keyval";
 
 // ===== Storage Persistence =====
 export type StorageMode = "best-effort" | "persistent" | "unknown";
@@ -66,7 +66,7 @@ export async function refreshStorageStatus(): Promise<StorageStatus> {
 
 export function startStorageMonitor(
   intervalMs: number = 60000,
-  onLowStorage?: (status: StorageStatus) => void
+  onLowStorage?: (status: StorageStatus) => void,
 ): () => void {
   const timer = setInterval(async () => {
     const status = await refreshStorageStatus();
@@ -79,7 +79,9 @@ export function startStorageMonitor(
 // ===== IndexedDB (substitui localStorage) =====
 const DB_NAME = "loco-store";
 const STORE_NAME = "data";
-const customStore = typeof globalThis.indexedDB !== "undefined" ? createStore(DB_NAME, STORE_NAME) : null as any;
+const customStore = typeof globalThis.indexedDB !== "undefined"
+  ? createStore(DB_NAME, STORE_NAME)
+  : null as unknown as ReturnType<typeof createStore>;
 
 export async function storageGet<T>(key: string): Promise<T | null> {
   try {
@@ -91,7 +93,7 @@ export async function storageGet<T>(key: string): Promise<T | null> {
   }
 }
 
-export async function storageSet(key: string, value: any): Promise<void> {
+export async function storageSet(key: string, value: unknown): Promise<void> {
   try {
     await set(key, value, customStore);
   } catch (e) {
@@ -155,10 +157,10 @@ export interface StoredFile {
 export async function saveFileToOPFS(
   file: File,
   messageId: string,
-  contactId: string
+  contactId: string,
 ): Promise<StoredFile | null> {
   const dir = await getFilesDir();
-  
+
   if (!dir) {
     const url = URL.createObjectURL(file);
     return {
@@ -228,15 +230,24 @@ export async function deleteFileFromOPFS(path: string): Promise<boolean> {
   }
 }
 
-export async function exportFileFromOPFS(path: string, suggestedName: string): Promise<void> {
+export async function exportFileFromOPFS(
+  path: string,
+  suggestedName: string,
+): Promise<void> {
   const file = await readFileFromOPFS(path);
   if (!file) return;
 
   if ("showSaveFilePicker" in window) {
     try {
-      const handle = await (window as any).showSaveFilePicker({
+      interface FilePickerHandle {
+        createWritable: () => Promise<{ write: (data: File) => Promise<void>; close: () => Promise<void> }>;
+      }
+      interface WindowWithFilePicker extends Window {
+        showSaveFilePicker: (options: unknown) => Promise<FilePickerHandle>;
+      }
+      const handle = await (window as WindowWithFilePicker).showSaveFilePicker({
         suggestedName,
-        types: [{ description: file.type, accept: { [file.type]: [] } }]
+        types: [{ description: file.type, accept: { [file.type]: [] } }],
       });
       const writable = await handle.createWritable();
       await writable.write(file);
@@ -272,7 +283,7 @@ export async function getOPFSUsage(): Promise<number> {
       const handle = await dir.getFileHandle(name);
       const file = await handle.getFile();
       total += file.size;
-    } catch {}
+    } catch { /* ignore */ }
   }
   return total;
 }
@@ -280,7 +291,10 @@ export async function getOPFSUsage(): Promise<number> {
 // ===== Cache API =====
 const CACHE_NAME = "loco-assets-v1";
 
-export async function cacheAsset(url: string, response: Response): Promise<void> {
+export async function cacheAsset(
+  url: string,
+  response: Response,
+): Promise<void> {
   try {
     const cache = await caches.open(CACHE_NAME);
     await cache.put(url, response);

@@ -1,4 +1,4 @@
-import { transferState, cancelTransfer } from "../store.ts";
+import { cancelTransfer, transferState } from "../store.ts";
 import { formatBytes } from "../utils/storage.ts";
 
 export function TransferDock() {
@@ -23,11 +23,15 @@ export function TransferDock() {
       <div style="display:flex; align-items:center; gap:1rem;">
         <md-circular-progress
           value={state.progress / 100}
-          style={`width:40px; height:40px; --md-circular-progress-active-color: ${isError ? "red" : "var(--md-sys-color-primary)"}`}
+          style={`width:40px; height:40px; --md-circular-progress-active-color: ${
+            isError ? "red" : "var(--md-sys-color-primary)"
+          }`}
         />
 
         <div style="flex:1;">
-          <div style="font:var(--md-sys-typescale-title-medium);">{state.fileName}</div>
+          <div style="font:var(--md-sys-typescale-title-medium);">
+            {state.fileName}
+          </div>
           <div style="font:var(--md-sys-typescale-body-small); color:var(--md-sys-color-on-surface-variant);">
             {isComplete
               ? "Concluído"
@@ -45,13 +49,11 @@ export function TransferDock() {
 
         {isComplete && (
           <md-icon-button
-            onClick={() =>
-              (transferState.value = {
-                ...transferState.value,
-                isActive: false,
-                status: "idle",
-              })
-            }
+            onClick={() => (transferState.value = {
+              ...transferState.value,
+              isActive: false,
+              status: "idle",
+            })}
           >
             <md-icon>check</md-icon>
           </md-icon-button>

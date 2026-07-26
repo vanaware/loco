@@ -1,5 +1,5 @@
-import { serveDir } from "https://deno.land/std@0.224.0/http/file_server.ts";
-import { join } from "https://deno.land/std@0.224.0/path/mod.ts";
+import { serveDir } from "@std/http/file-server";
+import { join } from "@std/path";
 
 Deno.serve({ port: 8000 }, async (req) => {
   const url = new URL(req.url);

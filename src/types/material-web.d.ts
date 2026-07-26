@@ -1,65 +1,65 @@
-import { JSX } from "preact";
+import { JSX as _JSX } from "preact";
 
 declare module "preact" {
   namespace JSX {
     interface IntrinsicElements {
       // Buttons
-      "md-filled-button": any;
-      "md-outlined-button": any;
-      "md-text-button": any;
-      "md-filled-tonal-button": any;
-      "md-icon-button": any;
-      "md-fab": any;
-      "md-extended-fab": any;
+      "md-filled-button": unknown;
+      "md-outlined-button": unknown;
+      "md-text-button": unknown;
+      "md-filled-tonal-button": unknown;
+      "md-icon-button": unknown;
+      "md-fab": unknown;
+      "md-extended-fab": unknown;
 
       // Cards
-      "md-elevated-card": any;
-      "md-filled-card": any;
-      "md-outlined-card": any;
+      "md-elevated-card": unknown;
+      "md-filled-card": unknown;
+      "md-outlined-card": unknown;
 
       // Text Fields
-      "md-filled-text-field": any;
-      "md-outlined-text-field": any;
+      "md-filled-text-field": unknown;
+      "md-outlined-text-field": unknown;
 
       // Selection Controls
-      "md-checkbox": any;
-      "md-radio": any;
-      "md-switch": any;
+      "md-checkbox": unknown;
+      "md-radio": unknown;
+      "md-switch": unknown;
 
       // Lists
-      "md-list": any;
-      "md-list-item": any;
-      "md-divider": any;
+      "md-list": unknown;
+      "md-list-item": unknown;
+      "md-divider": unknown;
 
       // Menus
-      "md-menu": any;
-      "md-menu-item": any;
+      "md-menu": unknown;
+      "md-menu-item": unknown;
 
       // Dialogs
-      "md-dialog": any;
+      "md-dialog": unknown;
 
       // Chips
-      "md-assist-chip": any;
-      "md-filter-chip": any;
-      "md-input-chip": any;
-      "md-suggestion-chip": any;
+      "md-assist-chip": unknown;
+      "md-filter-chip": unknown;
+      "md-input-chip": unknown;
+      "md-suggestion-chip": unknown;
 
       // Progress
-      "md-circular-progress": any;
-      "md-linear-progress": any;
+      "md-circular-progress": unknown;
+      "md-linear-progress": unknown;
 
       // Icons
-      "md-icon": any;
+      "md-icon": unknown;
 
       // Tabs
-      "md-tabs": any;
-      "md-primary-tab": any;
-      "md-secondary-tab": any;
+      "md-tabs": unknown;
+      "md-primary-tab": unknown;
+      "md-secondary-tab": unknown;
 
       // Select
-      "md-filled-select": any;
-      "md-outlined-select": any;
-      "md-select-option": any;
+      "md-filled-select": unknown;
+      "md-outlined-select": unknown;
+      "md-select-option": unknown;
     }
   }
 }

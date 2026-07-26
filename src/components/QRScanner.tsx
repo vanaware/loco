@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 import { signal } from "@preact/signals";
-import { navigateTo, addContact } from "../store.ts";
+import { addContact, navigateTo } from "../store.ts";
 import { scanQRFromCamera } from "../utils/pwa.ts";
 import { detectCapabilities } from "../utils/capabilities.ts";
 
@@ -37,10 +37,10 @@ export function QRScanner() {
           scanResult.value = value;
           isScanning.value = false;
           handleResult(value);
-        }
+        },
       );
       stopRef.current = stop;
-    } catch (e) {
+    } catch (_e) {
       error.value = "Erro ao acessar câmera. Verifique as permissões.";
       isScanning.value = false;
     }
@@ -61,16 +61,16 @@ export function QRScanner() {
         alert(`✅ Contato "${data.displayName || data.id}" adicionado!`);
         navigateTo("list");
         return;
-      } catch {}
+      } catch { /* ignore */ }
     }
 
     // URL genérica
     if (value.startsWith("http")) {
       const open = confirm(
-        `QR Code detectado:\n${value}\n\nDeseja abrir este link?\n(Cancelar para copiar)`
+        `QR Code detectado:\n${value}\n\nDeseja abrir este link?\n(Cancelar para copiar)`,
       );
       if (open) {
-        window.open(value, "_blank");
+        globalThis.open(value, "_blank");
       } else {
         navigator.clipboard.writeText(value);
         alert("Link copiado!");
@@ -91,17 +91,23 @@ export function QRScanner() {
   if (!caps.barcodeDetector) {
     return (
       <div style="padding:2rem; text-align:center;">
-        <md-icon style="font-size:4rem; color:var(--md-sys-color-error);">qr_code_scanner</md-icon>
+        <md-icon style="font-size:4rem; color:var(--md-sys-color-error);">
+          qr_code_scanner
+        </md-icon>
         <h3 style="font:var(--md-sys-typescale-title-large); margin:1rem 0;">
           Não Suportado
         </h3>
         <p style="color:var(--md-sys-color-on-surface-variant);">
-          {error.value || "Seu navegador não suporta a API de detecção de QR Code."}
+          {error.value ||
+            "Seu navegador não suporta a API de detecção de QR Code."}
         </p>
         <p style="margin-top:1rem; color:var(--md-sys-color-on-surface-variant);">
           Use o compartilhamento por link como alternativa.
         </p>
-        <md-filled-button onClick={() => navigateTo("profile")} style="margin-top:1rem;">
+        <md-filled-button
+          onClick={() => navigateTo("profile")}
+          style="margin-top:1rem;"
+        >
           Voltar
         </md-filled-button>
       </div>

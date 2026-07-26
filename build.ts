@@ -1,130 +1,169 @@
-import { expandGlob } from "https://deno.land/std@0.224.0/fs/expand_glob.ts";
-import ts from "https://esm.sh/typescript@5.5.4?bundle";
+import { copy, ensureDir } from "@std/fs";
+import { join } from "@std/path";
 
-const distDir = "./dist";
-const publicDir = "./public";
+const DIST_DIR = "dist";
+const SRC_DIR = "src";
 
-// Limpa diretório de saída
-try { await Deno.remove(distDir, { recursive: true }); } catch {}
-await Deno.mkdir(distDir, { recursive: true });
-
-// Lê todos os arquivos TS/TSX do src/
-const modules = new Map<string, string>();
-const srcFiles: string[] = [];
-
-for await (const entry of expandGlob("./src/**/*.{ts,tsx}")) {
-  if (entry.isFile) {
-    srcFiles.push(entry.path);
-    modules.set(entry.path, await Deno.readTextFile(entry.path));
-  }
+interface BuildOptions {
+  watch: boolean;
 }
 
-// Resolve o caminho absoluto do entrypoint
-const entryPath = Deno.realPathSync("./src/components/App.tsx");
+interface BundleOptions {
+  entrypoints: string[];
+  output: string;
+  platform: "browser";
+  minify: boolean;
+  sourcemap?: string;
+  jsx?: string;
+  jsxImportSource?: string;
+}
 
-const tsConfig = {
-  jsx: ts.JsxEmit.ReactJSX,
-  jsxImportSource: "preact",
-  target: ts.ScriptTarget.ES2022,
-  module: ts.ModuleKind.ESNext,
-  moduleResolution: ts.ModuleResolutionKind.NodeNext,
-  esModuleInterop: true,
-  strict: false,
-  skipLibCheck: true,
-  declaration: false,
-  allowJs: true,
+interface BundleResult {
+  success: boolean;
+  errors: unknown[];
+  warnings: unknown[];
+  outputFiles?: Array<{ path: string; text(): string }>;
+}
+
+const opts: BuildOptions = {
+  watch: Deno.args.includes("--watch"),
 };
 
-const outputs: Record<string, string> = {};
-
-function resolvePath(fileName: string): string | undefined {
-  if (modules.has(fileName)) return fileName;
+async function clean() {
   try {
-    const real = Deno.realPathSync(fileName);
-    if (modules.has(real)) return real;
+    await Deno.remove(DIST_DIR, { recursive: true });
+    console.log("🧹 dist/ limpo");
   } catch {
-    // ignore
+    // diretório não existe, ok
   }
-  return undefined;
+  await ensureDir(DIST_DIR);
 }
 
-// Cria um host do TypeScript virtual
-const compilerHost: ts.CompilerHost = {
-  getSourceFile: (fileName) => {
-    const resolved = resolvePath(fileName) || fileName;
-    const content = modules.get(resolved);
-    if (!content) return undefined;
-    return ts.createSourceFile(fileName, content, ts.ScriptTarget.ES2022, true);
-  },
-  getDefaultLibFileName: () => "lib.es2022.d.ts",
-  writeFile: (name, data) => {
-    outputs[name] = data;
-  },
-  getCurrentDirectory: () => Deno.cwd(),
-  getDirectories: () => [],
-  fileExists: (fileName) => !!resolvePath(fileName),
-  readFile: (fileName) => {
-    const resolved = resolvePath(fileName);
-    return resolved ? modules.get(resolved) : undefined;
-  },
-  getCanonicalFileName: (fileName) => fileName,
-  useCaseSensitiveFileNames: () => true,
-  getNewLine: () => "\n",
-};
+async function copyStatic() {
+  await Deno.copyFile("index.html", join(DIST_DIR, "index.html"));
+  await Deno.copyFile("manifest.json", join(DIST_DIR, "manifest.json"));
 
-const program = ts.createProgram([entryPath], tsConfig, compilerHost);
-program.emit();
+  try {
+    await copy("public", join(DIST_DIR, "public"), { overwrite: true });
+  } catch {
+    // public pode não existir
+  }
 
-// Salva os arquivos JS na dist/
-for (const [name, code] of Object.entries(outputs)) {
-  const relPath = name.replace(Deno.cwd() + "/src/", "");
-  const outPath = `${distDir}/${relPath}`;
-  const dir = outPath.substring(0, outPath.lastIndexOf("/"));
-  if (dir) await Deno.mkdir(dir, { recursive: true });
-  await Deno.writeTextFile(outPath, code);
+  console.log("📁 Arquivos estáticos copiados");
 }
 
-// Copia arquivos públicos
-try {
-  for await (const entry of expandGlob(`${publicDir}/**/*`)) {
-    if (entry.isFile) {
-      const relPath = entry.path.replace(`${Deno.cwd()}/public/`, "");
-      const destPath = `${distDir}/${relPath}`;
-      const destDir = destPath.substring(0, destPath.lastIndexOf("/"));
-      if (destDir) await Deno.mkdir(destDir, { recursive: true });
-      await Deno.copyFile(entry.path, destPath);
+function formatSize(result: BundleResult): string {
+  if (!result.outputFiles || result.outputFiles.length === 0) {
+    return "tamanho desconhecido";
+  }
+  const totalBytes = result.outputFiles.reduce(
+    (sum, f) => sum + new TextEncoder().encode(f.text()).length,
+    0,
+  );
+  return `${(totalBytes / 1024).toFixed(1)} KB`;
+}
+
+async function writeOutput(result: BundleResult, fileName: string) {
+  if (!result.outputFiles || result.outputFiles.length === 0) {
+    throw new Error(`Nenhum output gerado para ${fileName}`);
+  }
+
+  const text = result.outputFiles[0].text();
+  await Deno.writeTextFile(join(DIST_DIR, fileName), text);
+}
+
+async function runBundle(name: string, bundleOpts: BundleOptions) {
+  // deno-lint-ignore no-explicit-any
+  const result = (await (Deno as any).bundle(bundleOpts)) as BundleResult;
+  if (!result.success) {
+    console.error(`❌ Erros no bundle ${name}:`, result.errors);
+    throw new Error(`Falha ao gerar ${name}`);
+  }
+  for (const warning of result.warnings) {
+    console.warn(`⚠️ ${name}:`, warning);
+  }
+  return result;
+}
+
+async function buildMain() {
+  console.log("🔨 Build: src/main/main.tsx → dist/main.js");
+  const result = await runBundle("main", {
+    entrypoints: [join(SRC_DIR, "main", "main.tsx")],
+    output: DIST_DIR,
+    platform: "browser",
+    minify: !opts.watch,
+    sourcemap: opts.watch ? "linked" : undefined,
+    jsx: "react-jsx",
+    jsxImportSource: "preact",
+  });
+  await writeOutput(result, "main.js");
+  console.log(`   ✅ main.js gerado (${formatSize(result)})`);
+}
+
+async function buildWorker() {
+  console.log("🔨 Build: src/worker/worker.ts → dist/worker.js");
+  const result = await runBundle("worker", {
+    entrypoints: [join(SRC_DIR, "worker", "worker.ts")],
+    output: DIST_DIR,
+    platform: "browser",
+    minify: !opts.watch,
+    sourcemap: opts.watch ? "linked" : undefined,
+  });
+  await writeOutput(result, "worker.js");
+  console.log(`   ✅ worker.js gerado (${formatSize(result)})`);
+}
+
+async function buildServiceWorker() {
+  console.log("🔨 Build: src/sw/sw.ts → dist/sw.js");
+  const result = await runBundle("sw", {
+    entrypoints: [join(SRC_DIR, "sw", "sw.ts")],
+    output: DIST_DIR,
+    platform: "browser",
+    minify: !opts.watch,
+    sourcemap: opts.watch ? "linked" : undefined,
+  });
+  await writeOutput(result, "sw.js");
+  console.log(`   ✅ sw.js gerado (${formatSize(result)})`);
+}
+
+async function build() {
+  console.log("\n🚀 Iniciando build PWA...\n");
+  const start = performance.now();
+
+  await clean();
+  await copyStatic();
+
+  await Promise.all([
+    buildMain(),
+    buildWorker(),
+    buildServiceWorker(),
+  ]);
+
+  const elapsed = (performance.now() - start).toFixed(0);
+  console.log(`\n✨ Build completo em ${elapsed}ms → dist/`);
+}
+
+await build();
+
+if (opts.watch) {
+  console.log("👀 Watch mode ativo. Pressione Ctrl+C para parar.\n");
+  const watcher = Deno.watchFs(SRC_DIR);
+  let debounce: number | undefined;
+
+  for await (const event of watcher) {
+    if (
+      event.kind === "modify" || event.kind === "create" ||
+      event.kind === "remove"
+    ) {
+      clearTimeout(debounce);
+      debounce = setTimeout(async () => {
+        console.log(`\n🔄 Mudança detectada: ${event.paths.join(", ")}`);
+        try {
+          await build();
+        } catch (err) {
+          console.error("❌ Erro no rebuild:", err);
+        }
+      }, 100);
     }
   }
-  console.log("✅ Arquivos públicos copiados");
-} catch (e) {
-  console.warn("⚠️ Erro ao copiar public/:", e);
 }
-
-// Gera index.html com o App.js inline
-let html = await Deno.readTextFile("./src/index.html");
-const appJs = outputs[entryPath.replace(/\.tsx?$/, ".js")];
-
-const importMap = `<script type="importmap">
-{
-  "imports": {
-    "preact": "https://esm.sh/preact@10.19.3",
-    "preact/hooks": "https://esm.sh/preact@10.19.3/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.19.3/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@libs/qrcode": "https://esm.sh/@libs/qrcode@1.2.2"
-  }
-}
-</script>`;
-
-html = html.replace("<!-- APP_JS -->", `${importMap}\n<script type="module">${appJs}</script>`);
-
-// Adiciona link para Material Icons
-const iconsLink = `<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">`;
-html = html.replace("</head>", `${iconsLink}\n</head>`);
-
-await Deno.writeTextFile(`${distDir}/index.html`, html);
-
-console.log("✅ Build concluído em ./dist");

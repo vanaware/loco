@@ -14,7 +14,10 @@ export function bufToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
+    /=+$/,
+    "",
+  );
 }
 
 export function base64ToBuf(base64: string): Uint8Array {
@@ -31,10 +34,13 @@ export async function generateVapidKeys(): Promise<VapidKeys> {
   const keyPair = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
-    ["sign", "verify"]
+    ["sign", "verify"],
   );
   const publicKeyRaw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
-  const privateKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+  const privateKeyJwk = await crypto.subtle.exportKey(
+    "jwk",
+    keyPair.privateKey,
+  );
 
   return {
     publicKey: bufToBase64(publicKeyRaw),
@@ -51,7 +57,7 @@ export async function generateVapidKeys(): Promise<VapidKeys> {
 export async function sendPushDirect(
   peer: PeerData,
   payload: string,
-  _vapidKeys: VapidKeys
+  _vapidKeys: VapidKeys,
 ): Promise<Response> {
   const response = await fetch(peer.endpoint, {
     method: "POST",

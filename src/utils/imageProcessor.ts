@@ -1,4 +1,7 @@
-export async function resizeImage(file: File, maxSize: number = 200): Promise<string> {
+export function resizeImage(
+  file: File,
+  maxSize: number = 200,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {

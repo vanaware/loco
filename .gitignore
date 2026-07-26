@@ -16,6 +16,10 @@ vendor/
 
 # Build output
 dist/
+public/index.html
+public/main.js
+public/sw.js
+public/worker.js
 
 # IDE
 .vscode/

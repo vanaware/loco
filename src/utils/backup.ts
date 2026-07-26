@@ -1,5 +1,11 @@
-import { zipSync, unzipSync } from "fflate";
-import { storageGet, storageKeys, storageSet, readFileFromOPFS, listOPFSFiles } from "./storage.ts";
+import { unzipSync, zipSync } from "fflate";
+import {
+  listOPFSFiles,
+  readFileFromOPFS,
+  storageGet,
+  storageKeys,
+  storageSet,
+} from "./storage.ts";
 
 export interface BackupOptions {
   profile: boolean;
@@ -16,8 +22,9 @@ export async function createBackup(options: BackupOptions): Promise<Blob> {
   const enc = new TextEncoder();
 
   for (const key of keys) {
-    const shouldInclude =
-      (options.profile && (key === "myId" || key === "myDisplayName" || key === "myVapidKeys" || key === "masterKeyRaw")) ||
+    const shouldInclude = (options.profile &&
+      (key === "myId" || key === "myDisplayName" || key === "myVapidKeys" ||
+        key === "masterKeyRaw")) ||
       (options.config && key === "appConfig") ||
       (options.contacts && key === "contacts") ||
       (options.conversations && key === "chatSessions") ||
@@ -52,10 +59,10 @@ export async function createBackup(options: BackupOptions): Promise<Blob> {
   files["manifest.json"] = enc.encode(JSON.stringify(manifest, null, 2));
 
   const zipped = zipSync(files);
-  return new Blob([zipped], { type: "application/zip" });
+  return new Blob([zipped as unknown as BlobPart], { type: "application/zip" });
 }
 
-export async function restoreBackup(file: File): Promise<any> {
+export async function restoreBackup(file: File): Promise<Record<string, unknown>> {
   const buffer = await file.arrayBuffer();
   const unzipped = unzipSync(new Uint8Array(buffer));
   const dec = new TextDecoder();
@@ -73,8 +80,14 @@ export async function restoreBackup(file: File): Promise<any> {
   }
 
   const allowedKeys = new Set([
-    "myId", "myDisplayName", "myVapidKeys", "masterKeyRaw",
-    "appConfig", "contacts", "chatSessions", "storedFiles",
+    "myId",
+    "myDisplayName",
+    "myVapidKeys",
+    "masterKeyRaw",
+    "appConfig",
+    "contacts",
+    "chatSessions",
+    "storedFiles",
   ]);
 
   for (const keyName of manifest.keys) {

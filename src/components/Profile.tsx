@@ -1,8 +1,12 @@
 import { useEffect } from "preact/hooks";
 import { signal } from "@preact/signals";
 import {
-  myDisplayName, qrCodeDataUrl, generateQRCode,
-  getShareLink, appConfig, uploadProfilePhoto,
+  appConfig,
+  generateQRCode,
+  getShareLink,
+  myDisplayName,
+  qrCodeDataUrl,
+  uploadProfilePhoto,
 } from "../store.ts";
 import { detectCapabilities } from "../utils/capabilities.ts";
 
@@ -42,13 +46,13 @@ export function Profile() {
             👤 Seu Perfil
           </h3>
           <div class="profile-photo">
-            {appConfig.value.profilePhoto ? (
-              <img src={appConfig.value.profilePhoto} alt="Foto" />
-            ) : (
-              <div class="photo-placeholder">📷</div>
-            )}
+            {appConfig.value.profilePhoto
+              ? <img src={appConfig.value.profilePhoto} alt="Foto" />
+              : <div class="photo-placeholder">📷</div>}
             <div style="margin-top:1rem;">
-              <md-filled-tonal-button onClick={() => document.getElementById("photoUpload")?.click()}>
+              <md-filled-tonal-button
+                onClick={() => document.getElementById("photoUpload")?.click()}
+              >
                 <md-icon slot="icon">photo_camera</md-icon>
                 Alterar Foto
               </md-filled-tonal-button>
@@ -64,9 +68,10 @@ export function Profile() {
           <md-filled-text-field
             label="Nome"
             value={nameInput.value}
-            onInput={(e: any) => {
-              nameInput.value = e.target.value;
-              myDisplayName.value = e.target.value;
+            onInput={(e: InputEvent) => {
+              const value = (e.target as HTMLInputElement).value;
+              nameInput.value = value;
+              myDisplayName.value = value;
               generateQRCode();
             }}
             style="width:100%;"
@@ -79,11 +84,15 @@ export function Profile() {
           <h3 style="font:var(--md-sys-typescale-title-large); margin-bottom:1rem;">
             📲 Adicionar Contato
           </h3>
-          {qrCodeDataUrl.value ? (
-            <img src={qrCodeDataUrl.value} alt="QR Code" style="border-radius:1rem; margin:1rem 0;" />
-          ) : (
-            <md-circular-progress indeterminate />
-          )}
+          {qrCodeDataUrl.value
+            ? (
+              <img
+                src={qrCodeDataUrl.value}
+                alt="QR Code"
+                style="border-radius:1rem; margin:1rem 0;"
+              />
+            )
+            : <md-circular-progress indeterminate />}
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:center;">
             <md-filled-button onClick={handleShare}>
               <md-icon slot="icon">share</md-icon>

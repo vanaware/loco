@@ -29,7 +29,18 @@
       "text": "shared_text",
       "url": "shared_url",
       "files": [
-        { "name": "media", "accept": ["image/*", "video/*", "audio/*", ".pdf", ".doc", ".docx", ".txt"] }
+        {
+          "name": "media",
+          "accept": [
+            "image/*",
+            "video/*",
+            "audio/*",
+            ".pdf",
+            ".doc",
+            ".docx",
+            ".txt"
+          ]
+        }
       ]
     }
   },

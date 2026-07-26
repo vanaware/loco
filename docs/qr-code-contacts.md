@@ -2,41 +2,52 @@
 
 ## O problema
 
-Em um mensageiro descentralizado sem servidor central, não há uma base de dados centralizada com números de telefone, e-mails ou nomes de usuário. Cada dispositivo precisa descobrir como falar com outro. O Loco resolve isso permitindo que cada usuário compartilhe sua própria identidade de contato com outra pessoa.
+Em um mensageiro descentralizado sem servidor central, não há uma base de dados
+centralizada com números de telefone, e-mails ou nomes de usuário. Cada
+dispositivo precisa descobrir como falar com outro. O Loco resolve isso
+permitindo que cada usuário compartilhe sua própria identidade de contato com
+outra pessoa.
 
 Há duas formas principais de fazer isso:
 
-1. **QR Code**: exibe um QR Code com os dados do perfil; o outro usuário escaneia.
+1. **QR Code**: exibe um QR Code com os dados do perfil; o outro usuário
+   escaneia.
 2. **PWA Share API**: compartilha um link com os dados do perfil via outro app.
 
-Ambas as abordagens transferem a mesma informação: quem é o usuário e como alcançá-lo.
+Ambas as abordagens transferem a mesma informação: quem é o usuário e como
+alcançá-lo.
 
 ## O que é um contato no Loco
 
-Um contato no Loco não é apenas um nome. Ele precisa de dados técnicos para comunicação:
+Um contato no Loco não é apenas um nome. Ele precisa de dados técnicos para
+comunicação:
 
 ```typescript
 interface Contact {
-  id: string;                 // identificador único do usuário
-  endpoint: string;         // URL do serviço de push do destinatário
+  id: string; // identificador único do usuário
+  endpoint: string; // URL do serviço de push do destinatário
   keys: { p256dh: string; auth: string }; // chaves para criptografia do push
-  vapidPublicKey: string;     // chave pública VAPID do remetente
-  displayName: string;        // nome exibido localmente
-  theirDisplayName: string;   // nome que o contato escolheu para si
-  photo?: string;             // foto de perfil (opcional)
+  vapidPublicKey: string; // chave pública VAPID do remetente
+  displayName: string; // nome exibido localmente
+  theirDisplayName: string; // nome que o contato escolheu para si
+  photo?: string; // foto de perfil (opcional)
 }
 ```
 
-Sem essas informações, o Loco não consegue enviar mensagens ou push para o outro dispositivo.
+Sem essas informações, o Loco não consegue enviar mensagens ou push para o outro
+dispositivo.
 
 ## Por que QR Code?
 
 O QR Code é ideal para encontros presenciais:
 
 - **Rápido**: apontar a câmera e pronto.
-- **Não precisa de internet no momento**: o QR Code contém todos os dados; a conexão só é necessária depois para enviar mensagens.
-- **Seguro em ambiente controlado**: funciona bem quando as duas pessoas estão perto uma da outra.
-- **Sem compartilhamento com terceiros**: os dados não passam por nenhum servidor intermediário.
+- **Não precisa de internet no momento**: o QR Code contém todos os dados; a
+  conexão só é necessária depois para enviar mensagens.
+- **Seguro em ambiente controlado**: funciona bem quando as duas pessoas estão
+  perto uma da outra.
+- **Sem compartilhamento com terceiros**: os dados não passam por nenhum
+  servidor intermediário.
 
 ### Como funciona no Loco
 
@@ -87,7 +98,8 @@ O PWA Share API é ideal quando as pessoas não estão perto uma da outra:
 
 - **Compartilhamento remoto**: enviar por WhatsApp, e-mail, SMS ou qualquer app.
 - **Conveniente**: o usuário já conhece o fluxo de compartilhamento do celular.
-- **Não depende de câmera**: funciona em dispositivos sem câmera ou quando não é possível escanear.
+- **Não depende de câmera**: funciona em dispositivos sem câmera ou quando não é
+  possível escanear.
 - **Integração nativa**: abre o menu de compartilhamento do sistema operacional.
 
 ### Como funciona no Loco
@@ -108,7 +120,7 @@ const handleShare = () => {
   if (navigator.share) {
     navigator.share({
       title: "Meu ID P2P",
-      url: getShareLink()
+      url: getShareLink(),
     });
   } else {
     navigator.clipboard.writeText(getShareLink());
@@ -119,9 +131,14 @@ const handleShare = () => {
 
 ## Por que não usar apenas um campo de busca?
 
-Em apps tradicionais como WhatsApp ou Telegram, você busca um número de telefone ou @username. Isso funciona porque há um servidor central que sabe onde cada usuário está.
+Em apps tradicionais como WhatsApp ou Telegram, você busca um número de telefone
+ou @username. Isso funciona porque há um servidor central que sabe onde cada
+usuário está.
 
-No Loco, não há servidor central. Cada usuário é responsável por publicar seu próprio "endereço" (push subscription + VAPID). Por isso, o compartilhamento direto via QR Code ou Share API é a forma mais natural e sem servidor de adicionar contatos.
+No Loco, não há servidor central. Cada usuário é responsável por publicar seu
+próprio "endereço" (push subscription + VAPID). Por isso, o compartilhamento
+direto via QR Code ou Share API é a forma mais natural e sem servidor de
+adicionar contatos.
 
 ## Segurança e privacidade
 
@@ -129,7 +146,8 @@ No Loco, não há servidor central. Cada usuário é responsável por publicar s
 
 - `id`: identificador público do usuário.
 - `endpoint`: URL do serviço de push. Sem ele, não é possível enviar push.
-- `keys.p256dh` e `keys.auth`: chaves públicas para criptografia do payload Web Push.
+- `keys.p256dh` e `keys.auth`: chaves públicas para criptografia do payload Web
+  Push.
 - `vapidPublicKey`: chave pública do remetente para autenticação.
 - `displayName`: nome escolhido pelo usuário.
 
@@ -142,9 +160,12 @@ No Loco, não há servidor central. Cada usuário é responsável por publicar s
 
 ### Considerações
 
-- O `endpoint` do Web Push é uma URL que pode revelar qual serviço de push o destinatário usa (ex: FCM para Chrome).
-- Qualquer pessoa com o link pode adicionar o usuário. Não há convites pendentes.
-- No futuro, pode-se adicionar **links temporários** ou **com senha** para maior privacidade.
+- O `endpoint` do Web Push é uma URL que pode revelar qual serviço de push o
+  destinatário usa (ex: FCM para Chrome).
+- Qualquer pessoa com o link pode adicionar o usuário. Não há convites
+  pendentes.
+- No futuro, pode-se adicionar **links temporários** ou **com senha** para maior
+  privacidade.
 
 ## Formato do link
 
@@ -160,7 +181,7 @@ const data = {
   keys: mySubscription.value?.keys,
   vapidPublicKey: myVapidKeys.value?.publicKey,
   id: myId.value,
-  displayName: myDisplayName.value
+  displayName: myDisplayName.value,
 };
 
 const encoded = btoa(encodeURIComponent(JSON.stringify(data)));
@@ -209,7 +230,9 @@ export function getShareLink() {
     id: myId.value,
     displayName: myDisplayName.value,
   };
-  return `${location.origin}#add=${btoa(encodeURIComponent(JSON.stringify(data)))}`;
+  return `${location.origin}#add=${
+    btoa(encodeURIComponent(JSON.stringify(data)))
+  }`;
 }
 ```
 
@@ -261,13 +284,13 @@ if (location.hash.startsWith("#add=")) {
 
 ## Quando usar cada abordagem
 
-| Situação | QR Code | Share API |
-|----------|---------|-----------|
-| Pessoalmente | ✅ Ideal | ⚠️ Possível |
-| Remotamente | ❌ Não prático | ✅ Ideal |
-| Dispositivo sem câmera | ❌ | ✅ |
-| Compartilhar em grupo | ⚠️ Difícil | ✅ Fácil |
-| Ambiente sem internet | ✅ Funciona | ⚠️ Precisa de rede para enviar o link |
+| Situação               | QR Code        | Share API                             |
+| ---------------------- | -------------- | ------------------------------------- |
+| Pessoalmente           | ✅ Ideal       | ⚠️ Possível                           |
+| Remotamente            | ❌ Não prático | ✅ Ideal                              |
+| Dispositivo sem câmera | ❌             | ✅                                    |
+| Compartilhar em grupo  | ⚠️ Difícil     | ✅ Fácil                              |
+| Ambiente sem internet  | ✅ Funciona    | ⚠️ Precisa de rede para enviar o link |
 
 ## Problemas comuns
 
@@ -301,5 +324,7 @@ if (location.hash.startsWith("#add=")) {
 
 - **QR Code** é rápido e seguro para encontros presenciais.
 - **PWA Share API** é conveniente para compartilhamento remoto.
-- Ambos transferem os mesmos dados técnicos necessários para comunicação P2P e Web Push.
-- A adição de contatos no Loco reflete a filosofia do app: **descentralizado, sem servidor e sob controle do usuário**.
+- Ambos transferem os mesmos dados técnicos necessários para comunicação P2P e
+  Web Push.
+- A adição de contatos no Loco reflete a filosofia do app: **descentralizado,
+  sem servidor e sob controle do usuário**.

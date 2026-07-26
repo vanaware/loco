@@ -14,7 +14,11 @@ export function setAppBadge(count?: number) {
 }
 
 // ===== SCREEN WAKE LOCK =====
-let wakeLockSentinel: any = null;
+interface WakeLockSentinel {
+  release(): Promise<void>;
+}
+
+let wakeLockSentinel: WakeLockSentinel | null = null;
 
 export async function requestWakeLock(): Promise<boolean> {
   const caps = detectCapabilities();
@@ -46,8 +50,8 @@ if (typeof document !== "undefined") {
 // ===== VIEW TRANSITIONS =====
 export function navigateWithTransition(callback: () => void) {
   const caps = detectCapabilities();
-  if (caps.viewTransitions && (document as any).startViewTransition) {
-    (document as any).startViewTransition(callback);
+  if (caps.viewTransitions && (document as unknown as { startViewTransition?: (cb: () => void) => void }).startViewTransition) {
+    (document as unknown as { startViewTransition: (cb: () => void) => void }).startViewTransition(callback);
   } else {
     callback();
   }
@@ -61,14 +65,28 @@ export interface PickedContact {
   icon?: Blob;
 }
 
+interface ContactsManager {
+  select: (
+    properties: ("name" | "tel" | "email" | "icon")[],
+    options: { multiple: boolean },
+  ) => Promise<PickedContact[]>;
+}
+
+interface NavigatorWithContacts extends Navigator {
+  contacts?: ContactsManager;
+}
+
 export async function pickContacts(
   properties: ("name" | "tel" | "email" | "icon")[] = ["name", "tel"],
-  multiple: boolean = false
+  multiple: boolean = false,
 ): Promise<PickedContact[]> {
   const caps = detectCapabilities();
   if (!caps.contactPicker) return [];
   try {
-    return await (navigator as any).contacts.select(properties, { multiple });
+    return await (navigator as NavigatorWithContacts).contacts!.select(
+      properties,
+      { multiple },
+    );
   } catch (e) {
     console.warn("Contact Picker error:", e);
     return [];
@@ -76,22 +94,40 @@ export async function pickContacts(
 }
 
 // ===== BARCODE DETECTOR =====
+interface BarcodeDetectorOptions {
+  formats: string[];
+}
+
+interface BarcodeDetectorResult {
+  rawValue: string;
+}
+
+type BarcodeDetectorClass = {
+  new (options: BarcodeDetectorOptions): BarcodeDetectorClass;
+  detect(image: HTMLVideoElement): Promise<BarcodeDetectorResult[]>;
+};
+
+// BarcodeDetector disponível via globalThis no navegador
+
 export async function scanQRFromCamera(
   videoElement: HTMLVideoElement,
   onDetected: (value: string) => void,
-  intervalMs: number = 500
+  intervalMs: number = 500,
 ): Promise<() => void> {
-  const caps = detectCapabilities();
-  if (!caps.barcodeDetector) return () => {};
+  const _caps = detectCapabilities();
+  const BarcodeDetector = (globalThis as unknown as { BarcodeDetector?: new (options: { formats: string[] }) => { detect: (image: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector;
+  if (!BarcodeDetector) return () => {};
 
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" }
+    video: { facingMode: "environment" },
   });
   videoElement.srcObject = stream;
   await videoElement.play();
 
-  const detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
-  
+  const detector = new BarcodeDetector({
+    formats: ["qr_code"],
+  });
+
   const timer = setInterval(async () => {
     try {
       const results = await detector.detect(videoElement);
@@ -99,12 +135,12 @@ export async function scanQRFromCamera(
         onDetected(results[0].rawValue);
         stop();
       }
-    } catch {}
+    } catch { /* ignore */ }
   }, intervalMs);
 
   function stop() {
     clearInterval(timer);
-    stream.getTracks().forEach(t => t.stop());
+    stream.getTracks().forEach((t) => t.stop());
     videoElement.srcObject = null;
   }
 
@@ -112,11 +148,13 @@ export async function scanQRFromCamera(
 }
 
 // ===== PICTURE IN PICTURE =====
-export async function enterPiP(videoElement: HTMLVideoElement): Promise<boolean> {
+export async function enterPiP(
+  videoElement: HTMLVideoElement,
+): Promise<boolean> {
   const caps = detectCapabilities();
   if (!caps.pipVideo) return false;
   try {
-    await (videoElement as any).requestPictureInPicture();
+    await (videoElement as HTMLVideoElement & { requestPictureInPicture?: () => Promise<void> }).requestPictureInPicture?.();
     return true;
   } catch (e) {
     console.warn("PiP error:", e);
@@ -125,23 +163,29 @@ export async function enterPiP(videoElement: HTMLVideoElement): Promise<boolean>
 }
 
 export function exitPiP() {
-  if ((document as any).pictureInPictureElement) {
-    (document as any).exitPictureInPicture();
+  const doc = document as unknown as { pictureInPictureElement?: Element; exitPictureInPicture?: () => Promise<void> };
+  if (doc.pictureInPictureElement) {
+    doc.exitPictureInPicture?.();
   }
 }
 
 // ===== VIRTUAL KEYBOARD =====
+interface VirtualKeyboardLike {
+  overlaysContent: boolean;
+  addEventListener(type: string, listener: (e: { target: { boundingRect: { height: number } } }) => void): void;
+}
+
 export function setupVirtualKeyboard(
-  onGeometryChange: (rect: { height: number }) => void
+  onGeometryChange: (rect: { height: number }) => void,
 ) {
   const caps = detectCapabilities();
-  if (!caps.virtualKeyboard) return;
+  const vk = (navigator as unknown as { virtualKeyboard?: VirtualKeyboardLike }).virtualKeyboard;
+  if (!caps.virtualKeyboard || !vk) return;
   try {
-    (navigator as any).virtualKeyboard.overlaysContent = true;
-    (navigator as any).virtualKeyboard.addEventListener(
-      "geometrychange",
-      (event: any) => onGeometryChange({ height: event.target.boundingRect.height })
-    );
+    vk.overlaysContent = true;
+    vk.addEventListener("geometrychange", (event: { target: { boundingRect: { height: number } } }) => {
+      onGeometryChange({ height: event.target.boundingRect.height });
+    });
   } catch (e) {
     console.warn("VirtualKeyboard error:", e);
   }
@@ -150,14 +194,15 @@ export function setupVirtualKeyboard(
 // ===== BACKGROUND SYNC =====
 export async function registerPeriodicSync(
   tag: string,
-  minIntervalMs: number = 3600000
+  minIntervalMs: number = 3600000,
 ): Promise<boolean> {
   const caps = detectCapabilities();
   if (!caps.backgroundSync) return false;
   try {
     const reg = await navigator.serviceWorker.ready;
-    if ("periodicSync" in reg) {
-      await (reg as any).periodicSync.register(tag, { minInterval: minIntervalMs });
+    const regWithSync = reg as unknown as ServiceWorkerRegistration & { periodicSync?: { register: (tag: string, options: { minInterval: number }) => Promise<void> } };
+    if (regWithSync.periodicSync) {
+      await regWithSync.periodicSync.register(tag, { minInterval: minIntervalMs });
       return true;
     }
   } catch (e) {

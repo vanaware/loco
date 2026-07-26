@@ -2,7 +2,9 @@
 
 ## Visão geral
 
-O Loco usa uma arquitetura de estado reativa baseada em **signals** do Preact. O estado centralizado vive no arquivo `src/store.ts` e é consumido pelos componentes da interface.
+O Loco usa uma arquitetura de estado reativa baseada em **signals** do Preact. O
+estado centralizado vive no arquivo `src/store.ts` e é consumido pelos
+componentes da interface.
 
 A principal vantagem dessa abordagem:
 
@@ -13,7 +15,9 @@ A principal vantagem dessa abordagem:
 
 ## O que são signals
 
-Signals são unidades reativas de estado. No Preact, um signal é uma referência a um valor que, quando alterada, notifica automaticamente quem está usando esse valor.
+Signals são unidades reativas de estado. No Preact, um signal é uma referência a
+um valor que, quando alterada, notifica automaticamente quem está usando esse
+valor.
 
 ```typescript
 import { signal } from "@preact/signals";
@@ -27,13 +31,15 @@ console.log(count.value); // 0
 count.value = 1;
 ```
 
-Quando `count.value` muda, qualquer componente que leu `count.value` é re-renderizado automaticamente.
+Quando `count.value` muda, qualquer componente que leu `count.value` é
+re-renderizado automaticamente.
 
 ## Por que Preact Signals?
 
 - **Leve**: o Preact é pequeno e rápido.
 - **Familiar**: sintaxe semelhante ao React.
-- **Reatividade fina**: apenas o componente que usa o signal atualiza, não toda a árvore.
+- **Reatividade fina**: apenas o componente que usa o signal atualiza, não toda
+  a árvore.
 - **Sem boilerplate**: não precisa de reducers, actions ou providers complexos.
 
 ## Estado centralizado no `store.ts`
@@ -66,14 +72,16 @@ export const storage = signal<StorageStatus>({ ... });
 ### Signals vs computed
 
 - **Signals**: armazenam o estado mutável.
-- **Computed**: derivam estado a partir de outros signals sem armazená-lo duplicado.
+- **Computed**: derivam estado a partir de outros signals sem armazená-lo
+  duplicado.
 
 ```typescript
 const contactsRaw = signal<[string, Contact][]>([]);
 export const contacts = computed(() => new Map(contactsRaw.value));
 ```
 
-`contacts` é uma visualização em `Map` dos dados crus. Sempre que `contactsRaw.value` muda, `contacts.value` é recalculado.
+`contacts` é uma visualização em `Map` dos dados crus. Sempre que
+`contactsRaw.value` muda, `contacts.value` é recalculado.
 
 ## Como os componentes usam o estado
 
@@ -92,11 +100,13 @@ export function ChatWindow() {
 }
 ```
 
-Quando `currentChatContact.value` muda, o `ChatWindow` re-renderiza automaticamente.
+Quando `currentChatContact.value` muda, o `ChatWindow` re-renderiza
+automaticamente.
 
 ## Mutabilidade controlada
 
-O Loco evita mutar arrays e objetos diretamente. Sempre que precisa atualizar, cria uma cópia:
+O Loco evita mutar arrays e objetos diretamente. Sempre que precisa atualizar,
+cria uma cópia:
 
 ```typescript
 export function addContact(id: string, contact: Contact) {
@@ -108,7 +118,7 @@ export function addContact(id: string, contact: Contact) {
     current.push([id, contact]);
   }
   contactsRaw.value = current; // dispara reatividade
-  saveContacts();              // persiste
+  saveContacts(); // persiste
 }
 ```
 
@@ -116,7 +126,8 @@ Isso garante que o Preact detecte a mudança e re-renderize os componentes.
 
 ## Persistência no IndexedDB
 
-A função `initApp()` no `store.ts` carrega todos os dados do IndexedDB na inicialização:
+A função `initApp()` no `store.ts` carrega todos os dados do IndexedDB na
+inicialização:
 
 ```typescript
 export async function initApp() {
@@ -128,24 +139,27 @@ export async function initApp() {
   contactsRaw.value = await loadFromIDB("contacts", []);
   chatSessionsRaw.value = await loadFromIDB("chatSessions", []);
 
-  const filesMeta = await loadFromIDB<Record<string, StoredFile>>("storedFiles", {});
+  const filesMeta = await loadFromIDB<Record<string, StoredFile>>(
+    "storedFiles",
+    {},
+  );
   storedFiles.value = new Map(Object.entries(filesMeta));
 }
 ```
 
 ### O que é persistido
 
-| Chave | Tipo de dado | Onde é usado |
-|-------|--------------|--------------|
-| `myId` | string | Identidade do usuário |
-| `myDisplayName` | string | Nome do perfil |
-| `myVapidKeys` | objeto | Chaves VAPID para push |
-| `mySubscription` | objeto | Inscrição no serviço de push |
-| `appConfig` | objeto | Configurações gerais |
-| `contacts` | array | Lista de contatos |
-| `chatSessions` | array | Mensagens por contato |
-| `storedFiles` | objeto | Metadados de arquivos |
-| `masterKeyRaw` | string | Chave mestra de criptografia |
+| Chave            | Tipo de dado | Onde é usado                 |
+| ---------------- | ------------ | ---------------------------- |
+| `myId`           | string       | Identidade do usuário        |
+| `myDisplayName`  | string       | Nome do perfil               |
+| `myVapidKeys`    | objeto       | Chaves VAPID para push       |
+| `mySubscription` | objeto       | Inscrição no serviço de push |
+| `appConfig`      | objeto       | Configurações gerais         |
+| `contacts`       | array        | Lista de contatos            |
+| `chatSessions`   | array        | Mensagens por contato        |
+| `storedFiles`    | objeto       | Metadados de arquivos        |
+| `masterKeyRaw`   | string       | Chave mestra de criptografia |
 
 ### O que não é persistido
 
@@ -177,13 +191,13 @@ Usado para arquivos grandes:
 
 ### Por que separar?
 
-| Característica | IndexedDB | OPFS |
-|----------------|-----------|------|
-| Ideal para | Dados estruturados | Arquivos grandes |
-| Performance de grandes blobs | Média | Alta |
-| Limite de tamanho | Menor | Maior |
-| API | Key-value | Sistema de arquivos |
-| Acesso síncrono | Não | Sim (SyncAccessHandle) |
+| Característica               | IndexedDB          | OPFS                   |
+| ---------------------------- | ------------------ | ---------------------- |
+| Ideal para                   | Dados estruturados | Arquivos grandes       |
+| Performance de grandes blobs | Média              | Alta                   |
+| Limite de tamanho            | Menor              | Maior                  |
+| API                          | Key-value          | Sistema de arquivos    |
+| Acesso síncrono              | Não                | Sim (SyncAccessHandle) |
 
 ## Sincronização entre signals e armazenamento
 
@@ -202,11 +216,13 @@ async function saveContacts() {
 }
 ```
 
-Esse padrão é repetido para contatos, mensagens, configurações e metadados de arquivos.
+Esse padrão é repetido para contatos, mensagens, configurações e metadados de
+arquivos.
 
 ## Estado de transferências P2P
 
-Transferências de arquivo são gerenciadas por um Web Worker, mas o estado é refletido em signals:
+Transferências de arquivo são gerenciadas por um Web Worker, mas o estado é
+refletido em signals:
 
 ```typescript
 export const transferState = signal<TransferState>({
@@ -220,7 +236,8 @@ export const transferState = signal<TransferState>({
 });
 ```
 
-O Worker envia mensagens de progresso e o `store.ts` atualiza o signal. O `TransferDock.tsx` lê esse signal para mostrar o progresso na UI.
+O Worker envia mensagens de progresso e o `store.ts` atualiza o signal. O
+`TransferDock.tsx` lê esse signal para mostrar o progresso na UI.
 
 ## Estado de navegação
 
@@ -234,7 +251,8 @@ export function navigateTo(view: ViewType) {
 }
 ```
 
-O componente `App.tsx` lê `currentView.value` e renderiza o componente correto. Transições de view são aplicadas via View Transitions API quando disponível.
+O componente `App.tsx` lê `currentView.value` e renderiza o componente correto.
+Transições de view são aplicadas via View Transitions API quando disponível.
 
 ## Estado de notificações e badge
 
@@ -308,4 +326,5 @@ const totalContacts = computed(() => contacts.value.size);
 - Sempre que um signal muda, o app salva a mudança no armazenamento persistente.
 - A separação entre IndexedDB e OPFS otimiza performance e capacidade.
 
-Essa arquitetura torna o Loco rápido, reativo e capaz de funcionar offline com todos os dados essenciais disponíveis localmente.
+Essa arquitetura torna o Loco rápido, reativo e capaz de funcionar offline com
+todos os dados essenciais disponíveis localmente.

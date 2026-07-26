@@ -2,9 +2,12 @@
 
 ## Visão geral
 
-A interface do Loco é construída com **Preact** e **Material Design 3** via biblioteca `@material/web`. A navegação é baseada em uma única página (SPA) onde o componente raiz `App.tsx` gerencia qual view está sendo exibida.
+A interface do Loco é construída com **Preact** e **Material Design 3** via
+biblioteca `@material/web`. A navegação é baseada em uma única página (SPA) onde
+o componente raiz `App.tsx` gerencia qual view está sendo exibida.
 
-O design é **mobile-first**, responsivo e segue os princípios do Material You com suporte a temas, transições e componentes acessíveis.
+O design é **mobile-first**, responsivo e segue os princípios do Material You
+com suporte a temas, transições e componentes acessíveis.
 
 ## Componentes principais
 
@@ -22,7 +25,8 @@ Componente raiz. Responsável por:
 
 ### `ContactList`
 
-Tela inicial. Exibe a lista de contatos/conversas ordenados por `lastContact`. Quando vazia, mostra um empty state com CTA para adicionar contato.
+Tela inicial. Exibe a lista de contatos/conversas ordenados por `lastContact`.
+Quando vazia, mostra um empty state com CTA para adicionar contato.
 
 ### `ChatWindow.tsx`
 
@@ -45,7 +49,8 @@ Tela de perfil do usuário. Permite:
 
 ### `QRScanner.tsx`
 
-Tela em tela cheia para escanear QR Code. Usa a câmera e a Barcode Detection API. Quando detecta um link `#add=`, adiciona o contato automaticamente.
+Tela em tela cheia para escanear QR Code. Usa a câmera e a Barcode Detection
+API. Quando detecta um link `#add=`, adiciona o contato automaticamente.
 
 ### `Settings.tsx`
 
@@ -81,7 +86,8 @@ ContactList
 
 ### Tela de carregamento
 
-Não existe uma tela de splash dedicada, mas a inicialização é rápida. O `initApp()` carrega os dados do IndexedDB e o app renderiza imediatamente.
+Não existe uma tela de splash dedicada, mas a inicialização é rápida. O
+`initApp()` carrega os dados do IndexedDB e o app renderiza imediatamente.
 
 ### Empty state
 
@@ -91,7 +97,8 @@ Se `contacts.value.size === 0`, a `ContactList` exibe:
 - Texto "Nenhuma conversa".
 - Botão "Adicionar Contato" que leva à tela de Perfil.
 
-Isso é importante para o primeiro uso, pois orienta o usuário a criar seu perfil e adicionar contatos.
+Isso é importante para o primeiro uso, pois orienta o usuário a criar seu perfil
+e adicionar contatos.
 
 ### Lista de conversas
 
@@ -106,7 +113,8 @@ A lista é ordenada por `lastContact`, com os mais recentes no topo.
 
 ## Onboarding
 
-O Loco não tem um fluxo de onboarding tradicional com vários passos. Em vez disso, o onboarding acontece de forma contextual:
+O Loco não tem um fluxo de onboarding tradicional com vários passos. Em vez
+disso, o onboarding acontece de forma contextual:
 
 ### Primeira abertura
 
@@ -141,7 +149,8 @@ Essa abordagem evita assustar o usuário com muitas permissões logo no início.
 
 ### O que é
 
-O Loco implementa **Web Share Target**, permitindo que outros apps (navegador, galeria, etc.) compartilhem conteúdo diretamente com o Loco.
+O Loco implementa **Web Share Target**, permitindo que outros apps (navegador,
+galeria, etc.) compartilhem conteúdo diretamente com o Loco.
 
 ### Manifesto do Share Target
 
@@ -205,11 +214,13 @@ Quando o app recebe um compartilhamento, exibe um banner na parte superior:
 └─────────────────────────────────────┘
 ```
 
-Atualmente, o fluxo mostra o banner e permite que o usuário selecione um contato na lista.
+Atualmente, o fluxo mostra o banner e permite que o usuário selecione um contato
+na lista.
 
 ### Fluxo ideal planejado
 
-O objetivo é que, ao abrir via Share Target, o app já apresente uma tela de seleção de contato:
+O objetivo é que, ao abrir via Share Target, o app já apresente uma tela de
+seleção de contato:
 
 ```
 Compartilhamento recebido
@@ -265,35 +276,44 @@ export function processIncomingShare() {
   const sharedUrl = params.get("shared_url");
 
   if (sharedTitle || sharedText || sharedUrl) {
-    pendingShare.value = { title: sharedTitle, text: sharedText, url: sharedUrl };
+    pendingShare.value = {
+      title: sharedTitle,
+      text: sharedText,
+      url: sharedUrl,
+    };
     history.replaceState(null, "", location.pathname);
   }
 }
 ```
 
-Esse conteúdo é armazenado no signal `pendingShare` e consumido pelo `App.tsx` e `ChatWindow.tsx`.
+Esse conteúdo é armazenado no signal `pendingShare` e consumido pelo `App.tsx` e
+`ChatWindow.tsx`.
 
 ### Banner no ChatWindow
 
-Dentro do `ChatWindow.tsx`, quando `pendingShare.value` existe e há um contato selecionado, mostra:
+Dentro do `ChatWindow.tsx`, quando `pendingShare.value` existe e há um contato
+selecionado, mostra:
 
 ```tsx
-{pendingShare.value && (
-  <div class="share-banner">
-    <span>Enviar conteúdo compartilhado?</span>
-    <md-filled-tonal-button onClick={handleSendPendingShare}>
-      Enviar
-    </md-filled-tonal-button>
-    <md-icon-button onClick={() => (pendingShare.value = null)}>
-      <md-icon>close</md-icon>
-    </md-icon-button>
-  </div>
-)}
+{
+  pendingShare.value && (
+    <div class="share-banner">
+      <span>Enviar conteúdo compartilhado?</span>
+      <md-filled-tonal-button onClick={handleSendPendingShare}>
+        Enviar
+      </md-filled-tonal-button>
+      <md-icon-button onClick={() => (pendingShare.value = null)}>
+        <md-icon>close</md-icon>
+      </md-icon-button>
+    </div>
+  );
+}
 ```
 
 ### Compartilhamento de arquivos
 
-Além de texto/URL, o manifesto aceita compartilhamento de arquivos. O fluxo ideal seria:
+Além de texto/URL, o manifesto aceita compartilhamento de arquivos. O fluxo
+ideal seria:
 
 1. Recebe arquivos via Share Target.
 2. Armazena em `pendingFiles`.
@@ -301,7 +321,8 @@ Além de texto/URL, o manifesto aceita compartilhamento de arquivos. O fluxo ide
 4. Inicia transferência P2P do arquivo.
 5. Envia mensagem com magnet link para o contato.
 
-Esse fluxo ainda não está completamente implementado, mas a estrutura básica já existe.
+Esse fluxo ainda não está completamente implementado, mas a estrutura básica já
+existe.
 
 ## Navegação e transições
 
@@ -315,7 +336,8 @@ export function navigateTo(view: ViewType) {
 }
 ```
 
-A `navigateWithTransition` usa a View Transitions API quando disponível para criar transições suaves entre telas.
+A `navigateWithTransition` usa a View Transitions API quando disponível para
+criar transições suaves entre telas.
 
 ## Componentes de feedback visual
 
@@ -352,4 +374,5 @@ A interface considera:
 - O fluxo ideal de share envolve seleção rápida de contato e envio direto.
 - A UI prioriza mobile, Material Design 3 e feedback visual claro.
 
-A interface é projetada para ser simples, direta e alinhada com a filosofia do app: comunicação direta, sem servidor e sob controle do usuário.
+A interface é projetada para ser simples, direta e alinhada com a filosofia do
+app: comunicação direta, sem servidor e sob controle do usuário.

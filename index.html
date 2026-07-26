@@ -1,15 +1,17 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#6750A4">
-  <title>Loco</title>
-  <link rel="manifest" href="manifest.json">
-  
-  <style>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#6750A4">
+    <title>Loco</title>
+    <link rel="manifest" href="manifest.json">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons"
+      rel="stylesheet">
+
+    <style>
     :root {
-      /* Material Design 3 - Purple Theme */
       --md-sys-color-primary: #6750A4;
       --md-sys-color-on-primary: #FFFFFF;
       --md-sys-color-primary-container: #EADDFF;
@@ -37,7 +39,7 @@
       --md-sys-color-inverse-surface: #313033;
       --md-sys-color-inverse-on-surface: #F4EFF4;
       --md-sys-color-inverse-primary: #D0BCFF;
-      
+
       --md-sys-typescale-body-large: 400 1rem/1.5rem Roboto, system-ui, sans-serif;
       --md-sys-typescale-body-medium: 400 0.875rem/1.25rem Roboto, system-ui, sans-serif;
       --md-sys-typescale-body-small: 400 0.75rem/1rem Roboto, system-ui, sans-serif;
@@ -48,8 +50,12 @@
       --md-sys-typescale-label-large: 500 0.875rem/1.25rem Roboto, system-ui, sans-serif;
     }
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       font: var(--md-sys-typescale-body-large);
       background: var(--md-sys-color-background);
@@ -70,7 +76,6 @@
       padding-bottom: 80px;
     }
 
-    /* Top App Bar */
     .top-bar {
       display: flex;
       align-items: center;
@@ -82,9 +87,10 @@
       position: sticky;
       top: 0;
     }
-    .top-bar-title { font: var(--md-sys-typescale-title-large); }
+    .top-bar-title {
+      font: var(--md-sys-typescale-title-large);
+    }
 
-    /* Drawer */
     .drawer {
       position: fixed;
       top: 0;
@@ -96,19 +102,26 @@
       transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       z-index: 1000;
     }
-    .drawer.open { left: 0; }
+    .drawer.open {
+      left: 0;
+    }
     .drawer-overlay {
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
       background: rgba(0,0,0,0.32);
       z-index: 999;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.3s;
     }
-    .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+    .drawer-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
 
-    /* Chat */
     .chat-screen {
       display: flex;
       flex-direction: column;
@@ -131,12 +144,14 @@
       cursor: pointer;
     }
     .header-photo {
-      width: 40px; height: 40px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       object-fit: cover;
     }
     .header-photo-placeholder {
-      width: 40px; height: 40px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
@@ -165,8 +180,13 @@
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
     }
-    .chat-msg.received { align-self: flex-start; }
-    .msg-text { font: var(--md-sys-typescale-body-medium); word-break: break-word; }
+    .chat-msg.received {
+      align-self: flex-start;
+    }
+    .msg-text {
+      font: var(--md-sys-typescale-body-medium);
+      word-break: break-word;
+    }
     .msg-meta {
       display: flex;
       gap: 0.5rem;
@@ -190,11 +210,14 @@
       background: var(--md-sys-color-surface-variant);
       font: var(--md-sys-typescale-body-large);
     }
-    .chat-input:focus { outline: none; border-color: var(--md-sys-color-primary); }
+    .chat-input:focus {
+      outline: none;
+      border-color: var(--md-sys-color-primary);
+    }
 
-    /* Contact List */
     .contact-avatar {
-      width: 56px; height: 56px;
+      width: 56px;
+      height: 56px;
       border-radius: 50%;
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
@@ -205,7 +228,11 @@
       font-weight: 500;
       overflow: hidden;
     }
-    .contact-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .contact-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
     .unread-badge {
       background: var(--md-sys-color-primary);
       color: var(--md-sys-color-on-primary);
@@ -216,16 +243,20 @@
       text-align: center;
     }
 
-    /* Status Badge */
     .status-badge {
       font-size: 0.875rem;
       padding: 0.25rem 0.5rem;
       border-radius: 0.5rem;
     }
-    .status-badge.p2p { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
-    .status-badge.push { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+    .status-badge.p2p {
+      background: var(--md-sys-color-tertiary-container);
+      color: var(--md-sys-color-on-tertiary-container);
+    }
+    .status-badge.push {
+      background: var(--md-sys-color-secondary-container);
+      color: var(--md-sys-color-on-secondary-container);
+    }
 
-    /* Empty State */
     .empty {
       display: flex;
       flex-direction: column;
@@ -236,30 +267,39 @@
       color: var(--md-sys-color-on-surface-variant);
       padding: 2rem;
     }
-    .empty-icon { font-size: 4rem; opacity: 0.5; }
+    .empty-icon {
+      font-size: 4rem;
+      opacity: 0.5;
+    }
 
-    /* Profile */
-    .profile-section, .settings-section {
+    .profile-section,
+    .settings-section {
       padding: 1rem;
       display: flex;
       flex-direction: column;
       gap: 1rem;
     }
-    .profile-card, .settings-card {
+    .profile-card,
+    .settings-card {
       background: var(--md-sys-color-surface);
       border-radius: 1rem;
       padding: 1.5rem;
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
-    .profile-photo { text-align: center; margin-bottom: 1.5rem; }
+    .profile-photo {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
     .profile-photo img {
-      width: 120px; height: 120px;
+      width: 120px;
+      height: 120px;
       border-radius: 50%;
       object-fit: cover;
       border: 4px solid var(--md-sys-color-primary-container);
     }
     .photo-placeholder {
-      width: 120px; height: 120px;
+      width: 120px;
+      height: 120px;
       border-radius: 50%;
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
@@ -281,17 +321,20 @@
       padding: 0.75rem 0;
       border-bottom: 1px solid var(--md-sys-color-outline-variant);
     }
-    .toggle-row:last-child { border-bottom: none; }
-    .toggle-label { font: var(--md-sys-typescale-body-large); color: var(--md-sys-color-on-surface); }
+    .toggle-row:last-child {
+      border-bottom: none;
+    }
+    .toggle-label {
+      font: var(--md-sys-typescale-body-large);
+      color: var(--md-sys-color-on-surface);
+    }
 
-    /* Storage Status */
     .storage-status {
       display: flex;
       align-items: center;
       gap: 0.75rem;
     }
 
-    /* Location Link */
     .location-link {
       display: inline-block;
       margin-top: 0.5rem;
@@ -299,16 +342,27 @@
       text-decoration: none;
       font: var(--md-sys-typescale-label-large);
     }
-    .location-link:hover { text-decoration: underline; }
-    .encrypted-badge { font-size: 0.875rem; margin-right: 0.25rem; }
+    .location-link:hover {
+      text-decoration: underline;
+    }
+    .encrypted-badge {
+      font-size: 0.875rem;
+      margin-right: 0.25rem;
+    }
 
-    /* File Actions */
-    .file-actions { margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .file-actions {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
 
-    /* Call Screen */
     .call-screen {
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
       background: black;
       z-index: 3000;
       display: flex;
@@ -317,25 +371,39 @@
     .call-controls {
       position: absolute;
       bottom: 2rem;
-      left: 0; right: 0;
+      left: 0;
+      right: 0;
       display: flex;
       justify-content: center;
       gap: 1rem;
     }
 
-    /* View Transitions */
-    @view-transition { navigation: auto; }
-    ::view-transition-old(root) { animation: fade-out 0.2s ease-out; }
-    ::view-transition-new(root) { animation: fade-in 0.2s ease-in; }
-    @keyframes fade-out { to { opacity: 0; } }
-    @keyframes fade-in { from { opacity: 0; } }
-
-    /* Virtual Keyboard */
-    @supports (height: 100dvh) {
-      .chat-screen { height: calc(100dvh - 56px - var(--vk-height, 0px)); }
+    @view-transition {
+      navigation: auto;
+    }
+    ::view-transition-old(root) {
+      animation: fade-out 0.2s ease-out;
+    }
+    ::view-transition-new(root) {
+      animation: fade-in 0.2s ease-in;
+    }
+    @keyframes fade-out {
+      to {
+        opacity: 0;
+      }
+    }
+    @keyframes fade-in {
+      from {
+        opacity: 0;
+      }
     }
 
-    /* Window Controls Overlay */
+    @supports (height: 100dvh) {
+      .chat-screen {
+        height: calc(100dvh - 56px - var(--vk-height, 0px));
+      }
+    }
+
     @supports (padding-top: env(titlebar-area-height)) {
       .top-bar {
         padding-top: env(titlebar-area-height, 0);
@@ -343,9 +411,30 @@
         width: calc(100% - env(titlebar-area-width, 0px));
       }
     }
-  </style>
-</head>
-<body>
-<!-- APP_JS -->
-</body>
+    </style>
+  </head>
+  <body>
+    <script type="importmap">
+    {
+      "imports": {
+        "preact": "https://esm.sh/preact@10.19.3",
+        "preact/hooks": "https://esm.sh/preact@10.19.3/hooks",
+        "preact/jsx-runtime": "https://esm.sh/preact@10.19.3/jsx-runtime",
+        "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+        "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
+        "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+        "fflate": "https://esm.sh/fflate@0.8.2",
+        "qrcode": "https://esm.sh/qrcode@1.5.3"
+      }
+    }
+    </script>
+    <script type="module" src="/main.js"></script>
+    <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(console.error);
+      });
+    }
+    </script>
+  </body>
 </html>

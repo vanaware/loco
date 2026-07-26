@@ -1,26 +1,51 @@
+/// <reference lib="webworker" />
+
+interface SyncEvent extends ExtendableEvent {
+  tag: string;
+}
+
+interface PeriodicSyncEvent extends ExtendableEvent {
+  tag: string;
+}
+
+interface NotificationAction {
+  action: string;
+  title: string;
+}
+
 declare const self: ServiceWorkerGlobalScope;
 
 const CACHE_NAME = "loco-assets-v1";
 
-self.addEventListener("install", (e) => {
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
-self.addEventListener("activate", (e) => {
-  e.waitUntil(
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
     Promise.all([
       self.clients.claim(),
-      caches.keys().then(keys => 
-        Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-      )
-    ])
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)),
+        )
+      ),
+    ]),
   );
 });
 
-// ===== PUSH NOTIFICATIONS =====
+interface PushData {
+  type?: string;
+  text?: string;
+  displayName?: string;
+  from?: string;
+}
+
 self.addEventListener("push", (event) => {
-  let data: any = {};
-  try { if (event.data) data = event.data.json(); } catch {}
+  let data: PushData = {};
+  try {
+    if (event.data) data = event.data.json();
+  } catch { /* ignore */ }
 
   const title = data.type === "TEXT_MESSAGE"
     ? `💬 ${data.displayName || "Alguém"}`
@@ -32,18 +57,26 @@ self.addEventListener("push", (event) => {
     ? `📞 ${data.displayName || "Alguém"} está ligando`
     : "🔔 Notificação";
 
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body: data.text || "",
-      vibrate: [100, 50, 100],
-      data,
-      tag: data.from || "default",
-      renotify: true,
-      actions: data.type === "CALL_REQUEST" ? [
+  const notificationOptions: NotificationOptions & {
+    vibrate?: number[];
+    renotify?: boolean;
+    actions?: NotificationAction[];
+  } = {
+    body: data.text || "",
+    vibrate: [100, 50, 100],
+    data,
+    tag: data.from || "default",
+    renotify: true,
+    actions: data.type === "CALL_REQUEST"
+      ? [
         { action: "accept", title: "Atender" },
-        { action: "decline", title: "Recusar" }
-      ] : undefined,
-    })
+        { action: "decline", title: "Recusar" },
+      ]
+      : undefined,
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, notificationOptions),
   );
 });
 
@@ -51,26 +84,24 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   event.waitUntil(
     self.clients.matchAll({ type: "window" }).then((list) => {
-      for (const c of list) {
-        if ("focus" in c) {
-          c.postMessage({ 
-            type: "NOTIFICATION_CLICK", 
+      for (const client of list) {
+        if ("focus" in client) {
+          client.postMessage({
+            type: "NOTIFICATION_CLICK",
             data: event.notification.data,
-            action: event.action || "open"
+            action: event.action || "open",
           });
-          return c.focus();
+          return client.focus();
         }
       }
       return self.clients.openWindow("/");
-    })
+    }),
   );
 });
 
-// ===== FETCH - Network First, Fallback Cache =====
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  
-  // Share Target handler — extrai dados do POST e redireciona com query params
+
   if (url.pathname === "/share-target" && event.request.method === "POST") {
     event.respondWith(
       (async () => {
@@ -87,54 +118,63 @@ self.addEventListener("fetch", (event) => {
         } catch {
           return Response.redirect("/?share_received=true", 303);
         }
-      })()
+      })(),
     );
     return;
   }
 
-  // Assets estáticos - Cache First
-  if (event.request.destination === "script" || 
-      event.request.destination === "style" ||
-      event.request.destination === "image") {
+  if (
+    event.request.destination === "script" ||
+    event.request.destination === "style" ||
+    event.request.destination === "image"
+  ) {
     event.respondWith(
-      caches.match(event.request).then(cached => {
+      caches.match(event.request).then((cached) => {
         if (cached) return cached;
-        return fetch(event.request).then(response => {
+        return fetch(event.request).then((response) => {
           if (response.ok) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+            caches.open(CACHE_NAME).then((cache) =>
+              cache.put(event.request, clone)
+            );
           }
           return response;
         });
-      })
+      }),
     );
     return;
   }
 
-  // HTML - Network First
   event.respondWith(
     fetch(event.request)
-      .then(response => {
+      .then((response) => {
         const clone = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        caches.open(CACHE_NAME).then((cache) =>
+          cache.put(event.request, clone)
+        );
         return response;
       })
-      .catch(() => caches.match(event.request) as any)
+      .catch(() => caches.match(event.request) as Promise<Response>),
   );
 });
 
-// ===== BACKGROUND SYNC =====
-self.addEventListener("sync", (event: any) => {
-  if (event.tag === "sync-updates") {
-    event.waitUntil(checkForUpdates());
-  }
-});
+self.addEventListener(
+  "sync",
+  ((event: SyncEvent) => {
+    if (event.tag === "sync-updates") {
+      event.waitUntil(checkForUpdates());
+    }
+  }) as EventListener,
+);
 
-self.addEventListener("periodicsync", (event: any) => {
-  if (event.tag === "check-static-updates") {
-    event.waitUntil(checkForUpdates());
-  }
-});
+self.addEventListener(
+  "periodicsync",
+  ((event: PeriodicSyncEvent) => {
+    if (event.tag === "check-static-updates") {
+      event.waitUntil(checkForUpdates());
+    }
+  }) as EventListener,
+);
 
 async function checkForUpdates() {
   try {
@@ -144,7 +184,7 @@ async function checkForUpdates() {
     for (const client of clients) {
       client.postMessage({ type: "UPDATE_AVAILABLE", version });
     }
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 export {};

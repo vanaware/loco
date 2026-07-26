@@ -1,12 +1,15 @@
-import { useRef } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { signal } from "@preact/signals";
 import {
-  currentChatContact, contacts, navigateTo,
-  checkCallAvailability
+  checkCallAvailability,
+  contacts,
+  currentChatContact,
 } from "../store.ts";
 import {
-  requestWakeLock, releaseWakeLock,
-  enterPiP, exitPiP,
+  enterPiP,
+  exitPiP,
+  releaseWakeLock,
+  requestWakeLock,
 } from "../utils/pwa.ts";
 import { detectCapabilities } from "../utils/capabilities.ts";
 
@@ -48,19 +51,21 @@ export function CallScreen() {
     try {
       const constraints: MediaStreamConstraints = {
         audio: true,
-        video: video ? { 
-          facingMode: camera.value === "front" ? "user" : "environment" 
-        } : false,
+        video: video
+          ? {
+            facingMode: camera.value === "front" ? "user" : "environment",
+          }
+          : false,
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStream.value = stream;
 
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
 
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       pc.ontrack = (event) => {
         remoteStream.value = event.streams[0];
@@ -80,8 +85,8 @@ export function CallScreen() {
 
   const endCall = async () => {
     peerConnection.value?.close();
-    localStream.value?.getTracks().forEach(t => t.stop());
-    
+    localStream.value?.getTracks().forEach((t) => t.stop());
+
     exitPiP();
     await releaseWakeLock();
 
@@ -95,14 +100,14 @@ export function CallScreen() {
   };
 
   const toggleAudio = () => {
-    localStream.value?.getAudioTracks().forEach(t => {
+    localStream.value?.getAudioTracks().forEach((t) => {
       t.enabled = !t.enabled;
     });
     isAudioEnabled.value = !isAudioEnabled.value;
   };
 
   const toggleVideo = () => {
-    localStream.value?.getVideoTracks().forEach(t => {
+    localStream.value?.getVideoTracks().forEach((t) => {
       t.enabled = !t.enabled;
     });
     isVideoEnabled.value = !isVideoEnabled.value;
@@ -110,19 +115,19 @@ export function CallScreen() {
 
   const switchCamera = async () => {
     if (!localStream.value) return;
-    localStream.value.getVideoTracks().forEach(t => t.stop());
+    localStream.value.getVideoTracks().forEach((t) => t.stop());
 
     const newFacing = camera.value === "front" ? "back" : "front";
     const newStream = await navigator.mediaDevices.getUserMedia({
       audio: true,
-      video: { facingMode: newFacing === "front" ? "user" : "environment" }
+      video: { facingMode: newFacing === "front" ? "user" : "environment" },
     });
 
     const pc = peerConnection.value;
     if (pc) {
       const senders = pc.getSenders();
       for (const track of newStream.getTracks()) {
-        const sender = senders.find(s => s.track?.kind === track.kind);
+        const sender = senders.find((s) => s.track?.kind === track.kind);
         if (sender) await sender.replaceTrack(track);
       }
     }
@@ -202,16 +207,34 @@ export function CallScreen() {
 
       {/* Controles */}
       <div class="call-controls">
-        <md-fab variant="small" onClick={toggleAudio} 
-          style={`--md-fab-container-color: ${isAudioEnabled.value ? 'var(--md-sys-color-surface)' : 'var(--md-sys-color-error)'}`}>
-          <md-icon slot="icon">{isAudioEnabled.value ? "mic" : "mic_off"}</md-icon>
+        <md-fab
+          variant="small"
+          onClick={toggleAudio}
+          style={`--md-fab-container-color: ${
+            isAudioEnabled.value
+              ? "var(--md-sys-color-surface)"
+              : "var(--md-sys-color-error)"
+          }`}
+        >
+          <md-icon slot="icon">
+            {isAudioEnabled.value ? "mic" : "mic_off"}
+          </md-icon>
         </md-fab>
 
         {isVideoEnabled.value && (
           <>
-            <md-fab variant="small" onClick={toggleVideo}
-              style={`--md-fab-container-color: ${isVideoEnabled.value ? 'var(--md-sys-color-surface)' : 'var(--md-sys-color-error)'}`}>
-              <md-icon slot="icon">{isVideoEnabled.value ? "videocam" : "videocam_off"}</md-icon>
+            <md-fab
+              variant="small"
+              onClick={toggleVideo}
+              style={`--md-fab-container-color: ${
+                isVideoEnabled.value
+                  ? "var(--md-sys-color-surface)"
+                  : "var(--md-sys-color-error)"
+              }`}
+            >
+              <md-icon slot="icon">
+                {isVideoEnabled.value ? "videocam" : "videocam_off"}
+              </md-icon>
             </md-fab>
 
             <md-fab variant="small" onClick={switchCamera}>
@@ -226,8 +249,11 @@ export function CallScreen() {
           </>
         )}
 
-        <md-fab variant="small" onClick={endCall}
-          style="--md-fab-container-color: var(--md-sys-color-error);">
+        <md-fab
+          variant="small"
+          onClick={endCall}
+          style="--md-fab-container-color: var(--md-sys-color-error);"
+        >
           <md-icon slot="icon">call_end</md-icon>
         </md-fab>
       </div>

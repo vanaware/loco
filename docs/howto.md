@@ -1,6 +1,5 @@
 # 🚀Comandos para Executar
 
-
 ```bash
 # Clonar/criar repositório
 mkdir loco && cd loco
@@ -9,8 +8,8 @@ mkdir loco && cd loco
 # Instalar Deno (se necessário)
 curl -fsSL https://deno.land/install.sh | sh
 
-# Build e executar
-deno task start
+# Build (usa Deno.bundle() para múltiplos entrypoints) e executar
+deno task build && deno task start
 
 # Desenvolvimento com watch
 deno task dev

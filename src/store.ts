@@ -1,15 +1,24 @@
-import { signal, computed } from "@preact/signals";
-import { toCanvas } from "@libs/qrcode";
-import { sendPushDirect, generateVapidKeys, type VapidKeys, type PeerData } from "./crypto.ts";
+import { computed, signal } from "@preact/signals";
+import { toCanvas } from "qrcode";
+import {
+  generateVapidKeys,
+  type PeerData,
+  sendPushDirect,
+  type VapidKeys,
+} from "./crypto.ts";
 import { resizeImage } from "./utils/imageProcessor.ts";
 import { logCapabilities } from "./utils/capabilities.ts";
 import {
-  storageGet, storageSet, loadFromIDB,
-  saveFileToOPFS, deleteFileFromOPFS, exportFileFromOPFS,
+  deleteFileFromOPFS,
+  exportFileFromOPFS,
+  loadFromIDB,
   readFileFromOPFS,
-  type StoredFile,
-  requestPersistentStorage, startStorageMonitor,
+  requestPersistentStorage,
+  saveFileToOPFS,
+  startStorageMonitor,
+  storageSet,
   type StorageStatus,
+  type StoredFile,
 } from "./utils/storage.ts";
 import { setAppBadge } from "./utils/pwa.ts";
 import { navigateWithTransition } from "./utils/pwa.ts";
@@ -90,7 +99,16 @@ export interface TransferState {
 // ============================================================
 
 export const myVapidKeys = signal<VapidKeys | null>(null);
-export const mySubscription = signal<any | null>(null);
+interface PushSubscriptionJSON {
+  endpoint: string;
+  expirationTime?: number;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
+export const mySubscription = signal<PushSubscriptionJSON | null>(null);
 export const myId = signal<string | null>(null);
 export const myDisplayName = signal<string>("");
 export const currentChatContact = signal<string | null>(null);
@@ -135,7 +153,7 @@ export const transferState = signal<TransferState>({
 // ============================================================
 
 const dataChannels: Map<string, RTCDataChannel> = new Map();
-const peerConnections: Map<string, RTCPeerConnection> = new Map();
+// const peerConnections: Map<string, RTCPeerConnection> = new Map(); // TODO: implementar WebRTC signaling
 let p2pWorker: Worker | null = null;
 let masterKey: CryptoKey | null = null;
 
@@ -160,7 +178,9 @@ export async function initApp() {
     storage.value = status;
     if (status.isLow) {
       console.warn(
-        `⚠️ Armazenamento baixo (${(status.percentUsed * 100).toFixed(0)}%). Faça backup!`
+        `⚠️ Armazenamento baixo (${
+          (status.percentUsed * 100).toFixed(0)
+        }%). Faça backup!`,
       );
     }
   });
@@ -176,7 +196,7 @@ export async function initApp() {
 
   const filesMeta = await loadFromIDB<Record<string, StoredFile>>(
     "storedFiles",
-    {}
+    {},
   );
   storedFiles.value = new Map(Object.entries(filesMeta));
 
@@ -247,7 +267,7 @@ export function addContact(id: string, contact: Contact) {
 
 export function updateContactSettings(
   contactId: string,
-  updates: Partial<Contact>
+  updates: Partial<Contact>,
 ) {
   const current = [...contactsRaw.value];
   const idx = current.findIndex(([cid]) => cid === contactId);
@@ -271,7 +291,7 @@ export async function deleteContact(contactId: string) {
 
   contactsRaw.value = contactsRaw.value.filter(([cid]) => cid !== contactId);
   chatSessionsRaw.value = chatSessionsRaw.value.filter(
-    ([cid]) => cid !== contactId
+    ([cid]) => cid !== contactId,
   );
   await saveContacts();
   await saveSessions();
@@ -285,13 +305,13 @@ export async function smartSendMessage(
   contactId: string,
   text: string,
   type: "text" | "location" = "text",
-  location?: { lat: number; lng: number }
+  location?: { lat: number; lng: number },
 ) {
   const contact = contacts.value.get(contactId);
   if (!contact || !myId.value) return;
 
-  const shouldEncrypt =
-    appConfig.value.encryptMessages && contact.encryptMessages;
+  const shouldEncrypt = appConfig.value.encryptMessages &&
+    contact.encryptMessages;
   let finalText = text;
   let isEncrypted = false;
 
@@ -345,12 +365,11 @@ async function sendMessageViaPush(contactId: string, msg: Message) {
   if (!contact || !myVapidKeys.value) return;
 
   const payload = JSON.stringify({
-    type:
-      msg.type === "location"
-        ? "LOCATION_MESSAGE"
-        : msg.type === "profile_update"
-        ? "PROFILE_UPDATE"
-        : "TEXT_MESSAGE",
+    type: msg.type === "location"
+      ? "LOCATION_MESSAGE"
+      : msg.type === "profile_update"
+      ? "PROFILE_UPDATE"
+      : "TEXT_MESSAGE",
     from: myId.value,
     text: msg.text,
     location: msg.location,
@@ -398,7 +417,11 @@ export function clearSession(contactId: string) {
   const sessions = [...chatSessionsRaw.value];
   const idx = sessions.findIndex(([cid]) => cid === contactId);
   if (idx !== -1) {
-    sessions[idx] = [contactId, { ...sessions[idx][1], messages: [], unreadCount: 0 }];
+    sessions[idx] = [contactId, {
+      ...sessions[idx][1],
+      messages: [],
+      unreadCount: 0,
+    }];
     chatSessionsRaw.value = sessions;
     saveSessions();
   }
@@ -408,9 +431,9 @@ export function clearSession(contactId: string) {
 // PROFILE UPDATE (P2P)
 // ============================================================
 
-export async function sendProfileUpdate(
+export function sendProfileUpdate(
   contactId: string,
-  dc: RTCDataChannel
+  dc: RTCDataChannel,
 ) {
   const profileData = {
     type: "profile_update",
@@ -430,7 +453,7 @@ export async function sendProfileUpdate(
         status: "delivered",
         channel: "p2p",
         type: "profile_update",
-      })
+      }),
     );
   } catch (e) {
     console.warn("Falha ao enviar profile update:", e);
@@ -444,12 +467,11 @@ export async function sendProfileUpdate(
 export async function handleFileReceived(
   file: File | Blob,
   messageId: string,
-  contactId: string
+  contactId: string,
 ) {
-  const fileObj =
-    file instanceof File
-      ? file
-      : new File([file], `file_${messageId}`, { type: file.type });
+  const fileObj = file instanceof File
+    ? file
+    : new File([file], `file_${messageId}`, { type: file.type });
 
   const stored = await saveFileToOPFS(fileObj, messageId, contactId);
   if (!stored) return;
@@ -518,7 +540,7 @@ export async function downloadFile(messageId: string) {
 
 function getP2PWorker(): Worker {
   if (!p2pWorker) {
-    p2pWorker = new Worker("/p2p-transfer.worker.js", { type: "module" });
+    p2pWorker = new Worker("/worker.js", { type: "module" });
     p2pWorker.onmessage = (e) => {
       const { type, payload } = e.data;
 
@@ -537,7 +559,7 @@ function getP2PWorker(): Worker {
             smartSendMessage(
               currentChatContact.value,
               `📤 Arquivo: ${payload.fileName}\n\nmagnet:${payload.magnetURI}`,
-              "text"
+              "text",
             );
           }
           break;
@@ -546,10 +568,9 @@ function getP2PWorker(): Worker {
           transferState.value = {
             ...transferState.value,
             progress: (payload.progress || 0) * 100,
-            speed:
-              payload.role === "sender"
-                ? payload.uploadSpeed
-                : payload.downloadSpeed,
+            speed: payload.role === "sender"
+              ? payload.uploadSpeed
+              : payload.downloadSpeed,
             peers: payload.peers || 0,
           };
           break;
@@ -581,8 +602,7 @@ function getP2PWorker(): Worker {
             progress: 0,
             speed: 0,
             peers: 0,
-            status:
-              payload.reason === "COMPLETO" ? "completed" : "cancelled",
+            status: payload.reason === "COMPLETO" ? "completed" : "cancelled",
           };
           break;
 
@@ -635,9 +655,11 @@ export function getShareLink() {
     id: myId.value,
     displayName: myDisplayName.value,
   };
-  return `${location.origin}#add=${btoa(
-    encodeURIComponent(JSON.stringify(data))
-  )}`;
+  return `${location.origin}#add=${
+    btoa(
+      encodeURIComponent(JSON.stringify(data)),
+    )
+  }`;
 }
 
 export async function generateQRCode() {
@@ -689,19 +711,19 @@ export function sendMyLocation(contactId: string) {
         {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-        }
+        },
       );
     },
     (err) => {
       alert("Erro ao obter localização: " + err.message);
-    }
+    },
   );
 }
 
 export function requestLocation(contactId: string) {
   smartSendMessage(
     contactId,
-    "📍 Por favor, compartilhe sua localização"
+    "📍 Por favor, compartilhe sua localização",
   );
 }
 
@@ -709,9 +731,9 @@ export function requestLocation(contactId: string) {
 // CHAMADAS
 // ============================================================
 
-export async function checkCallAvailability(
-  _contactId: string
-): Promise<boolean> {
+export function checkCallAvailability(
+  _contactId: string,
+): boolean {
   if (!navigator.mediaDevices?.getUserMedia) {
     alert("Chamadas não suportadas neste dispositivo");
     return false;
@@ -734,7 +756,7 @@ export function navigateTo(view: ViewType) {
 // ============================================================
 
 export function checkBiometricSupport() {
-  if (typeof window !== "undefined" && window.PublicKeyCredential) {
+  if (typeof window !== "undefined" && globalThis.PublicKeyCredential) {
     PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
       .then((available) => (hasBiometricSupport.value = available))
       .catch(() => (hasBiometricSupport.value = false));
@@ -746,7 +768,7 @@ async function initMasterKey(): Promise<void> {
   let keyData: ArrayBuffer;
 
   if (rawKey) {
-    keyData = Uint8Array.from(atob(rawKey), c => c.charCodeAt(0)).buffer;
+    keyData = Uint8Array.from(atob(rawKey), (c) => c.charCodeAt(0)).buffer;
   } else {
     keyData = crypto.getRandomValues(new Uint8Array(32)).buffer;
     const b64 = btoa(String.fromCharCode(...new Uint8Array(keyData)));
@@ -758,7 +780,7 @@ async function initMasterKey(): Promise<void> {
     keyData,
     { name: "AES-GCM", length: 256 },
     false,
-    ["encrypt", "decrypt"]
+    ["encrypt", "decrypt"],
   );
 }
 
@@ -768,7 +790,7 @@ export async function encryptMessage(text: string): Promise<string> {
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     masterKey,
-    new TextEncoder().encode(text)
+    new TextEncoder().encode(text),
   );
   const combined = new Uint8Array(iv.length + encrypted.byteLength);
   combined.set(iv, 0);
@@ -777,17 +799,18 @@ export async function encryptMessage(text: string): Promise<string> {
 }
 
 export async function decryptMessage(
-  encryptedText: string
+  encryptedText: string,
 ): Promise<string> {
   if (!masterKey) return encryptedText;
   try {
-    const combined = Uint8Array.from(atob(encryptedText), (c) =>
-      c.charCodeAt(0)
+    const combined = Uint8Array.from(
+      atob(encryptedText),
+      (c) => c.charCodeAt(0),
     );
     const decrypted = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: combined.slice(0, 12) },
       masterKey,
-      combined.slice(12)
+      combined.slice(12),
     );
     return new TextDecoder().decode(decrypted);
   } catch {

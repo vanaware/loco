@@ -1,10 +1,17 @@
 import { signal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
 import {
-  appConfig, updateConfig, contacts, updateContactSettings,
-  hasBiometricSupport, storage,
+  appConfig,
+  contacts,
+  hasBiometricSupport,
+  storage,
+  updateConfig,
+  updateContactSettings,
 } from "../store.ts";
-import { createBackup, restoreBackup, type BackupOptions } from "../utils/backup.ts";
+import {
+  type BackupOptions,
+  createBackup,
+  restoreBackup,
+} from "../utils/backup.ts";
 import { formatBytes } from "../utils/storage.ts";
 import { detectCapabilities } from "../utils/capabilities.ts";
 
@@ -70,7 +77,13 @@ export function Settings() {
         <div class="settings-card">
           <h3>🛡️ Proteção de Armazenamento</h3>
           <div class="storage-status">
-            <md-icon style={`color: ${storageStatus.persisted ? "var(--md-sys-color-primary)" : "var(--md-sys-color-error)"}`}>
+            <md-icon
+              style={`color: ${
+                storageStatus.persisted
+                  ? "var(--md-sys-color-primary)"
+                  : "var(--md-sys-color-error)"
+              }`}
+            >
               {storageStatus.persisted ? "verified" : "warning"}
             </md-icon>
             <div>
@@ -108,14 +121,18 @@ export function Settings() {
             <span class="toggle-label">🔕 Não Perturbe</span>
             <md-switch
               selected={config.doNotDisturb}
-              onClick={() => updateConfig({ doNotDisturb: !config.doNotDisturb })}
+              onClick={() =>
+                updateConfig({ doNotDisturb: !config.doNotDisturb })}
             />
           </div>
           <div class="toggle-row">
             <span class="toggle-label">📍 Compartilhar localização</span>
             <md-switch
               selected={config.globalLocationSharing}
-              onClick={() => updateConfig({ globalLocationSharing: !config.globalLocationSharing })}
+              onClick={() =>
+                updateConfig({
+                  globalLocationSharing: !config.globalLocationSharing,
+                })}
             />
           </div>
           <div class="toggle-row">
@@ -135,11 +152,20 @@ export function Settings() {
           <md-list>
             {Object.entries(caps).map(([key, supported]) => (
               <md-list-item>
-                <md-icon slot="start" style={`color:${supported ? "var(--md-sys-color-primary)" : "var(--md-sys-color-error)"}`}>
+                <md-icon
+                  slot="start"
+                  style={`color:${
+                    supported
+                      ? "var(--md-sys-color-primary)"
+                      : "var(--md-sys-color-error)"
+                  }`}
+                >
                   {supported ? "check_circle" : "cancel"}
                 </md-icon>
                 <div slot="headline">{formatCapName(key)}</div>
-                <div slot="supporting-text">{supported ? "Disponível" : "Não disponível"}</div>
+                <div slot="supporting-text">
+                  {supported ? "Disponível" : "Não disponível"}
+                </div>
               </md-list-item>
             ))}
           </md-list>
@@ -151,14 +177,21 @@ export function Settings() {
         <div class="settings-card">
           <h3>💾 Backup e Restauração</h3>
           <md-list>
-            {(["profile", "config", "contacts", "conversations", "files"] as const).map((key) => (
+            {([
+              "profile",
+              "config",
+              "contacts",
+              "conversations",
+              "files",
+            ] as const).map((key) => (
               <md-list-item>
                 <md-checkbox
                   slot="start"
                   checked={backupOptions.value[key]}
-                  onClick={() =>
-                    (backupOptions.value = { ...backupOptions.value, [key]: !backupOptions.value[key] })
-                  }
+                  onClick={() => (backupOptions.value = {
+                    ...backupOptions.value,
+                    [key]: !backupOptions.value[key],
+                  })}
                 />
                 <div slot="headline">{backupLabel(key)}</div>
               </md-list-item>
@@ -199,7 +232,9 @@ export function Settings() {
                 <md-list-item onClick={() => (selectedContact.value = id)}>
                   <div slot="headline">{c.displayName}</div>
                   <div slot="supporting-text">
-                    {selectedContact.value === id ? "Selecionado" : "Clique para selecionar"}
+                    {selectedContact.value === id
+                      ? "Selecionado"
+                      : "Clique para selecionar"}
                   </div>
                 </md-list-item>
               ))}
@@ -208,30 +243,39 @@ export function Settings() {
 
           {selectedContact.value && (
             <md-list>
-              <md-list-item>
-                <md-checkbox
-                  slot="start"
-                  checked={contactsMap.get(selectedContact.value)?.allowLocation || false}
-                  onClick={() =>
-                    updateContactSettings(selectedContact.value!, {
-                      allowLocation: !contactsMap.get(selectedContact.value)?.allowLocation,
-                    })
-                  }
-                />
-                <div slot="headline">📍 Permitir localização</div>
-              </md-list-item>
-              <md-list-item>
-                <md-checkbox
-                  slot="start"
-                  checked={contactsMap.get(selectedContact.value)?.encryptMessages || false}
-                  onClick={() =>
-                    updateContactSettings(selectedContact.value!, {
-                      encryptMessages: !contactsMap.get(selectedContact.value)?.encryptMessages,
-                    })
-                  }
-                />
-                <div slot="headline">🔒 Criptografar mensagens</div>
-              </md-list-item>
+              {(() => {
+                const contactId = selectedContact.value || "";
+                return (
+                  <>
+                    <md-list-item>
+                      <md-checkbox
+                        slot="start"
+                        checked={contactsMap.get(contactId)?.allowLocation ||
+                          false}
+                        onClick={() =>
+                          updateContactSettings(contactId, {
+                            allowLocation: !contactsMap.get(contactId)
+                              ?.allowLocation,
+                          })}
+                      />
+                      <div slot="headline">📍 Permitir localização</div>
+                    </md-list-item>
+                    <md-list-item>
+                      <md-checkbox
+                        slot="start"
+                        checked={contactsMap.get(contactId)?.encryptMessages ||
+                          false}
+                        onClick={() =>
+                          updateContactSettings(contactId, {
+                            encryptMessages: !contactsMap.get(contactId)
+                              ?.encryptMessages,
+                          })}
+                      />
+                      <div slot="headline">🔒 Criptografar mensagens</div>
+                    </md-list-item>
+                  </>
+                );
+              })()}
             </md-list>
           )}
         </div>

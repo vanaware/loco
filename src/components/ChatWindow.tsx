@@ -1,22 +1,22 @@
 import { useEffect } from "preact/hooks";
 import { signal } from "@preact/signals";
 import {
-  currentChatContact,
-  contacts,
   chatSessions,
-  smartSendMessage,
   connectionStatus,
-  sendMyLocation,
-  navigateTo,
+  contacts,
+  currentChatContact,
   decryptMessage,
-  updateContactSettings,
-  storedFiles,
   deleteFile,
   downloadFile,
-  startFileSend,
-  startFileDownload,
-  pendingShare,
   myId,
+  navigateTo,
+  pendingShare,
+  sendMyLocation,
+  smartSendMessage,
+  startFileDownload,
+  startFileSend,
+  storedFiles,
+  updateContactSettings,
 } from "../store.ts";
 
 export function ChatWindow() {
@@ -61,7 +61,7 @@ export function ChatWindow() {
     inputText.value = "";
   };
 
-  const handleFileSelect = async (e: Event) => {
+  const handleFileSelect = (e: Event) => {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
     startFileSend(file);
@@ -101,25 +101,28 @@ export function ChatWindow() {
           <md-icon>arrow_back</md-icon>
         </md-icon-button>
 
-        <div class="chat-header-info" onClick={() => {
-          editName.value = contact.displayName;
-          editContactModal.value = true;
-        }}>
-          {contact.photo ? (
-            <img src={contact.photo} class="header-photo" />
-          ) : (
-            <div class="header-photo-placeholder">
-              {contact.displayName?.charAt(0).toUpperCase() || "?"}
-            </div>
-          )}
+        <div
+          class="chat-header-info"
+          onClick={() => {
+            editName.value = contact.displayName;
+            editContactModal.value = true;
+          }}
+        >
+          {contact.photo
+            ? <img src={contact.photo} class="header-photo" />
+            : (
+              <div class="header-photo-placeholder">
+                {contact.displayName?.charAt(0).toUpperCase() || "?"}
+              </div>
+            )}
           <div>
             <div style="font:var(--md-sys-typescale-title-medium);">
               {contact.displayName}
             </div>
-            <div
-              style="font:var(--md-sys-typescale-body-small, 400 0.75rem/1rem sans-serif); color:var(--md-sys-color-on-surface-variant);"
-            >
-              {connectionStatus.value === "p2p" ? "⚡ P2P Direto" : "☁️ Via Push"}
+            <div style="font:var(--md-sys-typescale-body-small, 400 0.75rem/1rem sans-serif); color:var(--md-sys-color-on-surface-variant);">
+              {connectionStatus.value === "p2p"
+                ? "⚡ P2P Direto"
+                : "☁️ Via Push"}
             </div>
           </div>
         </div>
@@ -141,9 +144,7 @@ export function ChatWindow() {
 
       {/* ============ SHARE BANNER ============ */}
       {pendingShare.value && (
-        <div
-          style="background:var(--md-sys-color-tertiary-container); padding:0.5rem 1rem; display:flex; align-items:center; gap:0.5rem;"
-        >
+        <div style="background:var(--md-sys-color-tertiary-container); padding:0.5rem 1rem; display:flex; align-items:center; gap:0.5rem;">
           <md-icon>share</md-icon>
           <span style="flex:1; font-size:0.875rem;">
             Enviar conteúdo compartilhado?
@@ -190,7 +191,7 @@ export function ChatWindow() {
                     alt={file.fileName}
                     loading="lazy"
                     style="max-width:220px; max-height:220px; border-radius:0.5rem; margin-bottom:0.5rem; display:block; cursor:pointer;"
-                    onClick={() => window.open(file.url, "_blank")}
+                    onClick={() => globalThis.open(file.url, "_blank")}
                   />
                 )}
 
@@ -247,7 +248,11 @@ export function ChatWindow() {
                 <span>{m.channel === "p2p" ? "P2P" : "Push"}</span>
                 {isSent && (
                   <span>
-                    {m.status === "delivered" ? "✓✓" : m.status === "failed" ? "❌" : "✓"}
+                    {m.status === "delivered"
+                      ? "✓✓"
+                      : m.status === "failed"
+                      ? "❌"
+                      : "✓"}
                   </span>
                 )}
               </div>
@@ -283,9 +288,9 @@ export function ChatWindow() {
         <input
           class="chat-input"
           value={inputText.value}
-          onInput={(e) =>
-            (inputText.value = (e.target as HTMLInputElement).value)
-          }
+          onInput={(
+            e,
+          ) => (inputText.value = (e.target as HTMLInputElement).value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           placeholder="Mensagem..."
           autocomplete="off"
@@ -313,7 +318,7 @@ export function ChatWindow() {
             <md-filled-text-field
               label="Nome exibido"
               value={editName.value}
-              onInput={(e: any) => (editName.value = e.target.value)}
+              onInput={(e: InputEvent) => (editName.value = (e.target as HTMLInputElement).value)}
               style="width:100%;"
             />
 
@@ -342,8 +347,7 @@ export function ChatWindow() {
                   onClick={() =>
                     updateContactSettings(id, {
                       allowLocation: !contact.allowLocation,
-                    })
-                  }
+                    })}
                 />
               </div>
               <div class="toggle-row">
@@ -353,8 +357,7 @@ export function ChatWindow() {
                   onClick={() =>
                     updateContactSettings(id, {
                       encryptMessages: !contact.encryptMessages,
-                    })
-                  }
+                    })}
                 />
               </div>
               <div class="toggle-row">
@@ -364,8 +367,7 @@ export function ChatWindow() {
                   onClick={() =>
                     updateContactSettings(id, {
                       doNotDisturb: !contact.doNotDisturb,
-                    })
-                  }
+                    })}
                 />
               </div>
             </div>

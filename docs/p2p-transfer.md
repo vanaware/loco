@@ -2,11 +2,16 @@
 
 ## Visão geral
 
-O Loco permite enviar arquivos (fotos, vídeos, documentos) diretamente entre dois dispositivos, sem passar por servidor central. Para isso, usamos uma combinação de tecnologias:
+O Loco permite enviar arquivos (fotos, vídeos, documentos) diretamente entre
+dois dispositivos, sem passar por servidor central. Para isso, usamos uma
+combinação de tecnologias:
 
-- **WebTorrent**: biblioteca P2P que usa WebRTC para transferir arquivos via protocolo BitTorrent.
-- **Web Worker**: thread separada que executa toda a lógica do WebTorrent, sem bloquear a interface.
-- **OPFS (Origin Private File System)**: sistema de arquivos privativo do navegador, usado para armazenar arquivos grandes.
+- **WebTorrent**: biblioteca P2P que usa WebRTC para transferir arquivos via
+  protocolo BitTorrent.
+- **Web Worker**: thread separada que executa toda a lógica do WebTorrent, sem
+  bloquear a interface.
+- **OPFS (Origin Private File System)**: sistema de arquivos privativo do
+  navegador, usado para armazenar arquivos grandes.
 - **IndexedDB**: metadados dos arquivos e mensagens.
 
 ## Por que WebTorrent?
@@ -14,13 +19,16 @@ O Loco permite enviar arquivos (fotos, vídeos, documentos) diretamente entre do
 WebTorrent é ideal para este cenário porque:
 
 - Permite compartilhar um arquivo gerando apenas um **magnet link**.
-- O magnet link pode ser enviado por mensagem de texto (via Push ou DataChannel).
+- O magnet link pode ser enviado por mensagem de texto (via Push ou
+  DataChannel).
 - O receptor inicia o download diretamente a partir do remetente.
-- Não precisa de tracker próprio: pode usar trackers públicos para descobrir peers.
+- Não precisa de tracker próprio: pode usar trackers públicos para descobrir
+  peers.
 
 ## Arquitetura isolada: Web Worker
 
-Todo o processamento do WebTorrent roda dentro do arquivo `public/p2p-transfer.worker.js`. Isso é importante porque:
+Todo o processamento do WebTorrent roda dentro do arquivo
+`src/worker/p2p-transfer.worker.js`. Isso é importante porque:
 
 - Evita travamentos na thread principal.
 - Permite transferir arquivos grandes sem congelar a UI.
@@ -28,16 +36,16 @@ Todo o processamento do WebTorrent roda dentro do arquivo `public/p2p-transfer.w
 
 ### Tipos de mensagem trocadas
 
-| Origem | Destino | Evento | Propósito |
-|--------|---------|--------|-----------|
-| App | Worker | `P2P_START_SEED` | Inicia o envio de um arquivo |
-| Worker | App | `P2P_SEED_READY` | Magnet link pronto para compartilhar |
-| App | Worker | `P2P_START_DOWNLOAD` | Inicia o download de um magnet link |
-| Worker | App | `P2P_PROGRESS` | Progresso em tempo real |
-| Worker | App | `P2P_DOWNLOAD_COMPLETE` | Download finalizado e salvo no OPFS |
-| App | Worker | `P2P_CANCEL` | Cancela transferência |
-| Worker | App | `P2P_SESSION_ENDED` | Sessão encerrada |
-| Worker | App | `P2P_ERROR` | Erro na transferência |
+| Origem | Destino | Evento                  | Propósito                            |
+| ------ | ------- | ----------------------- | ------------------------------------ |
+| App    | Worker  | `P2P_START_SEED`        | Inicia o envio de um arquivo         |
+| Worker | App     | `P2P_SEED_READY`        | Magnet link pronto para compartilhar |
+| App    | Worker  | `P2P_START_DOWNLOAD`    | Inicia o download de um magnet link  |
+| Worker | App     | `P2P_PROGRESS`          | Progresso em tempo real              |
+| Worker | App     | `P2P_DOWNLOAD_COMPLETE` | Download finalizado e salvo no OPFS  |
+| App    | Worker  | `P2P_CANCEL`            | Cancela transferência                |
+| Worker | App     | `P2P_SESSION_ENDED`     | Sessão encerrada                     |
+| Worker | App     | `P2P_ERROR`             | Erro na transferência                |
 
 ## Fluxo de envio de arquivo
 
@@ -65,8 +73,10 @@ Detalhado:
 1. Usuário seleciona um arquivo no `ChatWindow`.
 2. `startFileSend(file)` é chamado no `store.ts`.
 3. O Worker recebe `P2P_START_SEED`, cria o torrent e começa a seedar.
-4. Quando o torrent está pronto, o Worker envia `P2P_SEED_READY` com o `magnetURI`.
-5. O `store.ts` detecta o magnet link e envia como mensagem de texto para o contato.
+4. Quando o torrent está pronto, o Worker envia `P2P_SEED_READY` com o
+   `magnetURI`.
+5. O `store.ts` detecta o magnet link e envia como mensagem de texto para o
+   contato.
 6. O remetente continua seedando até que todos os peers desconectem.
 
 ## Fluxo de recebimento de arquivo
@@ -97,7 +107,8 @@ App registra o arquivo no IndexedDB e mostra no chat
 
 ### OPFS (Origin Private File System)
 
-Arquivos grandes não são armazenados no IndexedDB. Eles vão para o OPFS, que oferece:
+Arquivos grandes não são armazenados no IndexedDB. Eles vão para o OPFS, que
+oferece:
 
 - Melhor performance para leitura/escrita.
 - Limite de armazenamento maior que IndexedDB.
@@ -107,7 +118,8 @@ Cada arquivo é salvo com o nome `chat_files/{messageId}.{ext}`.
 
 ### Metadados no IndexedDB
 
-Informações sobre o arquivo (nome, tipo MIME, tamanho, caminho no OPFS) são armazenadas no IndexedDB na chave `storedFiles`.
+Informações sobre o arquivo (nome, tipo MIME, tamanho, caminho no OPFS) são
+armazenadas no IndexedDB na chave `storedFiles`.
 
 ## Widget de transferência: TransferDock
 
@@ -119,7 +131,8 @@ O `TransferDock.tsx` mostra o progresso em tempo real:
 - Número de peers conectados.
 - Botão para cancelar.
 
-O dock aparece automaticamente quando uma transferência está ativa e desaparece quando concluída.
+O dock aparece automaticamente quando uma transferência está ativa e desaparece
+quando concluída.
 
 ## Cancelamento de transferência
 
@@ -132,17 +145,18 @@ Quando o usuário clica em cancelar:
 
 ## Auto-terminação do seed
 
-Após o envio completo e a desconexão de todos os peers, o seed é encerrado automaticamente. Isso economiza bateria e banda do dispositivo remetente.
+Após o envio completo e a desconexão de todos os peers, o seed é encerrado
+automaticamente. Isso economiza bateria e banda do dispositivo remetente.
 
 ## Limitações e considerações
 
-| Aspecto | Situação |
-|---------|----------|
-| WebTorrent precisa de WebRTC | Funciona na maioria dos navegadores modernos |
-| NAT restritivo | Pode bloquear conexões; TURN ajudaria |
-| Trackers públicos | Podem ser bloqueados por firewalls corporativos |
-| OPFS | Disponível em Chrome/Edge/Safari; Firefox não suporta |
-| Arquivos grandes | Funcionam bem, mas podem consumir bateria |
+| Aspecto                      | Situação                                              |
+| ---------------------------- | ----------------------------------------------------- |
+| WebTorrent precisa de WebRTC | Funciona na maioria dos navegadores modernos          |
+| NAT restritivo               | Pode bloquear conexões; TURN ajudaria                 |
+| Trackers públicos            | Podem ser bloqueados por firewalls corporativos       |
+| OPFS                         | Disponível em Chrome/Edge/Safari; Firefox não suporta |
+| Arquivos grandes             | Funcionam bem, mas podem consumir bateria             |
 
 ## Resumo do fluxo de dados
 

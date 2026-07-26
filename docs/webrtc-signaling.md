@@ -2,11 +2,14 @@
 
 ## O que é comunicação P2P
 
-P2P (peer-to-peer) significa comunicação direta entre dois dispositivos, sem que os dados passem por um servidor central. No Loco, o P2P é usado para:
+P2P (peer-to-peer) significa comunicação direta entre dois dispositivos, sem que
+os dados passem por um servidor central. No Loco, o P2P é usado para:
 
-- **Mensagens instantâneas**: quando ambos os contatos estão online, a mensagem vai direto via `RTCDataChannel`.
+- **Mensagens instantâneas**: quando ambos os contatos estão online, a mensagem
+  vai direto via `RTCDataChannel`.
 - **Chamadas de voz e vídeo**: usando `RTCPeerConnection`.
-- **Transferência de arquivos**: via WebTorrent, que também usa WebRTC por baixo.
+- **Transferência de arquivos**: via WebTorrent, que também usa WebRTC por
+  baixo.
 
 ## WebRTC: o que é
 
@@ -18,12 +21,15 @@ WebRTC (Web Real-Time Communication) é uma API de navegador que permite:
 
 Para conectar dois peers, o WebRTC precisa resolver dois problemas:
 
-1. **Sinalização**: como os peers descobrem um ao outro e trocam metadados de conexão.
-2. **NAT traversal**: como fazer com que computadores atrás de roteadores/firewalls se encontrem (usando STUN/TURN).
+1. **Sinalização**: como os peers descobrem um ao outro e trocam metadados de
+   conexão.
+2. **NAT traversal**: como fazer com que computadores atrás de
+   roteadores/firewalls se encontrem (usando STUN/TURN).
 
 ## O problema da sinalização
 
-WebRTC **não define** como os peers devem trocar as ofertas/answers. Esse canal de sinalização precisa ser implementado pelo aplicativo.
+WebRTC **não define** como os peers devem trocar as ofertas/answers. Esse canal
+de sinalização precisa ser implementado pelo aplicativo.
 
 No Loco, a sinalização pode acontecer por:
 
@@ -61,27 +67,32 @@ setRemoteDescription(answer)     |
 
 ### Termos importantes
 
-- **SDP (Session Description Protocol)**: metadados da conexão, incluindo codecs, endereços e portas.
+- **SDP (Session Description Protocol)**: metadados da conexão, incluindo
+  codecs, endereços e portas.
 - **Offer**: proposta de conexão enviada pelo peer que inicia.
 - **Answer**: resposta do outro peer aceitando a oferta.
-- **ICE Candidate**: possíveis rotas para alcançar um peer (IP local, IP público via STUN, TURN).
+- **ICE Candidate**: possíveis rotas para alcançar um peer (IP local, IP público
+  via STUN, TURN).
 
 ## Sinalização no Loco: estado atual
 
-Atualmente, o `CallScreen.tsx` cria uma `RTCPeerConnection` e gera uma oferta local:
+Atualmente, o `CallScreen.tsx` cria uma `RTCPeerConnection` e gera uma oferta
+local:
 
 ```typescript
 const pc = new RTCPeerConnection({
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 });
 
-stream.getTracks().forEach(track => pc.addTrack(track, stream));
+stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
 const offer = await pc.createOffer();
 await pc.setLocalDescription(offer);
 ```
 
-**Problema**: a oferta gerada nunca é enviada para o contato. A sinalização ainda não está implementada. Portanto, as chamadas não conseguem conectar com o outro lado.
+**Problema**: a oferta gerada nunca é enviada para o contato. A sinalização
+ainda não está implementada. Portanto, as chamadas não conseguem conectar com o
+outro lado.
 
 ## Fluxo planejado para chamadas no Loco
 
@@ -104,11 +115,13 @@ await pc.setLocalDescription(offer);
 
 - Peer A recebe a answer e define como `remoteDescription`.
 - Ambos os peers trocam **ICE candidates**.
-- Quando um candidato viável é encontrado, o `pc.ontrack` dispara e o vídeo/áudio do outro lado aparece.
+- Quando um candidato viável é encontrado, o `pc.ontrack` dispara e o
+  vídeo/áudio do outro lado aparece.
 
 ## Exemplo de troca usando DataChannel já aberto
 
-Se os peers já têm um `RTCDataChannel` aberto (para mensagens), a sinalização pode ser feita por ele mesmo:
+Se os peers já têm um `RTCDataChannel` aberto (para mensagens), a sinalização
+pode ser feita por ele mesmo:
 
 ```typescript
 // Peer A
@@ -137,11 +150,14 @@ pc.ondatachannel = (event) => {
 
 ### STUN
 
-O `stun:stun.l.google.com:19302` é um servidor público que ajuda os peers a descobrirem seus endereços IP públicos. Funciona para a maioria dos casos.
+O `stun:stun.l.google.com:19302` é um servidor público que ajuda os peers a
+descobrirem seus endereços IP públicos. Funciona para a maioria dos casos.
 
 ### TURN
 
-Se ambos os peers estão em redes restritadas (NAT simétrico, firewalls corporativos), o STUN pode falhar. Nesse caso, um servidor **TURN** faz relay do tráfego. O Loco ainda não usa TURN.
+Se ambos os peers estão em redes restritadas (NAT simétrico, firewalls
+corporativos), o STUN pode falhar. Nesse caso, um servidor **TURN** faz relay do
+tráfego. O Loco ainda não usa TURN.
 
 ```
 Peer A <----> TURN Server <----> Peer B
@@ -151,13 +167,13 @@ Para chamadas em produção, é recomendado configurar TURN.
 
 ## Resumo dos desafios
 
-| Problema | Solução planejada |
-|-----------|-------------------|
-| Trocar SDP entre peers | Web Push ou DataChannel existente |
-| Descobrir endereços IP | STUN server (já configurado) |
-| Redes restritivas | TURN server (futuro) |
-| Acordar contato offline | Web Push notification |
-| Persistir conexão | Reconectar automaticamente quando offline |
+| Problema                | Solução planejada                         |
+| ----------------------- | ----------------------------------------- |
+| Trocar SDP entre peers  | Web Push ou DataChannel existente         |
+| Descobrir endereços IP  | STUN server (já configurado)              |
+| Redes restritivas       | TURN server (futuro)                      |
+| Acordar contato offline | Web Push notification                     |
+| Persistir conexão       | Reconectar automaticamente quando offline |
 
 ## Próximos passos para implementar
 

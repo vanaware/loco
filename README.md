@@ -1,6 +1,7 @@
 # Loco
 
-Um mensageiro descentralizado PWA com Material Design 3, comunicação híbrida (Web Push + WebRTC), e integração profunda com APIs modernas de navegador.
+Um mensageiro descentralizado PWA com Material Design 3, comunicação híbrida
+(Web Push + WebRTC), e integração profunda com APIs modernas de navegador.
 
 ## ✨ Recursos
 
@@ -19,6 +20,7 @@ Um mensageiro descentralizado PWA com Material Design 3, comunicação híbrida 
 ## 🚀 Como Executar
 
 ### Pré-requisitos
+
 - [Deno](https://deno.land/) instalado
 
 ### Comandos
@@ -39,3 +41,4 @@ deno task test
 
 # Deploy (produção)
 deno task start
+```

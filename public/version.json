@@ -1,5 +1,0 @@
-{
-  "version": "1.0.0",
-  "buildDate": "2026-07-26T00:00:00.000Z",
-  "changelog": "Versão inicial com suporte a P2P, OPFS e IndexedDB."
-}

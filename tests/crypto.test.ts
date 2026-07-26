@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { bufToBase64, base64ToBuf } from "../src/crypto.ts";
+import { base64ToBuf, bufToBase64 } from "../src/crypto.ts";
 
 Deno.test("bufToBase64 - codifica corretamente", () => {
   const original = new Uint8Array([1, 2, 3, 255]);

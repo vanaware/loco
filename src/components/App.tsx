@@ -1,16 +1,23 @@
 import { useEffect } from "preact/hooks";
 import "@material/web/all.js";
 import {
-  currentView, menuOpen, contacts, chatSessions, currentChatContact,
-  navigateTo, initApp, pendingShare, updateBadge,
+  chatSessions,
+  contacts,
+  currentChatContact,
+  currentView,
+  initApp,
+  menuOpen,
+  navigateTo,
+  pendingShare,
+  updateBadge,
 } from "../store.ts";
 import { ChatWindow } from "./ChatWindow.tsx";
 import { Profile } from "./Profile.tsx";
 import { Settings } from "./Settings.tsx";
 import { About } from "./About.tsx";
 import { TransferDock } from "./TransferDock.tsx";
-import { CallScreen } from "./CallScreen.tsx";      // ← NOVO
-import { QRScanner } from "./QRScanner.tsx";       // ← NOVO
+import { CallScreen } from "./CallScreen.tsx"; // ← NOVO
+import { QRScanner } from "./QRScanner.tsx"; // ← NOVO
 
 export function App() {
   useEffect(() => {
@@ -24,7 +31,7 @@ export function App() {
     if (location.hash.startsWith("#action=")) {
       const action = location.hash.split("=")[1];
       if (action === "share-profile") navigateTo("profile");
-      else if (action === "scan-qr") navigateTo("scanner");     // ← NOVO
+      else if (action === "scan-qr") navigateTo("scanner"); // ← NOVO
       else if (action === "open-chats") navigateTo("list");
     }
 
@@ -59,13 +66,20 @@ export function App() {
 
   const renderContent = () => {
     switch (currentView.value) {
-      case "profile": return <Profile />;
-      case "settings": return <Settings />;
-      case "about": return <About />;
-      case "chat": return <ChatWindow />;
-      case "call": return <CallScreen />;        // ← NOVO
-      case "scanner": return <QRScanner />;       // ← NOVO
-      default: return <ContactList />;
+      case "profile":
+        return <Profile />;
+      case "settings":
+        return <Settings />;
+      case "about":
+        return <About />;
+      case "chat":
+        return <ChatWindow />;
+      case "call":
+        return <CallScreen />; // ← NOVO
+      case "scanner":
+        return <QRScanner />; // ← NOVO
+      default:
+        return <ContactList />;
     }
   };
 
@@ -83,24 +97,49 @@ export function App() {
 
       <div class={`drawer ${menuOpen.value ? "open" : ""}`}>
         <md-list>
-          <md-list-item onClick={() => { navigateTo("list"); menuOpen.value = false; }}>
+          <md-list-item
+            onClick={() => {
+              navigateTo("list");
+              menuOpen.value = false;
+            }}
+          >
             <md-icon slot="start">people</md-icon>
             <div slot="headline">Contatos</div>
           </md-list-item>
-          <md-list-item onClick={() => { navigateTo("profile"); menuOpen.value = false; }}>
+          <md-list-item
+            onClick={() => {
+              navigateTo("profile");
+              menuOpen.value = false;
+            }}
+          >
             <md-icon slot="start">person</md-icon>
             <div slot="headline">Perfil</div>
           </md-list-item>
-          <md-list-item onClick={() => { navigateTo("scanner"); menuOpen.value = false; }}>
+          <md-list-item
+            onClick={() => {
+              navigateTo("scanner");
+              menuOpen.value = false;
+            }}
+          >
             <md-icon slot="start">qr_code_scanner</md-icon>
             <div slot="headline">Escanear QR Code</div>
           </md-list-item>
-          <md-list-item onClick={() => { navigateTo("settings"); menuOpen.value = false; }}>
+          <md-list-item
+            onClick={() => {
+              navigateTo("settings");
+              menuOpen.value = false;
+            }}
+          >
             <md-icon slot="start">settings</md-icon>
             <div slot="headline">Configurações</div>
           </md-list-item>
           <md-divider />
-          <md-list-item onClick={() => { navigateTo("about"); menuOpen.value = false; }}>
+          <md-list-item
+            onClick={() => {
+              navigateTo("about");
+              menuOpen.value = false;
+            }}
+          >
             <md-icon slot="start">info</md-icon>
             <div slot="headline">Sobre</div>
           </md-list-item>
@@ -108,16 +147,23 @@ export function App() {
       </div>
 
       {menuOpen.value && (
-        <div class="drawer-overlay open" onClick={() => (menuOpen.value = false)} />
+        <div
+          class="drawer-overlay open"
+          onClick={() => (menuOpen.value = false)}
+        />
       )}
 
       {pendingShare.value && currentView.value !== "scanner" && (
         <div style="background:var(--md-sys-color-primary-container); padding:0.75rem 1rem; display:flex; align-items:center; gap:0.5rem;">
           <md-icon>share</md-icon>
           <span style="flex:1; font:var(--md-sys-typescale-body-medium);">
-            Conteúdo recebido: {pendingShare.value.text?.slice(0, 40) || pendingShare.value.url || pendingShare.value.title}
+            Conteúdo recebido:{" "}
+            {pendingShare.value.text?.slice(0, 40) || pendingShare.value.url ||
+              pendingShare.value.title}
           </span>
-          <md-text-button onClick={() => (pendingShare.value = null)}>Dispensar</md-text-button>
+          <md-text-button onClick={() => (pendingShare.value = null)}>
+            Dispensar
+          </md-text-button>
         </div>
       )}
 
@@ -160,7 +206,9 @@ function ContactList() {
               }}
             >
               <div slot="start" class="contact-avatar">
-                {c.photo ? <img src={c.photo} alt="" /> : c.theirDisplayName?.charAt(0)?.toUpperCase() || "?"}
+                {c.photo
+                  ? <img src={c.photo} alt="" />
+                  : c.theirDisplayName?.charAt(0)?.toUpperCase() || "?"}
               </div>
               <div slot="headline">{c.displayName}</div>
               <div slot="supporting-text">
@@ -172,13 +220,12 @@ function ContactList() {
                     : last.text.slice(0, 40)
                   : "Toque para conversar"}
               </div>
-              {s?.unreadCount ? <div slot="end" class="unread-badge">{s.unreadCount}</div> : null}
+              {s?.unreadCount
+                ? <div slot="end" class="unread-badge">{s.unreadCount}</div>
+                : null}
             </md-list-item>
           );
         })}
     </md-list>
   );
 }
-
-import { render } from "preact";
-render(<App />, document.body);
