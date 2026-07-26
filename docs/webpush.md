@@ -418,4 +418,10 @@ self.addEventListener("push", function (event) {
 
 Se desejar, o que você gostaria de ajustar em seguida? Podemos estruturar a interface visual simples para copiar e colar essas chaves, ou refinar as permissões no servidor Deno.
 
+------------------------------
 
+como temos testes a fazer durante o desenvolvimento teremos um deno que simula o recebimento e envio dos payloads aos clientes mas seria um fallback caso o web push esteja indisponível. somente aproveitar que estamos de fato num servidor deno.
+
+a sequência seria:
+veja se o push web está disponível, se estiver tente mandar sem o proxy do deno, se não der certo envie pelo proxy.
+web push indisponível use o deno como fallback com mensagem por ele
