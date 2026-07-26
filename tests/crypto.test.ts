@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { assertEquals } from "@std/assert";
 import { base64ToBuf, bufToBase64 } from "../src/crypto.ts";
 

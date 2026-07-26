@@ -442,11 +442,21 @@ export function handleIncomingPushMessage(payload: {
     });
   }
 
+  // Descriptografa mensagem se necessário (armazenamento local criptografado)
+  let messageText = payload.text || "";
+  if (payload.isEncrypted && appConfig.value.encryptMessages) {
+    decryptMessage(messageText).then((decrypted) => {
+      messageText = decrypted;
+    }).catch(() => {
+      console.warn("Falha ao descriptografar mensagem");
+    });
+  }
+
   const message: Message = {
     id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     from: payload.from,
     to: myId.value || "",
-    text: payload.text || "",
+    text: messageText,
     timestamp: payload.timestamp || Date.now(),
     status: "delivered",
     channel: "push",
@@ -657,8 +667,8 @@ function getP2PWorker(): Worker {
   return p2pWorker;
 }
 
-export function startFileSend(file: File) {
-  const worker = getP2PWorker();
+export async function startFileSend(file: File) {
+  const worker = await getP2PWorker();
   transferState.value = {
     ...transferState.value,
     status: "seeding",
@@ -667,8 +677,8 @@ export function startFileSend(file: File) {
   worker.postMessage({ type: "P2P_START_SEED", payload: { file } });
 }
 
-export function startFileDownload(magnetURI: string, fileName: string) {
-  const worker = getP2PWorker();
+export async function startFileDownload(magnetURI: string, fileName: string) {
+  const worker = await getP2PWorker();
   transferState.value = {
     ...transferState.value,
     status: "downloading",

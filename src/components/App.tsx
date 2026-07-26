@@ -24,13 +24,18 @@ export function App() {
   useEffect(() => {
     initApp();
 
+    // Verifica suporte a Service Worker antes de registrar
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(console.error);
+      navigator.serviceWorker.register("/sw.js").catch((err) => {
+        console.error("Falha ao registrar Service Worker:", err);
+      });
       navigator.serviceWorker.addEventListener("message", (event) => {
         if (event.data?.type === "PUSH_MESSAGE") {
           handleIncomingPushMessage(event.data.payload);
         }
       });
+    } else {
+      console.warn("Service Worker não suportado neste navegador");
     }
 
     // App shortcuts
