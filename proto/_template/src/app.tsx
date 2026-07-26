@@ -12,12 +12,13 @@ function App() {
   );
 }
 
-try {
-  render(h(App, {}), document.getElementById("app")!);
-} catch (err) {
-  const app = document.getElementById("app");
-  if (app) {
+const app = document.getElementById("app");
+if (app) {
+  try {
+    app.innerHTML = "";
+    render(h(App, {}), app);
+  } catch (err) {
     app.innerHTML = `<pre style="color:red;white-space:pre-wrap">${err instanceof Error ? err.stack || err.message : String(err)}</pre>`;
+    console.error(err);
   }
-  console.error(err);
 }

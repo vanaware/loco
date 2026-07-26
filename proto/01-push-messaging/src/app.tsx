@@ -88,6 +88,11 @@ function App() {
     const fromId = myId.value;
     const text = messageText.value.trim();
 
+    // Exemplo no front-end: enviando através do seu próprio Deno
+    //const urlDoProxy = `/proxy/${subscription.endpoint}`;
+    //await fetch(urlDoProxy, { ... });
+
+
     try {
       await fetch(`/send/${encodeURIComponent(targetId.value.trim())}`, {
         method: "POST",
@@ -154,4 +159,15 @@ function App() {
   );
 }
 
-render(<App />, document.getElementById("app")!);
+//render(<App />, document.getElementById("app")!);
+
+const app = document.getElementById("app");
+if (app) {
+  try {
+    app.innerHTML = "";
+    render(<App />, app);
+  } catch (err) {
+    app.innerHTML = `<pre style="color:red;white-space:pre-wrap">${err instanceof Error ? err.stack || err.message : String(err)}</pre>`;
+    console.error(err);
+  }
+}

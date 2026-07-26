@@ -29,7 +29,9 @@
       "Bash(git add *)",
       "Bash(git reset *)",
       "Bash(git commit *)",
-      "Bash(kill *)"
+      "Bash(kill *)",
+      "Bash(lsof *)",
+      "Bash(ss *)"
     ]
   },
   "$version": 4
