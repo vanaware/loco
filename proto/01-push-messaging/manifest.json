@@ -1,0 +1,8 @@
+{
+  "name": "Loco Proto 01 — PWA Push",
+  "short_name": "Proto Push",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#006c4f"
+}

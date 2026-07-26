@@ -491,6 +491,32 @@ A configuração do Deno é definida em `deno.json`, que inclui mapeamentos de i
 
 O comando `deno task build` executa o processo completo de bundling, gerando os arquivos estáticos em `dist/`.
 
+9.1. Laboratório de Protótipos (`proto/`)
+
+O diretório `proto/` contém pequenos PWAs executáveis e isolados. Cada
+protótipo testa uma funcionalidade crítica de forma granular (Web Push, WebRTC
+DataChannel, OPFS, QR scanner, etc.) e serve como modelo para que, depois de
+validada, a funcionalidade seja integrada e orquestrada no app principal.
+
+Cada protótipo possui:
+
+- Próprio `deno.json`, `build.ts`, `main.ts`, `index.html` e `manifest.json`.
+- UI simplificada em Preact + `@preact/signals`.
+- Build e servidor independentes (`deno task build && deno task start`).
+- README explicando o objetivo, como rodar e limitações.
+
+Exemplo de protótipo:
+
+```
+proto/
+├── _template/              # modelo para novos protótipos
+└── 01-push-messaging/     # envio PWA Push entre dois clientes
+```
+
+Regra prática: quando for implementar uma nova feature crítica, crie primeiro um
+protótipo em `proto/` que prove isoladamente que a funcionalidade funciona. Só
+depois faça a orquestração no app completo em `src/`.
+
 10. Limitações Conhecidas
 
 10.1. Compatibilidade de Navegadores

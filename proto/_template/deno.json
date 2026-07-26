@@ -1,0 +1,7 @@
+{
+  "extends": "../../deno.json",
+  "tasks": {
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --unstable-bundle build.ts",
+    "start": "deno task build && deno run --allow-all main.ts"
+  }
+}

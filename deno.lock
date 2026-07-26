@@ -6,11 +6,16 @@
     "jsr:@deno/cache-dir@0.8": "0.8.0",
     "jsr:@deno/installer-shell-setup@*": "0.3.4",
     "jsr:@deno/wasmbuild@*": "0.22.0",
+    "jsr:@negrel/http-ece@0.7.0": "0.7.0",
+    "jsr:@negrel/webpush@0.5": "0.5.0",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/assert@~0.218.2": "0.218.2",
+    "jsr:@std/bytes@1": "1.0.6",
     "jsr:@std/bytes@~0.218.2": "0.218.2",
     "jsr:@std/cli@^1.0.11": "1.0.32",
     "jsr:@std/cli@^1.0.31": "1.0.32",
+    "jsr:@std/encoding@*": "1.0.11",
+    "jsr:@std/encoding@1": "1.0.11",
     "jsr:@std/encoding@^1.0.11": "1.0.11",
     "jsr:@std/encoding@^1.0.6": "1.0.11",
     "jsr:@std/fmt@^1.0.10": "1.0.10",
@@ -73,6 +78,21 @@
         "jsr:@std/tar"
       ]
     },
+    "@negrel/http-ece@0.7.0": {
+      "integrity": "068e61ba6f52da5454051a283cc19621607f8dd6e74d55c01bb365b8c6644076",
+      "dependencies": [
+        "jsr:@std/bytes@1",
+        "jsr:@std/encoding@1"
+      ]
+    },
+    "@negrel/webpush@0.5.0": {
+      "integrity": "919ed5bf4d676923667c5278093f36ffb2efe7fe2f155b6d32723ea3b73fa693",
+      "dependencies": [
+        "jsr:@negrel/http-ece",
+        "jsr:@std/bytes@1",
+        "jsr:@std/encoding@1"
+      ]
+    },
     "@std/assert@0.218.2": {
       "integrity": "7f0a5a1a8cf86607cd6c2c030584096e1ffad27fc9271429a8cb48cfbdee5eaf"
     },
@@ -84,6 +104,9 @@
     },
     "@std/bytes@0.218.2": {
       "integrity": "91fe54b232dcca73856b79a817247f4a651dbb60d51baafafb6408c137241670"
+    },
+    "@std/bytes@1.0.6": {
+      "integrity": "f6ac6adbd8ccd99314045f5703e23af0a68d7f7e58364b47d2c7f408aeb5820a"
     },
     "@std/cli@1.0.32": {
       "integrity": "188b3a100d6202d64e3f5bd3d799c7fa4f6d77f92cc65eb7f641c1fa0aa92a66"
@@ -131,7 +154,7 @@
       "integrity": "c64fbfa087b7c9d4d386c5672f291f607d88cb7d44fc299c20c713e345f2785f",
       "dependencies": [
         "jsr:@std/assert@~0.218.2",
-        "jsr:@std/bytes"
+        "jsr:@std/bytes@~0.218.2"
       ]
     },
     "@std/media-types@1.1.0": {
@@ -334,6 +357,13 @@
       "jsr:@std/fs@1",
       "jsr:@std/http@1",
       "jsr:@std/path@1"
-    ]
+    ],
+    "members": {
+      "proto/01-push-messaging": {
+        "dependencies": [
+          "jsr:@negrel/webpush@0.5"
+        ]
+      }
+    }
   }
 }

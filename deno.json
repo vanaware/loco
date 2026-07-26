@@ -1,5 +1,5 @@
 {
-  "workspace": ["src/main", "src/worker", "src/sw"],
+  "workspace": ["src/main", "src/worker", "src/sw", "proto/_template", "proto/01-push-messaging"],
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
     "jsx": "react-jsx",
