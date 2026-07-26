@@ -1,3 +1,7 @@
+Instruções para ajustar o prototipo 01 para que a funcionalidade dele tenha o desejado para o projeto principal
+
+---
+
 # Arquitetura Web Push Descentralizada (Client-Side VAPID + CORS Proxy)
 
 ## 1. Visão Geral da Arquitetura
@@ -425,3 +429,6 @@ como temos testes a fazer durante o desenvolvimento teremos um deno que simula o
 a sequência seria:
 veja se o push web está disponível, se estiver tente mandar sem o proxy do deno, se não der certo envie pelo proxy.
 web push indisponível use o deno como fallback com mensagem por ele
+
+neste caso o fallback é dentro do  proprio deno. no proxy ele percebe que o processo de web push não foi entregue por algum motivo ou foi negado. então ele valida se o payload esta devidamente assinado e formatado segundo as regras do pwa push, caso esteja bem formatado supõe que o problema são nos servidores externos então ele fará uma outra forma de entregar a mensagem para quando o cliente destinatário ficar online (desenvolvimento futuro)
+
