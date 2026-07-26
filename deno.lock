@@ -358,6 +358,11 @@
       "jsr:@std/http@1",
       "jsr:@std/path@1"
     ],
+    "packageJson": {
+      "dependencies": [
+        "npm:@types/node@^26.1.1"
+      ]
+    },
     "members": {
       "proto/01-push-messaging": {
         "dependencies": [

@@ -3,7 +3,8 @@
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
     "jsx": "react-jsx",
-    "jsxImportSource": "preact"
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"]
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1",
