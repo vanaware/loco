@@ -432,3 +432,12 @@ web push indisponível use o deno como fallback com mensagem por ele
 
 neste caso o fallback é dentro do  proprio deno. no proxy ele percebe que o processo de web push não foi entregue por algum motivo ou foi negado. então ele valida se o payload esta devidamente assinado e formatado segundo as regras do pwa push, caso esteja bem formatado supõe que o problema são nos servidores externos então ele fará uma outra forma de entregar a mensagem para quando o cliente destinatário ficar online (desenvolvimento futuro)
 
+------------------------------
+ATenção:
+
+se o fallback envolver pooling no servidor, precisamos garantir que somente quem tem a chave privada vapid é que pode acessar o endereço de pooling e receber as mensagens pendentes. 
+sem esta garantia qualquer um poderia puxar as mensagens pendentes.
+
+como para enviar mensagens o remetente sabe tambem qual é o private vapid pois ele assina a mensagem no push web tradicional, precisamos garantir tambem que somente o destinatário real é que consegue puxar as mensagens pending em um fallback de pooling.  então além da chave privada, vamos precisar de um ID secreto ou outra chave privada que sirva de identificação do cliente pwa realmente , estou imaginando que precisamos ter duas chaves privadas
+Uma que identifica o destinatário de push web , pois esta logica reversa que criamos
+outra chave privada que identifique o pwa que criou a chave privada acima (que deixará de ser secreta pois será divulgada para os contatos enviar mensagem)

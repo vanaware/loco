@@ -297,6 +297,84 @@ export async function deleteContact(contactId: string) {
   await saveSessions();
 }
 
+/**
+ * Renova completamente a identidade do usuário:
+ * - Gera novo ID
+ * - Gera novas chaves VAPID
+ * - Limpa subscription antiga
+ * - Limpa todos os dados persistidos (contatos, conversas, arquivos, config)
+ * - Re-registra o Service Worker
+ */
+export async function renewIdentity() {
+  // Limpa todos os contatos e conversas
+  for (const [contactId] of contactsRaw.value) {
+    await deleteContact(contactId);
+  }
+
+  // Limpa arquivos OPFS
+  for (const [, file] of storedFiles.value) {
+    if (file.path.startsWith("opfs://")) {
+      await deleteFileFromOPFS(file.path);
+    }
+    URL.revokeObjectURL(file.url);
+  }
+  storedFiles.value = new Map();
+  await saveFiles();
+
+  // Limpa IndexedDB
+  await storageClear();
+
+  // Gera novo ID
+  const newId = `user_${Date.now()}_${crypto.randomUUID()}`;
+  myId.value = newId;
+  await storageSet("myId", newId);
+  console.log("🆔 Novo ID gerado:", newId);
+
+  // Gera novas chaves VAPID
+  try {
+    myVapidKeys.value = await generateVapidKeys();
+    await storageSet("myVapidKeys", myVapidKeys.value);
+    console.log("🔑 Novas chaves VAPID geradas");
+  } catch (e) {
+    console.error("Erro ao gerar VAPID keys:", e);
+  }
+
+  // Limpa subscription antiga
+  mySubscription.value = null;
+  await storageSet("mySubscription", null);
+  console.log("📭 Subscription antiga limpa");
+
+  // Limpa displayName
+  myDisplayName.value = "";
+  await storageSet("myDisplayName", "");
+
+  // Reseta config para padrão
+  appConfig.value = {
+    doNotDisturb: false,
+    globalLocationSharing: true,
+    encryptMessages: false,
+    profilePhoto: undefined,
+  };
+  await saveConfig();
+
+  // Re-registra Service Worker
+  if ("serviceWorker" in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.unregister();
+      await navigator.serviceWorker.register("/sw.js");
+      console.log("🔄 Service Worker re-registrado");
+    } catch (e) {
+      console.error("Erro ao re-registrar SW:", e);
+    }
+  }
+
+  // Recarrega a página para aplicar todas as mudanças
+  setTimeout(() => {
+    location.reload();
+  }, 1000);
+}
+
 // ============================================================
 // MENSAGENS
 // ============================================================

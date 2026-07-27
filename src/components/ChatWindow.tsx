@@ -6,6 +6,7 @@ import {
   contacts,
   currentChatContact,
   decryptMessage,
+  deleteContact,
   deleteFile,
   downloadFile,
   myId,
@@ -370,6 +371,25 @@ export function ChatWindow() {
                     })}
                 />
               </div>
+            </div>
+
+            <div style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid var(--md-sys-color-outline-variant);">
+              <div style="font:var(--md-sys-typescale-title-medium); margin-bottom:0.5rem; color:var(--md-sys-color-error);">
+                ⚠️ Zona de Perigo
+              </div>
+              <md-text-button
+                onClick={() => {
+                  if (confirm(`Excluir "${contact.displayName}" e todas as suas mensagens?`)) {
+                    deleteContact(id);
+                    editContactModal.value = false;
+                    navigateTo("list");
+                  }
+                }}
+                style="--md-sys-color-on-surface: var(--md-sys-color-error);"
+              >
+                <md-icon slot="icon">delete_forever</md-icon>
+                Excluir Contato
+              </md-text-button>
             </div>
           </div>
         </div>

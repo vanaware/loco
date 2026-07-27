@@ -6,6 +6,7 @@ import {
   getShareLink,
   myDisplayName,
   qrCodeDataUrl,
+  renewIdentity,
   uploadProfilePhoto,
 } from "../store.ts";
 import { detectCapabilities } from "../utils/capabilities.ts";
@@ -114,6 +115,29 @@ export function Profile() {
           </div>
         </md-elevated-card>
       )}
+
+      <md-elevated-card>
+        <div class="profile-card" style="border: 1px solid var(--md-sys-color-error);">
+          <h3 style="font:var(--md-sys-typescale-title-large); margin-bottom:1rem; color:var(--md-sys-color-error);">
+            ⚠️ Renovar Identidade
+          </h3>
+          <p style="color:var(--md-sys-color-on-surface-variant); margin-bottom:1rem;">
+            Isso irá gerar um novo ID, novas chaves VAPID, limpar todos os contatos, conversas e arquivos, e re-registrar o Service Worker.
+            <strong>Esta ação não pode ser desfeita.</strong>
+          </p>
+          <md-filled-button
+            onClick={async () => {
+              if (confirm("Tem certeza que deseja renovar sua identidade? Todos os dados serão perdidos.")) {
+                await renewIdentity();
+              }
+            }}
+            style="--md-sys-color-primary: var(--md-sys-color-error);"
+          >
+            <md-icon slot="icon">refresh</md-icon>
+            Renovar Identidade
+          </md-filled-button>
+        </div>
+      </md-elevated-card>
     </div>
   );
 }

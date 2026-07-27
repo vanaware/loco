@@ -411,6 +411,54 @@
         width: calc(100% - env(titlebar-area-width, 0px));
       }
     }
+
+    /* Workaround: desabilitar animação do label no md-filled-text-field para evitar erro NaN */
+    md-filled-text-field .label,
+    md-outlined-text-field .label {
+      transition: none !important;
+      animation: none !important;
+    }
+    md-filled-text-field::part(label),
+    md-outlined-text-field::part(label) {
+      transition: none !important;
+      animation: none !important;
+    }
+
+    /* Painel de logs visível para debug em mobile */
+    .debug-panel {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #1a1a2e;
+      color: #0f0;
+      font-family: monospace;
+      font-size: 0.75rem;
+      max-height: 40vh;
+      display: flex;
+      flex-direction: column;
+      z-index: 9998;
+      border-top: 2px solid #0f0;
+    }
+    .debug-panel-header {
+      display: flex;
+      align-items: center;
+      padding: 6px 12px;
+      background: #16213e;
+      cursor: pointer;
+      user-select: none;
+    }
+    .debug-logs {
+      overflow-y: auto;
+      padding: 8px 12px;
+      flex: 1;
+      min-height: 0;
+      max-height: calc(40vh - 32px);
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .debug-line { margin: 0; padding: 2px 0; border-bottom: 1px solid #1a1a2e; }
+    .debug-line.error { color: #ff4444; font-weight: bold; }
+    .debug-line.warn { color: #ffaa00; }
     </style>
   </head>
   <body>

@@ -1,4 +1,5 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
+import { signal } from "@preact/signals";
 import "@material/web/all.js";
 import {
   chatSessions,
@@ -21,6 +22,36 @@ import { CallScreen } from "./CallScreen.tsx";
 import { QRScanner } from "./QRScanner.tsx";
 
 export function App() {
+  const [showLogs, setShowLogs] = useState(false);
+  const [logLines, setLogLines] = useState<string[]>([]);
+
+  // Intercepta console para painel de debug
+  useEffect(() => {
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+
+    const addLine = (type: string, args: any[]) => {
+      const line = `[${type}] ${args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")}`;
+      setLogLines(prev => {
+        const next = [...prev, line];
+        return next.length > 500 ? next.slice(-300) : next;
+      });
+    };
+
+    console.log = (...args) => { addLine("LOG", args); origLog.apply(console, args); };
+    console.warn = (...args) => { addLine("WARN", args); origWarn.apply(console, args); };
+    console.error = (...args) => { addLine("ERROR", args); origError.apply(console, args); };
+
+    addLine("INIT", ["Debug panel ativo — " + new Date().toISOString()]);
+
+    return () => {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    };
+  }, []);
+
   useEffect(() => {
     initApp();
 
@@ -181,6 +212,38 @@ export function App() {
       <div class="main-content">{renderContent()}</div>
 
       <TransferDock />
+
+      {/* Painel de logs visível para debug em mobile */}
+      <div class="debug-panel">
+        <div class="debug-panel-header">
+          <button
+            onClick={() => setShowLogs(!showLogs)}
+            style={{ background: "transparent", border: "none", color: "white", cursor: "pointer", fontSize: "1rem" }}
+          >
+            {showLogs ? "▲ LOGS" : "▼ LOGS"} ({logLines.length})
+          </button>
+          <button
+            onClick={(e) => {
+              navigator.clipboard.writeText(logLines.join("\n"));
+              const btn = e.currentTarget as HTMLElement;
+              btn.textContent = "✓ Copiado!";
+              setTimeout(() => { btn.textContent = "📋 Copiar"; }, 1500);
+            }}
+            style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "white", cursor: "pointer", borderRadius: "4px", padding: "2px 8px", marginLeft: "8px", fontSize: "0.75rem" }}
+          >
+            📋 Copiar
+          </button>
+        </div>
+        {showLogs && (
+          <div class="debug-logs" ref={(node) => { if (node) node.scrollTop = node.scrollHeight; }}>
+            {logLines.map((line, i) => (
+              <div key={i} class={`debug-line ${line.includes("ERROR") ? "error" : ""} ${line.includes("WARN") ? "warn" : ""}`}>
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
