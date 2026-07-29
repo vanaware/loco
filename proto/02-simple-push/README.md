@@ -1,142 +1,139 @@
-# Loco Proto 02 — Sistema de Web Push Inteligente com Sincronização Offline
+# Loco Proto 02 — Sistema de Web Push Inteligente, E2EE com Identidade JWT e Sincronização Offline
 
-Este protótipo demonstra a implementação completa de um pipeline de **Web Push Notifications** moderno, resiliente e cross-platform utilizando o ecossistema **Deno 2.0+**. 
+Este protótipo demonstra a implementação completa de um pipeline de **Web Push Notifications** moderno, resiliente e de segurança máxima (*Zero-Trust*) utilizando o ecossistema **Deno 2.0+** [SW]. 
 
-O projeto resolve três grandes desafios comuns no desenvolvimento de Progressive Web Apps (PWAs):
-1. **Gerenciamento dinâmico de chaves criptográficas (VAPID/JWK)** totalmente geradas e controladas pelo navegador.
-2. **Empacotamento (Bundling) automatizado** com injeção automática de hashes de cache offline e controle estável de Service Workers.
-3. **Resiliência de rede (Background Sync API + IndexedDB)**, permitindo que mensagens enviadas sem internet sejam salvas localmente e disparadas sozinhas assim que a conexão for restaurada.
-
----
-
-## 🏗️ Arquitetura do Sistema e Fluxo de Dados
-
-O protótipo é composto por três componentes principais que operam de forma unificada:
-
-[ Browser B ] ──(Gera chaves JWK / Inscrição)──► Exibe Payload Único│    
-(Copiar/Colar)      
-▼[ Browser A ] ──(Fetch se Online / DB se Offline)──► [ Servidor Deno ] ──► [ APNs / FCM ] ──► [ Dispositivo ]    ▲                                                   │    
-└────────────────(Background Sync Event)────────────┘    
-
-1. **`browser-b.html` (O Receptor / PWA):** Executa o registro inicial do Service Worker e utiliza a *Web Crypto API* nativa do navegador para gerar um par de chaves VAPID legítimo em formato estruturado **JWK (JsonWebKey)**. Ele cria a inscrição e gera um **bloco JSON de carga unificada (Payload Bundle)** contendo tudo o que o sistema precisa para operar.
-2. **`browser-a.html` (O Emissor / Remetente):** Atua como o painel de controle. Você cola o Payload Bundle gerado pelo Browser B, digite uma mensagem e dispara o envio. Se houver internet, ele faz o POST imediato. Se estiver offline, salva os dados no **IndexedDB** e agenda uma tarefa na **Background Sync API**.
-3. **`main.ts` (O Backend / Proxy Seguro):** Um servidor HTTP minimalista de alta performance escrito em Deno. Ele serve os arquivos estáticos compilados da pasta `dist/` e gerencia a rota de API `/api/proxy-push`. Ele atua estritamente como um proxy seguro, assinando o cabeçalho VAPID via criptografia de baixo nível com o pacote `jsr:@negrel/webpush` e repassando o disparo para os servidores centrais de notificação (Google FCM, Apple APNs, Mozilla).
-4. **`service-worker.js` (O Motor em Background):** Funciona em segundo plano no navegador. Ele gerencia o cache offline de arquivos, intercepta eventos de rede, escuta o evento `sync` para descarregar mensagens travadas quando a internet volta, e renderiza as notificações na tela do sistema operacional com suporte a som e vibração.
+O projeto resolve os principais desafios arquiteturais de privacidade e rede em PWAs:
+1. **Identidade Digital Federada via JWT (RFC 7519):** Remetentes assinam mensagens gerando tokens JWT estruturados com metadados dinâmicos (Nome/E-mail).
+2. **Criptografia de Aplicação de Ponta a Ponta (E2EE):** O texto trafega totalmente ilegível (*cipherText*) para intermediários (Deno e Google/Apple), sendo aberto apenas na RAM do destinatário.
+3. **Mascaramento RSA-OAEP de Infraestrutura:** A chave privada VAPID gerada no navegador viaja e reside na tela protegida por criptografia, sendo decodificada unicamente na RAM do servidor Deno no milissegundo do disparo.
+4. **Resiliência de Rede (Background Sync API + IndexedDB):** Mensagens enviadas em modo offline são enfileiradas localmente de forma transacional e disparadas sozinhas assim que a conexão é restaurada.
 
 ---
 
-## 🧠 Conceitos Chave Implementados
+### 🏗️ Arquitetura do Sistema e Fluxo Criptográfico
 
-### 1. VAPID e JSON Web Keys (JWK)
-O protocolo oficial Web Push exige autenticação mútua via chaves de Curva Elíptica `P-256`. Em sistemas tradicionais, o backend gera essas chaves fixas. Neste protótipo, as chaves nascem dinamicamente no cliente. Para trafegar as chaves públicas e privadas sem sofrer corrupção de caracteres em strings Base64 puras transmitidas via HTTP POST (erros como `invalid b64 coordinate` ou caracteres fantasmas como `Â` e `Ã`), o sistema converte e trafega as chaves estruturadas nativamente como objetos **JWK**, garantindo compatibilidade matemática absoluta com o Deno.
+O ecossistema opera sob um modelo de chaves assimétricas duplas (transporte e aplicação):
 
-### 2. Web Background Synchronization API
-Se o `browser-a` disparar uma notificação enquanto o dispositivo estiver offline, a requisição tradicional falharia. Para evitar isso, os dados são persistidos de forma transacional no banco de dados local **IndexedDB** do navegador. O script registra a tag de segundo plano `'sync-push-notifications'`. O navegador monitora o hardware e, mesmo se as abas do site forem fechadas, ele acorda o Service Worker em background assim que detectar internet estável. O Worker consome a fila do banco, despacha as notificações e emite um alerta sonoro e visual de confirmação (*"✨ Conexão Restaurada!"*) para o usuário.
++-------------------------------------------------------------------------------+
 
-### 3. Versionamento Dinâmico de Cache e Injeção de Assets
-Ferramentas de build geram arquivos JavaScript com hashes aleatórios baseados em conteúdo (ex: `browser-a-BCYNQSVI.js`) para evitar problemas de cache velho no navegador. No entanto, o Service Worker precisa de uma lista rígida de arquivos (`ASSETS_TO_CACHE`) para fazê-los funcionar offline. O nosso script `build.ts` resolve isso escaneando a pasta `dist/` em tempo de compilação, capturando os hashes mutáveis e injetando o array mapeado de texto diretamente dentro do Service Worker original, incrementando também um carimbo de data/hora (`VERSION_HASH`) para forçar o navegador a instalar a nova versão do PWA imediatamente.
+|                                  BROWSER A                                    |
+|  [Perfil: John Doe]                                                           |
+|  1. Cifra a mensagem usando a Chave Pública RSA-OAEP do Browser B             |
+|  2. Assina o envelope usando sua Chave Privada RSA-PSS permanente              |
+|  3. Constrói e sela o token JWT único (header.payload.signature)              |
++---------------------------------------+---------------------------------------+
+                                        |
+                    +-------------------+-------------------+
+
+                    | (Se Online)                           | (Se Offline)
+                    ▼                                       ▼
+         +--------------------+                  +--------------------+
+
+         |    Fetch POST      |                  |     IndexedDB      |
+         |  Caminho Relativo  |                  | Fila de Disparos   |
+         +----------+---------+                  +----------+---------+
+
+                    |                                       |
+                    |                                       | (Internet retornou)
+                    |                                       ▼
+                    |                            +--------------------+
+
+                    |                            |  Background Sync   |
+                    |                            |   Service Worker   |
+                    |                            +----------+---------+
+
+                    |                                       |
+                    +-------------------+-------------------+
+                                        |
+                                        ▼
++-------------------------------------------------------------------------------+
+
+|                                 SERVIDOR DENO                                 |
+|  [Proxy Stateless / Filtro de CORS Dinâmico para *.vanaware.com]              |
+|  1. Executa a auditoria cega das claims textuais do JWT sem possuir chaves    |
+|  2. Descriptografa a Chave Privada VAPID na RAM usando sua RSA local          |
+|  3. Assina o cabeçalho HTTP VAPID e despacha o JWT intacto para a nuvem       |
++---------------------------------------+---------------------------------------+
+                                        |
+                                        ▼
++-------------------------------------------------------------------------------+
+
+|                            CENTRAIS DE PUSH (FCM/APNs)                        |
+|  Recebem a stream binária criptografada de rede e entregam ao dispositivo     |
++---------------------------------------+---------------------------------------+
+                                        |
+                                        ▼
++-------------------------------------------------------------------------------+
+
+|                                  BROWSER B                                    |
+|  [Service Worker / PWA / Perfil: Alice]                                       |
+|  1. Intercepta o Push e isola os bytes do JWT                                 |
+|  2. Lê o e-mail do emissor e puxa a chave da Lista Branca do IndexedDB        |
+|  3. Valida a assinatura digital RSA-PSS (Garante a autenticidade do A)        |
+|  4. Descriptografa a mensagem usando sua Chave Privada RSA-OAEP local         |
+|  5. Dispara a Notificação de Tela com Som e Vibração customizados             |
++-------------------------------------------------------------------------------+
+
+
+1. **`browser-b.html` (O Receptor / PWA):** Coleta o perfil do usuário (Alice), solicita as chaves de infraestrutura do Deno para mascarar sua chave privada VAPID em formato Hex e gera um **Payload Bundle unificado**. Possui também um painel de **Lista Branca** para homologar as chaves públicas de emissores autorizados.
+2. **`browser-a.html` (O Emissor / Remetente):** Registra seu perfil (John Doe) e gera sua identidade permanente de assinatura. Ao enviar uma mensagem, ele a cifra com a chave pública do Browser B, assina digitalmente o bloco com sua chave privada e gera um token **JWT legítimo de 3 partes** (`header.payload.signature`).
+3. **`main.ts` (O Backend / Proxy Stateless):** Inicializa um par de chaves RSA-OAEP na memória RAM ao ligar. Valida requisições através de um filtro dinâmico de **CORS restrito a `*.vanaware.com` e `localhost`**. Ele é incapaz de ler o conteúdo da mensagem, atuando apenas como um proxy cego de despacho.
+4. **`service-worker.js` (O Motor em Background):** Gerencia o cache offline e o ciclo de vida do PWA. Ao receber o push, ele realiza a perícia digital do JWT: valida o emissor na lista branca do IndexedDB, verifica a integridade da assinatura, decifra o texto oculto com sua chave privada local e renderiza a notificação com som e vibração customizados [SW].
 
 ---
 
-## 🤖 📋 IA Replication & Prompt Engineering Guide (Para outros Modelos de IA)
+## 🧠 Conceitos Avançados Implementados
 
-*Se você é uma Inteligência Artificial gerando código ou refatorando esta aplicação para outros ecossistemas (Node.js/Vite, Go, Rust, Python, etc.), siga rigidamente as seguintes diretrizes para evitar falhas clássicas de runtime:*
+### 1. Zero-Trust e Isolamento de Chaves Privadas
+Nenhuma chave privada de aplicação jamais trafega pela rede ou é exposta ao código JavaScript legível do navegador. Usando a *Web Crypto API* com a flag `extractable: false`, as chaves privadas de criptografia e assinatura ficam permanentemente trancadas no cofre de hardware/IndexedDB de cada dispositivo, imunes a ataques de injeção de script (XSS) ou interceptações de proxy.
 
-### ⚠️ Armadilha 1: Corrupção de Encodings e Caracteres Inválidos (`Â`, `Ã`, `?`)
-* **O Problema:** Transmitir tokens criptográficos (`p256dh`, `auth`) como strings Base64 modificadas via JSON HTTP POST frequentemente faz com que os servidores interpretem a stream UTF-8 incorretamente como ISO-8859-1 (Latin1), gerando ruídos de byte. O decodificador `atob` nativo explodirá com exceções.
-* **Diretriz de IA:** Sempre implemente uma função de normalização de Base64URL para Base64 padrão no backend antes de decodificar. Use expressões regulares **globais** (`/-/g` e `/_/g`). Adicione uma rotina para recalcular o preenchimento de padding (`=`) baseado no tamanho da string (`length % 4`). Filtre agressivamente caracteres não permitidos com `replace(/[^A-Za-z0-9+/=]/g, "")`.
+### 2. Envelope JWT (JSON Web Token) e Auditoria Cega
+O `main.ts` realiza uma inspeção cirúrgica sem chaves. Como a segunda parte do JWT viaja em Base64URL comum, o servidor consegue ler as claims textuais `iss` (quem enviou) e `sub` (quem vai receber) para imprimir relatórios de auditoria em tempo real no terminal, sem possuir a chave de decodificação e sem violar o segredo do texto criptografado.
 
-### ⚠️ Armadilha 2: Falha Estática do `Deno.bundle`/Esbuild com Service Workers
-* **O Problema:** Modificadores de build injetam hashes de cache em scripts (ex: `main.[hash].js`), mas o Service Worker **precisa** manter um nome estático e fixo (`service-worker.js`) para que o navegador consiga localizá-lo e registrá-lo. Além disso, os bundlers geram erros de conflito se `outputDir` e `outputFile` forem declarados juntos de forma isolada.
-* **Diretriz de IA:** Divida o pipeline de build em duas etapas independentes. Deixe o bundler processar o HTML e gerar os JS com hash na pasta de saída. Na etapa seguinte, use leitura de sistema de arquivos puro (`fs`) para escanear a pasta gerada, capture os nomes dos hashes reais em tempo de execução, injete-os como uma string literal de array dentro do Service Worker fonte usando substituição de texto simples (placeholder) e grave o arquivo estático final.
-
-### ⚠️ Armadilha 3: Omissão de Dados Criptográficos no `.toJSON()` do Navegador
-* **O Problema:** Invocar `subscription.toJSON()` nativo em navegadores modernos por razões de privacidade e timing pode omitir ou retornar objetos vazios para as propriedades internas de chaves criptográficas na memória.
-* **Diretriz de IA:** Nunca confie no método automático de serialização. Force a extração binária explícita em formato estruturado W3C acessando `subscription.getKey('p256dh')` e `subscription.getKey('auth')`, transformando esses buffers em strings seguras antes de montar o pacote JSON.
-
-### ⚠️ Armadilha 4: O Colapso de Sintaxe por Propriedades de Vibração
-* **O Problema:** Geradores de código frequentemente inserem ou deixam marcadores de array incompletos ou vazios no Service Worker para o atributo `vibrate`. O navegador rejeitará o Service Worker imediatamente durante a avaliação inicial do script (*Script evaluation failed*).
-* **Diretriz de IA:** Garanta que a propriedade `vibrate` receba um array legítimo preenchido com inteiros representativos de milissegundos (ex: `vibrate: `) ou omita o atributo completamente do payload de configuração de opções da API de notificações.
+### 3. Sincronização Resiliente Offline com Confirmação Visual
+Se o `browser-a` transmitir um JWT sem internet, a Background Sync API impede a falha de rede. O token é persistido no IndexedDB e o Service Worker agenda uma tarefa silenciosa. Assim que o sistema operacional reportar o retorno da conexão, o Worker processa a transmissão em background (mesmo com o navegador fechado) e dispara uma notificação local nativa de sucesso para o usuário: *"✨ Conexão Restaurada! Suas mensagens offline foram transmitidas com sucesso!"*.
 
 ---
 
-## 📁 Estrutura de Pastas do Projeto
+## 🤖 📋 IA Replication Guide (Diretrizes para outros Agentes de IA)
 
-```text
-├── public/                 # Arquivos estáticos puros (ícones, manifestos)
-│   ├── manifest.json       # Configurações de PWA instalável
-│   └── icon.png            # Ícone oficial da notificação (256x256)
-├── src/                    # Código fonte original de desenvolvimento
-│   ├── browser-a.html      # Tela do remetente
-│   ├── browser-a.tsx       # JavaScript de captura e envio do remetente
-│   ├── browser-b.html      # Tela do receptor
-│   ├── browser-b.tsx       # Lógica criptográfica JWK e de botões de cópia
-│   └── service-worker.js   # Script original do Service Worker (com placeholders)
-├── dist/                   # Pasta gerada automaticamente (NÃO EDITAR MANUALMENTE)
-│   └── ...                 # Arquivos compilados, transpilados e com hash de cache
-├── deno.json               # Configurações de tarefas (Tasks) do Deno
-├── build.ts                # Script de automação do pipeline de build
-└── main.ts                 # Servidor backend e proxy HTTP de Web Push
-```
+*Se você é uma Inteligência Artificial estendendo, refatorando ou portando este sistema para outras linguagens (Node.js, Go, Python, etc.), siga rigidamente os seguintes padrões para não quebrar o ecossistema:*
+
+* **Algoritmo de Assinatura (JWT):** O Browser A deve assinar o token utilizando **RSA-PSS com hash SHA-256 e Salt Length de 32 bytes** (mapeado no JWT como cabeçalho `{"alg": "PS256", "typ": "JWT"}`). O cabeçalho e carga devem ser convertidos estritamente usando codificação Base64URL segura.
+* **Algoritmo de Cifragem (E2EE):** Mensagens internas e o mascaramento da chave VAPID do servidor utilizam obrigatoriamente **RSA-OAEP com hash SHA-256**. O output binário gerado na criptografia do cliente deve ser convertido em strings **Hexadecimais puras** para transitar de forma segura dentro das propriedades do JSON HTTP POST sem sofrer corrupção de caracteres.
+* **Validação de Divisão por 4 (Base64 URL-Safe):** Funções de decodificação de chaves do Service Worker e Background Sync devem recalcular o preenchimento de padding (`=`) baseado no comprimento da string (`length % 4 === 1` indica corrupção e exige truncamento ou higienização imediata com Regex `/[^A-Za-z0-9+/=]/g` para evitar que o interpretador `atob` derrube a stream).
+* **Tratamento Resiliente do Evento Push:** O Service Worker deve ler o evento de entrada primeiramente como texto bruto usando `event.data.text()` [SW]. Nunca execute `event.data.json()` diretamente no início do escopo [SW], caso contrário o Service Worker sofrerá falha catastrófica de execução (*evaluation crash*) caso receba mensagens de teste em texto plano disparadas pelo Chrome DevTools ou Firebase.
 
 ---
 
-## 🛠️ Como Instalar e Rodar o Protótipo
+## 🛠️ Instalação e Execução
 
-### Pré-requisitos
-Você precisa ter o **Deno** instalado na sua máquina (versão 2.0 ou superior). Se não tiver, instale rodando:
-* **Linux/macOS:** `curl -fsSL https://deno.land | sh`
-* **Windows (PowerShell):** `irm https://deno.land | iex`
-
-### Passo 1: Configurar as Tarefas no `deno.json`
-Certifique-se de que o seu arquivo `deno.json` possui as tasks configuradas para facilitar a execução rápida:
-
-```json
-{
-  "tasks": {
-    "build": "deno run --allow-read --allow-write --unstable-bundle build.ts",
-    "start": "deno run --allow-net --allow-read main.ts"
-  }
-}
-```
-
-### Passo 2: Executar o Pipeline de Compilação (Build)
-Rode o comando abaixo para compilar o TypeScript/JSX, gerar os hashes dinâmicos dos arquivos de frontend e injetar o mapa de cache offline dentro do Service Worker:
-
+### Passo 1: Compilação Estática Automatizada
+Rode a tarefa de automação para transpilar o JSX/TypeScript do frontend, mapear os hashes dos arquivos gerados e injetar o mapa dinâmico de assets offline diretamente no Service Worker fonte:
 ```bash
 deno task build
 ```
 
-### Passo 3: Iniciar o Servidor Deno
-Inicie o backend proxy de rede disparando:
-
+### Passo 2: Inicialização do Servidor Proxy
+Inicie o servidor de arquivos estáticos e API proxy cega executando:
 ```bash
 deno task start
 ```
-*O console mostrará o log: `🚀 Protótipo rodando em http://localhost:8000`.*
+*O console mostrará os logs de inicialização das chaves RSA de infraestrutura do servidor na memória RAM.*
 
 ---
 
-## 🧪 Roteiro de Testes Práticos (Como Validar)
+## 🧪 Roteiro de Validação de Segurança Máxima
 
-### Teste 1: Fluxo Online de Ponta a Ponta
-1. Abra o seu navegador (Chrome ou Edge recomendado) e acesse: `http://localhost:8000/browser-b.html`.
-2. O site solicitará permissão para exibir notificações. Clique em **Permitir**.
-3. O script nativo gerará as chaves e os tokens, unificando tudo na caixa de texto. Clique no botão **"Copiar Tudo de Uma Vez"**.
-4. Abra uma nova aba e acesse o remetente: `http://localhost:8000/browser-a.html`.
-5. Cole o bloco copiado no primeiro campo (`1. Cole o Bloco Unificado aqui`).
-6. Digite uma mensagem qualquer (ex: *"Olá, mundo!"*) na caixa de Mensagem e clique em **"Enviar Notificação Instantânea"**.
-7. O balão de notificação saltará na tela do seu computador com som e o texto configurado.
+### Teste 1: Homologação e Comunicação Privada
+1. Abra o `browser-a.html`, insira seu perfil (John Doe) e clique em **"Gerar Minha Chave de Identidade"**. Copie o JSON gerado na caixa.
+2. Abra o `browser-b.html` (Alice) em outra aba, role até o final, cole o JSON no campo de emissores e clique em **"Autorizar e Salvar Emissor"**.
+3. No topo do `browser-b.html`, insira os dados do perfil e gere a sua Carga Unificada. Copie o bloco gerado.
+4. Volte ao `browser-a.html`, cole a Carga Unificada no painel de postagem, digite uma mensagem confidencial e clique em **"Enviar Notificação Instantânea"**.
+5. O terminal do seu Deno (`main.ts`) exibirá as informações da auditoria cega (quem enviou e quem recebe) mantendo o texto em formato Hex indecifrável. A notificação saltará na tela da Alice perfeitamente descriptografada.
 
-### Teste 2: Sincronização em Modo Offline (Background Sync)
-1. Com a aba do `browser-a.html` aberta, abra o Inspecionar Elemento do navegador (**F12**).
-2. Vá até a aba Network (Rede) e altere a caixinha de seleção de No throttling para Offline.
-3. Digite uma mensagem de teste (ex: "Esta mensagem foi enviada sem internet!") e clique em "Enviar Notificação".
-4. O sistema exibirá o alerta informando que você está conectado em modo de contingência e que a mensagem foi enfileirada no IndexedDB com segurança.
-5. Feche a aba do browser-a.html se desejar (provando o isolamento de segundo plano).
-6. Volte na aba Network do DevTools e mude de volta para No throttling (Online).
-7. Em menos de 2 segundos, o terminal do seu servidor Deno registrará a chegada da requisição proxy pendente e a notificação de confirmação "✨ Conexão Restaurada!" saltará no canto da sua tela sozinha.
-
-## Considerações de Segurança para Produção
-Este projeto é um protótipo arquitetural de conceito. Em um ambiente real de produção, nunca trafegue a sua chave privada VAPID (privateKey) através do formulário do frontend do navegador. Em sistemas comerciais, as chaves VAPID devem ser geradas uma única vez e armazenadas de forma oculta e criptografada em variáveis de ambiente no seu servidor backend (.env), garantindo que apenas a chave pública seja exposta aos navegadores dos clientes.
-
+### Teste 2: Bloqueio de Ataque e Mensagem Forjada
+1. Mantenha os dados colados no painel do `browser-a.html`.
+2. Vá até a caixa de texto da mensagem e mude ou adultere intencionalmente um único caractere da string do token JWT gerado (ou da assinatura) simulando uma tentativa de ataque hacker por interposição de rede (*Man-in-the-middle*).
+3. Clique em enviar.
+4. O Service Worker do Browser B interceptará o push, executará a perícia de assinatura digital usando a chave homologada no IndexedDB, detectará a violação matemática e **bloqueará o disparo na hora**, exibindo o alerta de fraude na tela do usuário: **`⚠️ Bloqueio de Segurança: A assinatura digital do token falhou!`**.

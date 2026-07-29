@@ -1,14 +1,34 @@
 // src/browser-b.tsx
 
+// Função auxiliar para abrir o banco IndexedDB local de forma assíncrona
+function abrirBancoDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("BrowserB_SecurityDB", 1);
+    
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      // Tabela para guardar as chaves privadas inexportáveis do próprio Browser B
+      db.createObjectStore("chaves_privadas_e2e");
+      // Tabela indexada por e-mail para cadastrar a lista branca de emissores (Browser A)
+      db.createObjectStore("lista_branca_emissores", { keyPath: "email" });
+    };
+    
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// Função utilitária para copiar texto para a área de transferência
 function copyToClipboard(id: string): void {
   const input = document.getElementById(id) as HTMLInputElement;
   if (input) {
     input.select();
     document.execCommand('copy');
-    alert(`Carga unificada copiada com sucesso!`);
+    alert("Conteúdo copiado com sucesso!");
   }
 }
 
+// Gera as chaves VAPID nativas do navegador para transporte de rede
 async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   return await window.crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
@@ -17,6 +37,7 @@ async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   );
 }
 
+// Converte buffers brutos para formato Base64Url padrão JWT/WebPush
 function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
   if (!buffer) return "";
   const bytes = new Uint8Array(buffer);
@@ -24,12 +45,58 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
-async function subscribeToPush(): Promise<void> {
-  if (!("serviceWorker" in navigator)) {
-    alert("Service Workers não são suportados.");
+// CRIPTOGRAFIA DE PONTA A PONTA (E2EE): Gera as chaves de aplicação adicionais
+async function generateE2EEKeys() {
+  // 1. Gera par assimétrico para CRIPTOGRAFIA de conteúdo (RSA-OAEP)
+  const encryptionKeyPair = await window.crypto.subtle.generateKey(
+    {
+      name: "RSA-OAEP",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    false, // Chaves privadas NUNCA saem do IndexedDB do cliente por segurança
+    ["encrypt", "decrypt"]
+  );
+
+  // 2. Gera par assimétrico para VERIFICAÇÃO DE ASSINATURA do remetente (RSA-PSS)
+  const signatureKeyPair = await window.crypto.subtle.generateKey(
+    {
+      name: "RSA-PSS",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    false,
+    ["sign", "verify"]
+  );
+
+  // 3. Salva com segurança as chaves privadas locais trancadas no cofre do IndexedDB
+  const db = await abrirBancoDB();
+  const tx = db.transaction("chaves_privadas_e2e", "readwrite");
+  await tx.objectStore("chaves_privadas_e2e").put(encryptionKeyPair.privateKey, "minha_decript_key");
+  await tx.objectStore("chaves_privadas_e2e").put(signatureKeyPair.privateKey, "minha_assinatura_key");
+
+  // 4. Exporta apenas as chaves PÚBLICAS em formato JWK JSON para disponibilizar ao Browser A
+  const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
+  const publicSignJwk = await window.crypto.subtle.exportKey("jwk", signatureKeyPair.publicKey);
+
+  return { publicEncryptJwk, publicSignJwk };
+}
+
+// FUNÇÃO PRINCIPAL: Monta o ecossistema com o perfil e sela a chave VAPID para o Deno
+async function processarInscricaoComPerfil(): Promise<void> {
+  const nomeB = (document.getElementById('profileNameB') as HTMLInputElement).value;
+  const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
+
+  if (!nomeB || !emailB) {
+    alert("Por favor, preencha o Nome e o E-mail do perfil receptor.");
     return;
   }
 
@@ -37,17 +104,20 @@ async function subscribeToPush(): Promise<void> {
     const registration = await navigator.serviceWorker.register("./service-worker.js");
     await navigator.serviceWorker.ready;
 
+    // 1. Inicializa a geração das chaves VAPID nativas na máquina
     const vapidKeyPair = await generateVAPIDKeys();
     const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
     
     const publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
     const privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
 
+    // 2. Limpa qualquer assinatura anterior no navegador para evitar conflito de chaves
     const existingSubscription = await registration.pushManager.getSubscription();
     if (existingSubscription) {
       await existingSubscription.unsubscribe();
     }
 
+    // 3. Executa o subscribe amarrando a chave pública em formato Uint8Array
     const subscription = await registration.pushManager.subscribe({
       applicationServerKey: new Uint8Array(rawPublicKey),
       userVisibleOnly: true
@@ -55,8 +125,7 @@ async function subscribeToPush(): Promise<void> {
 
     const p256dhBuffer = subscription.getKey('p256dh');
     const authBuffer = subscription.getKey('auth');
-
-    // Monta o bloco de assinatura
+    
     const customSubscriptionJson = {
       endpoint: subscription.endpoint,
       keys: {
@@ -65,85 +134,114 @@ async function subscribeToPush(): Promise<void> {
       }
     };
 
-    // Monta o bloco de credenciais de identificação
-    const vapidJson = {
-      subject: `mailto:john@example.com`,
-      publicKey: publicKeyJwk,
-      privateKey: privateKeyJwk
-    };
+    // 4. Inicializa e recolhe as chaves públicas E2EE locais
+    const e2ePublicKeys = await generateE2EEKeys();
 
-    // 🔥 A MÁGICA: Prepara o payload completo, deixando um placeholder para a mensagem
+    // 5. 🔥 SEGURANÇA MÁXIMA: Busca a Chave Pública RSA de infraestrutura do Servidor Deno
+    console.log("🔒 Solicitando chave de infraestrutura ao Servidor Deno...");
+    const resServerKey = await fetch("/api/server-public-key");
+    if (!resServerKey.ok) {
+      throw new Error("Não foi possível carregar a chave pública do servidor backend.");
+    }
+    const serverPublicKeyJwk = await resServerKey.json();
+
+    const cryptoServerKey = await window.crypto.subtle.importKey(
+      "jwk", serverPublicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]
+    );
+
+    // 6. 🔥 CRIPTOGRAFIA ASSIMÉTRICA: Sela a chave privada VAPID para que só a RAM do Deno consiga ler
+    console.log("🔒 Criptografando a Chave Privada VAPID...");
+    const encoder = new TextEncoder();
+    const privateKeyVapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+    
+    const encryptedVapidBuffer = await window.crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoServerKey,
+      privateKeyVapidBytes
+    );
+    
+    // Converte o buffer binário resultante em formato Hexadecimal textual limpo para trafegar
+    const privateKeyVapidHex = Array.from(new Uint8Array(encryptedVapidBuffer))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // 7. Agrupa o Payload unificado final montado em formato JWT-Ready
     const finalPayloadBundle = {
       subscription: customSubscriptionJson,
-      vapid: vapidJson,
-      payloadText: "" // O browser-a vai preencher isso dinamicamente antes do POST
+      vapid: {
+        subject: `mailto:${emailB}`, // Email dinâmico mapeado no cabeçalho
+        publicKey: publicKeyJwk,
+        privateKey: privateKeyVapidHex // Chave trancada e mascarada em código HEX
+      },
+      isVapidEncrypted: true, // Tag que avisa ao main.ts para executar a decodificação na RAM
+      e2e: {
+        ownerName: nomeB,
+        ownerEmail: emailB,
+        browserB_PublicKeyEncrypt: e2ePublicKeys.publicEncryptJwk,
+        browserB_PublicKeyVerify: e2ePublicKeys.publicSignJwk
+      },
+      payloadText: ""
     };
 
     const textarea = document.getElementById('unifiedBundle') as HTMLTextAreaElement;
     if (textarea) {
       textarea.value = JSON.stringify(finalPayloadBundle);
     }
-
-    console.log("🚀 Payload unificado gerado prontinho para o Browser A!");
+    console.log("🚀 Carga unificada em formato federado gerada e mascarada com sucesso!");
 
   } catch (err) {
     console.error(err);
-    alert("Falha ao se inscrever.");
+    alert("Falha ao processar assinatura e chaves: " + (err as Error).message);
   }
 }
 
-subscribeToPush();
-
-document.getElementById("btnCopy")?.addEventListener("click", () => {
-  copyToClipboard("unifiedBundle");
-});
-
-// Este trecho fica dentro do browser-a.tsx ou browser-b.tsx
-navigator.serviceWorker.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'PUSH_RECEIVED') {
-    console.log("Recebi dados do Service Worker na página aberta!", event.data.payload);
-    // Aqui você pode atualizar uma lista de mensagens na tela dinamicamente
+// HOMOLOGAÇÃO DE IDENTIDADE: Cadastra chaves públicas do Browser A na lista branca local
+async function homologarEmissorJWT(): Promise<void> {
+  const rawJwk = (document.getElementById('senderPublicKeyJson') as HTMLTextAreaElement).value;
+  if (!rawJwk) {
+    alert("Cole o JSON do emissor antes de homologar.");
+    return;
   }
-});
 
+  try {
+    const jwkObject = JSON.parse(rawJwk);
+    
+    // Critério de validação do perfil estendido do JWT do Browser A
+    if (!jwkObject.ownerEmail || !jwkObject.ownerName) {
+      throw new Error("O JWK de identidade precisa carregar os metadados de Perfil do Emissor (Nome/E-mail).");
+    }
 
-let deferredPrompt: any = null;
-const btnInstall = document.getElementById('btnInstall');
+    // Valida o mapeamento importando a chave no algoritmo RSA-PSS estável
+    await window.crypto.subtle.importKey(
+      "jwk", jwkObject,
+      { name: "RSA-PSS", hash: "SHA-256" }, true, ["verify"]
+    );
 
-// 1. Escuta o sinal do navegador dizendo que o app está pronto para ser instalado
-window.addEventListener('beforeinstallprompt', (e) => {
-  // Previne que o navegador mostre o banner padrão feio dele
-  e.preventDefault();
-  // Guarda o evento na memória para disparar no clique do nosso botão
-  deferredPrompt = e;
-  
-  // Mostra o nosso botão customizado na tela
-  if (btnInstall) {
-    btnInstall.style.display = 'block';
+    const db = await abrirBancoDB();
+    const tx = db.transaction("lista_branca_emissores", "readwrite");
+    // Salva o registro indexado pelo e-mail dinâmico do remetente
+    await tx.objectStore("lista_branca_emissores").put({
+      email: jwkObject.ownerEmail,
+      name: jwkObject.ownerName,
+      jwk: jwkObject // A estrutura pura da chave de assinatura
+    });
+    
+    alert(`🛡️ Emissor "${jwkObject.ownerName} <${jwkObject.ownerEmail}>" homologado com sucesso!`);
+  } catch (err) {
+    alert("Falha na validação do JWK: " + (err as Error).message);
   }
-  console.log("ℹ️ O PWA atende aos critérios e está pronto para instalação!");
-});
+}
 
-// 2. Controla o clique no botão de instalação
-btnInstall?.addEventListener('click', async () => {
-  if (!deferredPrompt) return;
-  
-  // Mostra a caixinha nativa de confirmação ("Deseja instalar o app?")
-  deferredPrompt.prompt();
-  
-  // Espera a resposta do usuário
-  const { outcome } = await deferredPrompt.userChoice;
-  console.log(`👤 Usuário respondeu à instalação com: ${outcome}`);
-  
-  // Limpa o prompt da memória, ele só pode ser usado uma vez
-  deferredPrompt = null;
-  
-  // Oculta o botão novamente
-  btnInstall.style.display = 'none';
-});
+// Vincula as funções de clique diretamente aos elementos do HTML correspondentes
+document.getElementById("btnRegisterPush")?.addEventListener("click", processarInscricaoComPerfil);
+document.getElementById("btnSaveSenderIdentity")?.addEventListener("click", homologarEmissorJWT);
 
-// 3. Opcional: detecta se o app foi instalado com sucesso
-window.addEventListener('appinstalled', () => {
-  console.log('🎉 Aplicativo instalado com sucesso no sistema operacional!');
-  deferredPrompt = null;
+// Escutador dinâmico dos botões de cópia baseados em classe e atributos customizados data-target
+document.querySelectorAll(".copy-btn").forEach((button) => {
+  button.addEventListener("click", (event) => {
+    const targetId = (event.currentTarget as HTMLButtonElement).getAttribute("data-target");
+    if (targetId) {
+      copyToClipboard(targetId);
+    }
+  });
 });

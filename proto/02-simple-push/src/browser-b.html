@@ -1,25 +1,56 @@
-<!-- browser-b.html -->
+<!-- src/browser-b.html -->
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <title>Browser B - Gerador de Carga</title>
+    <title>Browser B - Gerador e Receptor Seguro</title>
     <link rel="manifest" href="/manifest.json">
     <style>
-      textarea { width: 100%; max-width: 600px; padding: 8px; font-family: monospace; box-sizing: border-box; }
-      button { padding: 10px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+      body { font-family: system-ui, sans-serif; padding: 20px; color: #333; max-width: 800px; margin: 0 auto; }
+      .container { background: #f4f4f4; padding: 15px; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box; }
+      textarea, input[type="text"] { width: 100%; max-width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 8px; font-family: monospace; }
+      button { padding: 10px 16px; font-weight: bold; background-color: #006c4f; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 15px; }
+      button:hover { background-color: #004d3f; }
+      label { font-weight: bold; display: block; margin-top: 5px; }
     </style>
   </head>
   <body>
-    <h1>Browser B - Emissor de Token Unificado</h1>
-    <label>Copie o bloco de configuração abaixo:</label><br />
-    <textarea id="unifiedBundle" rows="12" readonly placeholder="Aguardando geração..."></textarea><br />
-    <button id="btnCopy">Copiar Tudo de Uma Vez</button>
-    <br />
-    <button id="btnInstall" style="display: none; background-color: #006c4f; color: white; padding: 12px; font-size: 16px; border: none; border-radius: 4px; width: 100%; max-width: 600px; margin-bottom: 20px;">
+    <h1>Browser B - Credenciais Unificadas e Identidade</h1>
+    
+    <!-- 1. BLOCO DE PERFIL DO RECEPTOR -->
+    <div class="container">
+      <h2>👤 Perfil do Receptor (Browser B)</h2>
+      <label for="profileNameB">Nome do Dono do Canal:</label>
+      <input type="text" id="profileNameB" value="Alice" />
+      
+      <label for="profileEmailB">E-mail de Contato VAPID:</label>
+      <input type="text" id="profileEmailB" value="alice@example.com" />
+      
+      <button id="btnRegisterPush">Gerar Carga Unificada com Perfil</button>
+    </div>
+
+    <!-- 2. BANNER DE INSTALAÇÃO DO PWA (OPCIONAL/ATIVO) -->
+    <button id="btnInstall" style="display: none; background-color: #002b3d; width: 100%;">
       ➕ Instalar Aplicativo no Dispositivo
     </button>
 
+    <!-- 3. BLOCO DE CARGA UNIFICADA MASCARADA -->
+    <div class="container">
+      <h2>📦 Bloco Unificado de Configuração (JWT-Ready)</h2>
+      <label for="unifiedBundle">Carga Unificada (Contém Chave VAPID Criptografada para o Servidor):</label>
+      <textarea id="unifiedBundle" rows="10" readonly placeholder="Aguardando geração do perfil..."></textarea>
+      <button class="copy-btn" data-target="unifiedBundle">Copiar Tudo de Uma Vez</button>
+    </div>
+
+    <!-- 4. BLOCO DE HOMOLOGAÇÃO DO EMISSOR (BROWSER A) -->
+    <div class="container" style="border-left: 5px solid #006c4f;">
+      <h2>🛡️ Homologação de Emissores Autorizados (Lista Branca)</h2>
+      <label for="senderPublicKeyJson">Cole aqui a Chave Pública de Assinatura do Browser A (JWT-Ready):</label>
+      <textarea id="senderPublicKeyJson" rows="4" placeholder='{"kty":"RSA","n":"...","e":"...","ownerName":"...","ownerEmail":"..."}'></textarea>
+      Autorizar e Salvar Emissor</button>
+    </div>
+
+    <!-- Ponto de entrada do script processado pelo Deno -->
     <script src="./browser-b.tsx" type="module"></script>
   </body>
 </html>
