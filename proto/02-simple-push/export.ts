@@ -1,3 +1,25 @@
+/**
+ * @file exportar.ts
+ * @description CONTEXTO PARA OUTRAS IAs: Este script automatiza a consolidação do código-fonte 
+ * deste projeto em um único arquivo Markdown (EXPORT.md). Ele foi desenhado para otimizar o 
+ * envio manual de contexto para chats de IA, garantindo que o modelo receptor entenda a 
+ * árvore de arquivos e as dependências sem estourar o limite de tokens com arquivos inúteis.
+ * 
+ * @rules REGRAS DE ESCOPO E FILTROS (NÃO ALTERAR SEM COMANDO EXPRESSO):
+ * 1. Raiz do Projeto: Permite estritamente os arquivos ["main.ts", "build.ts", "deno.json", "deno.jsonc"].
+ * 2. Diretores Permitidos: Faz varredura recursiva apenas dentro das pastas ["src", "public"].
+ * 3. Extensões Válidas: Filtra apenas arquivos de texto/código clássicos listados na constante EXTENSOES_PERMITIDAS.
+ * 4. Auto-Exclusão: Nunca deve ler o próprio arquivo de saída ("EXPORT.md") para evitar loops de escrita.
+ * 
+ * @logic LÓGICA DE FORMATAÇÃO DO OUTPUT:
+ * - Adiciona um prompt de comando fixo no topo do EXPORT.md instruindo a IA receptora sobre como responder.
+ * - Identifica cada arquivo com seu caminho relativo exato (`## Arquivo: src/caminho/arquivo.ext`).
+ * - Usa a função calcularCraseWrapper para analisar o conteúdo do arquivo e envelopá-lo com um número 
+ *   seguro de crases (ex: se o código tiver 3 crases, abre o bloco com 4; se tiver 4, abre com 5), 
+ *   impedindo de forma matemática que strings literais ou blocos internos quebrem o Markdown final.
+ */
+
+
 import { walk } from "jsr:@std/fs/walk";
 import { relative } from "jsr:@std/path/relative";
 
