@@ -15,11 +15,29 @@ const EXTENSOES_PERMITIDAS = [
   ".html", ".manifest", ".md", ".json"
 ];
 
+/**
+ * Encontra a maior sequência consecutiva de crases dentro de um texto
+ * e retorna uma string de fechamento com uma crase a mais.
+ */
+function calcularCraseWrapper(texto: string): string {
+  const matches = texto.match(/`+/g);
+  if (!matches) return "```"; // Padrão de 3 crases se não houver nenhuma
+  
+  const maiorSequencia = Math.max(...matches.map(m => m.length));
+  // O wrapper precisa de pelo menos uma crase a mais do que a maior sequência interna
+  const tamanhoNecessario = Math.max(3, maiorSequencia + 1);
+  return "`".repeat(tamanhoNecessario);
+}
+
 let conteudoFinal = "# Código Fonte Selecionado do Projeto\n\n";
 conteudoFinal += `Gerado automaticamente em: ${new Date().toLocaleString()}\n\n`;
 
 for await (const entry of walk(".", { includeDirs: false })) {
   const caminhoRelativo = relative(".", entry.path);
+  
+  // NUNCA lê o próprio arquivo de saída para evitar duplicação infinita
+  if (caminhoRelativo === ARQUIVO_SAIDA) continue;
+
   let deveIncluir = false;
 
   // Verifica se é um dos arquivos específicos da raiz
@@ -48,17 +66,22 @@ for await (const entry of walk(".", { includeDirs: false })) {
       
       // Define a sintaxe correta para o bloco de código Markdown
       let extensaoMarkdown = caminhoRelativo.split(".").pop() || "";
-      if (extensaoMarkdown === "manifest") extensaoMarkdown = "json"; // Melhora o highlight no chat
+      if (extensaoMarkdown === "manifest") extensaoMarkdown = "json";
+
+      // Calcula dinamicamente o número seguro de crases para este arquivo específico
+      const wrapperCrasis = calcularCraseWrapper(conteudoArquivo);
 
       conteudoFinal += `## Arquivo: \`${caminhoRelativo}\`\n\n`;
-      conteudoFinal += `\`\`\`${extensaoMarkdown}\n`;
+      conteudoFinal += `${wrapperCrasis}${extensaoMarkdown}\n`;
       conteudoFinal += conteudoArquivo;
-      conteudoFinal += "\n\`\`\`\n\n---\n\n";
+      conteudoFinal += `\n${wrapperCrasis}\n\n---\n\n`;
     } catch (erro) {
-      console.error(`Erro ao ler ${caminhoRelativo}:`, erro.message);
+      if (erro instanceof Error) {
+        console.error(`Erro ao ler ${caminhoRelativo}:`, erro.message);
+      }
     }
   }
 }
 
 await Deno.writeTextFile(ARQUIVO_SAIDA, conteudoFinal);
-console.log(`\n Prontinho! O arquivo ${ARQUIVO_SAIDA} foi atualizado apenas com o escopo solicitado.`);
+console.log(`\n Prontinho! O arquivo ${ARQUIVO_SAIDA} foi gerado com escape dinâmico à prova de falhas.`);
