@@ -10,6 +10,7 @@
     "copy:static": "cp -r public/* dist/",
     "build:html": "deno bundle --platform=browser --outdir dist/ src/browser-a.html src/browser-b.html",
     "build:sw": "deno bundle --platform=browser -o dist/service-worker.js src/service-worker.js",
-    "buildnow": "deno task clean && deno task copy:static && deno task build:html && deno task build:sw"
+    "buildnow": "deno task clean && deno task copy:static && deno task build:html && deno task build:sw",
+    "export": "deno run --allow-read --allow-write exportar.ts"
   }
 }
