@@ -1,5 +1,5 @@
 {
-  "workspace": ["src/main", "src/worker", "src/sw", "proto/_template", "proto/01-push-messaging"],
+  "workspace": ["src/main", "src/worker", "src/sw", "proto/_template", "proto/01-push-messaging", "proto/02-simple-push"],
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
     "jsx": "react-jsx",
@@ -11,6 +11,7 @@
     "@std/fs": "jsr:@std/fs@^1",
     "@std/http": "jsr:@std/http@^1",
     "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
     "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
     "preact": "https://esm.sh/preact@10.29.7",
     "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",

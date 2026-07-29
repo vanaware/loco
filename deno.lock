@@ -8,6 +8,7 @@
     "jsr:@deno/installer-shell-setup@*": "0.3.4",
     "jsr:@deno/wasmbuild@*": "0.22.0",
     "jsr:@negrel/http-ece@0.7.0": "0.7.0",
+    "jsr:@negrel/webpush@*": "0.5.0",
     "jsr:@negrel/webpush@0.5": "0.5.0",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/assert@~0.218.2": "0.218.2",
@@ -401,6 +402,11 @@
     },
     "members": {
       "proto/01-push-messaging": {
+        "dependencies": [
+          "jsr:@negrel/webpush@0.5"
+        ]
+      },
+      "proto/02-simple-push": {
         "dependencies": [
           "jsr:@negrel/webpush@0.5"
         ]
