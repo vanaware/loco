@@ -4,15 +4,21 @@ import { relative } from "jsr:@std/path/relative";
 const ARQUIVO_SAIDA = "EXPORT.md";
 
 // Arquivos específicos permitidos na raiz do projeto
-const ARQUIVOS_RAIZ_PERMITIDOS = ["main.ts", "build.ts", "deno.json"];
+const ARQUIVOS_RAIZ_PERMITIDOS = ["main.ts", "build.ts", "deno.json", "deno.jsonc"];
 
 // Pastas permitidas para varredura completa
 const PASTAS_PERMITIDAS = ["src", "public"];
 
-// Extensões de arquivos de texto aceitas dentro das pastas permitidas
+// Lista expandida com .jsonc e outras extensões clássicas
 const EXTENSOES_PERMITIDAS = [
-  ".tsx", ".jsx", ".js", ".ts", ".css", 
-  ".html", ".manifest", ".md", ".json"
+  // Web & Frontend
+  ".tsx", ".jsx", ".js", ".ts", ".css", ".html", ".manifest", ".map",
+  // Scripts & Automação
+  ".sh", ".py", ".ps1",
+  // Configuração & Dados (incluindo JSONC)
+  ".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".env", ".env.example",
+  // Documentação & Outros
+  ".md", ".txt", ".sql"
 ];
 
 /**
@@ -21,21 +27,34 @@ const EXTENSOES_PERMITIDAS = [
  */
 function calcularCraseWrapper(texto: string): string {
   const matches = texto.match(/`+/g);
-  if (!matches) return "```"; // Padrão de 3 crases se não houver nenhuma
+  if (!matches) return "```";
   
   const maiorSequencia = Math.max(...matches.map(m => m.length));
-  // O wrapper precisa de pelo menos uma crase a mais do que a maior sequência interna
   const tamanhoNecessario = Math.max(3, maiorSequencia + 1);
   return "`".repeat(tamanhoNecessario);
 }
 
-let conteudoFinal = "# Código Fonte Selecionado do Projeto\n\n";
-conteudoFinal += `Gerado automaticamente em: ${new Date().toLocaleString()}\n\n`;
+// Mensagem estruturada para guiar o comportamento da IA no chat
+let conteudoFinal = `> **INSTRUÇÃO PARA A IA:** 
+> O texto abaixo contém múltiplos arquivos do meu projeto estruturados em blocos. 
+> Cada arquivo começa com um título indicando seu caminho relativo exato (ex: \`## Arquivo: src/main.ts\`).
+> Analise a estrutura de pastas, as dependências e o código fornecido antes de propor melhorias ou correções.
+> Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos.
+
+---
+
+# Código Fonte Selecionado do Projeto
+
+Gerado automaticamente em: ${new Date().toLocaleString()}
+
+---
+
+`;
 
 for await (const entry of walk(".", { includeDirs: false })) {
   const caminhoRelativo = relative(".", entry.path);
   
-  // NUNCA lê o próprio arquivo de saída para evitar duplicação infinita
+  // Ignora o próprio arquivo de saída
   if (caminhoRelativo === ARQUIVO_SAIDA) continue;
 
   let deveIncluir = false;
@@ -50,10 +69,11 @@ for await (const entry of walk(".", { includeDirs: false })) {
     );
 
     if (estaEmPastaPermitida) {
-      // Verifica se o arquivo tem uma extensão de texto válida (ignora case)
       const caminhoMinusculo = caminhoRelativo.toLowerCase();
+      
+      // Validação inteligente para extensões ou arquivos .env
       deveIncluir = EXTENSOES_PERMITIDAS.some(ext => 
-        caminhoMinusculo.endsWith(ext.toLowerCase())
+        caminhoMinusculo.endsWith(ext.toLowerCase()) || caminhoMinusculo === ext.toLowerCase()
       );
     }
   }
@@ -64,11 +84,12 @@ for await (const entry of walk(".", { includeDirs: false })) {
       console.log(`Incluindo: ${caminhoRelativo}`);
       const conteudoArquivo = await Deno.readTextFile(entry.path);
       
-      // Define a sintaxe correta para o bloco de código Markdown
+      // Ajustes de codificação visual para o Markdown do chat da IA
       let extensaoMarkdown = caminhoRelativo.split(".").pop() || "";
       if (extensaoMarkdown === "manifest") extensaoMarkdown = "json";
+      if (extensaoMarkdown === "jsonc") extensaoMarkdown = "json";
+      if (caminhoRelativo.includes(".env")) extensaoMarkdown = "properties";
 
-      // Calcula dinamicamente o número seguro de crases para este arquivo específico
       const wrapperCrasis = calcularCraseWrapper(conteudoArquivo);
 
       conteudoFinal += `## Arquivo: \`${caminhoRelativo}\`\n\n`;
@@ -84,4 +105,4 @@ for await (const entry of walk(".", { includeDirs: false })) {
 }
 
 await Deno.writeTextFile(ARQUIVO_SAIDA, conteudoFinal);
-console.log(`\n Prontinho! O arquivo ${ARQUIVO_SAIDA} foi gerado com escape dinâmico à prova de falhas.`);
+console.log(`\n Prontinho! O arquivo ${ARQUIVO_SAIDA} foi gerado com as instruções.`);
