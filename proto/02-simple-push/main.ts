@@ -9,18 +9,28 @@ let serverPrivateKey: CryptoKey;
 let serverPublicKeyJwk: JsonWebKey;
 
 async function inicializarChavesDoServidor() {
-  const keyPair = await window.crypto.subtle.generateKey(
+  const keyPair = await crypto.subtle.generateKey(
     {
       name: "RSA-OAEP",
       modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
+      // 🔥 CORREÇÃO: Define o expoente público padrão mundial do RSA (65537) em bytes
+      publicExponent: new Uint8Array([1, 0, 1]), 
       hash: "SHA-256",
     },
-    false, // Chave privada inexportável da memória RAM do servidor
+    true, // Permite exportar a chave pública para o JWK
     ["decrypt"]
   );
   serverPrivateKey = keyPair.privateKey;
-  serverPublicKeyJwk = await window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  
+  // Exporta o JWK base
+  const rawPublicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  
+  // Garante que o array de operações permita a criptografia no navegador
+  serverPublicKeyJwk = {
+    ...rawPublicKeyJwk,
+    key_ops: ["encrypt"]
+  };
+  
   console.log("🔒 Chaves RSA de Infraestrutura do Servidor inicializadas com sucesso!");
 }
 
@@ -28,16 +38,49 @@ async function inicializarChavesDoServidor() {
 await inicializarChavesDoServidor();
 
 // Função auxiliar para descriptografar dados Hex usando a chave RSA exclusiva do servidor
-async function decryptWithServerKey(hexString: string): Promise<any> {
-  const bytes = new Uint8Array(hexString.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
-  const decryptedBuffer = await window.crypto.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    serverPrivateKey,
-    bytes
-  );
-  const jsonText = new TextDecoder().decode(decryptedBuffer);
-  return JSON.parse(jsonText);
+async function decryptWithServerKey(base64Envelope: string): Promise<any> {
+  try {
+    // 1. Desempacota o envelope Base64 enviado pelo navegador
+    const envelopeText = atob(base64Envelope);
+    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+
+    // Helper para converter strings Hex textuais de volta para arrays de bytes inteiros
+    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+
+    const ivBytes = fromHex(iv);
+    const dadosBytes = fromHex(dadosCifrados);
+    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+
+    // 2. Descriptografa a chave AES usando a chave privada RSA-OAEP exclusiva da RAM do servidor
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+      { name: "RSA-OAEP" },
+      serverPrivateKey,
+      chaveAesCifradaBytes
+    );
+
+    // 3. Importa a chave simétrica AES recuperada de volta para o runtime do Deno
+    const chaveSimetricaAes = await crypto.subtle.importKey(
+      "raw",
+      aesChaveCruaBuffer,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+
+    // 4. Descriptografa o conteúdo longo da chave privada VAPID original usando a chave AES aberta
+    const vapidOriginalBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ivBytes },
+      chaveSimetricaAes,
+      dadosBytes
+    );
+
+    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
+    return JSON.parse(jsonText);
+  } catch (err) {
+    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${(err as Error).message}`);
+  }
 }
+
 
 // Transforma as strings textuais de chave pública/privada VAPID em JSON estruturado
 function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
@@ -72,14 +115,26 @@ function lerMetadadosJJWT(jwtString: string) {
 
 Deno.serve({ port: PORT }, async (req) => {
   const url = new URL(req.url);
-  const origin = req.headers.get("origin") || "";
+  
+  // 1. Captura o Origin enviado pelo navegador
+  let origin = req.headers.get("origin") || "";
 
-  // 🔥 VALIDAÇÃO DINÂMICA DE CORS BASEADA EM REGEX
-  // Aceita localhost (qualquer porta) ou qualquer subdomínio de .vanaware.com
+  // CORREÇÃO CRUCIAL: Se o Origin vier vazio (comum em fetches relativos do mesmo domínio),
+  // nós reconstrói ele dinamicamente usando o protocolo (http/https) e o Host atual do servidor
+  if (origin === "") {
+    const host = req.headers.get("host") || `localhost:${PORT}`;
+    // Verifica se o seu servidor roda em ambiente seguro (HTTPS) na nuvem ou HTTP local
+    const protocolo = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+    origin = `${protocolo}://${host}`;
+  }
+
+  // 2. VALIDAÇÃO DE CORS ATUALIZADA
+  // Permite localhost (qualquer porta) ou qualquer subdomínio de .vanaware.com
   const isAllowedOrigin = 
     /^https?:\/\/localhost(:\d+)?$/.test(origin) || 
     /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/.test(origin);
 
+  // 3. Define os cabeçalhos de resposta baseados na validação acima
   const corsHeaders = {
     "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "https://vanaware.com",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -87,14 +142,14 @@ Deno.serve({ port: PORT }, async (req) => {
     "Access-Control-Allow-Credentials": "true"
   };
 
-  // Responde imediatamente às requisições de preflight do CORS
+  // Trata requisições de preflight imediatamente
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Trava de segurança de API: bloqueia requisições vindas de origens não autorizadas
+  // Trava de segurança de API: Se a origem final gerada NÃO for permitida, bloqueia com 403
   if (!isAllowedOrigin && url.pathname.startsWith("/api/")) {
-    console.warn(`🛑 [CORS REJEITADO] Tentativa de acesso não autorizada vinda de: "${origin}"`);
+    console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
     return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" }

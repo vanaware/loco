@@ -1,24 +1,30 @@
 // src/browser-b.tsx
+console.log("🟢 [SW-LOG] Arquivo browser-b.tsx carregado com sucesso pelo interpretador do navegador!");
 
 // Função auxiliar para abrir o banco IndexedDB local de forma assíncrona
 function abrirBancoDB(): Promise<IDBDatabase> {
+  console.log("💾 [SW-LOG] Tentando inicializar/abrir o IndexedDB local...");
   return new Promise((resolve, reject) => {
     const request = indexedDB.open("BrowserB_SecurityDB", 1);
     
     request.onupgradeneeded = () => {
+      console.log("💾 [SW-LOG] Upgrading IndexedDB: Criando tabelas de segurança...");
       const db = request.result;
-      // Tabela para guardar as chaves privadas inexportáveis do próprio Browser B
       db.createObjectStore("chaves_privadas_e2e");
-      // Tabela indexada por e-mail para cadastrar a lista branca de emissores (Browser A)
       db.createObjectStore("lista_branca_emissores", { keyPath: "email" });
     };
     
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      console.log("💾 [SW-LOG] IndexedDB aberto com sucesso!");
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      console.error("💾 [SW-LOG] Erro ao abrir IndexedDB:", request.error);
+      reject(request.error);
+    };
   });
 }
 
-// Função utilitária para copiar texto para a área de transferência
 function copyToClipboard(id: string): void {
   const input = document.getElementById(id) as HTMLInputElement;
   if (input) {
@@ -28,8 +34,8 @@ function copyToClipboard(id: string): void {
   }
 }
 
-// Gera as chaves VAPID nativas do navegador para transporte de rede
 async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
+  console.log("🔑 [SW-LOG] Gerando par de chaves VAPID nativas...");
   return await window.crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
@@ -37,7 +43,6 @@ async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   );
 }
 
-// Converte buffers brutos para formato Base64Url padrão JWT/WebPush
 function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
   if (!buffer) return "";
   const bytes = new Uint8Array(buffer);
@@ -45,15 +50,11 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-// CRIPTOGRAFIA DE PONTA A PONTA (E2EE): Gera as chaves de aplicação adicionais
 async function generateE2EEKeys() {
-  // 1. Gera par assimétrico para CRIPTOGRAFIA de conteúdo (RSA-OAEP)
+  console.log("🔑 [SW-LOG] Gerando chaves assimétricas de aplicação RSA-OAEP e RSA-PSS...");
   const encryptionKeyPair = await window.crypto.subtle.generateKey(
     {
       name: "RSA-OAEP",
@@ -61,11 +62,10 @@ async function generateE2EEKeys() {
       publicExponent: new Uint8Array([1, 0, 1]),
       hash: "SHA-256",
     },
-    false, // Chaves privadas NUNCA saem do IndexedDB do cliente por segurança
+    false,
     ["encrypt", "decrypt"]
   );
 
-  // 2. Gera par assimétrico para VERIFICAÇÃO DE ASSINATURA do remetente (RSA-PSS)
   const signatureKeyPair = await window.crypto.subtle.generateKey(
     {
       name: "RSA-PSS",
@@ -77,21 +77,21 @@ async function generateE2EEKeys() {
     ["sign", "verify"]
   );
 
-  // 3. Salva com segurança as chaves privadas locais trancadas no cofre do IndexedDB
+  console.log("💾 [SW-LOG] Gravando chaves privadas E2EE no cofre do IndexedDB...");
   const db = await abrirBancoDB();
   const tx = db.transaction("chaves_privadas_e2e", "readwrite");
   await tx.objectStore("chaves_privadas_e2e").put(encryptionKeyPair.privateKey, "minha_decript_key");
   await tx.objectStore("chaves_privadas_e2e").put(signatureKeyPair.privateKey, "minha_assinatura_key");
 
-  // 4. Exporta apenas as chaves PÚBLICAS em formato JWK JSON para disponibilizar ao Browser A
   const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
   const publicSignJwk = await window.crypto.subtle.exportKey("jwk", signatureKeyPair.publicKey);
 
   return { publicEncryptJwk, publicSignJwk };
 }
 
-// FUNÇÃO PRINCIPAL: Monta o ecossistema com o perfil e sela a chave VAPID para o Deno
 async function processarInscricaoComPerfil(): Promise<void> {
+  console.log("🚀 [SW-LOG] [1/6] Função processarInscricaoComPerfil interceptou o clique!");
+  
   const nomeB = (document.getElementById('profileNameB') as HTMLInputElement).value;
   const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
 
@@ -101,31 +101,40 @@ async function processarInscricaoComPerfil(): Promise<void> {
   }
 
   try {
-    const registration = await navigator.serviceWorker.register("./service-worker.js");
-    await navigator.serviceWorker.ready;
+    console.log("🚀 [SW-LOG] [2/6] Solicitando permissão de notificação nativa...");
+    const permissao = await Notification.requestPermission();
+    console.log(`🚀 [SW-LOG] Status da permissão de notificação: ${permissao}`);
+    if (permissao !== "granted") {
+      alert("⚠️ ERRO: Permissão de notificação negada.");
+      return;
+    }
 
-    // 1. Inicializa a geração das chaves VAPID nativas na máquina
+    console.log("🚀 [SW-LOG] [3/6] Registrando Service Worker...");
+    const registration = await navigator.serviceWorker.register("./service-worker.js");
+    await registration.update();
+    const activeWorker = await navigator.serviceWorker.ready;
+    console.log("🚀 [SW-LOG] Service Worker ativo e pronto!");
+
     const vapidKeyPair = await generateVAPIDKeys();
     const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-    
     const publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
     const privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
 
-    // 2. Limpa qualquer assinatura anterior no navegador para evitar conflito de chaves
+    console.log("🚀 [SW-LOG] [4/6] Configurando pushManager.subscribe...");
     const existingSubscription = await registration.pushManager.getSubscription();
     if (existingSubscription) {
+      console.log("🚀 [SW-LOG] Limpando inscrição push antiga detectada...");
       await existingSubscription.unsubscribe();
     }
 
-    // 3. Executa o subscribe amarrando a chave pública em formato Uint8Array
     const subscription = await registration.pushManager.subscribe({
       applicationServerKey: new Uint8Array(rawPublicKey),
       userVisibleOnly: true
     });
+    console.log("🚀 [SW-LOG] Inscrição Web Push gerada com sucesso!");
 
     const p256dhBuffer = subscription.getKey('p256dh');
     const authBuffer = subscription.getKey('auth');
-    
     const customSubscriptionJson = {
       endpoint: subscription.endpoint,
       keys: {
@@ -134,46 +143,63 @@ async function processarInscricaoComPerfil(): Promise<void> {
       }
     };
 
-    // 4. Inicializa e recolhe as chaves públicas E2EE locais
+    console.log("🚀 [SW-LOG] [5/6] Disparando geração E2EE...");
     const e2ePublicKeys = await generateE2EEKeys();
 
-    // 5. 🔥 SEGURANÇA MÁXIMA: Busca a Chave Pública RSA de infraestrutura do Servidor Deno
-    console.log("🔒 Solicitando chave de infraestrutura ao Servidor Deno...");
+    console.log("🚀 [SW-LOG] [6/6] Realizando fetch para capturar chave RSA de infra do Deno...");
     const resServerKey = await fetch("/api/server-public-key");
+    console.log(`🚀 [SW-LOG] Resposta HTTP do servidor: ${resServerKey.status}`);
     if (!resServerKey.ok) {
-      throw new Error("Não foi possível carregar a chave pública do servidor backend.");
+      throw new Error(`HTTP ${resServerKey.status} na rota de chaves públicas.`);
     }
     const serverPublicKeyJwk = await resServerKey.json();
 
+    console.log("🔒 [SW-LOG] Importando chave pública RSA do servidor...");
     const cryptoServerKey = await window.crypto.subtle.importKey(
       "jwk", serverPublicKeyJwk,
       { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]
     );
 
-    // 6. 🔥 CRIPTOGRAFIA ASSIMÉTRICA: Sela a chave privada VAPID para que só a RAM do Deno consiga ler
-    console.log("🔒 Criptografando a Chave Privada VAPID...");
+    console.log("🔒 [SW-LOG] Iniciando criptografia simétrica AES-GCM-256...");
+    const chaveSimetricaAes = await window.crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+
     const encoder = new TextEncoder();
-    const privateKeyVapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+    const ivAes = window.crypto.getRandomValues(new Uint8Array(12));
+    const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
     
-    const encryptedVapidBuffer = await window.crypto.subtle.encrypt(
+    const vapidCriptografadaBuffer = await window.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: ivAes },
+      chaveSimetricaAes,
+      vapidBytes
+    );
+
+    const aesChaveCrua = await window.crypto.subtle.exportKey("raw", chaveSimetricaAes);
+    const aesChaveCriptografadaBuffer = await window.crypto.subtle.encrypt(
       { name: "RSA-OAEP" },
       cryptoServerKey,
-      privateKeyVapidBytes
+      aesChaveCrua
     );
-    
-    // Converte o buffer binário resultante em formato Hexadecimal textual limpo para trafegar
-    const privateKeyVapidHex = Array.from(new Uint8Array(encryptedVapidBuffer))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
 
-    // 7. Agrupa o Payload unificado final montado em formato JWT-Ready
+    const toHex = (buf: ArrayBuffer) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    const envelopeVapidHex = JSON.stringify({
+      iv: toHex(ivAes.buffer),
+      dadosCifrados: toHex(vapidCriptografadaBuffer),
+      chaveAesCifrada: toHex(aesChaveCriptografadaBuffer)
+    });
+
     const finalPayloadBundle = {
       subscription: customSubscriptionJson,
       vapid: {
-        subject: `mailto:${emailB}`, // Email dinâmico mapeado no cabeçalho
+        subject: `mailto:${emailB}`,
         publicKey: publicKeyJwk,
-        privateKey: privateKeyVapidHex // Chave trancada e mascarada em código HEX
+        privateKey: btoa(envelopeVapidHex)
       },
-      isVapidEncrypted: true, // Tag que avisa ao main.ts para executar a decodificação na RAM
+      isVapidEncrypted: true,
       e2e: {
         ownerName: nomeB,
         ownerEmail: emailB,
@@ -187,61 +213,55 @@ async function processarInscricaoComPerfil(): Promise<void> {
     if (textarea) {
       textarea.value = JSON.stringify(finalPayloadBundle);
     }
-    console.log("🚀 Carga unificada em formato federado gerada e mascarada com sucesso!");
+    console.log("✅ [SW-LOG] SUCESSO COMPLETO: Carga unificada populada e visível!");
 
   } catch (err) {
-    console.error(err);
-    alert("Falha ao processar assinatura e chaves: " + (err as Error).message);
+    console.error("❌ [SW-LOG] CRASH DETECTADO:", err);
+    alert(`Erro detectado no fluxo: ${(err as Error).name} - ${(err as Error).message}`);
   }
 }
 
-// HOMOLOGAÇÃO DE IDENTIDADE: Cadastra chaves públicas do Browser A na lista branca local
 async function homologarEmissorJWT(): Promise<void> {
+  console.log("🛡️ [SW-LOG] Iniciando processo de homologação de emissor...");
   const rawJwk = (document.getElementById('senderPublicKeyJson') as HTMLTextAreaElement).value;
-  if (!rawJwk) {
-    alert("Cole o JSON do emissor antes de homologar.");
-    return;
-  }
-
   try {
     const jwkObject = JSON.parse(rawJwk);
-    
-    // Critério de validação do perfil estendido do JWT do Browser A
     if (!jwkObject.ownerEmail || !jwkObject.ownerName) {
-      throw new Error("O JWK de identidade precisa carregar os metadados de Perfil do Emissor (Nome/E-mail).");
+      throw new Error("JWK ausente de metadados de Perfil (Nome/E-mail).");
     }
-
-    // Valida o mapeamento importando a chave no algoritmo RSA-PSS estável
-    await window.crypto.subtle.importKey(
-      "jwk", jwkObject,
-      { name: "RSA-PSS", hash: "SHA-256" }, true, ["verify"]
-    );
-
+    await window.crypto.subtle.importKey("jwk", jwkObject, { name: "RSA-PSS", hash: "SHA-256" }, true, ["verify"]);
     const db = await abrirBancoDB();
     const tx = db.transaction("lista_branca_emissores", "readwrite");
-    // Salva o registro indexado pelo e-mail dinâmico do remetente
-    await tx.objectStore("lista_branca_emissores").put({
-      email: jwkObject.ownerEmail,
-      name: jwkObject.ownerName,
-      jwk: jwkObject // A estrutura pura da chave de assinatura
-    });
-    
-    alert(`🛡️ Emissor "${jwkObject.ownerName} <${jwkObject.ownerEmail}>" homologado com sucesso!`);
+    await tx.objectStore("lista_branca_emissores").put({ email: jwkObject.ownerEmail, name: jwkObject.ownerName, jwk: jwkObject });
+    alert(`🛡️ Emissor "${jwkObject.ownerName}" cadastrado com sucesso!`);
   } catch (err) {
-    alert("Falha na validação do JWK: " + (err as Error).message);
+    alert("Falha na validação: " + (err as Error).message);
   }
 }
 
-// Vincula as funções de clique diretamente aos elementos do HTML correspondentes
-document.getElementById("btnRegisterPush")?.addEventListener("click", processarInscricaoComPerfil);
-document.getElementById("btnSaveSenderIdentity")?.addEventListener("click", homologarEmissorJWT);
+// 🔥 VINCULAÇÃO BLINDADA: Aguarda a árvore HTML estar 100% renderizada antes de atrelar o evento
+window.addEventListener("DOMContentLoaded", () => {
+  console.log("🟢 [SW-LOG] DOM totalmente carregado! Vinculando eventos de clique nos botões...");
+  
+  const btnRegister = document.getElementById("btnRegisterPush");
+  const btnSave = document.getElementById("btnSaveSenderIdentity");
 
-// Escutador dinâmico dos botões de cópia baseados em classe e atributos customizados data-target
-document.querySelectorAll(".copy-btn").forEach((button) => {
-  button.addEventListener("click", (event) => {
-    const targetId = (event.currentTarget as HTMLButtonElement).getAttribute("data-target");
-    if (targetId) {
-      copyToClipboard(targetId);
-    }
+  if (btnRegister) {
+    btnRegister.addEventListener("click", processarInscricaoComPerfil);
+    console.log("🟢 [SW-LOG] Evento de clique atrelado com sucesso ao botão 'btnRegisterPush'!");
+  } else {
+    console.error("❌ [SW-LOG] ALERTA: Botão 'btnRegisterPush' não foi localizado no HTML da página!");
+  }
+
+  if (btnSave) {
+    btnSave.addEventListener("click", homologarEmissorJWT);
+  }
+
+  document.querySelectorAll(".copy-btn").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const targetId = (event.currentTarget as HTMLButtonElement).getAttribute("data-target");
+      if (targetId) copyToClipboard(targetId);
+    });
   });
 });
+

@@ -20,20 +20,27 @@
     <h1>Browser A - Painel de Emissão de Web Push</h1>
 
     <!-- 1. BLOCO DE IDENTIDADE DO EMISSOR -->
-    <div class="container" style="border-left: 5px solid #002b3d;">
-      <h2>🔒 Identidade do Emissor (Browser A)</h2>
-      <label for="profileNameA">Seu Nome (Remetente):</label>
-      <input type="text" id="profileNameA" value="John Doe" />
-      
-      <label for="profileEmailA">Seu E-mail (Remetente):</label>
-      <input type="text" id="profileEmailA" value="john@example.com" />
-      
-      1. Gerar Minha Chave de Identidade</button><br />
-      
-      <label for="myPublicKeySign">Minha Chave Pública de Assinatura (JWT-Ready JSON):</label>
-      <textarea id="myPublicKeySign" rows="4" readonly placeholder="Clique no botão acima para gerar sua chave pública permanente..."></textarea>
-      <button class="copy-btn" data-target="myPublicKeySign">Copiar Minha Chave Pública</button>
-    </div>
+<div class="container" style="border-left: 5px solid #002b3d;"> 
+  <h2>🔒 Identidade do Emissor (Browser A)</h2> 
+  
+  <label for="profileNameA">Seu Nome (Remetente):</label> 
+  <input type="text" id="profileNameA" value="John Doe" /> 
+  
+  <label for="profileEmailA">Seu E-mail (Remetente):</label> 
+  <input type="text" id="profileEmailA" value="john@example.com" /> 
+  
+  <button id="btnGenerateIdentity">
+    Gerar Minha Chave de Identidade Permanente 
+  </button><br /> 
+  
+  <label for="myPublicKeySign">Minha Chave Pública de Assinatura (JWT-Ready JSON):</label> 
+  <textarea id="myPublicKeySign" rows="4" readonly placeholder="Clique no botão acima para gerar sua chave pública permanente..."></textarea> 
+  
+  <button class="copy-btn" data-target="myPublicKeySign" style="background-color: #555; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;"> 
+    Copiar Minha Chave Pública 
+  </button> 
+</div>
+
 
     <!-- 2. PAINEL DE DISPARO DE MENSAGENS -->
     <div class="container">
