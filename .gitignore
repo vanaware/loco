@@ -29,6 +29,7 @@ venv/
 .env
 .env.local
 .env.*
+.env.*.local
 
 # Dependencies
 node_modules/

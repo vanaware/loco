@@ -1,8 +1,33 @@
 // src/sw/push.js
 import { get, createStore } from "idb-keyval";
 
-const storeChavesE2E = createStore("BrowserB_E2E_Chaves_DB", "keyval");
-const storeListaBranca = createStore("BrowserB_ListaBranca_DB", "keyval");
+// 🔥 Constantes
+const DB_NAMES = {
+  CHAVES_E2E_B: "BrowserB_E2E_Chaves_DB",
+  LISTA_BRANCA_B: "BrowserB_ListaBranca_DB",
+  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
+};
+
+const STORE_NAMES = {
+  KEYVAL: "keyval",
+};
+
+const KEY_NAMES = {
+  DECRYPT_KEY: "minha_decript_key",
+};
+
+function criarStore(nome) {
+  return createStore(nome, STORE_NAMES.KEYVAL);
+}
+
+const storeChavesE2E = criarStore(DB_NAMES.CHAVES_E2E_B);
+const storeListaBranca = criarStore(DB_NAMES.LISTA_BRANCA_B);
+const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
+
+// 🔥 Função para salvar mensagem recebida no IndexedDB
+async function salvarMensagemRecebida(mensagem) {
+  await set(mensagem.id, mensagem, storeMensagensRecebidasB);
+}
 
 self.addEventListener('push', function(event) {
   console.log("[SW-PUSH] 📩 ===== PUSH EVENT RECEBIDO =====");
@@ -42,7 +67,7 @@ self.addEventListener('push', function(event) {
 
       const emissorHomologado = await get(emailRemetente, storeListaBranca);
       if (!emissorHomologado) {
-        throw new Error(`O remetente "${emailRemetente}" não foi cadastrado na lista branca deste dispositivo.`);
+        throw new Error(`O remetente "${emailRemetente}" não foi cadastrado na lista branca.`);
       }
 
       const keyVerifyA = await crypto.subtle.importKey(
@@ -61,7 +86,7 @@ self.addEventListener('push', function(event) {
       if (!isSignatureValid) throw new Error("A assinatura digital do token falhou!");
       console.log("[SW-PUSH] 🛡️ Assinatura digital do JWT homologada com sucesso!");
 
-      const privateDecryptKey = await get("minha_decript_key", storeChavesE2E);
+      const privateDecryptKey = await get(KEY_NAMES.DECRYPT_KEY, storeChavesE2E);
       if (!privateDecryptKey) throw new Error("Sua chave privada RSA de decodificação não foi encontrada.");
 
       const encryptedBytes = new Uint8Array(jwtPayload.cipherText.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
@@ -69,19 +94,57 @@ self.addEventListener('push', function(event) {
       const textoOriginal = decoder.decode(decryptedBuffer);
       console.log("[SW-PUSH] 🔓 Conteúdo do JWT aberto com sucesso!");
 
-      // Renderiza o balão final com os dados dinâmicos coletados
-      await self.registration.showNotification(`📥 De: ${nomeRemetente}`, {
-        body: textoOriginal,
-        icon: '/icon.png',
-        badge: '/icon.png',
-        vibrate: [200, 100, 200], 
-        data: jwtPayload
-      });
+      // 🔥 CRIA MENSAGEM RECEBIDA
+      const mensagemId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const mensagemRecebida = {
+        id: mensagemId,
+        remetente: nomeRemetente,
+        remetenteEmail: emailRemetente,
+        titulo: `De: ${nomeRemetente}`,
+        conteudo: textoOriginal,
+        dadosJwt: jwtPayload,
+        status: 'nao_lida',
+        recebidoEm: Date.now()
+      };
 
+      // 🔥 SALVA NO INDEXEDDB
+      await salvarMensagemRecebida(mensagemRecebida);
+      console.log(`[SW-PUSH] ✅ Mensagem ${mensagemId} salva no IndexedDB`);
 
+      // 🔥 TRIGGER PARA PROCESSAR FILA DE NOTIFICAÇÃO
+      // Tenta processar imediatamente
+      if (self.processarFilaNotificacao) {
+        await self.processarFilaNotificacao();
+      } else {
+        // Fallback: notifica diretamente
+        await self.registration.showNotification(`📥 De: ${nomeRemetente}`, {
+          body: textoOriginal,
+          icon: '/icon.png',
+          badge: '/icon.png',
+          vibrate: [200, 100, 200],
+          data: jwtPayload,
+          tag: mensagemId,
+          requireInteraction: true
+        });
+        
+        // Atualiza status
+        mensagemRecebida.status = 'notificada';
+        mensagemRecebida.notificadaEm = Date.now();
+        await salvarMensagemRecebida(mensagemRecebida);
+      }
+
+      // Notifica os clientes abertos
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach((client) => {
-        client.postMessage({ type: "PUSH_RECEIVED", payload: { title: nomeRemetente, body: textoOriginal } });
+        client.postMessage({
+          type: "PUSH_RECEIVED",
+          payload: {
+            id: mensagemId,
+            title: nomeRemetente,
+            body: textoOriginal,
+            status: 'nao_lida'
+          }
+        });
       });
 
     } catch (jwtError) {

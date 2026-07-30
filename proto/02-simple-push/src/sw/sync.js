@@ -1,8 +1,20 @@
 // src/sw/sync.js
-
 import { del, entries, createStore } from "idb-keyval";
 
-const storeFilaDisparosA = createStore("BrowserA_OfflineFila_DB", "keyval");
+// 🔥 Constantes centralizadas (copiadas do db.ts para uso no SW)
+const DB_NAMES = {
+  FILA_A: "BrowserA_OfflineFila_DB",
+};
+
+const STORE_NAMES = {
+  KEYVAL: "keyval",
+};
+
+function criarStore(nome) {
+  return createStore(nome, STORE_NAMES.KEYVAL);
+}
+
+const storeFilaDisparosA = criarStore(DB_NAMES.FILA_A);
 
 self.addEventListener('sync', function(event) {
   console.log(`[SW-SYNC] 🔄 Sincronização em segundo plano disparada! Tag: ${event.tag}`);
@@ -49,7 +61,7 @@ async function enviarMensagensPendentes() {
         body: "Sua fila de notificações offline foi transmitida com sucesso!",
         icon: '/icon.png',
         badge: '/icon.png',
-        vibrate: [100, 50, 100] // 📳 Vibração curta indicando sucesso de fundo
+        vibrate: [100, 50, 100]
       });
     }
 

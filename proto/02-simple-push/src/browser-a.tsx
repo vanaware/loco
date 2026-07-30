@@ -1,12 +1,24 @@
 // src/browser-a.tsx
 import { get, set, createStore } from "idb-keyval";
+import {
+  storeIdentidadeA,
+  storeFilaDisparosA,
+  storeBundlesA,
+  storeMensagensEnvioA,
+  salvarIdentidadeA,
+  buscarIdentidadeA,
+  salvarPublicKeyA,
+  buscarPublicKeyA,
+  salvarBundleAtivo,
+  buscarBundleAtivo,
+  salvarBundleHistorico,
+  buscarHistoricoBundles,
+  salvarMensagemEnvio,
+  listarMensagensEnvio,
+} from "./utils/db-helpers.ts";
+import type { IdentidadeA, BundleData, MensagemEnvio } from "./constants/db.ts";
 
 console.log("🟢 [SW-LOG-A] Arquivo browser-a.tsx carregado com bancos isolados por idb-keyval!");
-
-// 🔥 SOLUÇÃO DEFINITIVA: Bancos de dados separados para cada finalidade.
-// Como cada banco gerencia apenas sua tabela interna padrão "keyval", colisões de transações são impossíveis.
-const storeIdentidadeA = createStore("BrowserA_Identidade_DB", "keyval");
-const storeFilaDisparosA = createStore("BrowserA_OfflineFila_DB", "keyval");
 
 function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
   const binary = String.fromCharCode(...new Uint8Array(buffer));
@@ -14,6 +26,62 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+}
+
+// 🔥 Carrega identidade salva ao iniciar a página
+async function carregarIdentidadeSalva(): Promise<void> {
+  console.log("📂 [SW-LOG-A] Carregando identidade salva...");
+  
+  try {
+    const identidade = await buscarIdentidadeA();
+    const publicKeyJwk = await buscarPublicKeyA();
+    
+    if (identidade) {
+      (document.getElementById('profileNameA') as HTMLInputElement).value = identidade.name;
+      (document.getElementById('profileEmailA') as HTMLInputElement).value = identidade.email;
+      console.log("✅ [SW-LOG-A] Identidade carregada do IndexedDB");
+    }
+    
+    if (publicKeyJwk) {
+      const textarea = document.getElementById('myPublicKeySign') as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.value = JSON.stringify(publicKeyJwk);
+        console.log("✅ [SW-LOG-A] Chave pública carregada do IndexedDB");
+      }
+    }
+  } catch (err) {
+    console.warn("⚠️ [SW-LOG-A] Erro ao carregar identidade salva:", err);
+  }
+}
+
+// 🔥 Carrega o último bundle salvo
+async function carregarBundleSalvo(): Promise<void> {
+  console.log("📂 [SW-LOG-A] Carregando bundle salvo...");
+  
+  try {
+    const bundleData = await buscarBundleAtivo();
+    
+    if (bundleData) {
+      const textarea = document.getElementById('unifiedBundle') as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.value = JSON.stringify(bundleData.bundle, null, 2);
+        console.log(`✅ [SW-LOG-A] Bundle carregado do IndexedDB (${bundleData.nomeReceptor})`);
+      }
+    }
+  } catch (err) {
+    console.warn("⚠️ [SW-LOG-A] Erro ao carregar bundle salvo:", err);
+  }
+}
+
+// 🔥 Salva o bundle no IndexedDB
+async function salvarBundleNoIndexedDB(bundle: any): Promise<void> {
+  try {
+    await salvarBundleAtivo(bundle);
+    await salvarBundleHistorico(bundle);
+    console.log("✅ [SW-LOG-A] Bundle salvo no IndexedDB");
+  } catch (err) {
+    console.warn("⚠️ [SW-LOG-A] Erro ao salvar bundle:", err);
+  }
 }
 
 // GERA E PERSISTE A IDENTIDADE DIGITAL PERMANENTE DO BROWSER A
@@ -35,24 +103,26 @@ async function gerarIdentidadeA(): Promise<void> {
         publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
         hash: "SHA-256"
       },
-      false, // Chave privada inexportável do hardware/navegador
+      false,
       ["sign", "verify"]
     );
 
-    // Salva o objeto contendo o perfil de forma atômica no banco isolado de identidade
-    await set("minha_chave_privada_assinatura", {
+    const identidade: IdentidadeA = {
       name: nameA,
       email: emailA,
       privateKey: keyPairA.privateKey
-    }, storeIdentidadeA);
+    };
+    await salvarIdentidadeA(identidade);
 
     const publicSignJwk = await window.crypto.subtle.exportKey("jwk", keyPairA.publicKey);
     const extendedJwk = { ...publicSignJwk, ownerName: nameA, ownerEmail: emailA };
+    await salvarPublicKeyA(extendedJwk);
 
     const textarea = document.getElementById('myPublicKeySign') as HTMLTextAreaElement;
     if (textarea) {
       textarea.value = JSON.stringify(extendedJwk);
     }
+    
     console.log("✅ [SW-LOG-A] Identidade permanente gerada e salva com idb-keyval!");
     alert("Identidade permanente gerada com sucesso! Copie a chave e homologue-a no Browser B.");
   } catch (err) {
@@ -61,9 +131,9 @@ async function gerarIdentidadeA(): Promise<void> {
   }
 }
 
-// FUNÇÃO PRINCIPAL: Monta o JWT criptografado e despacha (Online ou Fila Offline via idb-keyval)
+// 🔥 FUNÇÃO PRINCIPAL: Monta o JWT e ENVIA PARA O SERVICE WORKER
 async function sendMessage(): Promise<void> {
-  console.log("🚀 [SW-LOG-A] Iniciando empacotamento JWT via idb-keyval...");
+  console.log("🚀 [SW-LOG-A] Iniciando empacotamento JWT...");
   
   const bundleRaw = (document.getElementById('unifiedBundle') as HTMLTextAreaElement).value;
   const messageText = (document.getElementById('message') as HTMLTextAreaElement).value;
@@ -75,6 +145,10 @@ async function sendMessage(): Promise<void> {
 
   try {
     const bodyPayload = JSON.parse(bundleRaw);
+    
+    // 🔥 SALVA O BUNDLE NO INDEXEDDB
+    await salvarBundleNoIndexedDB(bodyPayload);
+    
     const e2eConfig = bodyPayload.e2e;
 
     const cryptoKeyB = await window.crypto.subtle.importKey(
@@ -88,8 +162,7 @@ async function sendMessage(): Promise<void> {
     );
     const messageHex = Array.from(new Uint8Array(encryptedBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-    // Busca o registro usando o store assíncrono blindado e isolado por banco
-    const identityRecord = await get("minha_chave_privada_assinatura", storeIdentidadeA);
+    const identityRecord = await buscarIdentidadeA();
 
     if (!identityRecord) {
       throw new Error("Identidade do Browser A não localizada! Clique no botão de gerar chave primeiro.");
@@ -115,38 +188,66 @@ async function sendMessage(): Promise<void> {
     );
     const base64UrlSignature = arrayBufferToBase64Url(signatureBuffer);
 
-    bodyPayload.payloadText = `${tokenStringWithoutSignature}.${base64UrlSignature}`;
+    const payloadText = `${tokenStringWithoutSignature}.${base64UrlSignature}`;
 
-    if (navigator.onLine) {
-      const response = await fetch("/api/proxy-push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bodyPayload)
-      });
-      if (response.ok) {
-        alert("Token JWT enviado com sucesso!");
-        return;
-      }
-      throw new Error(`HTTP ${response.status}`);
-    }
+    // 🔥 CRIA A MENSAGEM PARA ENVIAR AO SERVICE WORKER
+    const mensagemId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    
+    const mensagem: MensagemEnvio = {
+      id: mensagemId,
+      bundle: bodyPayload,
+      payloadText: payloadText,
+      mensagemOriginal: messageText,
+      destinatario: e2eConfig.ownerEmail,
+      status: 'pendente',
+      tentativas: 0,
+      maxTentativas: 3,
+      criadoEm: Date.now(),
+      atualizadoEm: Date.now()
+    };
 
-    // Fila offline com idb-keyval usando o banco isolado "BrowserA_OfflineFila_DB"
-    const idUnicoFila = Date.now();
-    await set(idUnicoFila, bodyPayload, storeFilaDisparosA);
+    // 🔥 SALVA NO INDEXEDDB
+    await salvarMensagemEnvio(mensagem);
+    console.log(`✅ [SW-LOG-A] Mensagem salva no IndexedDB: ${mensagemId}`);
 
+    // 🔥 ENVIA PARA O SERVICE WORKER
     const registration = await navigator.serviceWorker.ready;
-    if ('sync' in registration) {
-      await (registration as any).sync.register('sync-push-notifications');
-      alert("Aviso: Você está offline! O token foi salvo pelo idb-keyval na fila e será enviado sozinho assim que a rede voltar.");
-    }
+    
+    // Envia a mensagem para o Service Worker processar
+    registration.active?.postMessage({
+      type: 'ENVIAR_MENSAGEM',
+      payload: mensagem
+    });
+
+    alert(`✅ Mensagem enviada para o Service Worker!\nID: ${mensagemId}\nStatus: Pendente`);
 
   } catch (err) {
     alert(`Erro no pipeline: ${(err as Error).message}`);
   }
 }
 
-// Vinculação estrita de eventos do DOM
-window.addEventListener("DOMContentLoaded", () => {
+// 🔥 Função para listar mensagens pendentes (debug)
+async function listarMensagensPendentes(): Promise<void> {
+  const mensagens = await listarMensagensEnvio();
+  const pendentes = mensagens.filter(m => m.status === 'pendente' || m.status === 'enviando');
+  
+  if (pendentes.length === 0) {
+    alert("Nenhuma mensagem pendente.");
+    return;
+  }
+  
+  const lista = pendentes.map((m, i) => 
+    `${i + 1}. ${m.id} - ${m.destinatario} - ${m.status} (${new Date(m.criadoEm).toLocaleString()})`
+  ).join('\n');
+  
+  alert(`📋 Mensagens pendentes:\n${lista}`);
+}
+
+window.addEventListener("DOMContentLoaded", async () => {
+  // 🔥 CARREGA DADOS SALVOS AO INICIAR
+  await carregarIdentidadeSalva();
+  await carregarBundleSalvo();
+  
   const btnIdentity = document.getElementById("btnGenerateIdentity");
   const btnSend = document.getElementById("btnSend");
 
@@ -171,4 +272,15 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     });
   });
+
+  // 🔥 Botão para listar mensagens pendentes (debug)
+  const btnListar = document.createElement('button');
+  btnListar.textContent = '📋 Listar Mensagens Pendentes';
+  btnListar.style.cssText = 'background-color: #555; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-top: 8px;';
+  btnListar.addEventListener('click', listarMensagensPendentes);
+  
+  const container = document.querySelector('.container:last-child');
+  if (container) {
+    container.appendChild(btnListar);
+  }
 });

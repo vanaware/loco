@@ -1,37 +1,48 @@
 /// <reference lib="deno.ns" />
-import { serveDir } from "jsr:@std/http@1/file-server";
-import * as webpush from "jsr:@negrel/webpush";
+import { serveDir } from "@std/http/file-server";
+import * as webpush from "@negrel/webpush";
 
 const PORT = 8000;
 
-// Chaves globais de infraestrutura do Servidor (Geradas em memória ao inicializar)
+// 🔥 Lê diretamente do Deno.env (carregado via --env)
+function carregarChavesDoServidor() {
+  const publicKeyStr = Deno.env.get('SERVER_PUBLIC_KEY');
+  const privateKeyStr = Deno.env.get('SERVER_PRIVATE_KEY');
+  
+  if (!publicKeyStr || !privateKeyStr) {
+    console.error("❌ Chaves do servidor não encontradas!");
+    console.error("   Execute 'deno task build' primeiro para gerar as chaves.");
+    console.error("   Ou defina as variáveis de ambiente SERVER_PUBLIC_KEY e SERVER_PRIVATE_KEY");
+    Deno.exit(1);
+  }
+  
+  try {
+    const publicKeyJwk = JSON.parse(publicKeyStr);
+    const privateKeyJwk = JSON.parse(privateKeyStr);
+    return { publicKeyJwk, privateKeyJwk };
+  } catch (err) {
+    console.error("❌ Erro ao parsear as chaves do servidor:", err);
+    Deno.exit(1);
+  }
+}
+
+// Chaves globais de infraestrutura do Servidor
 let serverPrivateKey: CryptoKey;
 let serverPublicKeyJwk: JsonWebKey;
 
 async function inicializarChavesDoServidor() {
-  const keyPair = await crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      // 🔥 CORREÇÃO: Define o expoente público padrão mundial do RSA (65537) em bytes
-      publicExponent: new Uint8Array([1, 0, 1]), 
-      hash: "SHA-256",
-    },
-    true, // Permite exportar a chave pública para o JWK
+  const chaves = carregarChavesDoServidor();
+  serverPublicKeyJwk = chaves.publicKeyJwk;
+  
+  serverPrivateKey = await crypto.subtle.importKey(
+    "jwk",
+    chaves.privateKeyJwk,
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    true,
     ["decrypt"]
   );
-  serverPrivateKey = keyPair.privateKey;
   
-  // Exporta o JWK base
-  const rawPublicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-  
-  // Garante que o array de operações permita a criptografia no navegador
-  serverPublicKeyJwk = {
-    ...rawPublicKeyJwk,
-    key_ops: ["encrypt"]
-  };
-  
-  console.log("🔒 Chaves RSA de Infraestrutura do Servidor inicializadas com sucesso!");
+  console.log("🔒 Chaves RSA de Infraestrutura do Servidor carregadas do Deno.env!");
 }
 
 // Inicializa as chaves antes de o Deno abrir a escuta HTTP
@@ -77,7 +88,8 @@ async function decryptWithServerKey(base64Envelope: string): Promise<any> {
     const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
     return JSON.parse(jsonText);
   } catch (err) {
-    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${(err as Error).message}`);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
   }
 }
 
@@ -90,7 +102,8 @@ function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
       privateKey: typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey
     };
   } catch (err) {
-    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${(err as Error).message}`);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
   }
 }
 
@@ -179,7 +192,7 @@ Deno.serve({ port: PORT }, async (req) => {
       if (jwtClaims) {
         console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.name || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         console.log(`   - [AUDITORIA JWT] Destinado a: <${jwtClaims.sub || "Sem e-mail"}>`);
-        console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (Hex): ${jwtClaims.cipherText.substring(0, 20)}...`);
+        console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (Hex): ${jwtClaims.cipherText?.substring(0, 20) || "N/A"}...`);
       }
 
       let privateKeyFinal = vapid.privateKey;
@@ -217,7 +230,10 @@ Deno.serve({ port: PORT }, async (req) => {
       console.error(`\n❌ [ERRO NO SERVIDOR PUSH] [${new Date().toLocaleTimeString()}]:`);
 
       // Captura erros de rejeição remota das centrais de push (Google, Apple, Mozilla)
-      if (error instanceof (webpush as any).PushMessageError || (error && (error as any).response)) {
+      // Verifica se é um erro de push com response
+      const isPushError = error && typeof error === 'object' && 'response' in error;
+      
+      if (isPushError) {
         const statusCode = (error as any).response?.status || 400;
         console.error(`   -> Servidor Remoto retornou Status HTTP: ${statusCode}`);
         console.error(`   -> Detalhe do Erro: ${error.toString()}`);
@@ -238,11 +254,15 @@ Deno.serve({ port: PORT }, async (req) => {
         );
       }
 
-      console.error(`   -> Erro Interno/Local: ${(error as Error).message}`);
-      console.error((error as Error).stack);
+      // Erro interno/local - tratamento seguro de tipo unknown
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
+      console.error(`   -> Erro Interno/Local: ${errorMessage}`);
+      if (errorStack) console.error(errorStack);
 
       return new Response(
-        JSON.stringify({ success: false, error: (error as Error).message, type: "InternalError" }),
+        JSON.stringify({ success: false, error: errorMessage, type: "InternalError" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

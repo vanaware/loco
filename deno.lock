@@ -391,7 +391,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@libs/web-push@1",
+      "jsr:@negrel/webpush@0.5",
       "jsr:@std/assert@1",
       "jsr:@std/fs@1",
       "jsr:@std/http@1",
