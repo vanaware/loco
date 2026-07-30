@@ -37,9 +37,16 @@ async function carregarIdentidadeSalva(): Promise<void> {
     const publicKeyJwk = await buscarPublicKeyA();
     
     if (identidade) {
-      (document.getElementById('profileNameA') as HTMLInputElement).value = identidade.name;
-      (document.getElementById('profileEmailA') as HTMLInputElement).value = identidade.email;
-      console.log("✅ [SW-LOG-A] Identidade carregada do IndexedDB");
+      const nameInput = document.getElementById('profileNameA') as HTMLInputElement;
+      const emailInput = document.getElementById('profileEmailA') as HTMLInputElement;
+      
+      if (nameInput) nameInput.value = identidade.name;
+      if (emailInput) emailInput.value = identidade.email;
+      
+      console.log("📂 [SW-LOG-A] Identidade carregada do IndexedDB");
+      console.log(`   👤 Nome: ${identidade.name}`);
+      console.log(`   📧 Email: ${identidade.email}`);
+      console.log(`   🔑 PrivateKey: ${identidade.privateKey ? '✅ Presente' : '❌ Ausente'}`);
     }
     
     if (publicKeyJwk) {
@@ -213,7 +220,6 @@ async function sendMessage(): Promise<void> {
     // 🔥 ENVIA PARA O SERVICE WORKER
     const registration = await navigator.serviceWorker.ready;
     
-    // Envia a mensagem para o Service Worker processar
     registration.active?.postMessage({
       type: 'ENVIAR_MENSAGEM',
       payload: mensagem

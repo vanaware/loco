@@ -1,5 +1,5 @@
 // src/sw/push.js
-import { get, createStore } from "idb-keyval";
+import { get, set, createStore } from "idb-keyval"; // 🔥 Adicionar 'set' ao import
 
 // 🔥 Constantes
 const DB_NAMES = {
@@ -13,6 +13,7 @@ const STORE_NAMES = {
 };
 
 const KEY_NAMES = {
+  CHAVES_E2E_B: "chaves_e2e_b",
   DECRYPT_KEY: "minha_decript_key",
 };
 
@@ -27,6 +28,25 @@ const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
 // 🔥 Função para salvar mensagem recebida no IndexedDB
 async function salvarMensagemRecebida(mensagem) {
   await set(mensagem.id, mensagem, storeMensagensRecebidasB);
+}
+
+// 🔥 Função para buscar a chave privada de decodificação
+async function buscarChaveDecript() {
+  // Tenta buscar do objeto completo primeiro
+  const chavesE2E = await get(KEY_NAMES.CHAVES_E2E_B, storeChavesE2E);
+  if (chavesE2E && chavesE2E.privateDecrypt) {
+    console.log("[SW-PUSH] 🔑 Chave de decodificação encontrada no objeto chaves_e2e_b");
+    return chavesE2E.privateDecrypt;
+  }
+  
+  // Fallback: tenta buscar como chave separada (compatibilidade)
+  const decryptKey = await get(KEY_NAMES.DECRYPT_KEY, storeChavesE2E);
+  if (decryptKey) {
+    console.log("[SW-PUSH] 🔑 Chave de decodificação encontrada como decrypt_key (legado)");
+    return decryptKey;
+  }
+  
+  return null;
 }
 
 self.addEventListener('push', function(event) {
@@ -86,8 +106,13 @@ self.addEventListener('push', function(event) {
       if (!isSignatureValid) throw new Error("A assinatura digital do token falhou!");
       console.log("[SW-PUSH] 🛡️ Assinatura digital do JWT homologada com sucesso!");
 
-      const privateDecryptKey = await get(KEY_NAMES.DECRYPT_KEY, storeChavesE2E);
-      if (!privateDecryptKey) throw new Error("Sua chave privada RSA de decodificação não foi encontrada.");
+      // 🔥 Busca a chave de decodificação usando a nova função
+      const privateDecryptKey = await buscarChaveDecript();
+      if (!privateDecryptKey) {
+        console.error("[SW-PUSH] ❌ Chave privada RSA de decodificação não encontrada!");
+        console.log("[SW-PUSH] 🔍 Verifique se o Browser B já gerou as chaves E2E.");
+        throw new Error("Sua chave privada RSA de decodificação não foi encontrada. Por favor, gere a carga unificada novamente no Browser B.");
+      }
 
       const encryptedBytes = new Uint8Array(jwtPayload.cipherText.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
       const decryptedBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateDecryptKey, encryptedBytes);
@@ -112,7 +137,6 @@ self.addEventListener('push', function(event) {
       console.log(`[SW-PUSH] ✅ Mensagem ${mensagemId} salva no IndexedDB`);
 
       // 🔥 TRIGGER PARA PROCESSAR FILA DE NOTIFICAÇÃO
-      // Tenta processar imediatamente
       if (self.processarFilaNotificacao) {
         await self.processarFilaNotificacao();
       } else {
@@ -127,7 +151,6 @@ self.addEventListener('push', function(event) {
           requireInteraction: true
         });
         
-        // Atualiza status
         mensagemRecebida.status = 'notificada';
         mensagemRecebida.notificadaEm = Date.now();
         await salvarMensagemRecebida(mensagemRecebida);

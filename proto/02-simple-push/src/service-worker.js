@@ -13,16 +13,18 @@ console.log("[SW] 🌌 Orquestrador Modular do Service Worker carregado com suce
 // Tenta processar filas quando o SW é ativado
 self.addEventListener('activate', (event) => {
   console.log("[SW] 🔄 Ativando e processando filas pendentes...");
-  event.waitUntil(async () => {
-    // Aguarda um pouco para garantir que tudo está pronto
-    await new Promise(r => setTimeout(r, 1000));
-    
-    // Processa filas
-    if (self.processarFilaEnvio) {
-      await self.processarFilaEnvio();
-    }
-    if (self.processarFilaNotificacao) {
-      await self.processarFilaNotificacao();
-    }
-  }());
+  event.waitUntil(
+    (async () => {
+      // Aguarda um pouco para garantir que tudo está pronto
+      await new Promise(r => setTimeout(r, 1000));
+      
+      // Processa filas
+      if (self.processarFilaEnvio) {
+        await self.processarFilaEnvio();
+      }
+      if (self.processarFilaNotificacao) {
+        await self.processarFilaNotificacao();
+      }
+    })()
+  );
 });

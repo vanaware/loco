@@ -293,3 +293,14 @@ export async function limparMensagensRecebidasAntigas(dias: number = 30): Promis
     }
   }
 }
+
+
+const PERFIL_B_KEY = "perfil_b";
+
+export async function salvarPerfilB(nome: string, email: string): Promise<void> {
+  await salvarChave(storeChavesE2E, PERFIL_B_KEY, { nome, email, atualizadoEm: Date.now() });
+}
+
+export async function buscarPerfilB(): Promise<{ nome: string; email: string; atualizadoEm: number } | undefined> {
+  return buscarChave(storeChavesE2E, PERFIL_B_KEY);
+}

@@ -144,7 +144,6 @@ async function verificarSubscriptionValida(
     // Verifica se a VAPID é a mesma
     const subscriptionData = await buscarSubscriptionB();
     if (subscriptionData && subscriptionData.vapidPublicKey) {
-      // Compara as chaves públicas (simplificado - poderia comparar o n e e)
       const currentN = vapidPublicKeyJwk.n;
       const storedN = subscriptionData.vapidPublicKey.n;
       
@@ -158,6 +157,76 @@ async function verificarSubscriptionValida(
   } catch (err) {
     console.log("🔍 [SW-LOG] Erro ao verificar subscription:", err);
     return false;
+  }
+}
+
+// 🔥 Carrega o perfil salvo do IndexedDB
+async function carregarPerfilSalvo(): Promise<void> {
+  console.log("📂 [SW-LOG] Carregando perfil salvo...");
+  
+  try {
+    const chavesE2E = await buscarChavesE2EB();
+    
+    if (chavesE2E) {
+      console.log("📂 [SW-LOG] Chaves E2E encontradas no IndexedDB");
+    }
+    
+    const subscription = await buscarSubscriptionB();
+    if (subscription) {
+      console.log(`📂 [SW-LOG] Subscription encontrada: ${subscription.endpoint.substring(0, 40)}...`);
+    }
+  } catch (err) {
+    console.warn("⚠️ [SW-LOG] Erro ao carregar perfil salvo:", err);
+  }
+}
+
+// 🔥 Carrega a última carga unificada salva
+async function carregarCargaSalva(): Promise<void> {
+  console.log("📂 [SW-LOG] Carregando carga unificada salva...");
+  
+  try {
+    const subscription = await buscarSubscriptionB();
+    const chavesVapid = await buscarChavesVapidB();
+    const chavesE2E = await buscarChavesE2EB();
+    const nomeB = (document.getElementById('profileNameB') as HTMLInputElement)?.value || "";
+    const emailB = (document.getElementById('profileEmailB') as HTMLInputElement)?.value || "";
+    
+    if (subscription && chavesVapid && chavesE2E && nomeB && emailB) {
+      const resServerKey = await fetch("/api/server-public-key");
+      const serverPublicKeyJwk = await resServerKey.json();
+      
+      const privateKeyEncrypted = await criptografarChaveVapid(chavesVapid.privateKey, serverPublicKeyJwk);
+      
+      const finalPayloadBundle = {
+        subscription: {
+          endpoint: subscription.endpoint,
+          keys: subscription.keys
+        },
+        vapid: {
+          subject: `mailto:${emailB}`,
+          publicKey: chavesVapid.publicKey,
+          privateKey: privateKeyEncrypted
+        },
+        isVapidEncrypted: true,
+        e2e: {
+          ownerName: nomeB,
+          ownerEmail: emailB,
+          browserB_PublicKeyEncrypt: chavesE2E.publicEncrypt,
+          browserB_PublicKeyVerify: chavesE2E.publicSign
+        },
+        payloadText: ""
+      };
+      
+      const textarea = document.getElementById('unifiedBundle') as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.value = JSON.stringify(finalPayloadBundle, null, 2);
+        console.log("✅ [SW-LOG] Carga unificada reconstruída do IndexedDB");
+      }
+    } else {
+      console.log("📂 [SW-LOG] Dados insuficientes para reconstruir a carga");
+    }
+  } catch (err) {
+    console.warn("⚠️ [SW-LOG] Erro ao carregar carga salva:", err);
   }
 }
 
@@ -181,7 +250,6 @@ async function processarInscricaoComPerfil(): Promise<void> {
     await registration.update();
     await navigator.serviceWorker.ready;
 
-    // 🔥 Busca a chave pública do servidor
     const resServerKey = await fetch("/api/server-public-key");
     const serverPublicKeyJwk = await resServerKey.json();
 
@@ -192,7 +260,6 @@ async function processarInscricaoComPerfil(): Promise<void> {
     let vapidKeyPair: CryptoKeyPair;
     let publicKeyJwk: JsonWebKey;
     let privateKeyJwk: JsonWebKey;
-    let chavesVapidGeradas = false;
 
     if (chavesVapidSalvas) {
       console.log("📂 [SW-LOG] Chaves VAPID encontradas no IndexedDB");
@@ -229,7 +296,6 @@ async function processarInscricaoComPerfil(): Promise<void> {
         publicKey: publicKeyJwk,
         privateKey: privateKeyJwk
       });
-      chavesVapidGeradas = true;
       console.log("✅ [SW-LOG] Novas chaves VAPID salvas no IndexedDB");
     }
 
@@ -255,7 +321,6 @@ async function processarInscricaoComPerfil(): Promise<void> {
       }
     }
 
-    // Só cria nova subscription se não houver uma válida
     if (!existingSubscription || !subscriptionValida) {
       console.log("📝 [SW-LOG] Criando nova subscription...");
       existingSubscription = await registration.pushManager.subscribe({
@@ -284,7 +349,6 @@ async function processarInscricaoComPerfil(): Promise<void> {
       publicEncryptJwk = e2ePublicKeys.publicEncrypt;
       publicSignJwk = e2ePublicKeys.publicSign;
       
-      // Verifica se as chaves são válidas (tenta importar)
       try {
         await window.crypto.subtle.importKey(
           "jwk", publicEncryptJwk,
@@ -389,7 +453,6 @@ async function homologarEmissorJWT(): Promise<void> {
 // FUNÇÕES DE MENSAGENS RECEBIDAS
 // ============================================================
 
-// 🔥 Função para carregar mensagens recebidas
 async function carregarMensagensRecebidas(): Promise<void> {
   console.log("📬 [SW-LOG] Carregando mensagens recebidas...");
   
@@ -408,7 +471,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
     return;
   }
   
-  // Ordena por data (mais recentes primeiro)
   mensagens.sort((a, b) => b.recebidoEm - a.recebidoEm);
   
   let html = '';
@@ -438,7 +500,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
   
   container.innerHTML = html;
   
-  // Event listeners para os botões
   container.querySelectorAll('.btn-marcar-lida').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const id = (e.currentTarget as HTMLButtonElement).dataset.id;
@@ -461,7 +522,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
   });
 }
 
-// 🔥 Função para remover mensagens lidas
 async function removerMensagensLidas(): Promise<void> {
   if (!confirm('Remover todas as mensagens lidas?')) return;
   
@@ -481,10 +541,12 @@ async function removerMensagensLidas(): Promise<void> {
 // EVENT LISTENER PRINCIPAL
 // ============================================================
 
-window.addEventListener("DOMContentLoaded", () => {
-  // ============================================================
-  // EVENTOS EXISTENTES
-  // ============================================================
+window.addEventListener("DOMContentLoaded", async () => {
+  console.log("📄 [SW-LOG] DOM carregado, inicializando eventos...");
+  
+  // 🔥 CARREGA DADOS SALVOS AO INICIAR
+  await carregarPerfilSalvo();
+  await carregarCargaSalva();
   
   const btnRegister = document.getElementById("btnRegisterPush");
   const btnSave = document.getElementById("btnSaveSenderIdentity");
@@ -499,10 +561,6 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // ============================================================
-  // EVENTOS DE MENSAGENS RECEBIDAS
-  // ============================================================
-  
   const btnCarregar = document.getElementById('btnCarregarMensagens');
   if (btnCarregar) {
     btnCarregar.addEventListener('click', carregarMensagensRecebidas);
@@ -513,10 +571,8 @@ window.addEventListener("DOMContentLoaded", () => {
     btnLimparLidas.addEventListener('click', removerMensagensLidas);
   }
 
-  // Carregar mensagens automaticamente ao iniciar
-  carregarMensagensRecebidas();
+  await carregarMensagensRecebidas();
 
-  // Recarregar mensagens quando receber push (via postMessage)
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data?.type === 'PUSH_RECEIVED') {
       console.log('📬 [SW-LOG] Push recebido, recarregando mensagens...');
