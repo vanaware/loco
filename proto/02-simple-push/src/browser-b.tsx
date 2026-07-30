@@ -1,29 +1,12 @@
 // src/browser-b.tsx
-console.log("🟢 [SW-LOG] Arquivo browser-b.tsx carregado com sucesso pelo interpretador do navegador!");
+import { set, createStore } from "idb-keyval";
 
-// Função auxiliar para abrir o banco IndexedDB local de forma assíncrona
-function abrirBancoDB(): Promise<IDBDatabase> {
-  console.log("💾 [SW-LOG] Tentando inicializar/abrir o IndexedDB local...");
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("BrowserB_SecurityDB", 1);
-    
-    request.onupgradeneeded = () => {
-      console.log("💾 [SW-LOG] Upgrading IndexedDB: Criando tabelas de segurança...");
-      const db = request.result;
-      db.createObjectStore("chaves_privadas_e2e");
-      db.createObjectStore("lista_branca_emissores", { keyPath: "email" });
-    };
-    
-    request.onsuccess = () => {
-      console.log("💾 [SW-LOG] IndexedDB aberto com sucesso!");
-      resolve(request.result);
-    };
-    request.onerror = () => {
-      console.error("💾 [SW-LOG] Erro ao abrir IndexedDB:", request.error);
-      reject(request.error);
-    };
-  });
-}
+console.log("🟢 [SW-LOG] Arquivo browser-b.tsx carregado com bancos isolados por idb-keyval!");
+
+// 🔥 SOLUÇÃO DEFINITIVA: Bancos de dados separados para cada finalidade.
+// Como cada banco gerencia apenas sua tabela interna padrão, o erro de transação some de vez!
+const storeChavesE2E = createStore("BrowserB_E2E_Chaves_DB", "keyval");
+const storeListaBranca = createStore("BrowserB_ListaBranca_DB", "keyval");
 
 function copyToClipboard(id: string): void {
   const input = document.getElementById(id) as HTMLInputElement;
@@ -35,7 +18,6 @@ function copyToClipboard(id: string): void {
 }
 
 async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
-  console.log("🔑 [SW-LOG] Gerando par de chaves VAPID nativas...");
   return await window.crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
@@ -54,34 +36,20 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
 }
 
 async function generateE2EEKeys() {
-  console.log("🔑 [SW-LOG] Gerando chaves assimétricas de aplicação RSA-OAEP e RSA-PSS...");
+  console.log("🔑 [SW-LOG] Gerando chaves assimétricas de aplicação...");
   const encryptionKeyPair = await window.crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    false,
-    ["encrypt", "decrypt"]
+    { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: "SHA-256" },
+    false, ["encrypt", "decrypt"]
   );
 
   const signatureKeyPair = await window.crypto.subtle.generateKey(
-    {
-      name: "RSA-PSS",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    false,
-    ["sign", "verify"]
+    { name: "RSA-PSS", modulusLength: 2048, publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: "SHA-256" },
+    false, ["sign", "verify"]
   );
 
-  console.log("💾 [SW-LOG] Gravando chaves privadas E2EE no cofre do IndexedDB...");
-  const db = await abrirBancoDB();
-  const tx = db.transaction("chaves_privadas_e2e", "readwrite");
-  await tx.objectStore("chaves_privadas_e2e").put(encryptionKeyPair.privateKey, "minha_decript_key");
-  await tx.objectStore("chaves_privadas_e2e").put(signatureKeyPair.privateKey, "minha_assinatura_key");
+  // Grava de forma direta nos stores isolados correspondentes
+  await set("minha_decript_key", encryptionKeyPair.privateKey, storeChavesE2E);
+  await set("minha_assinatura_key", signatureKeyPair.privateKey, storeChavesE2E);
 
   const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
   const publicSignJwk = await window.crypto.subtle.exportKey("jwk", signatureKeyPair.publicKey);
@@ -90,8 +58,6 @@ async function generateE2EEKeys() {
 }
 
 async function processarInscricaoComPerfil(): Promise<void> {
-  console.log("🚀 [SW-LOG] [1/6] Função processarInscricaoComPerfil interceptou o clique!");
-  
   const nomeB = (document.getElementById('profileNameB') as HTMLInputElement).value;
   const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
 
@@ -101,66 +67,47 @@ async function processarInscricaoComPerfil(): Promise<void> {
   }
 
   try {
-    console.log("🚀 [SW-LOG] [2/6] Solicitando permissão de notificação nativa...");
     const permissao = await Notification.requestPermission();
-    console.log(`🚀 [SW-LOG] Status da permissão de notificação: ${permissao}`);
     if (permissao !== "granted") {
       alert("⚠️ ERRO: Permissão de notificação negada.");
       return;
     }
 
-    console.log("🚀 [SW-LOG] [3/6] Registrando Service Worker...");
     const registration = await navigator.serviceWorker.register("./service-worker.js");
     await registration.update();
-    const activeWorker = await navigator.serviceWorker.ready;
-    console.log("🚀 [SW-LOG] Service Worker ativo e pronto!");
+    await navigator.serviceWorker.ready;
 
     const vapidKeyPair = await generateVAPIDKeys();
     const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+    
     const publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
     const privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
 
-    console.log("🚀 [SW-LOG] [4/6] Configurando pushManager.subscribe...");
     const existingSubscription = await registration.pushManager.getSubscription();
-    if (existingSubscription) {
-      console.log("🚀 [SW-LOG] Limpando inscrição push antiga detectada...");
-      await existingSubscription.unsubscribe();
-    }
+    if (existingSubscription) await existingSubscription.unsubscribe();
 
     const subscription = await registration.pushManager.subscribe({
       applicationServerKey: new Uint8Array(rawPublicKey),
       userVisibleOnly: true
     });
-    console.log("🚀 [SW-LOG] Inscrição Web Push gerada com sucesso!");
 
     const p256dhBuffer = subscription.getKey('p256dh');
     const authBuffer = subscription.getKey('auth');
     const customSubscriptionJson = {
       endpoint: subscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      }
+      keys: { p256dh: rawBufferToBase64Url(p256dhBuffer), auth: rawBufferToBase64Url(authBuffer) }
     };
 
-    console.log("🚀 [SW-LOG] [5/6] Disparando geração E2EE...");
     const e2ePublicKeys = await generateE2EEKeys();
 
-    console.log("🚀 [SW-LOG] [6/6] Realizando fetch para capturar chave RSA de infra do Deno...");
     const resServerKey = await fetch("/api/server-public-key");
-    console.log(`🚀 [SW-LOG] Resposta HTTP do servidor: ${resServerKey.status}`);
-    if (!resServerKey.ok) {
-      throw new Error(`HTTP ${resServerKey.status} na rota de chaves públicas.`);
-    }
     const serverPublicKeyJwk = await resServerKey.json();
 
-    console.log("🔒 [SW-LOG] Importando chave pública RSA do servidor...");
     const cryptoServerKey = await window.crypto.subtle.importKey(
       "jwk", serverPublicKeyJwk,
       { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]
     );
 
-    console.log("🔒 [SW-LOG] Iniciando criptografia simétrica AES-GCM-256...");
     const chaveSimetricaAes = await window.crypto.subtle.generateKey(
       { name: "AES-GCM", length: 256 },
       true,
@@ -210,52 +157,40 @@ async function processarInscricaoComPerfil(): Promise<void> {
     };
 
     const textarea = document.getElementById('unifiedBundle') as HTMLTextAreaElement;
-    if (textarea) {
-      textarea.value = JSON.stringify(finalPayloadBundle);
-    }
-    console.log("✅ [SW-LOG] SUCESSO COMPLETO: Carga unificada populada e visível!");
+    if (textarea) textarea.value = JSON.stringify(finalPayloadBundle);
+    console.log("🚀 Carga híbrida gerada com sucesso via idb-keyval!");
 
   } catch (err) {
-    console.error("❌ [SW-LOG] CRASH DETECTADO:", err);
-    alert(`Erro detectado no fluxo: ${(err as Error).name} - ${(err as Error).message}`);
+    alert("Falha: " + (err as Error).message);
   }
 }
 
 async function homologarEmissorJWT(): Promise<void> {
-  console.log("🛡️ [SW-LOG] Iniciando processo de homologação de emissor...");
   const rawJwk = (document.getElementById('senderPublicKeyJson') as HTMLTextAreaElement).value;
   try {
     const jwkObject = JSON.parse(rawJwk);
-    if (!jwkObject.ownerEmail || !jwkObject.ownerName) {
-      throw new Error("JWK ausente de metadados de Perfil (Nome/E-mail).");
-    }
+    if (!jwkObject.ownerEmail || !jwkObject.ownerName) throw new Error("JWK ausente de metadados de Perfil.");
     await window.crypto.subtle.importKey("jwk", jwkObject, { name: "RSA-PSS", hash: "SHA-256" }, true, ["verify"]);
-    const db = await abrirBancoDB();
-    const tx = db.transaction("lista_branca_emissores", "readwrite");
-    await tx.objectStore("lista_branca_emissores").put({ email: jwkObject.ownerEmail, name: jwkObject.ownerName, jwk: jwkObject });
-    alert(`🛡️ Emissor "${jwkObject.ownerName}" cadastrado com sucesso!`);
+
+    // Grava de forma limpa na lista branca isolada por banco
+    await set(jwkObject.ownerEmail, {
+      email: jwkObject.ownerEmail,
+      name: jwkObject.ownerName,
+      jwk: jwkObject
+    }, storeListaBranca);
+
+    alert(`🛡️ Emissor "${jwkObject.ownerName}" cadastrado com sucesso via idb-keyval!`);
   } catch (err) {
     alert("Falha na validação: " + (err as Error).message);
   }
 }
 
-// 🔥 VINCULAÇÃO BLINDADA: Aguarda a árvore HTML estar 100% renderizada antes de atrelar o evento
 window.addEventListener("DOMContentLoaded", () => {
-  console.log("🟢 [SW-LOG] DOM totalmente carregado! Vinculando eventos de clique nos botões...");
-  
   const btnRegister = document.getElementById("btnRegisterPush");
   const btnSave = document.getElementById("btnSaveSenderIdentity");
 
-  if (btnRegister) {
-    btnRegister.addEventListener("click", processarInscricaoComPerfil);
-    console.log("🟢 [SW-LOG] Evento de clique atrelado com sucesso ao botão 'btnRegisterPush'!");
-  } else {
-    console.error("❌ [SW-LOG] ALERTA: Botão 'btnRegisterPush' não foi localizado no HTML da página!");
-  }
-
-  if (btnSave) {
-    btnSave.addEventListener("click", homologarEmissorJWT);
-  }
+  if (btnRegister) btnRegister.addEventListener("click", processarInscricaoComPerfil);
+  if (btnSave) btnSave.addEventListener("click", homologarEmissorJWT);
 
   document.querySelectorAll(".copy-btn").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -264,4 +199,3 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 });
-

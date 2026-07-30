@@ -1,4 +1,5 @@
 // src/service-worker.js
+import { get, del, entries, createStore } from "idb-keyval";
 
 const CACHE_VERSION = "VERSION_HASH";
 const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
@@ -6,14 +7,10 @@ const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
 // O script de build vai injetar a lista dentro deste array substituindo o texto de forma dinâmica
 const ASSETS_TO_CACHE = [__GENERATED_ASSETS__];
 
-// Função auxiliar interna para abrir o IndexedDB de dentro do escopo isolado do Worker
-function abrirBancoDBWorker() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("BrowserB_SecurityDB", 1);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
+// 🔥 CORREÇÃO CRUCIAL: Inicializa as funções de store legítimas aceitas pelo idb-keyval compilado
+const storeChavesE2E = createStore("BrowserB_E2E_Chaves_DB", "keyval");
+const storeListaBranca = createStore("BrowserB_ListaBranca_DB", "keyval");
+const storeFilaDisparosA = createStore("BrowserA_OfflineFila_DB", "keyval");
 
 // ==========================================
 // 1. EVENTO DE INSTALAÇÃO (Ciclo de Vida)
@@ -23,7 +20,6 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log("[SW] 📦 Armazenando assets essenciais no cache local...");
-      // Evita travamento total por erro 404 em arquivos isolados da lista
       return Promise.all(
         ASSETS_TO_CACHE.map((url) => {
           return cache.add(url).catch((err) => {
@@ -31,9 +27,7 @@ self.addEventListener("install", (event) => {
           });
         })
       );
-    }).then(() => {
-      return self.skipWaiting();
-    })
+    }).then(() => self.skipWaiting())
   );
 });
 
@@ -52,9 +46,7 @@ self.addEventListener("activate", (event) => {
           }
         })
       );
-    }).then(() => {
-      return self.clients.claim();
-    })
+    }).then(() => self.clients.claim())
   );
 });
 
@@ -70,9 +62,7 @@ self.addEventListener("fetch", (event) => {
       .then((response) => {
         if (response.ok) {
           const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
         }
         return response;
       })
@@ -99,7 +89,6 @@ self.addEventListener('push', function(event) {
   const rawText = event.data.text();
   console.log("[SW] 📦 Texto bruto recebido do push:", rawText);
 
-  // Fallback estrutural básico para mensagens textuais puras (Chrome DevTools)
   if (rawText.split('.').length !== 3) {
     console.log("[SW] ℹ️ Carga não segue o padrão JWT. Exibindo como texto bruto (DevTools).");
     event.waitUntil(
@@ -112,61 +101,45 @@ self.addEventListener('push', function(event) {
     return;
   }
 
-  // PIPELINE DE PROCESSAMENTO DO JWT SEGURO DE PONTA A PONTA
   event.waitUntil(async function() {
     try {
       const parts = rawText.split('.');
       const headerB64Url = parts[0];
       const payloadB64Url = parts[1];
       const signatureB64Url = parts[2];
-
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
 
-      // Conversor nativo de Base64Url para String de Texto clara
       const base64UrlDecode = (str) => {
         let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
         while (base64.length % 4) base64 += '=';
         return decoder.decode(new Uint8Array([...atob(base64)].map(c => c.charCodeAt(0))));
       };
 
-      // A. Quebra a segunda parte do token para ler as claims de identidade
       const jwtPayload = JSON.parse(base64UrlDecode(payloadB64Url));
       const emailRemetente = jwtPayload.iss;
       const nomeRemetente = jwtPayload.name || "Remetente Autorizado";
 
       console.log(`[SW] 🔐 Analisando assinatura JWT de: ${nomeRemetente} <${emailRemetente}>`);
 
-      // B. RECONHECIMENTO DE IDENTIDADE: Busca a chave pública associada ao email na lista branca
-      const db = await abrirBancoDBWorker();
-      const txList = db.transaction("lista_branca_emissores", "readonly");
-      const emissorHomologado = await new Promise((res) => {
-        txList.objectStore("lista_branca_emissores").get(emailRemetente).onsuccess = (e) => res(e.target.result);
-      });
+      // 🔥 AGORA SUCESSO: A chamada get recebe uma instância executável real gerada pelo createStore
+      const emissorHomologado = await get(emailRemetente, storeListaBranca);
 
       if (!emissorHomologado) {
         throw new Error(`O remetente "${emailRemetente}" não foi cadastrado na lista branca deste dispositivo.`);
       }
 
-      // Importa a chave RSA-PSS correspondente trancada no banco do navegador
       const keyVerifyA = await crypto.subtle.importKey(
-        "jwk", emissorHomologado.jwk,
-        { name: "RSA-PSS", hash: "SHA-256" }, true, ["verify"]
+        "jwk", emissorHomologado.jwk, { name: "RSA-PSS", hash: "SHA-256" }, true, ["verify"]
       );
 
-      // Recompõe a assinatura do JWT de Base64Url para bytes
       let b64Sig = signatureB64Url.replace(/-/g, '+').replace(/_/g, '/');
       while (b64Sig.length % 4) b64Sig += '=';
       const signatureBytes = new Uint8Array([...atob(b64Sig)].map(c => c.charCodeAt(0)));
-
       const tokenStringWithoutSignature = `${headerB64Url}.${payloadB64Url}`;
 
-      // C. VALIDAÇÃO MATEMÁTICA DA ASSINATURA (JWS Signature Check)
       const isSignatureValid = await crypto.subtle.verify(
-        { name: "RSA-PSS", saltLength: 32 },
-        keyVerifyA,
-        signatureBytes,
-        encoder.encode(tokenStringWithoutSignature)
+        { name: "RSA-PSS", saltLength: 32 }, keyVerifyA, signatureBytes, encoder.encode(tokenStringWithoutSignature)
       );
 
       if (!isSignatureValid) {
@@ -174,26 +147,19 @@ self.addEventListener('push', function(event) {
       }
       console.log("[SW] 🛡️ Assinatura digital do JWT homologada com sucesso!");
 
-      // D. DESCRIPTOGRAFIA RSA-OAEP: Resgata a chave privada local do cofre do IndexedDB
-      const txDec = db.transaction("chaves_privadas_e2e", "readonly");
-      const privateDecryptKey = await new Promise((res) => {
-        txDec.objectStore("chaves_privadas_e2e").get("minha_decript_key").onsuccess = (e) => res(e.target.result);
-      });
+      // Carrega a chave CryptoKey de decodificação usando a store legítima
+      const privateDecryptKey = await get("minha_decript_key", storeChavesE2E);
 
       if (!privateDecryptKey) throw new Error("Sua chave privada RSA de decodificação não foi encontrada.");
 
-      // Converte o Hex da mensagem de volta para bytes binários
       const encryptedBytes = new Uint8Array(jwtPayload.cipherText.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-
-      // Descriptografa a carga útil da mensagem
+      
       const decryptedBuffer = await crypto.subtle.decrypt(
         { name: "RSA-OAEP" }, privateDecryptKey, encryptedBytes
       );
-      
       const textoOriginal = decoder.decode(decryptedBuffer);
       console.log("[SW] 🔓 Conteúdo do JWT aberto com sucesso!");
 
-      // Renderiza o balão final com os dados dinâmicos coletados
       await self.registration.showNotification(`📥 De: ${nomeRemetente}`, {
         body: textoOriginal,
         icon: '/icon.png',
@@ -202,7 +168,6 @@ self.addEventListener('push', function(event) {
         data: jwtPayload
       });
 
-      // Encaminha uma cópia em tempo real para as abas que estiverem abertas
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach((client) => {
         client.postMessage({ type: "PUSH_RECEIVED", payload: { title: nomeRemetente, body: textoOriginal } });
@@ -219,14 +184,68 @@ self.addEventListener('push', function(event) {
 });
 
 // ==========================================
-// 5. EVENTO CLICK (Foco e Redirecionamento)
+// 5. EVENTO SYNC (Processamento Offline Background)
+// ==========================================
+self.addEventListener('sync', function(event) {
+  console.log(`[SW] 🔄 Sincronização em segundo plano disparada! Tag: ${event.tag}`);
+  if (event.tag === 'sync-push-notifications') {
+    event.waitUntil(enviarMensagensPendentes());
+  }
+});
+
+async function enviarMensagensPendentes() {
+  try {
+    const todasAsChavesFila = await entries(storeFilaDisparosA);
+    if (!todasAsChavesFila || todasAsChavesFila.length === 0) {
+      console.log("[SW] ℹ️ Nenhuma mensagem pendente na fila de sincronização.");
+      return;
+    }
+
+    console.log(`[SW] 📦 Encontrados ${todasAsChavesFila.length} push(es) pendentes para enviar...`);
+    let totalSucesso = 0;
+
+    for (const [id, payload] of todasAsChavesFila) {
+      try {
+        const response = await fetch("/api/proxy-push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          totalSucesso++;
+          console.log(`[SW] ✅ Mensagem enviada com sucesso ao servidor!`);
+          await del(id, storeFilaDisparosA);
+        } else {
+          console.error("[SW] ❌ Servidor rejeitou o POST da fila. Mantendo no banco.");
+        }
+      } catch (fetchErr) {
+        console.error("[SW] ❌ Falha de rede ao despachar da fila. Agendando nova tentativa...", fetchErr);
+        throw fetchErr;
+      }
+    }
+
+    if (totalSucesso > 0) {
+      await self.registration.showNotification("✨ Conexão Restaurada!", {
+        body: "Sua fila de notificações offline foi transmitida com sucesso!",
+        icon: '/icon.png',
+        badge: '/icon.png',
+        vibrate: [200, 100, 200]
+      });
+      console.log(`[SW] 📢 Alerta de sucesso exibido (${totalSucesso} enviadas).`);
+    }
+  } catch (err) {
+    console.error("[SW] ⚠️ Falha ao processar o envio de fundo:", err);
+  }
+}
+
+// ==========================================
+// 6. EVENTO CLICK (Foco e Redirecionamento)
 // ==========================================
 self.addEventListener('notificationclick', function(event) {
   console.log("[SW] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
   event.notification.close();
-
   const urlParaAbrir = new URL('/browser-b.html', self.location.origin).href;
-
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then(function(windowClients) {
@@ -239,6 +258,4 @@ self.addEventListener('notificationclick', function(event) {
         if (self.clients.openWindow) {
           return self.clients.openWindow(urlParaAbrir);
         }
-      })
-  );
-});
+}));});

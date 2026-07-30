@@ -25,42 +25,28 @@ async function copyStatic() {
   }
 }
 
-// Escaneia a pasta dist/ após o build das páginas e cria o Service Worker estático com os caches injetados
-async function processarEGravarServiceWorker() {
-  const srcSwPath = join(SRC_DIR, "service-worker.js");
+async function injetarCacheNoServiceWorker() {
   const distSwPath = join(DIST_DIR, "service-worker.js");
-
   try {
     const assetsEncontrados: string[] = [];
-
-
-    // 1. Vasculha a pasta dist/ para mapear todos os arquivos gerados com hash pelas páginas HTML
     for await (const entry of Deno.readDir(DIST_DIR)) {
-      // Mapeia todos os arquivos gerados, ignorando mapas de desenvolvimento (.map)
-      if (entry.isFile && !entry.name.endsWith(".map")) {
+      if (entry.isFile && !entry.name.endsWith(".map") && entry.name !== "service-worker.js") {
         assetsEncontrados.push(`/${entry.name}`);
       }
     }
     console.log("📦 Arquivos mapeados para o Cache Offline:", assetsEncontrados);
 
-    // 2. Cria uma versão única baseada no timestamp atual para estourar o cache antigo
     const uniqueVersion = Date.now().toString(); 
-
-    // 3. Converte o array do JavaScript em uma string formatada para injeção no array
     const assetsArrayString = assetsEncontrados.map(asset => `"${asset}"`).join(", ");
 
-    // 4. CORREÇÃO DA ROTA: Lê o arquivo direto da pasta de ORIGEM (src/) para evitar erros de NotFound
-    let swCode = await Deno.readTextFile(srcSwPath);
-
-    // 5. Faz as substituições cirúrgicas nos placeholders do service-worker original
+    let swCode = await Deno.readTextFile(distSwPath);
     swCode = swCode.replace("VERSION_HASH", uniqueVersion);
     swCode = swCode.replace("__GENERATED_ASSETS__", assetsArrayString);
 
-    // 6. Grava o Service Worker definitivo diretamente na raiz de dist/ com o nome fixo perfeito
     await Deno.writeTextFile(distSwPath, swCode);
-    console.log(`✨ Service Worker gerado com nome fixo e cache versionado para: v_${uniqueVersion}`);
+    console.log(`✨ Cache injetado com sucesso no SW: v_${uniqueVersion}`);
   } catch (err) {
-    console.error("⚠️ Falha ao processar ou gravar o Service Worker:", err);
+    console.error("⚠️ Falha ao injetar cache no Service Worker:", err);
   }
 }
 
@@ -96,8 +82,21 @@ async function build() {
     jsxFragment: "Fragment",
   });
 
-  // 2. Processa o Service Worker lendo da origem, injetando os JS com hash descobertos na etapa 1 e salvando em dist/
-  await processarEGravarServiceWorker();
+  // 2. Build do Service Worker resolvendo o deno.json e transpilando para formato clássico IIFE
+  console.log("📦 Compilando bundle do Service Worker ...");
+  await bundleFn({
+    entrypoints: [join(SRC_DIR, "service-worker.js")],
+    outputDir: DIST_DIR,
+    outputFile: join(DIST_DIR, "service-worker.js"),
+    platform: "browser",
+    format: "iife",
+    bundle: true,
+    minify: false,
+    write: true
+  });
+
+  // 3. Injeta a lista de hashes gerada na pasta dist no arquivo final do worker
+  await injetarCacheNoServiceWorker();
 
   const elapsed = (performance.now() - start).toFixed(0);
   console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/\n`);
