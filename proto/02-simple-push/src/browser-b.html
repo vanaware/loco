@@ -3,69 +3,182 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <title>Browser B - Gerador e Receptor Seguro</title>
+    <title>Browser B - Emissor e Receptor</title>
     <link rel="manifest" href="/manifest.json">
     <style>
-      body { font-family: system-ui, sans-serif; padding: 20px; color: #333; max-width: 800px; margin: 0 auto; }
+      body { font-family: system-ui, sans-serif; padding: 20px; color: #333; max-width: 900px; margin: 0 auto; }
       .container { background: #f4f4f4; padding: 15px; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box; }
+      .container-receptor { border-left: 5px solid #006c4f; }
+      .container-emissor { border-left: 5px solid #002b3d; }
+      .container-mensagens { border-left: 5px solid #ff6b00; }
       textarea, input[type="text"] { width: 100%; max-width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 8px; font-family: monospace; }
-      button { padding: 10px 16px; font-weight: bold; background-color: #006c4f; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 15px; }
+      button { padding: 10px 16px; font-weight: bold; background-color: #006c4f; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
       button:hover { background-color: #004d3f; }
+      button.send-btn { background-color: #002b3d; width: 100%; padding: 12px; font-size: 16px; margin-top: 10px; }
+      button.send-btn:hover { background-color: #001a26; }
+      button.danger { background-color: #cc0000; }
+      button.danger:hover { background-color: #990000; }
+      button.homologar-btn { background-color: #ff6b00; }
+      button.homologar-btn:hover { background-color: #cc5500; }
       label { font-weight: bold; display: block; margin-top: 5px; }
+      .row { display: flex; gap: 20px; flex-wrap: wrap; }
+      .col { flex: 1; min-width: 300px; }
+      .btn-sm { padding: 4px 12px; font-size: 12px; margin-bottom: 0; }
+      .mt-10 { margin-top: 10px; }
+      .mb-10 { margin-bottom: 10px; }
+      .flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+      .flex-end { display: flex; gap: 8px; align-items: center; }
+      .msg-item { border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; }
+      .msg-item-nao-lida { background: #fffde7; }
+      .msg-item-notificada { background: #e3f2fd; }
+      .msg-item-lida { background: #f9f9f9; }
+      .msg-item-homologado { border-left: 4px solid #28a745; }
+      .msg-item-nao-homologado { border-left: 4px solid #ff6b00; }
+      .status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+      .status-badge-homologado { background: #d4edda; color: #155724; }
+      .status-badge-nao-homologado { background: #fff3cd; color: #856404; }
+      .status-badge-pendente { background: #fff3cd; color: #856404; }
+      .status-badge-lida { background: #d1ecf1; color: #0c5460; }
+      .status-badge-notificada { background: #d1ecf1; color: #0c5460; }
+      .status-badge-enviada { background: #d4edda; color: #155724; }
+      .status-badge-falha { background: #f8d7da; color: #721c24; }
+      .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+      .tab { padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px 4px 0 0; cursor: pointer; font-weight: bold; }
+      .tab.active { background: #006c4f; color: white; }
+      .tab-content { display: none; }
+      .tab-content.active { display: block; }
+      .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; max-width: 400px; font-family: system-ui, sans-serif; animation: fadeInUp 0.3s ease; }
+      .toast-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+      .toast-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+      .toast-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+      @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     </style>
   </head>
   <body>
-    <h1>Browser B - Credenciais Unificadas e Identidade</h1>
-    
-    <!-- 1. BLOCO DE PERFIL DO RECEPTOR -->
-    <div class="container">
-      <h2>👤 Perfil do Receptor (Browser B)</h2>
-      <label for="profileNameB">Nome do Dono do Canal:</label>
-      <input type="text" id="profileNameB" value="Alice" />
+    <h1>📬 Browser B - Emissor e Receptor</h1>
+    <p style="color: #666; margin-bottom: 20px;">Receba mensagens e responda para outros Browser B.</p>
+
+    <!-- ============================================================ -->
+    <!-- PERFIL E MEU BUNDLE                                           -->
+    <!-- ============================================================ -->
+    <div class="container" style="border-left: 5px solid #006c4f; background: #f0f8f4;">
+      <h2>👤 Meu Perfil</h2>
+      <div class="row">
+        <div class="col">
+          <label for="profileNameB">Meu Nome:</label>
+          <input type="text" id="profileNameB" value="Alice" />
+        </div>
+        <div class="col">
+          <label for="profileEmailB">Meu E-mail:</label>
+          <input type="text" id="profileEmailB" value="alice@example.com" />
+        </div>
+      </div>
+      <button id="btnGerarBundle" style="width: 100%;">📦 Gerar Meu Bundle (copie para outros)</button>
+
+      <button id="btnVerificarBundle" class="btn-sm" style="margin-top: 5px;">🔍 Verificar Bundle</button>
+      <button id="btnLimparSubscription" class="btn-sm danger" style="margin-top: 10px;">🗑️ Limpar Subscription</button>
       
-      <label for="profileEmailB">E-mail de Contato VAPID:</label>
-      <input type="text" id="profileEmailB" value="alice@example.com" />
-      
-      <button id="btnRegisterPush">Gerar Carga Unificada com Perfil</button>
+      <div class="row mt-10">
+        <div class="col">
+          <label for="myPublicKeyB">Minha Chave Pública (para homologação manual):</label>
+          <textarea id="myPublicKeyB" rows="3" readonly placeholder="Clique em 'Gerar Meu Bundle' primeiro..."></textarea>
+          <button class="copy-btn btn-sm" data-target="myPublicKeyB">📋 Copiar Chave Pública</button>
+        </div>
+      </div>
+      <div class="row mt-10">
+        <div class="col">
+          <label for="unifiedBundle">📦 Meu Bundle (copie e cole no emissor para receber mensagens):</label>
+          <textarea id="unifiedBundle" rows="5" readonly placeholder="Aguardando geração..."></textarea>
+          <button class="copy-btn btn-sm" data-target="unifiedBundle">📋 Copiar Bundle</button>
+        </div>
+      </div>
     </div>
 
-    <!-- 2. BANNER DE INSTALAÇÃO DO PWA (OPCIONAL/ATIVO) -->
-    <button id="btnInstall" style="display: none; background-color: #002b3d; width: 100%;">
-      ➕ Instalar Aplicativo no Dispositivo
-    </button>
-
-    <!-- 3. BLOCO DE CARGA UNIFICADA MASCARADA -->
-    <div class="container">
-      <h2>📦 Bloco Unificado de Configuração (JWT-Ready)</h2>
-      <label for="unifiedBundle">Carga Unificada (Contém Chave VAPID Criptografada para o Servidor):</label>
-      <textarea id="unifiedBundle" rows="10" readonly placeholder="Aguardando geração do perfil..."></textarea>
-      <button class="copy-btn" data-target="unifiedBundle">Copiar Tudo de Uma Vez</button>
-    </div>
-
-    <!-- 4. BLOCO DE HOMOLOGAÇÃO DO EMISSOR (BROWSER A) -->
-    <div class="container" style="border-left: 5px solid #006c4f;">
-      <h2>🛡️ Homologação de Emissores Autorizados (Lista Branca)</h2>
-      <label for="senderPublicKeyJson">Cole aqui a Chave Pública de Assinatura do Browser A (JWT-Ready):</label>
-      <textarea id="senderPublicKeyJson" rows="4" placeholder='{"kty":"RSA","n":"...","e":"...","ownerName":"...","ownerEmail":"..."}'></textarea>
+    <!-- ============================================================ -->
+    <!-- GUIA: RECEBER MENSAGENS                                       -->
+    <!-- ============================================================ -->
+    <div class="container container-receptor">
+      <h2>📥 Receber Mensagens</h2>
       
-      <button id="btnSaveSenderIdentity">Autorizar e Salvar Emissor</button>
+      <div class="tabs">
+        <button class="tab active" data-tab="homologar">🛡️ Homologar Emissores</button>
+        <button class="tab" data-tab="mensagens-recebidas">📬 Mensagens Recebidas</button>
+      </div>
+
+      <!-- Tab: Homologar Emissores -->
+      <div id="tab-homologar" class="tab-content active">
+        <div class="row">
+          <div class="col">
+            <label for="senderPublicKeyJson">Cole aqui a Chave Pública do Emissor (para homologação manual):</label>
+            <textarea id="senderPublicKeyJson" rows="3" placeholder='{"kty":"RSA","n":"...","e":"...","ownerName":"...","ownerEmail":"..."}'></textarea>
+            <button id="btnSaveSenderIdentity">✅ Autorizar e Salvar Emissor</button>
+          </div>
+        </div>
+        
+        <div class="mt-10">
+          <label>📋 Emissores Autorizados:</label>
+          <div id="listaEmissoresB" style="max-height: 150px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
+            <p style="color: #666; font-size: 14px;">Nenhum emissor homologado ainda.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Mensagens Recebidas -->
+      <div id="tab-mensagens-recebidas" class="tab-content">
+        <div class="flex mb-10">
+          <span><strong>📬 Mensagens Recebidas</strong></span>
+          <div class="flex-end">
+            <button id="btnCarregarMensagens" class="btn-sm">🔄 Atualizar</button>
+            <button id="btnLimparLidas" class="btn-sm danger">🗑️ Remover Lidas</button>
+            <button id="btnHomologarTodas" class="btn-sm homologar-btn">🔄 Homologar Todas</button>
+          </div>
+        </div>
+        <div id="mensagensRecebidas">
+          <p style="color: #666;">Nenhuma mensagem recebida ainda.</p>
+        </div>
+      </div>
     </div>
 
+    <!-- ============================================================ -->
+    <!-- GUIA: ENVIAR MENSAGENS                                        -->
+    <!-- ============================================================ -->
+    <div class="container container-emissor">
+      <h2>📤 Enviar Mensagens</h2>
+      
+      <div class="tabs">
+        <button class="tab active" data-tab="enviar">✉️ Enviar Nova Mensagem</button>
+        <button class="tab" data-tab="mensagens-enviadas">📤 Histórico de Envio</button>
+      </div>
 
-<div class="container" style="border-left: 5px solid #ff6b00;">
-  <h2>📬 Mensagens Recebidas</h2>
-  <div id="mensagensRecebidas">
-    <p style="color: #666;">Nenhuma mensagem recebida ainda.</p>
-  </div>
-  <button id="btnCarregarMensagens" style="background-color: #555; margin-top: 10px;">
-    🔄 Carregar Mensagens
-  </button>
-  <button id="btnLimparLidas" style="background-color: #888; margin-top: 10px; margin-left: 10px;">
-    🗑️ Remover Lidas
-  </button>
-</div>
+      <!-- Tab: Enviar Nova Mensagem -->
+      <div id="tab-enviar" class="tab-content active">
+        <label for="bundleDestinoB">1. Cole o Bundle do Destinatário (gerado por outro Browser B):</label>
+        <textarea id="bundleDestinoB" rows="4" placeholder="Cole aqui o bundle do destinatário..."></textarea>
+        
+        <label for="tituloMensagemB">2. Título:</label>
+        <input type="text" id="tituloMensagemB" value="Nova mensagem" placeholder="Digite o título..." />
+        
+        <label for="mensagemEnvioB">3. Mensagem:</label>
+        <textarea id="mensagemEnvioB" rows="3" placeholder="Escreva sua mensagem aqui..."></textarea>
+        
+        <button id="btnEnviarB" class="send-btn">🚀 Enviar Mensagem</button>
+      </div>
 
-    <!-- Ponto de entrada do script processado pelo Deno -->
+      <!-- Tab: Mensagens Enviadas -->
+      <div id="tab-mensagens-enviadas" class="tab-content">
+        <div class="flex mb-10">
+          <span><strong>📤 Mensagens Enviadas</strong></span>
+          <div class="flex-end">
+            <button id="btnCarregarEnviadasB" class="btn-sm">🔄 Atualizar</button>
+            <button id="btnLimparEnviadasB" class="btn-sm danger">🗑️ Limpar Enviadas</button>
+          </div>
+        </div>
+        <div id="mensagensEnviadasB">
+          <p style="color: #666;">Nenhuma mensagem enviada ainda.</p>
+        </div>
+      </div>
+    </div>
+
     <script src="./browser-b.tsx" type="module"></script>
   </body>
 </html>

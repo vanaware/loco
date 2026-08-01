@@ -131,7 +131,7 @@ async function gerarIdentidadeA(): Promise<void> {
     }
     
     console.log("✅ [SW-LOG-A] Identidade permanente gerada e salva com idb-keyval!");
-    alert("Identidade permanente gerada com sucesso! Copie a chave e homologue-a no Browser B.");
+    alert("Identidade permanente gerada com sucesso!");
   } catch (err) {
     console.error(err);
     alert("Falha ao gerar identidade: " + (err as Error).message);
@@ -170,18 +170,27 @@ async function sendMessage(): Promise<void> {
     const messageHex = Array.from(new Uint8Array(encryptedBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
     const identityRecord = await buscarIdentidadeA();
+    const publicKeyJwk = await buscarPublicKeyA();
 
-    if (!identityRecord) {
+    if (!identityRecord || !publicKeyJwk) {
       throw new Error("Identidade do Browser A não localizada! Clique no botão de gerar chave primeiro.");
     }
 
+    // 🔥 CONSTRÓI O PAYLOAD COMPLETO COM A CHAVE PÚBLICA
     const jwtHeader = { alg: "PS256", typ: "JWT" };
     const jwtPayload = {
       iss: identityRecord.email,
       sub: e2eConfig.ownerEmail,
       name: identityRecord.name,
       iat: Math.floor(Date.now() / 1000),
-      cipherText: messageHex
+      cipherText: messageHex,
+      // 🔥 NOVO: Inclui a chave pública do emissor no payload
+      publicKey: publicKeyJwk,
+      // 🔥 NOVO: Campo extra para dados futuros
+      extra: {
+        titulo: "Nova mensagem", // Pode ser customizado futuramente
+        versao: "1.0"
+      }
     };
 
     const base64UrlHeader = arrayBufferToBase64Url(encoder.encode(JSON.stringify(jwtHeader)));

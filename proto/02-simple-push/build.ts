@@ -214,7 +214,8 @@ async function build() {
   await runBundle("HTML", {
     entrypoints: [
       join(SRC_DIR, "browser-a.html"),
-      join(SRC_DIR, "browser-b.html")
+      join(SRC_DIR, "browser-b.html"),
+    join(SRC_DIR, "browser-c.html")
     ],
     outputDir: DIST_DIR,
     platform: "browser",

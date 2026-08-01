@@ -89,10 +89,10 @@ async function decryptWithServerKey(base64Envelope: string): Promise<any> {
     return JSON.parse(jsonText);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
     throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
   }
 }
-
 
 // Transforma as strings textuais de chave pública/privada VAPID em JSON estruturado
 function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
@@ -186,6 +186,8 @@ Deno.serve({ port: PORT }, async (req) => {
       const { subscription, payloadText, vapid, isVapidEncrypted } = body;
 
       console.log(`   - Endpoint destino: ${subscription.endpoint.substring(0, 45)}...`);
+      console.log(`   - isVapidEncrypted: ${isVapidEncrypted}`);
+      console.log(`   - Tamanho do payloadText: ${payloadText?.length || 0} bytes`);
 
       // Executa a auditoria cega das claims do token JWT
       const jwtClaims = lerMetadadosJJWT(payloadText);
@@ -193,6 +195,8 @@ Deno.serve({ port: PORT }, async (req) => {
         console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.name || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         console.log(`   - [AUDITORIA JWT] Destinado a: <${jwtClaims.sub || "Sem e-mail"}>`);
         console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (Hex): ${jwtClaims.cipherText?.substring(0, 20) || "N/A"}...`);
+      } else {
+        console.log(`   - [AUDITORIA JWT] ⚠️ Não foi possível ler as claims do JWT`);
       }
 
       let privateKeyFinal = vapid.privateKey;
@@ -200,26 +204,122 @@ Deno.serve({ port: PORT }, async (req) => {
       // 🔥 DESCRIPTOGRAFIA DA CHAVE PRIVADA VAPID NA RAM
       if (isVapidEncrypted && typeof privateKeyFinal === "string") {
         console.log("   - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
-        const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal);
-        privateKeyFinal = decryptedPrivateKeyObj; 
+        console.log(`   - [SEGURANÇA] Tamanho do envelope: ${privateKeyFinal.length} bytes`);
+        try {
+          const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal);
+          privateKeyFinal = decryptedPrivateKeyObj;
+          console.log("   - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+          console.log(`   - [SEGURANÇA] Chave descriptografada: kty=${privateKeyFinal.kty}, crv=${privateKeyFinal.crv}`);
+        } catch (decryptErr) {
+          console.error("   - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
+          return new Response(
+            JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } else {
+        console.log("   - Chave VAPID não está criptografada, usando diretamente");
       }
 
       // 1. Processa e normatiza as chaves do request
-      const jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
+      let jwkKeys;
+      try {
+        jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
+        console.log("   - ✅ Chaves VAPID parseadas com sucesso");
+        console.log(`   - PublicKey: kty=${jwkKeys.publicKey.kty}, crv=${jwkKeys.publicKey.crv}`);
+        console.log(`   - PrivateKey: kty=${jwkKeys.privateKey.kty}, crv=${jwkKeys.privateKey.crv}`);
+      } catch (parseErr) {
+        console.error("   - ❌ Erro ao parsear chaves VAPID:", parseErr);
+        return new Response(
+          JSON.stringify({ success: false, error: "Chaves VAPID inválidas." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       // 2. Importa a assinatura do cabeçalho de rede do push
-      const vapidKeys = await webpush.importVapidKeys(jwkKeys);
+      let vapidKeys;
+      try {
+        vapidKeys = await webpush.importVapidKeys(jwkKeys);
+        console.log("   - ✅ Chaves VAPID importadas com sucesso");
+        console.log(`   - VAPID Keys: publicKey=${!!vapidKeys.publicKey}, privateKey=${!!vapidKeys.privateKey}`);
+      } catch (importErr) {
+        console.error("   - ❌ Erro ao importar chaves VAPID:", importErr);
+        return new Response(
+          JSON.stringify({ success: false, error: "Falha ao importar chaves VAPID." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
-      const appServer = await webpush.ApplicationServer.new({
-        contactInformation: vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`,
-        vapidKeys: vapidKeys,
-      });
+      // Cria o servidor de aplicação
+      let appServer;
+      try {
+        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+        console.log(`   - Contact: ${contact}`);
+        appServer = await webpush.ApplicationServer.new({
+          contactInformation: contact,
+          vapidKeys: vapidKeys,
+        });
+        console.log("   - ✅ ApplicationServer criado com sucesso");
+      } catch (serverErr) {
+        console.error("   - ❌ Erro ao criar ApplicationServer:", serverErr);
+        return new Response(
+          JSON.stringify({ success: false, error: "Falha ao criar servidor de push." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       // 3. Encaminha o token JWT fechado diretamente sem descriptografar o conteúdo
-      const subscriber = appServer.subscribe(subscription);
-      await subscriber.pushTextMessage(payloadText, {});
-
-      console.log("   ✅ [SUCESSO] Push despachado! Chave Privada VAPID descartada com segurança da RAM.");
+      try {
+        console.log("   - 📤 Enviando push para:", subscription.endpoint.substring(0, 60) + "...");
+        console.log(`   - 📤 Tamanho do payload: ${payloadText.length} bytes`);
+        
+        const subscriber = appServer.subscribe(subscription);
+        await subscriber.pushTextMessage(payloadText, {});
+        
+        console.log("   ✅ [SUCESSO] Push despachado! Chave Privada VAPID descartada com segurança da RAM.");
+      } catch (pushErr) {
+        console.error("   - ❌ Erro ao enviar push:", pushErr);
+        
+        // 🔥 Tenta ler o corpo da resposta do FCM para diagnóstico
+        let responseBody = '';
+        let statusCode = 500;
+        
+        try {
+          if (pushErr instanceof webpush.PushMessageError && pushErr.response) {
+            statusCode = pushErr.response.status;
+            responseBody = await pushErr.response.text();
+            console.error(`   - 📄 Resposta do FCM (status ${statusCode}): ${responseBody}`);
+          }
+        } catch (e) {
+          console.error(`   - ❌ Não foi possível ler a resposta do FCM:`, e);
+        }
+        
+        // Se for erro de subscription inválida (410) ou 404
+        if (pushErr instanceof webpush.PushMessageError && (pushErr.response?.status === 410 || pushErr.response?.status === 404)) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Inscrição expirada ou revogada.", statusCode: pushErr.response.status }),
+            { status: pushErr.response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Se o status for 400, pode ser problema no payload ou na chave
+        if (pushErr instanceof webpush.PushMessageError && pushErr.response?.status === 400) {
+          // Se a resposta contiver "Invalid VAPID" ou similar, podemos personalizar
+          let msg = "Requisição inválida. Verifique a subscription e o payload.";
+          if (responseBody.includes("Invalid")) {
+            msg = "Chave VAPID inválida ou malformada.";
+          } else if (responseBody.includes("payload")) {
+            msg = "Payload malformado ou muito grande.";
+          }
+          return new Response(
+            JSON.stringify({ success: false, error: msg, statusCode: 400 }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Re-lança o erro para ser tratado pelo catch externo se não for tratado acima
+        throw pushErr;
+      }
 
       return new Response(JSON.stringify({ success: true }), {
         status: 200,
@@ -229,8 +329,6 @@ Deno.serve({ port: PORT }, async (req) => {
     } catch (error) {
       console.error(`\n❌ [ERRO NO SERVIDOR PUSH] [${new Date().toLocaleTimeString()}]:`);
 
-      // Captura erros de rejeição remota das centrais de push (Google, Apple, Mozilla)
-      // Verifica se é um erro de push com response
       const isPushError = error && typeof error === 'object' && 'response' in error;
       
       if (isPushError) {
@@ -254,7 +352,6 @@ Deno.serve({ port: PORT }, async (req) => {
         );
       }
 
-      // Erro interno/local - tratamento seguro de tipo unknown
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       
