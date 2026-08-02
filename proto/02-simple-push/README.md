@@ -1,3 +1,4 @@
+
 # 📡 Web Push Descentralizado – Protótipo Detalhado
 
 ## 1. Objetivo Geral
@@ -12,7 +13,7 @@ A infraestrutura mínima necessária é um **servidor proxy** (fornecido neste p
 - Fornece uma chave pública RSA usada para cifrar a chave privada VAPID durante a troca de perfis.
 - Reencaminha as requisições push ao serviço de push (FCM), após descriptografar a chave privada VAPID para assinar o cabeçalho de autorização.
 
-Não há banco de dados central, nem filas compartilhadas: cada navegador mantém seu próprio **IndexedDB** com contatos e histórico de mensagens.
+Não há banco de dados central, nem filas compartilhadas: cada navegador mantém seu próprio **IndexedDB** com contatos, histórico de mensagens e o perfil do usuário.
 
 ---
 
@@ -90,15 +91,15 @@ O sistema utiliza as seguintes stores (bancos) no IndexedDB, gerenciadas pela bi
 
 | Nome da Store (`DB_NAMES`) | Chave | Valor | Finalidade |
 | :--- | :--- | :--- | :--- |
-| `BrowserB_Contatos_DB` | **Hash SHA-256** (hex) da chave VAPID pública serializada | `Contato` | Armazena todos os contatos conhecidos. A chave é um hash para evitar problemas de capitalização (case-insensitive) e inconsistências de serialização. |
+| `AppConfig_DB` | `"profile"` | `ProfileConfig` | **Store unificada** – contém todos os dados do perfil do usuário: nome, e-mail, chaves VAPID (pública e privada), chaves RSA (pública e privada) e subscription. |
+| `BrowserB_Contatos_DB` | **Hash SHA-256** (hex) da chave VAPID pública | `Contato` | Armazena todos os contatos conhecidos. A chave é um hash para evitar problemas de capitalização e inconsistências de serialização. |
 | `BrowserB_MensagensRecebidas_DB` | `msg_<timestamp>_<random>` | `MensagemRecebida` | Armazena mensagens recebidas. O campo `contatoPublicKeyVapid` referencia a chave hash do contato correspondente. |
-| `BrowserA_Identidade_DB` | `identidade_a` | `IdentidadeA` | Armazena a chave privada VAPID do usuário local (como `CryptoKey`), usada para assinar JWT. |
 | `BrowserA_MensagensEnvio_DB` | `msg_<timestamp>_<random>` | `MensagemEnvio` | Fila de mensagens aguardando envio (offline-first). |
-| `BrowserB_Subscription_DB` | `subscription_b` | `SubscriptionData` | Armazena a subscription atual do usuário. |
-| `BrowserB_E2E_Chaves_DB` | `chaves_e2e_b` | `ChavesE2EB` | Armazena as chaves RSA do usuário (pública e privada) para criptografia E2E. |
-| `BrowserB_Vapid_DB` | `chaves_vapid_b` | `ChavesVapidB` | Armazena as chaves VAPID (pública e privada) do usuário. |
 
-**Observação:** A store `BrowserA_Bundles_DB` foi removida. Agora o **bundle** (conjunto de informações para envio) é construído dinamicamente a partir das stores `IdentidadeA`, `SubscriptionB`, `VapidB` e `E2E` sempre que necessário, eliminando a duplicação de dados e simplificando a persistência.
+**Observações importantes:**
+- **A store `AppConfig_DB` substitui as antigas stores `BrowserA_Identidade_DB`, `BrowserB_E2E_Chaves_DB`, `BrowserB_Vapid_DB` e `BrowserB_Subscription_DB`**, eliminando a duplicação de dados e centralizando todas as informações do perfil.
+- **Todas as chaves privadas** (VAPID e RSA) são persistidas como **JWK** dentro do `ProfileConfig`. Isso garante que, ao recarregar a página, o usuário não perca suas chaves, mantendo a capacidade de assinar e decifrar mensagens.
+- **O bundle do emissor** (conjunto de dados que inclui subscription, chaves VAPID e RSA) é **construído dinamicamente** a partir do perfil unificado sempre que necessário, eliminando a necessidade de uma store separada para bundles.
 
 **Geração do Hash do Contato:**
 Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `"p-256"`), a chave primária da store de contatos é um **hash SHA-256** da string normalizada em minúsculo: `${kty}|${crv}|${x}|${y}` (extraídos da chave pública VAPID). Isso garante que a mesma chave pública gere sempre o mesmo hash, independentemente de como foi serializada.
@@ -112,43 +113,44 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 
 1. **Verificação de permissões**: Checa se a permissão de notificação está concedida; caso contrário, solicita.
 2. **Registro do Service Worker**: Registra ou obtém a instância do Service Worker.
-3. **Geração de chaves VAPID**: Gera um par de chaves ECDSA P-256 (`vapidKeyPair`).
-4. **Geração de chaves RSA**: Gera um par de chaves RSA-OAEP-256 (`encryptionKeyPair`).
-5. **Obtenção da subscription**: Obtém a subscription do `PushManager` do navegador, usando a chave pública VAPID como `applicationServerKey`.
+3. **Geração/obtenção de chaves VAPID**: Tenta carregar do perfil existente; caso não existam, gera um novo par ECDSA P-256.
+4. **Geração/obtenção de chaves RSA**: Tenta carregar do perfil existente; caso não existam, gera um novo par RSA-OAEP-256.
+5. **Obtenção da subscription**: Obtém a subscription do `PushManager` do navegador, usando a chave pública VAPID como `applicationServerKey`; reutiliza a subscription existente se ainda for válida.
 6. **Busca da chave pública do servidor**: Faz uma requisição GET para `/api/server-public-key` para obter a chave pública RSA do servidor proxy.
-7. **Cifragem da chave privada VAPID**:
-   - A chave privada VAPID (em JWK) é cifrada com AES-GCM usando uma chave simétrica gerada aleatoriamente.
-   - A chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor.
-   - O resultado é um envelope JSON com `iv`, `dadosCifrados` e `chaveAesCifrada`, codificado em Base64. Esse envelope é colocado no campo `k` do perfil.
-8. **Montagem do perfil**: Combina `iss` (email), `nm` (nome), `kid` (chave pública VAPID), `s` (subscription), `p` (chave pública RSA), e `k` (chave privada VAPID cifrada).
-9. **Persistência**: As chaves e a subscription são salvas individualmente nas stores `IdentidadeA`, `SubscriptionB`, `VapidB` e `E2E`.
-10. **Exibição**: O perfil é mostrado em uma área de texto para o usuário copiar.
+7. **Cifragem da chave privada VAPID**: A chave privada VAPID (em JWK) é cifrada com AES-GCM, e a chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor. O envelope resultante é colocado no campo `k` do perfil público.
+8. **Montagem do perfil público**: Combina `iss` (email), `nm` (nome), `kid` (chave pública VAPID), `s` (subscription), `p` (chave pública RSA), e `k` (chave privada VAPID cifrada).
+9. **Persistência do perfil unificado**: Salva todos os dados (nome, email, chaves VAPID e RSA em JWK, subscription) na store `AppConfig_DB` com a chave `"profile"`.
+10. **Exibição**: O perfil público é mostrado em uma área de texto para o usuário copiar.
 
 ### 4.2. Adição de Contato
 **Função:** `adicionarContato()` em `src/app.tsx`
 
 1. O usuário cola um perfil JSON em uma textarea e clica em "Adicionar Contato".
 2. Valida a estrutura do perfil (verifica campos obrigatórios).
-3. **Importa a chave pública VAPID** (campo `kid`) usando `crypto.subtle.importKey` com algoritmo `ECDSA` e `namedCurve: "P-256"` para validar o formato. Se falhar, o perfil é rejeitado.
+3. **Importa a chave pública VAPID** (campo `kid`) para validar o formato.
 4. Cria um objeto `Contato` com os dados do perfil (`homologado: false`).
-5. **Gera o hash** da chave pública VAPID utilizando a função `serializarPublicKeyVapid` (que normaliza e aplica SHA-256).
-6. Salva o contato no IndexedDB (`BrowserB_Contatos_DB`) usando o hash como chave.
+5. **Gera o hash** da chave pública VAPID utilizando a função `serializarPublicKeyVapid`.
+6. Salva o contato na store `BrowserB_Contatos_DB` usando o hash como chave.
 7. Atualiza a interface: lista de contatos e dropdown de seleção.
 
 ### 4.3. Envio de Mensagem
 **Função:** `enviarMensagemB()` em `src/app.tsx`
 
-1. O usuário seleciona um contato no dropdown (populado com os hashes) e digita a mensagem.
+1. O usuário seleciona um contato no dropdown e digita a mensagem.
 2. Recupera o contato completo do IndexedDB usando o hash selecionado.
-3. **Recupera os dados do emissor**: busca `identidade`, `subscription`, `chaves VAPID` e `chaves E2E` das respectivas stores.
-4. **Constrói dinamicamente o bundle do emissor** (contendo subscription, chaves VAPID cifradas e chave pública RSA) para incluir no payload.
-5. **Prepara o objeto da mensagem** com o conteúdo e os dados do emissor.
-6. **Comprime** o JSON com Gzip, **gera uma chave AES-GCM** e IV, **cifra os dados** com AES e **cifra a chave AES** com a chave pública RSA do contato (destinatário).
-7. Monta o envelope com `iv`, `dadosCifrados` e `chaveAesCifrada` em Base64.
-8. **Constrói e assina o JWT** com a chave privada VAPID do emissor.
-9. **Salva a mensagem** na store de envio (`BrowserA_MensagensEnvio_DB`) com status `'pendente'`.
-10. **Envia uma mensagem ao Service Worker** via `postMessage` com tipo `ENVIAR_MENSAGEM`, contendo o bundle do destinatário e o JWT.
-11. O Service Worker tentará enviar imediatamente ou mais tarde (offline).
+3. **Recupera o perfil unificado** do emissor (store `AppConfig_DB`).
+4. A partir do perfil, extrai:
+   - `subscription` (endpoint e keys)
+   - chaves VAPID (pública e privada em JWK)
+   - chaves RSA E2E (pública e privada em JWK)
+5. **Constrói dinamicamente o bundle do emissor** (subscription, chaves VAPID e RSA) para incluir no payload da mensagem.
+6. **Prepara o objeto de mensagem** com o conteúdo e os dados do emissor (subscription, chave pública RSA, chave privada VAPID cifrada).
+7. **Comprime** o JSON com Gzip, **gera uma chave AES-GCM** e IV, **cifra os dados** com AES e **cifra a chave AES** com a chave pública RSA do contato (destinatário).
+8. Monta o envelope com `iv`, `dadosCifrados` e `chaveAesCifrada` em Base64.
+9. **Constrói e assina o JWT** com a chave privada VAPID do emissor (importada da CryptoKey em memória).
+10. **Salva a mensagem** na store de envio (`BrowserA_MensagensEnvio_DB`) com status `'pendente'`.
+11. **Envia uma mensagem ao Service Worker** via `postMessage` com tipo `ENVIAR_MENSAGEM`, contendo o bundle do destinatário e o JWT.
+12. O Service Worker tentará enviar imediatamente ou mais tarde (offline).
 
 ### 4.4. Processamento do Envio (Service Worker – `sw-mensagens.js`)
 1. O Service Worker recebe a mensagem da página via `postMessage`.
@@ -163,10 +165,10 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 ### 4.5. Recebimento da Mensagem (Service Worker – `push.js`)
 1. O Service Worker recebe o evento `push` contendo o JWT no `event.data.text()`.
 2. Divide o JWT em header, payload e signature.
-3. **Verifica a assinatura** usando a chave pública VAPID do emissor (campo `p` do payload).
+3. **Verifica a assinatura** usando a chave pública VAPID do emissor (campo `p` do payload) e o algoritmo ECDSA P-256.
 4. Se a assinatura for inválida, descarta a mensagem e exibe notificação de erro.
 5. **Decifra o envelope**:
-   - Obtém a chave privada RSA do receptor (store `ChavesE2EB`).
+   - Obtém a chave privada RSA do receptor a partir do perfil unificado (`ProfileConfig.e2ePrivateKeyJwk`), importando-a como CryptoKey.
    - Decodifica `iv`, `dados` e `k` do envelope.
    - Descriptografa a chave AES usando RSA-OAEP.
    - Descriptografa os dados com AES-GCM.
@@ -216,8 +218,8 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 | `src/sw/sw-mensagens.js` | Gerencia filas de envio offline. Escuta mensagens da página (`postMessage`) e envia ao servidor proxy. |
 | `src/sw/cache.js` | Gerencia cache offline para os assets estáticos (HTML, CSS, JS). |
 | `src/sw/click.js` | Lida com o evento `notificationclick` – redireciona para a página principal. |
-| `src/constants/db.ts` | Define nomes das stores e interfaces TypeScript para contato, mensagem, etc. |
-| `src/utils/db-helpers.ts` | Funções auxiliares para operações IndexedDB: `salvarContato`, `buscarContatoPorChave`, `serializarPublicKeyVapid` (hash SHA-256). |
+| `src/constants/db.ts` | Define nomes das stores e interfaces TypeScript para contato, mensagem, e o perfil unificado `ProfileConfig`. |
+| `src/utils/db-helpers.ts` | Funções auxiliares para operações IndexedDB: salvar/buscar perfil, contatos, mensagens, serialização de chaves. |
 | `main.ts` | Servidor Deno (proxy). Endpoints: `/api/server-public-key` (retorna chave pública RSA) e `/api/proxy-push` (recebe JSON com subscription e payload, descriptografa a chave privada VAPID, assina e encaminha para o endpoint de push). |
 | `build.ts` | Script de build usando `Deno.bundle` com entrypoints HTML. Compila `index.html` (que referencia `app.tsx`), gera bundle JS e atualiza o HTML. Também compila o Service Worker separadamente e injeta lista de assets e hash de versão. |
 
@@ -230,8 +232,8 @@ O projeto utiliza **Deno** com `build.ts` para bundling:
 - O arquivo `src/index.html` é usado como entrypoint. O Deno bundler detecta a tag `<script src="./app.tsx" type="module">` e compila o código, gerando um arquivo JS com hash e atualizando o HTML.
 - O Service Worker é compilado separadamente em modo IIFE e tem seu conteúdo pós-processado para substituir `VERSION_HASH` e `__GENERATED_ASSETS__` pela lista de assets a cachear.
 
-Observação sobre o CSS:    
-O arquivo src/styles.css é importado no app.tsx via import "./styles.css". Para que o TypeScript não reclame, criamos um arquivo de declaração (src/styles.d.ts) que declara o módulo .css. O Deno.bundle, ao processar o HTML, reconhece a tag <link rel="stylesheet" href="./styles.css"> e copia o arquivo CSS para a pasta dist/, garantindo que o estilo seja carregado corretamente. A importação no código é mantida para compatibilidade com ferramentas de build futuras e para que o CSS seja tratado como dependência do módulo.
+**Observação sobre o CSS:**  
+O arquivo `src/styles.css` é importado no `app.tsx` via `import "./styles.css"`. Para que o TypeScript não reclame, criamos um arquivo de declaração (`src/styles.d.ts`) que declara o módulo `.css`. O `Deno.bundle`, ao processar o HTML, reconhece a tag `<link rel="stylesheet" href="./styles.css">` e copia o arquivo CSS para a pasta `dist/`, garantindo que o estilo seja carregado corretamente. A importação no código é mantida para compatibilidade com ferramentas de build futuras e para que o CSS seja tratado como dependência do módulo.
 
 Comando:
 ```bash
@@ -249,12 +251,14 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 
 ## 8. Estado Atual e Pontos de Atenção
 
+- **Perfil unificado**: Todas as informações do usuário (nome, e-mail, chaves VAPID e RSA completas, subscription) são armazenadas em uma única store (`AppConfig_DB`), eliminando duplicação e inconsistências.
+- **Persistência de chaves privadas**: Tanto a chave privada VAPID quanto a chave privada RSA são armazenadas como JWK no perfil, garantindo que permaneçam disponíveis após recarregar a página.
 - **Chave de Contato**: A migração para o hash SHA-256 está completa. Todos os contatos são armazenados com chave hash. As mensagens recebidas salvam o hash do contato (`contatoPublicKeyVapid`).
 - **Identificação do Emissor**: O campo `nm` (nome) é incluído no payload do JWT. O Service Worker extrai esse campo para salvar ou atualizar o nome do contato, garantindo que as mensagens exibam o nome correto.
 - **Limitação de Payload**: O JWT total deve ser inferior a 4096 bytes. O sistema utiliza compressão gzip, campos curtos (`ct`, `p`, `nm`) e estrutura compacta do envelope.
 - **Homologação**: A homologação é um campo booleano no contato, utilizado apenas para fins de interface (ex: exibir "Homologado" ou "Não homologado"). Não bloqueia o recebimento de mensagens.
 - **Service Worker**: Durante o desenvolvimento, é necessário desregistrar o Service Worker manualmente (Application → Service Workers → Unregister) e recarregar a página para que a nova versão seja carregada, devido ao cache agressivo.
-- **Remoção do Bundle**: O armazenamento do perfil em `BrowserA_Bundles_DB` foi substituído pela construção dinâmica do bundle a partir das stores individuais (`IdentidadeA`, `SubscriptionB`, `VapidB`, `E2E`). Isso reduz a duplicação de dados e simplifica a manutenção.
+- **Remoção do Bundle**: A store `BrowserA_Bundles_DB` foi removida. O bundle do emissor é construído dinamicamente a partir do perfil unificado sempre que necessário.
 
 ---
 
@@ -262,9 +266,9 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 
 - **Consistência de chaves**: Verificar se todas as operações de contato e mensagem usam corretamente o hash SHA-256, e se não há divergências entre os campos de referência.
 - **Atualização de contatos**: Garantir que, ao receber uma nova mensagem de um contato existente, o nome e outros dados sejam atualizados corretamente.
-- **Limpeza de dados obsoletos**: Remover stores ou campos que não são mais usados.
 - **Otimização de performance**: Avaliar consultas ao IndexedDB e possíveis índices.
 - **Validação do fluxo de resposta**: Testar exaustivamente a resposta, assegurando que a chave privada VAPID cifrada seja corretamente utilizada.
+- **Segurança adicional**: Avaliar a possibilidade de cifrar as chaves privadas armazenadas no IndexedDB com uma senha ou chave derivada.
 
 ---
 

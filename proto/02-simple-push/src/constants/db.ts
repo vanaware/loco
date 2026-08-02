@@ -1,12 +1,10 @@
 // src/constants/db.ts
+
 export const DB_NAMES = {
-  IDENTIDADE_A: "BrowserA_Identidade_DB",
+  CONFIG: "AppConfig_DB",
   MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
-  CHAVES_E2E_B: "BrowserB_E2E_Chaves_DB",
-  CHAVES_VAPID_B: "BrowserB_Vapid_DB",
-  SUBSCRIPTION_B: "BrowserB_Subscription_DB",
-  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
   CONTATOS: "BrowserB_Contatos_DB",
+  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
 } as const;
 
 export const STORE_NAMES = {
@@ -14,45 +12,51 @@ export const STORE_NAMES = {
 } as const;
 
 export const KEY_NAMES = {
-  IDENTIDADE_A: "identidade_a",
-  PUBLIC_KEY_A: "public_key_a",
+  PROFILE: "profile",
   MENSAGENS_ENVIO: "mensagens_envio",
-  CHAVES_E2E_B: "chaves_e2e_b",
-  PUBLIC_ENCRYPT_B: "public_encrypt_b",
-  CHAVES_VAPID_B: "chaves_vapid_b",
-  SUBSCRIPTION_B: "subscription_b",
-  SUBSCRIPTION_ENDPOINT_B: "subscription_endpoint_b",
-  MENSAGENS_RECEBIDAS: "mensagens_recebidas",
   CONTATO: "contato_",
+  MENSAGENS_RECEBIDAS: "mensagens_recebidas",
 } as const;
 
 // ============================================================
-// INTERFACES
+// INTERFACES PRINCIPAIS (UNIFICADAS)
 // ============================================================
 
-export interface IdentidadeA {
+/**
+ * Perfil do usuário – armazenado na store AppConfig_DB com a chave "profile".
+ * Contém todas as informações necessárias para identificar o usuário,
+ * assinar mensagens, cifrar/decifrar e receber notificações.
+ */
+export interface ProfileConfig {
+  // Identidade do usuário
   name: string;
   email: string;
-  privateKey: CryptoKey;
-}
 
-export interface ChavesE2EB {
-  privateDecrypt: CryptoKey;
-  publicEncrypt: JsonWebKey;
-}
+  // Chaves VAPID (ECDSA P-256) – completas
+  vapidPublicKey: JsonWebKey;
+  vapidPrivateKeyJwk: JsonWebKey;  // chave privada exportável (para assinar)
 
-export interface ChavesVapidB {
-  publicKey: JsonWebKey;
-  privateKey: JsonWebKey;
-}
+  // Chaves E2E (RSA-OAEP) – completas
+  e2ePublicKey: JsonWebKey;
+  e2ePrivateKeyJwk: JsonWebKey;    // chave privada exportável (para decifrar)
 
-export interface SubscriptionData {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-  vapidPublicKey?: JsonWebKey;
+  // Subscription do Web Push
+  subscription: {
+    endpoint: string;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+  };
+
+  // Metadados
   createdAt: number;
   updatedAt: number;
 }
+
+// ============================================================
+// INTERFACES DE DADOS (MANTIDAS)
+// ============================================================
 
 export interface MensagemEnvio {
   id: string;
@@ -70,7 +74,7 @@ export interface MensagemEnvio {
 
 export interface MensagemRecebida {
   id: string;
-  contatoPublicKeyVapid: string;
+  contatoPublicKeyVapid: string; // hash SHA-256
   conteudo: string;
   status: 'nao_lida' | 'lida' | 'notificada';
   recebidoEm: number;
@@ -87,7 +91,7 @@ export interface Contato {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   };
-  vapidPrivateKey: string;
+  vapidPrivateKey: string;   // cifrada
   homologado: boolean;
   createdAt: number;
   updatedAt: number;

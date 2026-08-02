@@ -1,7 +1,12 @@
 // src/utils/db-helpers.ts
 import { get, set, createStore, del, entries } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, IdentidadeA, ChavesE2EB, ChavesVapidB, SubscriptionData, MensagemEnvio } from "../constants/db.ts";
-import { DB_NAMES, Contato, MensagemRecebida } from "../constants/db.ts";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
+import type {
+  ProfileConfig,
+  MensagemEnvio,
+  MensagemRecebida,
+  Contato,
+} from "../constants/db.ts";
 
 // ============================================================
 // Criação de Stores
@@ -11,13 +16,10 @@ export function criarStore(nome: string) {
   return createStore(nome, STORE_NAMES.KEYVAL);
 }
 
-export const storeIdentidadeA = criarStore(DB_NAMES.IDENTIDADE_A);
+const storeConfig = criarStore(DB_NAMES.CONFIG);
 export const storeMensagensEnvioA = criarStore(DB_NAMES.MENSAGENS_ENVIO_A);
-export const storeChavesE2E = criarStore(DB_NAMES.CHAVES_E2E_B);
-export const storeChavesVapid = criarStore(DB_NAMES.CHAVES_VAPID_B);
-export const storeSubscription = criarStore(DB_NAMES.SUBSCRIPTION_B);
-export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
+export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
 
 // ============================================================
 // Funções Genéricas
@@ -40,27 +42,152 @@ export async function listarChaves<T>(store: IDBStore): Promise<[string, T][]> {
 }
 
 // ============================================================
-// Identidade A
+// Gerenciamento do Perfil (ProfileConfig)
 // ============================================================
 
-export async function salvarIdentidadeA(identidade: IdentidadeA): Promise<void> {
-  await salvarChave(storeIdentidadeA, KEY_NAMES.IDENTIDADE_A, identidade);
+export async function salvarProfile(profile: ProfileConfig): Promise<void> {
+  profile.updatedAt = Date.now();
+  if (!profile.createdAt) {
+    profile.createdAt = Date.now();
+  }
+  await salvarChave(storeConfig, KEY_NAMES.PROFILE, profile);
 }
 
-export async function buscarIdentidadeA(): Promise<IdentidadeA | undefined> {
-  return buscarChave<IdentidadeA>(storeIdentidadeA, KEY_NAMES.IDENTIDADE_A);
+export async function buscarProfile(): Promise<ProfileConfig | undefined> {
+  return buscarChave<ProfileConfig>(storeConfig, KEY_NAMES.PROFILE);
 }
 
-export async function salvarPublicKeyA(publicKeyJwk: JsonWebKey): Promise<void> {
-  await salvarChave(storeIdentidadeA, KEY_NAMES.PUBLIC_KEY_A, publicKeyJwk);
-}
-
-export async function buscarPublicKeyA(): Promise<JsonWebKey | undefined> {
-  return buscarChave<JsonWebKey>(storeIdentidadeA, KEY_NAMES.PUBLIC_KEY_A);
+export async function removerProfile(): Promise<void> {
+  await removerChave(storeConfig, KEY_NAMES.PROFILE);
 }
 
 // ============================================================
-// Mensagens de Envio
+// Funções de Conveniência (operam sobre o ProfileConfig)
+// ============================================================
+
+/**
+ * Retorna a identidade (nome, email) e a chave privada VAPID como CryptoKey.
+ */
+export async function buscarIdentidadeA(): Promise<{ name: string; email: string; privateKey: CryptoKey } | undefined> {
+  const profile = await buscarProfile();
+  if (!profile) return undefined;
+  try {
+    const privateKey = await crypto.subtle.importKey(
+      "jwk",
+      profile.vapidPrivateKeyJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    );
+    return {
+      name: profile.name,
+      email: profile.email,
+      privateKey,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Salva a identidade e a chave privada VAPID (a partir de uma CryptoKey).
+ */
+export async function salvarIdentidadeA(identidade: { name: string; email: string; privateKey: CryptoKey }): Promise<void> {
+  const profile = await buscarProfile() || {} as ProfileConfig;
+  profile.name = identidade.name;
+  profile.email = identidade.email;
+  profile.vapidPrivateKeyJwk = await crypto.subtle.exportKey("jwk", identidade.privateKey);
+  await salvarProfile(profile);
+}
+
+/**
+ * Retorna as chaves E2E: privateDecrypt (CryptoKey) e publicEncrypt (JWK).
+ * A chave privada é importada a partir do JWK armazenado.
+ */
+export async function buscarChavesE2EB(): Promise<{ privateDecrypt: CryptoKey; publicEncrypt: JsonWebKey } | undefined> {
+  const profile = await buscarProfile();
+  if (!profile || !profile.e2ePublicKey || !profile.e2ePrivateKeyJwk) return undefined;
+  try {
+    const privateDecrypt = await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+    return {
+      privateDecrypt,
+      publicEncrypt: profile.e2ePublicKey,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Salva as chaves E2E (pública e privada) como JWK.
+ * A privateKey é uma CryptoKey, que será exportada para JWK.
+ */
+export async function salvarChavesE2EB(chaves: { privateDecrypt: CryptoKey; publicEncrypt: JsonWebKey }): Promise<void> {
+  const profile = await buscarProfile() || {} as ProfileConfig;
+  profile.e2ePublicKey = chaves.publicEncrypt;
+  profile.e2ePrivateKeyJwk = await crypto.subtle.exportKey("jwk", chaves.privateDecrypt);
+  await salvarProfile(profile);
+}
+
+/**
+ * Retorna as chaves VAPID (pública e privada JWK) do perfil.
+ */
+export async function buscarChavesVapidB(): Promise<{ publicKey: JsonWebKey; privateKey: JsonWebKey } | undefined> {
+  const profile = await buscarProfile();
+  if (!profile) return undefined;
+  return {
+    publicKey: profile.vapidPublicKey,
+    privateKey: profile.vapidPrivateKeyJwk,
+  };
+}
+
+/**
+ * Salva as chaves VAPID no perfil.
+ * A privateKey é um JWK.
+ */
+export async function salvarChavesVapidB(chaves: { publicKey: JsonWebKey; privateKey: JsonWebKey }): Promise<void> {
+  const profile = await buscarProfile() || {} as ProfileConfig;
+  profile.vapidPublicKey = chaves.publicKey;
+  profile.vapidPrivateKeyJwk = chaves.privateKey;
+  await salvarProfile(profile);
+}
+
+/**
+ * Retorna a subscription do perfil.
+ */
+export async function buscarSubscriptionB(): Promise<{ endpoint: string; keys: { p256dh: string; auth: string } } | undefined> {
+  const profile = await buscarProfile();
+  return profile?.subscription;
+}
+
+/**
+ * Salva a subscription no perfil.
+ */
+export async function salvarSubscriptionB(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<void> {
+  const profile = await buscarProfile() || {} as ProfileConfig;
+  profile.subscription = subscription;
+  await salvarProfile(profile);
+}
+
+/**
+ * Remove a subscription do perfil.
+ */
+export async function removerSubscriptionB(): Promise<void> {
+  const profile = await buscarProfile();
+  if (profile) {
+    delete profile.subscription;
+    await salvarProfile(profile);
+  }
+}
+
+// ============================================================
+// Mensagens de Envio (não alteradas)
 // ============================================================
 
 export async function salvarMensagemEnvio(mensagem: MensagemEnvio): Promise<void> {
@@ -91,55 +218,7 @@ export async function removerMensagemEnvio(id: string): Promise<void> {
 }
 
 // ============================================================
-// E2E
-// ============================================================
-
-export async function salvarChavesE2EB(chaves: ChavesE2EB): Promise<void> {
-  await salvarChave(storeChavesE2E, KEY_NAMES.CHAVES_E2E_B, chaves);
-}
-
-export async function buscarChavesE2EB(): Promise<ChavesE2EB | undefined> {
-  return buscarChave<ChavesE2EB>(storeChavesE2E, KEY_NAMES.CHAVES_E2E_B);
-}
-
-export async function salvarPublicEncryptB(publicKey: JsonWebKey): Promise<void> {
-  await salvarChave(storeChavesE2E, KEY_NAMES.PUBLIC_ENCRYPT_B, publicKey);
-}
-
-export async function buscarPublicEncryptB(): Promise<JsonWebKey | undefined> {
-  return buscarChave<JsonWebKey>(storeChavesE2E, KEY_NAMES.PUBLIC_ENCRYPT_B);
-}
-
-// ============================================================
-// VAPID
-// ============================================================
-
-export async function salvarChavesVapidB(chaves: ChavesVapidB): Promise<void> {
-  await salvarChave(storeChavesVapid, KEY_NAMES.CHAVES_VAPID_B, chaves);
-}
-
-export async function buscarChavesVapidB(): Promise<ChavesVapidB | undefined> {
-  return buscarChave<ChavesVapidB>(storeChavesVapid, KEY_NAMES.CHAVES_VAPID_B);
-}
-
-// ============================================================
-// Subscription
-// ============================================================
-
-export async function salvarSubscriptionB(subscription: SubscriptionData): Promise<void> {
-  await salvarChave(storeSubscription, KEY_NAMES.SUBSCRIPTION_B, subscription);
-}
-
-export async function buscarSubscriptionB(): Promise<SubscriptionData | undefined> {
-  return buscarChave<SubscriptionData>(storeSubscription, KEY_NAMES.SUBSCRIPTION_B);
-}
-
-export async function removerSubscriptionB(): Promise<void> {
-  await removerChave(storeSubscription, KEY_NAMES.SUBSCRIPTION_B);
-}
-
-// ============================================================
-// Mensagens Recebidas
+// Mensagens Recebidas (não alteradas)
 // ============================================================
 
 export async function salvarMensagemRecebida(mensagem: MensagemRecebida): Promise<void> {
@@ -170,7 +249,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos (com hash)
+// Contatos (não alterados)
 // ============================================================
 
 async function sha256(message: string): Promise<string> {

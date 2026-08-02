@@ -1,6 +1,8 @@
 // src/sw/push.js
 import { get, set, createStore } from "idb-keyval";
 import { gunzipSync } from "fflate";
+import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
+// Removido: import type { ProfileConfig } from "../constants/db.ts";
 
 // ============================================================
 // CONFIGURAÇÃO
@@ -8,19 +10,7 @@ import { gunzipSync } from "fflate";
 const DEBUG = false;
 
 // ============================================================
-// CONSTANTES
-// ============================================================
-const DB_NAMES = {
-  CHAVES_E2E_B: "BrowserB_E2E_Chaves_DB",
-  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
-  CONTATOS: "BrowserB_Contatos_DB",
-};
-
-const STORE_NAMES = { KEYVAL: "keyval" };
-const KEY_NAMES = { CHAVES_E2E_B: "chaves_e2e_b" };
-
-// ============================================================
-// STORES
+// STORES - usando as constantes do db.ts
 // ============================================================
 function criarStore(nome) {
   try {
@@ -31,26 +21,19 @@ function criarStore(nome) {
   }
 }
 
-let storeChavesE2E = criarStore(DB_NAMES.CHAVES_E2E_B);
+let storeConfig = criarStore(DB_NAMES.CONFIG);
 let storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
 let storeContatos = criarStore(DB_NAMES.CONTATOS);
 
 function garantirStores() {
-  if (!storeChavesE2E) storeChavesE2E = criarStore(DB_NAMES.CHAVES_E2E_B);
+  if (!storeConfig) storeConfig = criarStore(DB_NAMES.CONFIG);
   if (!storeMensagensRecebidasB) storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
   if (!storeContatos) storeContatos = criarStore(DB_NAMES.CONTATOS);
 }
 
 // ============================================================
-// UTILITÁRIOS
+// FUNÇÕES AUXILIARES - usando as mesmas de db-helpers (copiadas para o SW)
 // ============================================================
-function base64ToArrayBuffer(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
-
 async function sha256(message) {
   const encoder = new TextEncoder();
   const data = encoder.encode(message);
@@ -63,24 +46,66 @@ async function serializarPublicKeyVapid(jwk) {
   return await sha256(raw);
 }
 
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
 // ============================================================
-// FUNÇÕES DE BANCO
+// FUNÇÕES DE BANCO UNIFICADAS
 // ============================================================
-async function buscarChaveDecript() {
+
+/**
+ * Busca o perfil completo da store CONFIG.
+ */
+async function buscarProfile() {
   try {
     garantirStores();
-    const chavesE2E = await get(KEY_NAMES.CHAVES_E2E_B, storeChavesE2E);
-    if (chavesE2E && chavesE2E.privateDecrypt) {
-      console.log("[SW-PUSH] 🔑 Chave de decodificação RSA encontrada");
-      return chavesE2E.privateDecrypt;
-    }
+    return await get(KEY_NAMES.PROFILE, storeConfig);
+  } catch (err) {
+    console.error("[SW-PUSH] ❌ Erro ao buscar perfil:", err);
     return null;
+  }
+}
+
+/**
+ * Busca a chave privada RSA (E2E) a partir do perfil.
+ * Retorna a CryptoKey privateDecrypt ou null se não encontrada.
+ */
+async function buscarChaveDecript() {
+  try {
+    const profile = await buscarProfile();
+    if (!profile) {
+      console.warn("[SW-PUSH] ⚠️ Perfil não encontrado.");
+      return null;
+    }
+
+    // A chave privada RSA deve estar em e2ePrivateKeyJwk
+    if (!profile.e2ePrivateKeyJwk) {
+      console.warn("[SW-PUSH] ⚠️ Chave privada RSA não encontrada no perfil.");
+      return null;
+    }
+
+    const privateDecrypt = await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+    console.log("[SW-PUSH] 🔑 Chave de decodificação RSA encontrada e importada.");
+    return privateDecrypt;
   } catch (err) {
     console.error("[SW-PUSH] ❌ Erro ao buscar chave de decodificação:", err);
     return null;
   }
 }
 
+/**
+ * Salva um contato (usando a store CONTATOS)
+ */
 async function salvarContato(contato) {
   try {
     garantirStores();
@@ -92,6 +117,9 @@ async function salvarContato(contato) {
   }
 }
 
+/**
+ * Busca um contato pela chave pública VAPID
+ */
 async function buscarContatoPorPublicKey(publicKeyVapid) {
   try {
     garantirStores();
@@ -103,6 +131,9 @@ async function buscarContatoPorPublicKey(publicKeyVapid) {
   }
 }
 
+/**
+ * Salva uma mensagem recebida
+ */
 async function salvarMensagemRecebida(mensagem) {
   try {
     garantirStores();
@@ -114,7 +145,7 @@ async function salvarMensagemRecebida(mensagem) {
 }
 
 // ============================================================
-// EVENTO PUSH
+// EVENTO PUSH (mesma lógica, agora usando buscarProfile e buscarChaveDecript)
 // ============================================================
 self.addEventListener('push', function(event) {
   if (!event.data) return;
@@ -145,18 +176,13 @@ self.addEventListener('push', function(event) {
 
       const jwtPayload = JSON.parse(base64UrlDecode(payloadB64Url));
       const emailRemetente = jwtPayload.iss || "remetente@desconhecido";
-      // 🔥 Extrai nome: prioriza 'nm', depois 'name', fallback
       const nomeRemetente = jwtPayload.nm || jwtPayload.name || emailRemetente.split('@')[0] || "Remetente";
 
       console.log(`[SW-PUSH] 🔐 Mensagem de ${nomeRemetente} <${emailRemetente}>`);
 
-      // ============================================================
-      // EXTRAI CHAVE PÚBLICA VAPID (campo 'p' ou 'publicKey')
-      // ============================================================
       let publicKeyVapid = jwtPayload.p || jwtPayload.publicKey || null;
       console.log(`[SW-PUSH] Chave pública VAPID: ${publicKeyVapid ? 'encontrada' : 'não encontrada'}`);
 
-      // Tenta buscar contato existente
       let contato = null;
       if (publicKeyVapid) {
         contato = await buscarContatoPorPublicKey(publicKeyVapid);
@@ -165,9 +191,7 @@ self.addEventListener('push', function(event) {
         }
       }
 
-      // ============================================================
-      // VERIFICA ASSINATURA
-      // ============================================================
+      // Verifica assinatura
       let assinaturaValida = false;
       let homologado = contato ? contato.homologado : false;
 
@@ -207,9 +231,7 @@ self.addEventListener('push', function(event) {
 
       console.log("[SW-PUSH] 🛡️ Assinatura validada com sucesso!");
 
-      // ============================================================
-      // DESCRIPTOGRAFA ENVELOPE
-      // ============================================================
+      // Descriptografa envelope
       const privateDecryptKey = await buscarChaveDecript();
       if (!privateDecryptKey) {
         throw new Error("Chave privada RSA de decodificação não encontrada.");
@@ -248,13 +270,10 @@ self.addEventListener('push', function(event) {
       const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
       const textoDecifrado = new TextDecoder().decode(decompressed);
 
-      // ============================================================
-      // PARSE DO OBJETO DE MENSAGEM
-      // ============================================================
+      // Parse do objeto de mensagem
       let mensagemObj = JSON.parse(textoDecifrado);
       const conteudo = mensagemObj.m?.c || textoDecifrado;
 
-      // Extrai dados do emissor (subscription, chaves)
       const e = mensagemObj.e || {};
       const subscription = e.s ? {
         endpoint: e.s.e || e.s.endpoint,
@@ -263,31 +282,27 @@ self.addEventListener('push', function(event) {
       const publicKeyRSA = e.p || null;
       const vapidPrivateKey = (e.v && e.v.k) ? e.v.k : null;
 
-      // ============================================================
-      // SALVA CONTATO (se novo ou atualizado) – com nome do JWT
-      // ============================================================
+      // Salva/atualiza contato
       if (publicKeyVapid && publicKeyRSA && subscription) {
-  let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
-  const novoContato = {
-    publicKeyVapid: publicKeyVapid,
-    email: emailRemetente,
-    nome: contatoExistente?.nome || nomeRemetente, // Mantém nome existente se já tiver
-    publicKeyRSA: publicKeyRSA,
-    subscription: subscription,
-    vapidPrivateKey: vapidPrivateKey || '',
-    homologado: contatoExistente ? contatoExistente.homologado : false,
-    createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
-    updatedAt: Date.now()
-  };
-  await salvarContato(novoContato);
-  contato = novoContato;
-} else {
+        let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
+        const novoContato = {
+          publicKeyVapid: publicKeyVapid,
+          email: emailRemetente,
+          nome: contatoExistente?.nome || nomeRemetente,
+          publicKeyRSA: publicKeyRSA,
+          subscription: subscription,
+          vapidPrivateKey: vapidPrivateKey || '',
+          homologado: contatoExistente ? contatoExistente.homologado : false,
+          createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
+          updatedAt: Date.now()
+        };
+        await salvarContato(novoContato);
+        contato = novoContato;
+      } else {
         console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
       }
 
-      // ============================================================
-      // SALVA MENSAGEM RECEBIDA – usa hash como chave do contato
-      // ============================================================
+      // Salva mensagem recebida
       const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
       const mensagemRecebida = {
@@ -302,9 +317,7 @@ self.addEventListener('push', function(event) {
       }
       await salvarMensagemRecebida(mensagemRecebida);
 
-      // ============================================================
-      // NOTIFICAÇÃO
-      // ============================================================
+      // Exibe notificação
       const podeResponder = !!(contato && contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
       const statusEmoji = homologado ? '✅' : '🔄';
       const statusTexto = homologado ? 'Homologado' : 'Não homologado';
@@ -350,5 +363,4 @@ self.addEventListener('push', function(event) {
   }());
 });
 
-
-console.log("[SW-PUSH] 📦 Módulo push carregado (com contatos via hash, DEBUG=" + DEBUG + ")");
+console.log("[SW-PUSH] 📦 Módulo push carregado (com store unificada, DEBUG=" + DEBUG + ")");

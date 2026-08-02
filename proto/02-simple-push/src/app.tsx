@@ -1,27 +1,25 @@
 // src/app.tsx
-
 import "./styles.css";
 
 import {
-  salvarChavesE2EB,
-  buscarChavesE2EB,
-  salvarPublicEncryptB,
-  salvarChavesVapidB,
-  buscarChavesVapidB,
-  salvarSubscriptionB,
-  buscarSubscriptionB,
-  removerSubscriptionB,
+  salvarProfile,
+  buscarProfile,
+  removerProfile,
   salvarMensagemEnvio,
   listarMensagensEnvio,
   removerMensagemEnvio,
   listarMensagensRecebidas,
   atualizarStatusMensagemRecebida,
   removerMensagemRecebida,
-  salvarIdentidadeA,
   buscarIdentidadeA,
-  salvarPublicKeyA,
-  buscarPublicKeyA,
-  // CONTATOS
+  salvarIdentidadeA,
+  buscarChavesVapidB,
+  salvarChavesVapidB,
+  buscarChavesE2EB,
+  salvarChavesE2EB,
+  buscarSubscriptionB,
+  salvarSubscriptionB,
+  removerSubscriptionB,
   salvarContato,
   buscarContatoPorPublicKey,
   buscarContatoPorChave,
@@ -30,18 +28,17 @@ import {
   removerContato,
   serializarPublicKeyVapid,
 } from "./utils/db-helpers.ts";
+
 import type {
-  ChavesE2EB,
-  ChavesVapidB,
-  SubscriptionData,
+  ProfileConfig,
   MensagemEnvio,
   MensagemRecebida,
-  IdentidadeA,
   Contato,
 } from "./constants/db.ts";
+
 import { gzipSync } from "fflate";
 
-console.log("🟢 [SW-LOG] Web Push Descentralizado - Perfis e Contatos");
+console.log("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
 
 // ============================================================
 // UTILITÁRIOS
@@ -91,11 +88,10 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
 }
 
 // ============================================================
-// FUNÇÃO PARA REGISTRAR O SERVICE WORKER (VERSÃO SIMPLIFICADA)
+// FUNÇÃO PARA REGISTRAR O SERVICE WORKER
 // ============================================================
 async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   console.log("📡 Verificando suporte ao Service Worker...");
-
   if (!("serviceWorker" in navigator)) {
     throw new Error("Service Worker não é suportado neste navegador.");
   }
@@ -154,42 +150,41 @@ async function criptografarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKey
 }
 
 // ============================================================
-// GERAÇÃO DE CHAVES E2E (RSA para criptografia)
+// GERAÇÃO DE CHAVES E2E (RSA) - extractable: true
 // ============================================================
 async function generateE2EEKeys() {
   console.log("🔑 Gerando chaves E2E (RSA-2048)...");
   const encryptionKeyPair = await window.crypto.subtle.generateKey(
     { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: "SHA-256" },
-    false,
+    true, // extractable: true
     ["encrypt", "decrypt"]
   );
   const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
-  const chavesE2E: ChavesE2EB = {
+  const privateDecryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.privateKey);
+  return {
     privateDecrypt: encryptionKeyPair.privateKey,
     publicEncrypt: publicEncryptJwk,
+    privateDecryptJwk: privateDecryptJwk
   };
-  await salvarChavesE2EB(chavesE2E);
-  await salvarPublicEncryptB(publicEncryptJwk);
-  return { publicEncryptJwk };
 }
 
 // ============================================================
-// GERAÇÃO DE CHAVES VAPID (ECDSA)
+// GERAÇÃO DE CHAVES VAPID (ECDSA) - extractable: true
 // ============================================================
 async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   console.log("🔑 Gerando chaves VAPID (ECDSA P-256)...");
   return await window.crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
-    true,
+    true, // extractable: true
     ["sign", "verify"]
   );
 }
 
 // ============================================================
-// GERAR PERFIL (profile) – substitui o bundle
+// GERAR PERFIL (profile) – unificado
 // ============================================================
 async function gerarProfile(): Promise<any> {
-  console.log("📦 Gerando perfil...");
+  console.log("📦 Gerando perfil unificado...");
   const nome = (document.getElementById('profileNameB') as HTMLInputElement).value;
   const email = (document.getElementById('profileEmailB') as HTMLInputElement).value;
 
@@ -216,46 +211,54 @@ async function gerarProfile(): Promise<any> {
     }
     const serverPublicKeyJwk = await resServerKey.json();
 
-    let chavesVapidSalvas = await buscarChavesVapidB();
+    // Gerar ou obter chaves VAPID
     let vapidKeyPair: CryptoKeyPair;
     let publicKeyJwk: JsonWebKey;
     let privateKeyJwk: JsonWebKey;
 
-    if (chavesVapidSalvas) {
-      console.log("📂 Chaves VAPID encontradas no IndexedDB");
-      publicKeyJwk = chavesVapidSalvas.publicKey;
-      privateKeyJwk = chavesVapidSalvas.privateKey;
+    // Tenta carregar do perfil existente
+    let existingProfile = await buscarProfile();
+    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
+      console.log("📂 Chaves VAPID encontradas no perfil.");
+      publicKeyJwk = existingProfile.vapidPublicKey;
+      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
       try {
+        // Importamos com extractable: true para permitir exportação (embora não seja necessário, mas por segurança)
         vapidKeyPair = {
           publicKey: await window.crypto.subtle.importKey(
             "jwk", publicKeyJwk,
             { name: "ECDSA", namedCurve: "P-256" },
-            true, ["verify"]
+            true,
+            ["verify"]
           ),
           privateKey: await window.crypto.subtle.importKey(
             "jwk", privateKeyJwk,
             { name: "ECDSA", namedCurve: "P-256" },
-            true, ["sign"]
+            true,
+            ["sign"]
           )
         } as CryptoKeyPair;
       } catch {
-        chavesVapidSalvas = undefined;
+        // Se falhar, gera novas
+        console.log("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
+        existingProfile = undefined;
       }
     }
-    if (!chavesVapidSalvas) {
+    if (!existingProfile || !vapidKeyPair) {
       console.log("🔑 Gerando novas chaves VAPID...");
       vapidKeyPair = await generateVAPIDKeys();
       publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
       privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
-      await salvarChavesVapidB({ publicKey: publicKeyJwk, privateKey: privateKeyJwk });
     }
 
+    // Subscription
     let existingSubscription = await registration.pushManager.getSubscription();
     let subscriptionValida = false;
 
     if (existingSubscription) {
-      const subscriptionData = await buscarSubscriptionB();
-      if (subscriptionData && subscriptionData.vapidPublicKey?.n === publicKeyJwk.n) {
+      // Verifica se a subscription corresponde à chave pública atual
+      const profileSub = existingProfile?.subscription;
+      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
         subscriptionValida = true;
       } else {
         await existingSubscription.unsubscribe();
@@ -277,7 +280,7 @@ async function gerarProfile(): Promise<any> {
     if (!p256dhBuffer || !authBuffer) {
       throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
     }
-    const subscriptionJson = {
+    const subscription = {
       endpoint: existingSubscription.endpoint,
       keys: {
         p256dh: rawBufferToBase64Url(p256dhBuffer),
@@ -285,54 +288,80 @@ async function gerarProfile(): Promise<any> {
       }
     };
 
-    let e2ePublicKeys = await buscarChavesE2EB();
-    let publicEncryptJwk: JsonWebKey;
-    if (e2ePublicKeys && e2ePublicKeys.publicEncrypt) {
-      publicEncryptJwk = e2ePublicKeys.publicEncrypt;
+    // E2E keys
+    let e2ePublicKey: JsonWebKey;
+    let e2ePrivateKeyJwk: JsonWebKey;
+    let e2ePrivateKeyCrypto: CryptoKey;
+
+    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
+      console.log("📂 Chaves E2E encontradas no perfil.");
+      e2ePublicKey = existingProfile.e2ePublicKey;
+      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
+      try {
+        // Importamos com extractable: true para permitir exportação, se necessário
+        e2ePrivateKeyCrypto = await window.crypto.subtle.importKey(
+          "jwk",
+          e2ePrivateKeyJwk,
+          { name: "RSA-OAEP", hash: "SHA-256" },
+          true, // extractable: true
+          ["decrypt"]
+        );
+      } catch {
+        console.log("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
+        const newKeys = await generateE2EEKeys();
+        e2ePublicKey = newKeys.publicEncrypt;
+        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+        e2ePrivateKeyCrypto = newKeys.privateDecrypt;
+      }
     } else {
-      const novasChaves = await generateE2EEKeys();
-      publicEncryptJwk = novasChaves.publicEncryptJwk;
+      console.log("🔑 Gerando novas chaves E2E...");
+      const newKeys = await generateE2EEKeys();
+      e2ePublicKey = newKeys.publicEncrypt;
+      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+      e2ePrivateKeyCrypto = newKeys.privateDecrypt;
     }
 
-    const subscriptionData: SubscriptionData = {
-      endpoint: existingSubscription.endpoint,
-      keys: subscriptionJson.keys,
-      vapidPublicKey: publicKeyJwk,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    };
-    await salvarSubscriptionB(subscriptionData);
-
+    // Cifrar a chave privada VAPID para o servidor
     const privateKeyEncrypted = await criptografarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
-    const identidadeExistente = await buscarIdentidadeA();
-    if (!identidadeExistente) {
-      const privateVapidKey = await window.crypto.subtle.importKey(
-        "jwk",
-        privateKeyJwk,
-        { name: "ECDSA", namedCurve: "P-256" },
-        false,
-        ["sign"]
-      );
-      await salvarIdentidadeA({
-        name: nome,
-        email: email,
-        privateKey: privateVapidKey
-      });
-      const extendedPublic = { ...publicKeyJwk, ownerName: nome, ownerEmail: email };
-      await salvarPublicKeyA(extendedPublic);
-    }
+    // Montar o perfil unificado
+    const profile: ProfileConfig = {
+      name: nome,
+      email: email,
+      vapidPublicKey: publicKeyJwk,
+      vapidPrivateKeyJwk: privateKeyJwk, // JWK completo da privada
+      e2ePublicKey: e2ePublicKey,
+      e2ePrivateKeyJwk: e2ePrivateKeyJwk, // JWK completo da privada RSA
+      subscription: subscription,
+      createdAt: existingProfile?.createdAt || Date.now(),
+      updatedAt: Date.now()
+    };
 
-    const profile = {
+    // Salvar perfil unificado
+    await salvarProfile(profile);
+
+    // Também salvar a identidade (para compatibilidade com funções existentes)
+    // A identidade guarda a CryptoKey da VAPID em memória (não persistida)
+    // Mas a função salvarIdentidadeA espera uma identidade com privateKey (CryptoKey)
+    // Vamos criar uma identidade temporária com a CryptoKey que temos.
+    const identidadeTemporaria = {
+      name: nome,
+      email: email,
+      privateKey: vapidKeyPair.privateKey
+    };
+    await salvarIdentidadeA(identidadeTemporaria);
+
+    // Construir o objeto de perfil para compartilhamento (formato antigo)
+    const profilePublic = {
       iss: email,
       nm: nome,
       kid: publicKeyJwk,
-      s: subscriptionJson,
-      p: publicEncryptJwk,
-      k: privateKeyEncrypted
+      s: subscription,
+      p: e2ePublicKey,
+      k: privateKeyEncrypted // chave VAPID cifrada
     };
 
-    return profile;
+    return profilePublic;
   } catch (err) {
     console.error("❌ Erro ao gerar perfil:", err);
     throw err;
@@ -340,7 +369,7 @@ async function gerarProfile(): Promise<any> {
 }
 
 // ============================================================
-// ADICIONAR CONTATO – com validação reforçada
+// ADICIONAR CONTATO
 // ============================================================
 async function adicionarContato(): Promise<void> {
   const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value;
@@ -385,7 +414,7 @@ async function adicionarContato(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR LISTA DE CONTATOS (UI)
+// CARREGAR LISTA DE CONTATOS
 // ============================================================
 async function carregarContatos(): Promise<void> {
   const container = document.getElementById('listaContatos');
@@ -441,7 +470,7 @@ async function carregarSelectContatos(): Promise<void> {
 }
 
 // ============================================================
-// ENVIAR MENSAGEM PARA UM CONTATO SELECIONADO
+// ENVIAR MENSAGEM PARA UM CONTATO
 // ============================================================
 async function enviarMensagemB(): Promise<void> {
   console.log("🚀 Enviando mensagem...");
@@ -458,7 +487,7 @@ async function enviarMensagemB(): Promise<void> {
   }
 
   try {
-    // 1. Buscar contato destino (destinatário)
+    // Buscar contato destino
     let contato = await buscarContatoPorChave(selectedKey);
     if (!contato) {
       console.warn("Contato não encontrado pela chave exata. Tentando fallback...");
@@ -481,7 +510,7 @@ async function enviarMensagemB(): Promise<void> {
       return;
     }
 
-    // Bundle do destinatário (para cifrar a mensagem)
+    // Bundle do destinatário
     const bundleDestino = {
       subscription: contato.subscription,
       vapid: {
@@ -498,7 +527,6 @@ async function enviarMensagemB(): Promise<void> {
       payloadText: ""
     };
 
-    // Chave pública RSA do destinatário para cifrar a chave AES
     const publicKeyDestino = bundleDestino.e2e.browserB_PublicKeyEncrypt;
     if (publicKeyDestino.kty !== "RSA") {
       showToast("❌ Chave pública do contato não é RSA.", "error");
@@ -512,31 +540,40 @@ async function enviarMensagemB(): Promise<void> {
       ["encrypt"]
     );
 
-    // 2. Buscar dados do emissor (usuário atual)
-    const identidade = await buscarIdentidadeA();
-    const subscriptionData = await buscarSubscriptionB();
-    const chavesVapid = await buscarChavesVapidB();
-    const chavesE2E = await buscarChavesE2EB();
-
-    if (!identidade || !subscriptionData || !chavesVapid || !chavesE2E) {
-      throw new Error("Dados de identidade ou chaves não encontrados. Gere seu perfil novamente.");
+    // Buscar perfil do emissor (unificado)
+    const profile = await buscarProfile();
+    if (!profile) {
+      throw new Error("Perfil do emissor não encontrado. Gere seu perfil primeiro.");
     }
 
-    // 3. Construir o bundle do emissor (para incluir no payload)
+    // Extrair dados do emissor
+    const identidade = await buscarIdentidadeA();
+    if (!identidade) {
+      throw new Error("Identidade do emissor não encontrada.");
+    }
+
+    const subscriptionData = profile.subscription;
+    const chavesVapid = {
+      publicKey: profile.vapidPublicKey,
+      privateKey: profile.vapidPrivateKeyJwk
+    };
+    const chavesE2E = {
+      publicEncrypt: profile.e2ePublicKey,
+      privateDecryptJwk: profile.e2ePrivateKeyJwk
+    };
+
+    // Construir bundle do emissor (para incluir no payload)
     const bundleEmissor = {
-      subscription: {
-        endpoint: subscriptionData.endpoint,
-        keys: subscriptionData.keys
-      },
+      subscription: subscriptionData,
       vapid: {
-        subject: `mailto:${identidade.email}`,
+        subject: `mailto:${profile.email}`,
         publicKey: chavesVapid.publicKey,
-        privateKey: chavesVapid.privateKey // já cifrada
+        privateKey: chavesVapid.privateKey
       },
       isVapidEncrypted: true,
       e2e: {
-        ownerName: identidade.name,
-        ownerEmail: identidade.email,
+        ownerName: profile.name,
+        ownerEmail: profile.email,
         browserB_PublicKeyEncrypt: chavesE2E.publicEncrypt
       },
       payloadText: ""
@@ -545,7 +582,7 @@ async function enviarMensagemB(): Promise<void> {
     const publicKeyEncrypt = chavesE2E.publicEncrypt;
     const publicVapid = chavesVapid.publicKey;
 
-    // 4. Construir o objeto de mensagem (com envelope)
+    // Construir objeto de mensagem
     const encoder = new TextEncoder();
     const mensagemObj = {
       m: { c: conteudo },
@@ -556,7 +593,7 @@ async function enviarMensagemB(): Promise<void> {
         },
         p: publicKeyEncrypt,
         v: {
-          k: chavesVapid.privateKey // chave privada VAPID cifrada do emissor
+          k: chavesVapid.privateKey
         }
       }
     };
@@ -590,14 +627,14 @@ async function enviarMensagemB(): Promise<void> {
     };
     const envelopeJson = JSON.stringify(envelope);
 
-    // 5. Construir JWT
+    // Construir JWT
     const header = { alg: "ES256" };
     const payload = {
-      iss: identidade.email,
+      iss: profile.email,
       sub: contato.email,
       ct: envelopeJson,
       p: publicVapid,
-      nm: identidade.name
+      nm: profile.name
     };
     const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
     const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
@@ -617,11 +654,11 @@ async function enviarMensagemB(): Promise<void> {
       console.log(`✅ JWT dentro do limite (${4096 - jwt.length} bytes restantes)`);
     }
 
-    // 6. Salvar mensagem na fila de envio
+    // Salvar mensagem na fila
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const mensagem: MensagemEnvio = {
       id: msgId,
-      bundle: bundleDestino, // salva o bundle do destinatário (para o SW enviar)
+      bundle: bundleDestino,
       payloadText: jwt,
       mensagemOriginal: conteudo,
       destinatario: contato.email,
@@ -651,7 +688,7 @@ async function enviarMensagemB(): Promise<void> {
 }
 
 // ============================================================
-// COMPARTILHAR PERFIL – usando copyToClipboard assíncrono
+// COMPARTILHAR PERFIL
 // ============================================================
 async function compartilharProfile(): Promise<void> {
   console.log("🔄 Gerando e compartilhando perfil...");
@@ -954,12 +991,15 @@ function initTabs(): void {
 // CARREGAMENTO INICIAL
 // ============================================================
 async function carregarDadosIniciais(): Promise<void> {
-  console.log("📂 Carregando dados iniciais...");
+  console.log("📂 Carregando dados iniciais (unificado)...");
   try {
-    const identidade = await buscarIdentidadeA();
-    if (identidade) {
-      (document.getElementById('profileNameB') as HTMLInputElement).value = identidade.name;
-      (document.getElementById('profileEmailB') as HTMLInputElement).value = identidade.email;
+    const profile = await buscarProfile();
+    if (profile) {
+      (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
+      (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
+      console.log("✅ Perfil carregado:", profile.name);
+    } else {
+      console.log("ℹ️ Nenhum perfil encontrado. Gere um novo perfil.");
     }
     await carregarContatos();
     await carregarSelectContatos();
@@ -1004,8 +1044,12 @@ window.addEventListener("DOMContentLoaded", async () => {
         await subscription.unsubscribe();
         console.log("Subscription desinscrita.");
       }
-      await removerSubscriptionB();
-      console.log("Subscription removida do IndexedDB.");
+      // Remover subscription do perfil
+      const profile = await buscarProfile();
+      if (profile) {
+        delete profile.subscription;
+        await salvarProfile(profile);
+      }
       showToast("✅ Subscription limpa. Gere um novo perfil.", "success");
     } catch (err) {
       console.error(err);

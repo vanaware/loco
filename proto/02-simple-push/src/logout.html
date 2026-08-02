@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Minha Área Restrita</title>
+  <style>
+    body { font-family: sans-serif; padding: 50px; text-align: center; }
+    .btn-logout {
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .btn-logout:hover { background-color: #c82333; }
+  </style>
+</head>
+<body>
+
+  <h1>Exclusão de Sessão</h1>
+
+  <!-- Botão que vai disparar o evento de Logout -->
+  <button id="logoutBtn" class="btn-logout">Sair do Sistema</button>
+
+  <script>
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        console.log("Processando logout local completo...");
+        // 1. Limpa Web Storage
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+        // 2. Apaga rigorosamente todos os Cookies
+        const cookies = document.cookie.split(";");
+        for (let i = 0; i < cookies.length; i++) {
+            const parts = cookies[i].split("=");
+            const name = parts[0].trim();
+            // Tenta apagar no path atual, na raiz e no domínio limpo (sem www)
+            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
+            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname.replace(/^www\./, '')}`;
+        }
+        // 3. Limpa IndexedDB
+        if (window.indexedDB?.databases) {
+            const dbs = await window.indexedDB.databases();
+            for (const db of dbs) window.indexedDB.deleteDatabase(db.name);
+        }
+        // 4. Cancela Push Subscriptions e Desregistra Service Workers
+        if ('serviceWorker' in navigator) {
+          try {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const registration of registrations) {
+              // Cancela a inscrição de Push Notification se ela existir
+              if (registration.pushManager) {
+                const subscription = await registration.pushManager.getSubscription();
+                if (subscription) {
+                  await subscription.unsubscribe();
+                  console.log("Inscrição de Push Notification cancelada.");
+                }
+              }
+              // Desregistra o Service Worker
+              await registration.unregister();
+              console.log("Service Worker desregistrado.");
+            }
+          } catch (error) {
+            console.error("Erro ao limpar Service Workers/Push:", error);
+          }
+        }
+        // 5. Limpa Cache Storage (Caso tenha sobrado resíduos do Service Worker)
+        if (window.caches) {
+          try {
+            const cacheNames = await window.caches.keys();
+            for (const name of cacheNames) {
+              await window.caches.delete(name);
+            }
+          } catch (cacheError) {
+            console.error("Erro ao limpar Cache Storage:", cacheError);
+          }
+        }
+        // 6. Origin Private File System
+        if (navigator.storage?.getDirectory) {
+          const root = await navigator.storage.getDirectory();
+          for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+        }
+
+        // Envia a requisição POST exatamente para a rota do Deno
+        const resposta = await fetch('./api/logout', {
+          method: 'POST'
+        });
+
+        if (resposta.ok) {
+          const dados = await resposta.json();
+          
+          if (dados.disconnected) {
+            alert('Você foi desconectado do servidor! O navegador também limpou seus dados locais via Clear-Site-Data.');
+            
+            // Redireciona o usuário para a página de login após o sucesso
+            window.location.href = './'; 
+          }
+        } else {
+          console.error('Falha no servidor ao tentar deslogar.');
+        }
+      } catch (erro) {
+        console.error('Erro de rede ao chamar a API de logout:', erro);
+      }
+    });
+  </script>
+
+</body>
+</html>

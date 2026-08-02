@@ -1,6 +1,7 @@
 /// <reference lib="deno.ns" />
 import { serveDir } from "@std/http/file-server";
 import * as webpush from "@negrel/webpush";
+import { deleteCookie } from "@std/http/cookie";
 
 const PORT = 8000;
 
@@ -176,6 +177,26 @@ Deno.serve({ port: PORT }, async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   }
+
+  if (url.pathname === "/api/logout" && req.method === "POST") {
+    const headers = new Headers();
+
+    // Remove o cookie que guarda a sessão (substitua 'session_token' pelo nome do seu cookie)
+    deleteCookie(headers, "session_token", { path: "/" });
+
+    // Envia instrução nativa HTTP para o navegador apagar storages, cookies e caches
+    headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
+    
+    // Retorna uma resposta de sucesso para o fetch do front-end
+    return new Response(JSON.stringify({ disconnected: true }), {
+      status: 200,
+      headers: {
+        ...Object.fromEntries(headers.entries()),
+        "content-type": "application/json",
+      },
+    });
+  }
+
 
   // ROTA DE DISPARO: Processa o envelope VAPID e encaminha o JWT criptografado
   if (req.method === "POST" && url.pathname === "/api/proxy-push") {
