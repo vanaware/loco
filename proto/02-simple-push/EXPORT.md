@@ -8,7 +8,7 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/1/2026, 9:58:07 PM
+Gerado automaticamente em: 8/2/2026, 10:22:06 AM
 
 ---
 
@@ -399,12 +399,24 @@ console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
 
 ```json
 {
-  "name": "Loco Proto 02 — Simple Push",
-  "short_name": "Proto Simple Push",
   "start_url": "/index.html",
-  "display": "standalone",
+  "name": "loco",
+  "short_name": "loco",
+  "icons": [
+    {
+      "src": "./android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#ffffff",
   "background_color": "#ffffff",
-  "theme_color": "#006c4f"
+  "display": "standalone"
 }
 ```
 
@@ -943,6 +955,49 @@ console.log("[SW-MSG] 📦 Módulo de mensagens carregado com sucesso!");
 
 ---
 
+## Arquivo: `src/sw/click.js`
+
+```js
+// src/sw/click.js
+
+self.addEventListener('notificationclick', function(event) {
+  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
+  event.notification.close();
+  const urlParaAbrir = new URL('/', self.location.origin).href;
+  
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(function(windowClients) {
+        // Tenta focar uma janela existente
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          if (client.url === urlParaAbrir && 'focus' in client) {
+            try {
+              return client.focus();
+            } catch (err) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
+              // Se falhar, continua para abrir uma nova
+              break;
+            }
+          }
+        }
+        // Se não encontrou ou não conseguiu focar, abre uma nova
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(urlParaAbrir)
+            .catch(function(err) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
+              // Se falhar, tenta abrir com target _blank? Não há suporte direto, mas podemos ignorar.
+              // Retornamos uma promessa resolvida para não travar o SW.
+              return Promise.resolve();
+            });
+        }
+      })
+  );
+});
+```
+
+---
+
 ## Arquivo: `src/sw/push.js`
 
 ```js
@@ -953,7 +1008,7 @@ import { gunzipSync } from "fflate";
 // ============================================================
 // CONFIGURAÇÃO
 // ============================================================
-const DEBUG = false;  // se true, salva dadosJwt no IndexedDB
+const DEBUG = false;
 
 // ============================================================
 // CONSTANTES
@@ -999,9 +1054,16 @@ function base64ToArrayBuffer(base64) {
   return bytes.buffer;
 }
 
-function serializarPublicKeyVapid(jwk) {
-  // Apenas os campos essenciais para evitar tamanho excessivo
-  return JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y });
+async function sha256(message) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function serializarPublicKeyVapid(jwk) {
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
 }
 
 // ============================================================
@@ -1025,9 +1087,9 @@ async function buscarChaveDecript() {
 async function salvarContato(contato) {
   try {
     garantirStores();
-    const key = serializarPublicKeyVapid(contato.publicKeyVapid);
+    const key = await serializarPublicKeyVapid(contato.publicKeyVapid);
     await set(key, contato, storeContatos);
-    console.log(`[SW-PUSH] ✅ Contato ${contato.email} salvo com chave: ${key.substring(0, 30)}...`);
+    console.log(`[SW-PUSH] ✅ Contato ${contato.email} salvo com chave hash: ${key.substring(0, 8)}...`);
   } catch (err) {
     console.error(`[SW-PUSH] ❌ Erro ao salvar contato:`, err);
   }
@@ -1036,7 +1098,7 @@ async function salvarContato(contato) {
 async function buscarContatoPorPublicKey(publicKeyVapid) {
   try {
     garantirStores();
-    const key = serializarPublicKeyVapid(publicKeyVapid);
+    const key = await serializarPublicKeyVapid(publicKeyVapid);
     return await get(key, storeContatos);
   } catch (err) {
     console.error("[SW-PUSH] ❌ Erro ao buscar contato:", err);
@@ -1086,7 +1148,8 @@ self.addEventListener('push', function(event) {
 
       const jwtPayload = JSON.parse(base64UrlDecode(payloadB64Url));
       const emailRemetente = jwtPayload.iss || "remetente@desconhecido";
-      const nomeRemetente = jwtPayload.name || "Remetente";
+      // 🔥 Extrai nome: prioriza 'nm', depois 'name', fallback
+      const nomeRemetente = jwtPayload.nm || jwtPayload.name || "Remetente";
 
       console.log(`[SW-PUSH] 🔐 Mensagem de ${nomeRemetente} <${emailRemetente}>`);
 
@@ -1204,18 +1267,23 @@ self.addEventListener('push', function(event) {
       const vapidPrivateKey = (e.v && e.v.k) ? e.v.k : null;
 
       // ============================================================
-      // SALVA CONTATO (se novo ou atualizado)
+      // SALVA CONTATO (se novo ou atualizado) – com nome do JWT
       // ============================================================
       if (publicKeyVapid && publicKeyRSA && subscription) {
+        // Busca contato existente (pode ter sido encontrado antes)
+        let contatoExistente = contato;
+        if (!contatoExistente) {
+          contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
+        }
         const novoContato = {
           publicKeyVapid: publicKeyVapid,
           email: emailRemetente,
-          nome: nomeRemetente,
+          nome: nomeRemetente, // usa nome do JWT
           publicKeyRSA: publicKeyRSA,
           subscription: subscription,
           vapidPrivateKey: vapidPrivateKey || '',
           homologado: homologado,
-          createdAt: contato ? contato.createdAt : Date.now(),
+          createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
           updatedAt: Date.now()
         };
         await salvarContato(novoContato);
@@ -1225,12 +1293,13 @@ self.addEventListener('push', function(event) {
       }
 
       // ============================================================
-      // SALVA MENSAGEM RECEBIDA
+      // SALVA MENSAGEM RECEBIDA – usa hash como chave do contato
       // ============================================================
       const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
       const mensagemRecebida = {
         id: msgId,
-        contatoPublicKeyVapid: publicKeyVapid ? serializarPublicKeyVapid(publicKeyVapid) : '',
+        contatoPublicKeyVapid: contatoKey,
         conteudo: conteudo,
         status: 'nao_lida',
         recebidoEm: Date.now()
@@ -1289,47 +1358,7 @@ self.addEventListener('push', function(event) {
 });
 
 
-
-console.log("[SW-PUSH] 📦 Módulo push carregado (com contatos, DEBUG=" + DEBUG + ")");
-```
-
----
-
-## Arquivo: `src/sw/click.js`
-
-```js
-// src/sw/click.js
-
-self.addEventListener('notificationclick', function(event) {
-  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
-  event.notification.close();
-  const urlParaAbrir = new URL('/index.html', self.location.origin).href;
-  
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(function(windowClients) {
-        // Tenta focar uma janela existente
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client.url === urlParaAbrir && 'focus' in client) {
-            return client.focus();
-          }
-        }
-        // Se nenhuma janela encontrada, abre uma nova
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(urlParaAbrir);
-        }
-      })
-      .catch(function(err) {
-        // Ignora erros de foco, pois a janela pode não estar disponível
-        console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
-        // Tenta abrir uma nova janela se falhar
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(urlParaAbrir);
-        }
-      })
-  );
-});
+console.log("[SW-PUSH] 📦 Módulo push carregado (com contatos via hash, DEBUG=" + DEBUG + ")");
 ```
 
 ---
@@ -1669,20 +1698,32 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos
+// Contatos (com hash)
 // ============================================================
 
-export function serializarPublicKeyVapid(jwk: JsonWebKey): string {
-  return JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y });
+async function sha256(message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Serializa uma chave pública VAPID para um hash estável (SHA-256).
+ * Ignora diferenças de capitalização, espaços, etc.
+ */
+export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
 }
 
 export async function salvarContato(contato: Contato): Promise<void> {
-  const key = serializarPublicKeyVapid(contato.publicKeyVapid);
+  const key = await serializarPublicKeyVapid(contato.publicKeyVapid);
   await salvarChave(storeContatos, key, contato);
 }
 
 export async function buscarContatoPorPublicKey(publicKeyVapid: JsonWebKey): Promise<Contato | undefined> {
-  const key = serializarPublicKeyVapid(publicKeyVapid);
+  const key = await serializarPublicKeyVapid(publicKeyVapid);
   return buscarChave<Contato>(storeContatos, key);
 }
 
@@ -1696,7 +1737,7 @@ export async function listarContatos(): Promise<Contato[]> {
 }
 
 export async function homologarContato(publicKeyVapid: JsonWebKey): Promise<void> {
-  const key = serializarPublicKeyVapid(publicKeyVapid);
+  const key = await serializarPublicKeyVapid(publicKeyVapid);
   const contato = await buscarChave<Contato>(storeContatos, key);
   if (contato) {
     contato.homologado = true;
@@ -1706,7 +1747,7 @@ export async function homologarContato(publicKeyVapid: JsonWebKey): Promise<void
 }
 
 export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> {
-  const key = serializarPublicKeyVapid(publicKeyVapid);
+  const key = await serializarPublicKeyVapid(publicKeyVapid);
   await removerChave(storeContatos, key);
 }
 ```
@@ -1721,65 +1762,23 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <title>Browser B - Emissor e Receptor</title>
-    <link rel="manifest" href="/manifest.json">
-    <style>
-      body { font-family: system-ui, sans-serif; padding: 20px; color: #333; max-width: 900px; margin: 0 auto; }
-      .container { background: #f4f4f4; padding: 15px; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box; }
-      .container-receptor { border-left: 5px solid #006c4f; }
-      .container-emissor { border-left: 5px solid #002b3d; }
-      .container-mensagens { border-left: 5px solid #ff6b00; }
-      textarea, input[type="text"] { width: 100%; max-width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 8px; font-family: monospace; }
-      button { padding: 10px 16px; font-weight: bold; background-color: #006c4f; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
-      button:hover { background-color: #004d3f; }
-      button.send-btn { background-color: #002b3d; width: 100%; padding: 12px; font-size: 16px; margin-top: 10px; }
-      button.send-btn:hover { background-color: #001a26; }
-      button.danger { background-color: #cc0000; }
-      button.danger:hover { background-color: #990000; }
-      button.homologar-btn { background-color: #ff6b00; }
-      button.homologar-btn:hover { background-color: #cc5500; }
-      label { font-weight: bold; display: block; margin-top: 5px; }
-      .row { display: flex; gap: 20px; flex-wrap: wrap; }
-      .col { flex: 1; min-width: 300px; }
-      .btn-sm { padding: 4px 12px; font-size: 12px; margin-bottom: 0; }
-      .mt-10 { margin-top: 10px; }
-      .mb-10 { margin-bottom: 10px; }
-      .flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-      .flex-end { display: flex; gap: 8px; align-items: center; }
-      .msg-item { border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; }
-      .msg-item-nao-lida { background: #fffde7; }
-      .msg-item-notificada { background: #e3f2fd; }
-      .msg-item-lida { background: #f9f9f9; }
-      .msg-item-homologado { border-left: 4px solid #28a745; }
-      .msg-item-nao-homologado { border-left: 4px solid #ff6b00; }
-      .status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
-      .status-badge-homologado { background: #d4edda; color: #155724; }
-      .status-badge-nao-homologado { background: #fff3cd; color: #856404; }
-      .status-badge-pendente { background: #fff3cd; color: #856404; }
-      .status-badge-lida { background: #d1ecf1; color: #0c5460; }
-      .status-badge-notificada { background: #d1ecf1; color: #0c5460; }
-      .status-badge-enviada { background: #d4edda; color: #155724; }
-      .status-badge-falha { background: #f8d7da; color: #721c24; }
-      .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
-      .tab { padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px 4px 0 0; cursor: pointer; font-weight: bold; }
-      .tab.active { background: #006c4f; color: white; }
-      .tab-content { display: none; }
-      .tab-content.active { display: block; }
-      .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; max-width: 400px; font-family: system-ui, sans-serif; animation: fadeInUp 0.3s ease; }
-      .toast-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-      .toast-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-      .toast-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
-      @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-    </style>
+    <title>loco</title>
+    <link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+<meta name="application-name" content="loco" />
+    
   </head>
   <body>
-    <h1>📬 Browser B - Emissor e Receptor</h1>
-    <p style="color: #666; margin-bottom: 20px;">Receba mensagens e responda para outros Browser B.</p>
+    <h1>📬 Web Push Descentralizado</h1>
+    <p style="color: #666; margin-bottom: 20px;">Compartilhe seu perfil e receba mensagens de forma descentralizada.</p>
 
     <!-- ============================================================ -->
-    <!-- PERFIL E MEU BUNDLE                                           -->
+    <!-- MEU PERFIL                                                   -->
     <!-- ============================================================ -->
-    <div class="container" style="border-left: 5px solid #006c4f; background: #f0f8f4;">
+    <div class="container" style="background: #f0f8f4;">
       <h2>👤 Meu Perfil</h2>
       <div class="row">
         <div class="col">
@@ -1791,113 +1790,77 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
           <input type="text" id="profileEmailB" value="alice@example.com" />
         </div>
       </div>
-      <button id="btnGerarBundle" style="width: 100%;">📦 Gerar Meu Bundle (copie para outros)</button>
-
-      <button id="btnVerificarBundle" class="btn-sm" style="margin-top: 5px;">🔍 Verificar Bundle</button>
+      <button id="btnGerarProfile" style="width: 100%;">📦 Gerar e Compartilhar Meu Perfil</button>
       <button id="btnLimparSubscription" class="btn-sm danger" style="margin-top: 10px;">🗑️ Limpar Subscription</button>
       
       <div class="row mt-10">
         <div class="col">
-          <label for="myPublicKeyB">Minha Chave Pública (para homologação manual):</label>
-          <textarea id="myPublicKeyB" rows="3" readonly placeholder="Clique em 'Gerar Meu Bundle' primeiro..."></textarea>
-          <button class="copy-btn btn-sm" data-target="myPublicKeyB">📋 Copiar Chave Pública</button>
+          <label for="myProfileDisplay">📋 Meu Perfil (copie e cole para quem quiser te enviar mensagens):</label>
+          <div id="myProfileDisplay" class="profile-field" style="background: #e8f5e9; border-color: #006c4f;">
+            Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.
+          </div>
+          <button id="btnCopyProfile" class="btn-sm">📋 Copiar Perfil</button>
         </div>
       </div>
-      <div class="row mt-10">
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- CONTATOS                                                     -->
+    <!-- ============================================================ -->
+    <div class="container container-contatos">
+      <h2>📇 Contatos</h2>
+      <div class="row">
         <div class="col">
-          <label for="unifiedBundle">📦 Meu Bundle (copie e cole no emissor para receber mensagens):</label>
-          <textarea id="unifiedBundle" rows="5" readonly placeholder="Aguardando geração..."></textarea>
-          <button class="copy-btn btn-sm" data-target="unifiedBundle">📋 Copiar Bundle</button>
+          <label for="profileInput">Cole aqui o perfil de outra pessoa para adicionar como contato:</label>
+          <textarea id="profileInput" rows="4" placeholder='{"iss":"...","kid":{...},"nm":"...","s":{...},"p":{...},"k":"..."}'></textarea>
+          <button id="btnAdicionarContato">➕ Adicionar Contato</button>
+        </div>
+      </div>
+      <div class="mt-10">
+        <label>📋 Meus Contatos:</label>
+        <div id="listaContatos" style="max-height: 200px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
+          <p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>
         </div>
       </div>
     </div>
 
     <!-- ============================================================ -->
-    <!-- GUIA: RECEBER MENSAGENS                                       -->
-    <!-- ============================================================ -->
-    <div class="container container-receptor">
-      <h2>📥 Receber Mensagens</h2>
-      
-      <div class="tabs">
-        <button class="tab active" data-tab="homologar">🛡️ Homologar Emissores</button>
-        <button class="tab" data-tab="mensagens-recebidas">📬 Mensagens Recebidas</button>
-      </div>
-
-      <!-- Tab: Homologar Emissores -->
-      <div id="tab-homologar" class="tab-content active">
-        <div class="row">
-          <div class="col">
-            <label for="senderPublicKeyJson">Cole aqui a Chave Pública do Emissor (para homologação manual):</label>
-            <textarea id="senderPublicKeyJson" rows="3" placeholder='{"kty":"RSA","n":"...","e":"...","ownerName":"...","ownerEmail":"..."}'></textarea>
-            <button id="btnSaveSenderIdentity">✅ Autorizar e Salvar Emissor</button>
-          </div>
-        </div>
-        
-        <div class="mt-10">
-          <label>📋 Emissores Autorizados:</label>
-          <div id="listaEmissoresB" style="max-height: 150px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
-            <p style="color: #666; font-size: 14px;">Nenhum emissor homologado ainda.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab: Mensagens Recebidas -->
-      <div id="tab-mensagens-recebidas" class="tab-content">
-        <div class="flex mb-10">
-          <span><strong>📬 Mensagens Recebidas</strong></span>
-          <div class="flex-end">
-            <button id="btnCarregarMensagens" class="btn-sm">🔄 Atualizar</button>
-            <button id="btnLimparLidas" class="btn-sm danger">🗑️ Remover Lidas</button>
-            <button id="btnHomologarTodas" class="btn-sm homologar-btn">🔄 Homologar Todas</button>
-          </div>
-        </div>
-        <div id="mensagensRecebidas">
-          <p style="color: #666;">Nenhuma mensagem recebida ainda.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- GUIA: ENVIAR MENSAGENS                                        -->
+    <!-- ENVIAR MENSAGENS                                             -->
     <!-- ============================================================ -->
     <div class="container container-emissor">
-      <h2>📤 Enviar Mensagens</h2>
-      
-      <div class="tabs">
-        <button class="tab active" data-tab="enviar">✉️ Enviar Nova Mensagem</button>
-        <button class="tab" data-tab="mensagens-enviadas">📤 Histórico de Envio</button>
-      </div>
-
-      <!-- Tab: Enviar Nova Mensagem -->
-      <div id="tab-enviar" class="tab-content active">
-        <label for="bundleDestinoB">1. Cole o Bundle do Destinatário (gerado por outro Browser B):</label>
-        <textarea id="bundleDestinoB" rows="4" placeholder="Cole aqui o bundle do destinatário..."></textarea>
-        
-        <label for="tituloMensagemB">2. Título:</label>
-        <input type="text" id="tituloMensagemB" value="Nova mensagem" placeholder="Digite o título..." />
-        
-        <label for="mensagemEnvioB">3. Mensagem:</label>
-        <textarea id="mensagemEnvioB" rows="3" placeholder="Escreva sua mensagem aqui..."></textarea>
-        
-        <button id="btnEnviarB" class="send-btn">🚀 Enviar Mensagem</button>
-      </div>
-
-      <!-- Tab: Mensagens Enviadas -->
-      <div id="tab-mensagens-enviadas" class="tab-content">
-        <div class="flex mb-10">
-          <span><strong>📤 Mensagens Enviadas</strong></span>
-          <div class="flex-end">
-            <button id="btnCarregarEnviadasB" class="btn-sm">🔄 Atualizar</button>
-            <button id="btnLimparEnviadasB" class="btn-sm danger">🗑️ Limpar Enviadas</button>
-          </div>
+      <h2>📤 Enviar Mensagem</h2>
+      <div class="row">
+        <div class="col">
+          <label for="contatoSelect">Selecione o contato destino:</label>
+          <select id="contatoSelect" class="contato-select">
+            <option value="">-- Selecione um contato --</option>
+          </select>
         </div>
-        <div id="mensagensEnviadasB">
-          <p style="color: #666;">Nenhuma mensagem enviada ainda.</p>
+      </div>
+      <label for="mensagemEnvioB">Mensagem:</label>
+      <textarea id="mensagemEnvioB" rows="3" placeholder="Escreva sua mensagem aqui..."></textarea>
+      <button id="btnEnviarB" class="send-btn">🚀 Enviar Mensagem</button>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- MENSAGENS RECEBIDAS                                          -->
+    <!-- ============================================================ -->
+    <div class="container container-receptor">
+      <h2>📬 Mensagens Recebidas</h2>
+      <div class="flex mb-10">
+        <span></span>
+        <div class="flex-end">
+          <button id="btnCarregarMensagens" class="btn-sm">🔄 Atualizar</button>
+          <button id="btnLimparLidas" class="btn-sm danger">🗑️ Remover Lidas</button>
+          <button id="btnHomologarTodas" class="btn-sm homologar-btn">🔄 Homologar Todos</button>
         </div>
+      </div>
+      <div id="mensagensRecebidas">
+        <p style="color: #666;">Nenhuma mensagem recebida ainda.</p>
       </div>
     </div>
 
-    <!-- 🔥 Ponto de entrada atualizado para app.tsx -->
+    <!-- Ponto de entrada -->
     <script src="./app.tsx" type="module"></script>
   </body>
 </html>
@@ -1908,38 +1871,1199 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
 ## Arquivo: `src/app.tsx`
 
 ```tsx
-// src/sw/click.js
+// src/app.tsx
 
-self.addEventListener('notificationclick', function(event) {
-  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
-  event.notification.close();
-  const urlParaAbrir = new URL('/index.html', self.location.origin).href;
-  
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(function(windowClients) {
-        // Primeiro, tenta focar uma janela existente
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client.url === urlParaAbrir && 'focus' in client) {
-            try {
-              return client.focus();
-            } catch (err) {
-              console.warn("[SW-CLICK] Não foi possível focar a janela:", err);
-              // Se falhar, tenta abrir uma nova
-              break;
-            }
+import "./styles.css";
+
+import {
+  storeChavesE2E,
+  storeChavesVapid,
+  storeSubscription,
+  salvarChavesE2EB,
+  buscarChavesE2EB,
+  salvarPublicEncryptB,
+  salvarChavesVapidB,
+  buscarChavesVapidB,
+  salvarSubscriptionB,
+  buscarSubscriptionB,
+  removerSubscriptionB,
+  salvarBundleAtivo,
+  buscarBundleAtivo,
+  salvarBundleHistorico,
+  salvarMensagemEnvio,
+  listarMensagensEnvio,
+  removerMensagemEnvio,
+  salvarMensagemRecebida,
+  listarMensagensRecebidas,
+  atualizarStatusMensagemRecebida,
+  removerMensagemRecebida,
+  salvarIdentidadeA,
+  buscarIdentidadeA,
+  salvarPublicKeyA,
+  buscarPublicKeyA,
+  buscarMensagemRecebida,
+  // CONTATOS
+  storeContatos,
+  salvarContato,
+  buscarContatoPorPublicKey,
+  buscarContatoPorChave,
+  listarContatos,
+  homologarContato,
+  removerContato,
+  serializarPublicKeyVapid,
+  salvarChave,
+  removerChave,
+} from "./utils/db-helpers.ts";
+import type {
+  ChavesE2EB,
+  ChavesVapidB,
+  SubscriptionData,
+  MensagemEnvio,
+  MensagemRecebida,
+  IdentidadeA,
+  Contato,
+} from "./constants/db.ts";
+import { gzipSync } from "fflate";
+
+console.log("🟢 [SW-LOG] Web Push Descentralizado - Perfis e Contatos");
+
+// ============================================================
+// UTILITÁRIOS
+// ============================================================
+function copyToClipboard(id: string): void {
+  const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement;
+  if (el) {
+    el.select();
+    document.execCommand('copy');
+    showToast("✅ Copiado para a área de transferência!", "success");
+  }
+}
+
+function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  const binary = String.fromCharCode(...new Uint8Array(buffer));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
+  if (!buffer) return "";
+  return arrayBufferToBase64Url(buffer);
+}
+
+// ============================================================
+// FUNÇÃO PARA REGISTRAR O SERVICE WORKER
+// ============================================================
+async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
+  console.log("📡 Verificando suporte ao Service Worker...");
+
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker não é suportado neste navegador.");
+  }
+
+  // 1. Sempre chamamos o register com cacheBuster. 
+  // O navegador é inteligente: se o arquivo for idêntico, ele não reinstala.
+  // Se o arquivo mudou no servidor (novo hash do Deno), ele inicia o processo de atualização.
+  const cacheBuster = Date.now();
+  console.log("⏳ Registrando/Atualizando Service Worker...");
+
+  try {
+    const registration = await navigator.serviceWorker.register(
+      `./service-worker.js?cacheBuster=${cacheBuster}`,
+      { scope: "/" }
+    );
+    
+    console.log("Service Worker registrado. Escopo:", registration.scope);
+
+    // 2. Aguarda a ativação do Worker desta transição atual
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("Timeout de 5s: O SW pode estar aguardando abas antigas fecharem (waiting)."));
+      }, 5000);
+
+      const limparEInsucesso = (msg: string) => {
+        clearTimeout(timeout);
+        reject(new Error(msg));
+      };
+
+      const limparESucesso = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+
+      // Cenário A: Já está ativo e não há nenhuma atualização pendente (recarregamento simples)
+      if (registration.active && !registration.installing && !registration.waiting) {
+        return limparESucesso();
+      }
+
+      // Cenário B: Existe uma atualização acontecendo ou aguardando
+      // Prioriza o worker que está entrando (installing) ou na fila (waiting)
+      const novoWorker = registration.installing || registration.waiting || registration.active;
+
+      if (!novoWorker) {
+        return limparEInsucesso("Instância do Service Worker não encontrada.");
+      }
+
+      // Se o worker alvo já chegou no estado ativado de forma síncrona
+      if (novoWorker.state === "activated") {
+        return limparESucesso();
+      }
+
+      // Escuta a mudança de estado do worker correto
+      novoWorker.addEventListener("statechange", () => {
+        if (novoWorker.state === "activated") {
+          limparESucesso();
+        } else if (novoWorker.state === "redundant") {
+          limparEInsucesso("O Service Worker tornou-se redundante (falha na instalação).");
+        }
+      });
+    });
+
+    console.log("✅ Service Worker ativo e pronto.");
+    return registration;
+
+  } catch (err) {
+    console.error("❌ Erro no ciclo do Service Worker:", err);
+    throw new Error(`Falha ao registrar Service Worker: ${(err as Error).message}`);
+  }
+}
+
+
+// ============================================================
+// CRIPTOGRAFIA DA CHAVE VAPID (para o servidor)
+// ============================================================
+async function criptografarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  const serverKey = await window.crypto.subtle.importKey(
+    "jwk",
+    serverPublicKeyJwk,
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    true,
+    ["encrypt"]
+  );
+  const aesKey = await window.crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt"]
+  );
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const encoder = new TextEncoder();
+  const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+  const vapidCifrado = await window.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv },
+    aesKey,
+    vapidBytes
+  );
+  const aesKeyRaw = await window.crypto.subtle.exportKey("raw", aesKey);
+  const aesKeyCifrado = await window.crypto.subtle.encrypt(
+    { name: "RSA-OAEP" },
+    serverKey,
+    aesKeyRaw
+  );
+  const toHex = (buf: ArrayBuffer) =>
+    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const envelope = {
+    iv: toHex(iv.buffer),
+    dadosCifrados: toHex(vapidCifrado),
+    chaveAesCifrada: toHex(aesKeyCifrado)
+  };
+  return btoa(JSON.stringify(envelope));
+}
+
+// ============================================================
+// GERAÇÃO DE CHAVES E2E (RSA para criptografia)
+// ============================================================
+async function generateE2EEKeys() {
+  console.log("🔑 Gerando chaves E2E (RSA-2048)...");
+  const encryptionKeyPair = await window.crypto.subtle.generateKey(
+    { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: "SHA-256" },
+    false,
+    ["encrypt", "decrypt"]
+  );
+  const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
+  const chavesE2E: ChavesE2EB = {
+    privateDecrypt: encryptionKeyPair.privateKey,
+    publicEncrypt: publicEncryptJwk,
+  };
+  await salvarChavesE2EB(chavesE2E);
+  await salvarPublicEncryptB(publicEncryptJwk);
+  return { publicEncryptJwk };
+}
+
+// ============================================================
+// GERAÇÃO DE CHAVES VAPID (ECDSA)
+// ============================================================
+async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
+  console.log("🔑 Gerando chaves VAPID (ECDSA P-256)...");
+  return await window.crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"]
+  );
+}
+
+// ============================================================
+// GERAR PERFIL (profile) – substitui o bundle
+// ============================================================
+async function gerarProfile(): Promise<any> {
+  console.log("📦 Gerando perfil...");
+  const nome = (document.getElementById('profileNameB') as HTMLInputElement).value;
+  const email = (document.getElementById('profileEmailB') as HTMLInputElement).value;
+
+  if (!nome || !email) {
+    throw new Error("Preencha Nome e E-mail primeiro.");
+  }
+
+  try {
+    if (Notification.permission === "denied") {
+      throw new Error("Permissão de notificação negada.");
+    }
+    if (Notification.permission === "default") {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        throw new Error("Permissão de notificação não concedida.");
+      }
+    }
+
+    const registration = await registrarServiceWorker();
+
+    const resServerKey = await fetch("/api/server-public-key");
+    if (!resServerKey.ok) {
+      throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
+    }
+    const serverPublicKeyJwk = await resServerKey.json();
+
+    let chavesVapidSalvas = await buscarChavesVapidB();
+    let vapidKeyPair: CryptoKeyPair;
+    let publicKeyJwk: JsonWebKey;
+    let privateKeyJwk: JsonWebKey;
+
+    if (chavesVapidSalvas) {
+      console.log("📂 Chaves VAPID encontradas no IndexedDB");
+      publicKeyJwk = chavesVapidSalvas.publicKey;
+      privateKeyJwk = chavesVapidSalvas.privateKey;
+      try {
+        vapidKeyPair = {
+          publicKey: await window.crypto.subtle.importKey(
+            "jwk", publicKeyJwk,
+            { name: "ECDSA", namedCurve: "P-256" },
+            true, ["verify"]
+          ),
+          privateKey: await window.crypto.subtle.importKey(
+            "jwk", privateKeyJwk,
+            { name: "ECDSA", namedCurve: "P-256" },
+            true, ["sign"]
+          )
+        } as CryptoKeyPair;
+      } catch {
+        chavesVapidSalvas = undefined;
+      }
+    }
+    if (!chavesVapidSalvas) {
+      console.log("🔑 Gerando novas chaves VAPID...");
+      vapidKeyPair = await generateVAPIDKeys();
+      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+      await salvarChavesVapidB({ publicKey: publicKeyJwk, privateKey: privateKeyJwk });
+    }
+
+    let existingSubscription = await registration.pushManager.getSubscription();
+    let subscriptionValida = false;
+
+    if (existingSubscription) {
+      const subscriptionData = await buscarSubscriptionB();
+      if (subscriptionData && subscriptionData.vapidPublicKey?.n === publicKeyJwk.n) {
+        subscriptionValida = true;
+      } else {
+        await existingSubscription.unsubscribe();
+        await removerSubscriptionB();
+        existingSubscription = null;
+      }
+    }
+    if (!existingSubscription || !subscriptionValida) {
+      console.log("📝 Criando nova subscription...");
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+      existingSubscription = await registration.pushManager.subscribe({
+        applicationServerKey: new Uint8Array(rawPublicKey),
+        userVisibleOnly: true
+      });
+    }
+
+    const p256dhBuffer = existingSubscription.getKey('p256dh');
+    const authBuffer = existingSubscription.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) {
+      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
+    }
+    const subscriptionJson = {
+      endpoint: existingSubscription.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      }
+    };
+
+    let e2ePublicKeys = await buscarChavesE2EB();
+    let publicEncryptJwk: JsonWebKey;
+    if (e2ePublicKeys && e2ePublicKeys.publicEncrypt) {
+      publicEncryptJwk = e2ePublicKeys.publicEncrypt;
+    } else {
+      const novasChaves = await generateE2EEKeys();
+      publicEncryptJwk = novasChaves.publicEncryptJwk;
+    }
+
+    const subscriptionData: SubscriptionData = {
+      endpoint: existingSubscription.endpoint,
+      keys: subscriptionJson.keys,
+      vapidPublicKey: publicKeyJwk,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    await salvarSubscriptionB(subscriptionData);
+
+    const privateKeyEncrypted = await criptografarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
+
+    const identidadeExistente = await buscarIdentidadeA();
+    if (!identidadeExistente) {
+      const privateVapidKey = await window.crypto.subtle.importKey(
+        "jwk",
+        privateKeyJwk,
+        { name: "ECDSA", namedCurve: "P-256" },
+        false,
+        ["sign"]
+      );
+      await salvarIdentidadeA({
+        name: nome,
+        email: email,
+        privateKey: privateVapidKey
+      });
+      const extendedPublic = { ...publicKeyJwk, ownerName: nome, ownerEmail: email };
+      await salvarPublicKeyA(extendedPublic);
+    }
+
+    const profile = {
+      iss: email,
+      nm: nome,
+      kid: publicKeyJwk,
+      s: subscriptionJson,
+      p: publicEncryptJwk,
+      k: privateKeyEncrypted
+    };
+
+    const bundle = {
+      subscription: subscriptionJson,
+      vapid: {
+        subject: `mailto:${email}`,
+        publicKey: publicKeyJwk,
+        privateKey: privateKeyEncrypted
+      },
+      isVapidEncrypted: true,
+      e2e: {
+        ownerName: nome,
+        ownerEmail: email,
+        browserB_PublicKeyEncrypt: publicEncryptJwk,
+      },
+      payloadText: ""
+    };
+    await salvarBundleAtivo(bundle);
+    await salvarBundleHistorico(bundle);
+
+    return profile;
+  } catch (err) {
+    console.error("❌ Erro ao gerar perfil:", err);
+    throw err;
+  }
+}
+
+// ============================================================
+// ADICIONAR CONTATO A PARTIR DE UM PERFIL (CORRIGIDO)
+// ============================================================
+async function adicionarContato(): Promise<void> {
+  const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value;
+  if (!profileRaw) {
+    showToast("Cole o perfil da pessoa que deseja adicionar.", "error");
+    return;
+  }
+  try {
+    const profile = JSON.parse(profileRaw);
+    if (!profile.iss || !profile.kid || !profile.s || !profile.p || !profile.k) {
+      throw new Error("Perfil inválido: faltam campos obrigatórios.");
+    }
+    // 🔥 NÃO normaliza kty e crv – mantém o original (EC, P-256)
+    const kid = profile.kid;
+    await window.crypto.subtle.importKey(
+      "jwk", kid,
+      { name: "ECDSA", namedCurve: "P-256" },
+      true, ["verify"]
+    );
+
+    const contato: Contato = {
+      publicKeyVapid: kid,
+      email: profile.iss,
+      nome: profile.nm || profile.iss,
+      publicKeyRSA: profile.p,
+      subscription: profile.s,
+      vapidPrivateKey: profile.k,
+      homologado: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    await salvarContato(contato);
+    showToast(`✅ Contato "${contato.nome}" adicionado!`, "success");
+    (document.getElementById('profileInput') as HTMLTextAreaElement).value = '';
+    await carregarContatos();
+    await carregarSelectContatos();
+  } catch (err) {
+    showToast(`❌ Erro ao adicionar contato: ${err.message}`, "error");
+  }
+}
+
+
+
+// ============================================================
+// CARREGAR LISTA DE CONTATOS (UI)
+// ============================================================
+async function carregarContatos(): Promise<void> {
+  const container = document.getElementById('listaContatos');
+  if (!container) return;
+  const contatos = await listarContatos();
+  if (contatos.length === 0) {
+    container.innerHTML = '<p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>';
+    return;
+  }
+  let html = '';
+  for (const c of contatos) {
+    const homol = c.homologado ? '✅' : '🔄';
+    html += `
+      <div class="contato-item">
+        <span><strong>${c.nome}</strong> &lt;${c.email}&gt; ${homol}</span>
+        <button class="btn-remover-contato btn-sm danger" data-publickey='${JSON.stringify(c.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+
+  container.querySelectorAll('.btn-remover-contato').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const publicKeyStr = target.dataset.publickey || '';
+      try {
+        const publicKeyVapid = JSON.parse(publicKeyStr);
+        if (confirm('Remover este contato?')) {
+          await removerContato(publicKeyVapid);
+          await carregarContatos();
+          await carregarSelectContatos();
+          showToast('Contato removido.', 'info');
+        }
+      } catch (err) {
+        showToast('Erro ao remover contato.', 'error');
+      }
+    });
+  });
+}
+
+// ============================================================
+// CARREGAR SELECT DE CONTATOS
+// ============================================================
+async function carregarSelectContatos(): Promise<void> {
+  const select = document.getElementById('contatoSelect') as HTMLSelectElement;
+  if (!select) return;
+  const contatos = await listarContatos();
+  select.innerHTML = '<option value="">-- Selecione um contato --</option>';
+  for (const c of contatos) {
+    const key = await serializarPublicKeyVapid(c.publicKeyVapid);
+    select.innerHTML += `<option value="${key}">${c.nome} (${c.email})</option>`;
+  }
+}
+
+// ============================================================
+// ENVIAR MENSAGEM PARA UM CONTATO SELECIONADO
+// ============================================================
+async function enviarMensagemB(): Promise<void> {
+  console.log("🚀 Enviando mensagem...");
+  const select = document.getElementById('contatoSelect') as HTMLSelectElement;
+  const selectedKey = select.value;
+  if (!selectedKey) {
+    showToast("Selecione um contato para enviar a mensagem.", "error");
+    return;
+  }
+  const conteudo = (document.getElementById('mensagemEnvioB') as HTMLTextAreaElement).value;
+  if (!conteudo) {
+    showToast("Digite uma mensagem.", "error");
+    return;
+  }
+
+  try {
+    let contato = await buscarContatoPorChave(selectedKey);
+    if (!contato) {
+      console.warn("Contato não encontrado pela chave exata. Tentando fallback...");
+      const todosContatos = await listarContatos();
+      for (const c of todosContatos) {
+        const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
+        if (hash === selectedKey) {
+          contato = c;
+          break;
+        }
+      }
+      if (!contato) {
+        showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
+        return;
+      }
+    }
+
+    if (!contato.subscription || !contato.publicKeyRSA || !contato.vapidPrivateKey) {
+      showToast("❌ Contato incompleto para enviar mensagem. Peça para a pessoa gerar um novo perfil.", "error");
+      return;
+    }
+
+    const bundle = {
+      subscription: contato.subscription,
+      vapid: {
+        subject: `mailto:${contato.email}`,
+        publicKey: contato.publicKeyVapid,
+        privateKey: contato.vapidPrivateKey
+      },
+      isVapidEncrypted: true,
+      e2e: {
+        ownerName: contato.nome,
+        ownerEmail: contato.email,
+        browserB_PublicKeyEncrypt: contato.publicKeyRSA
+      },
+      payloadText: ""
+    };
+
+    const e2eConfig = bundle.e2e;
+    const publicKeyJwk = e2eConfig.browserB_PublicKeyEncrypt;
+    if (publicKeyJwk.kty !== "RSA") {
+      showToast("❌ Chave pública do contato não é RSA.", "error");
+      return;
+    }
+
+    const cryptoKeyDestino = await window.crypto.subtle.importKey(
+      "jwk", publicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+
+    const subscription = await buscarSubscriptionB();
+    const chavesVapid = await buscarChavesVapidB();
+    const chavesE2E = await buscarChavesE2EB();
+    const publicKeyEncrypt = chavesE2E?.publicEncrypt;
+    const publicVapid = chavesVapid?.publicKey;
+    if (!publicVapid) throw new Error("Chave pública VAPID não encontrada.");
+
+    let vapidPrivateCifrada: string | undefined;
+    let meuBundle = await buscarBundleAtivo();
+    if (meuBundle?.vapid?.privateKey) {
+      vapidPrivateCifrada = meuBundle.vapid.privateKey;
+    } else {
+      const chavesVapidSalvas = await buscarChavesVapidB();
+      if (chavesVapidSalvas?.privateKey) {
+        const resServerKey = await fetch("/api/server-public-key");
+        const serverPublicKeyJwk = await resServerKey.json();
+        vapidPrivateCifrada = await criptografarChaveVapid(chavesVapidSalvas.privateKey, serverPublicKeyJwk);
+        if (!meuBundle) {
+          const nomeB = (document.getElementById('profileNameB') as HTMLInputElement).value;
+          const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
+          meuBundle = {
+            subscription: subscription ? {
+              endpoint: subscription.endpoint,
+              keys: subscription.keys
+            } : undefined,
+            vapid: {
+              subject: `mailto:${emailB || 'unknown'}`,
+              publicKey: publicVapid,
+              privateKey: vapidPrivateCifrada
+            },
+            isVapidEncrypted: true,
+            e2e: {
+              ownerName: nomeB || 'Usuário',
+              ownerEmail: emailB || 'unknown',
+              browserB_PublicKeyEncrypt: publicKeyEncrypt
+            },
+            payloadText: ""
+          };
+        } else {
+          if (!meuBundle.vapid) meuBundle.vapid = {};
+          meuBundle.vapid.privateKey = vapidPrivateCifrada;
+          meuBundle.vapid.publicKey = publicVapid;
+          if (!meuBundle.vapid.subject) {
+            const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
+            meuBundle.vapid.subject = `mailto:${emailB || 'unknown'}`;
           }
         }
-        // Se não encontrou janela ou não conseguiu focar, abre uma nova
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(urlParaAbrir).catch(err => {
-            console.warn("[SW-CLICK] Não foi possível abrir janela:", err);
-          });
+        await salvarBundleAtivo(meuBundle);
+      } else {
+        throw new Error("Chave privada VAPID não encontrada. Gere seu perfil novamente.");
+      }
+    }
+
+    const encoder = new TextEncoder();
+    const mensagemObj = {
+      m: { c: conteudo },
+      e: {
+        s: subscription ? {
+          e: subscription.endpoint,
+          k: subscription.keys
+        } : undefined,
+        p: publicKeyEncrypt,
+        v: {
+          k: vapidPrivateCifrada
         }
-      })
-  );
+      }
+    };
+
+    const mensagemBytes = encoder.encode(JSON.stringify(mensagemObj));
+    const compressed = gzipSync(mensagemBytes);
+    console.log(`📦 Comprimido: ${compressed.length} bytes`);
+
+    const aesKey = await window.crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const encryptedBuffer = await window.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      compressed
+    );
+    const aesKeyRaw = await window.crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyEncrypted = await window.crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoKeyDestino,
+      aesKeyRaw
+    );
+
+    const envelope = {
+      i: arrayBufferToBase64(iv.buffer),
+      d: arrayBufferToBase64(encryptedBuffer),
+      k: arrayBufferToBase64(aesKeyEncrypted)
+    };
+    const envelopeJson = JSON.stringify(envelope);
+
+    const identidade = await buscarIdentidadeA();
+    if (!identidade) throw new Error("Identidade não encontrada.");
+    const header = { alg: "ES256" };
+    const payload = {
+      iss: identidade.email,
+      sub: contato.email,
+      ct: envelopeJson,
+      p: publicVapid,
+      nm: identidade.name
+    };
+    const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
+    const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
+    const toSign = `${headerB64}.${payloadB64}`;
+    const signature = await window.crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      identidade.privateKey,
+      encoder.encode(toSign)
+    );
+    const sigB64 = arrayBufferToBase64Url(signature);
+    const jwt = `${toSign}.${sigB64}`;
+
+    console.log(`📊 Tamanho do JWT: ${jwt.length} bytes`);
+    if (jwt.length > 4096) {
+      console.warn(`⚠️ JWT excede 4096 bytes em ${jwt.length - 4096} bytes!`);
+    } else {
+      console.log(`✅ JWT dentro do limite (${4096 - jwt.length} bytes restantes)`);
+    }
+
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const mensagem: MensagemEnvio = {
+      id: msgId,
+      bundle: bundle,
+      payloadText: jwt,
+      mensagemOriginal: conteudo,
+      destinatario: contato.email,
+      status: 'pendente',
+      tentativas: 0,
+      maxTentativas: 3,
+      criadoEm: Date.now(),
+      atualizadoEm: Date.now()
+    };
+
+    await salvarMensagemEnvio(mensagem);
+    const reg = await navigator.serviceWorker.ready;
+    reg.active?.postMessage({ type: 'ENVIAR_MENSAGEM', payload: mensagem });
+
+    showToast(`✅ Mensagem enviada para ${contato.nome}! ID: ${msgId}`, "success");
+    (document.getElementById('mensagemEnvioB') as HTMLTextAreaElement).value = '';
+    await carregarMensagensEnviadasB();
+
+  } catch (err: any) {
+    console.error(err);
+    if (err.message && err.message.includes('410')) {
+      showToast("❌ A subscription do contato expirou. Peça para ele gerar um novo perfil.", "error");
+    } else {
+      showToast(`❌ Erro: ${err.message}`, "error");
+    }
+  }
+}
+
+// ============================================================
+// COMPARTILHAR PERFIL (botão)
+// ============================================================
+async function compartilharProfile(): Promise<void> {
+  console.log("🔄 Gerando e compartilhando perfil...");
+  try {
+    const profile = await gerarProfile();
+    const profileJson = JSON.stringify(profile, null, 2);
+    const display = document.getElementById('myProfileDisplay');
+    if (display) {
+      display.textContent = profileJson;
+      display.style.background = '#e8f5e9';
+    }
+    try {
+      await navigator.clipboard.writeText(profileJson);
+      showToast("✅ Perfil copiado para a área de transferência!", "success");
+    } catch {
+      copyToClipboard('myProfileDisplay');
+    }
+  } catch (err) {
+    showToast("❌ Erro ao gerar perfil: " + err.message, "error");
+  }
+}
+
+// ============================================================
+// CARREGAR MENSAGENS RECEBIDAS – com fallback robusto
+// ============================================================
+async function carregarMensagensRecebidas(): Promise<void> {
+  console.log("📬 Carregando mensagens recebidas...");
+  const mensagens = await listarMensagensRecebidas();
+  const container = document.getElementById('mensagensRecebidas');
+  if (!container) return;
+
+  if (mensagens.length === 0) {
+    container.innerHTML = '<p style="color: #666;">Nenhuma mensagem recebida.</p>';
+    return;
+  }
+
+  mensagens.sort((a, b) => b.recebidoEm - a.recebidoEm);
+  let html = '';
+  for (const msg of mensagens) {
+    const statusEmoji = msg.status === 'nao_lida' ? '🟡' : msg.status === 'notificada' ? '🔔' : '✅';
+    const data = new Date(msg.recebidoEm).toLocaleString();
+
+    // 🔥 Busca contato pela chave da mensagem (agora hash)
+    let contato: Contato | null = null;
+    let nome = 'Remetente desconhecido';
+    let homologado = false;
+    let podeResponder = false;
+
+    if (msg.contatoPublicKeyVapid) {
+      // Primeiro, tenta buscar diretamente pela chave
+      contato = await buscarContatoPorChave(msg.contatoPublicKeyVapid);
+      if (!contato) {
+        // Fallback: se a chave for JSON antigo, tenta converter para hash e buscar
+        try {
+          const parsed = JSON.parse(msg.contatoPublicKeyVapid);
+          // Se for um objeto JWK, serializa para hash e busca
+          if (parsed && parsed.kty) {
+            const hashKey = await serializarPublicKeyVapid(parsed);
+            contato = await buscarContatoPorChave(hashKey);
+          }
+        } catch (e) {
+          // Não é JSON, ignora
+        }
+      }
+      // Se ainda não encontrou, percorre todos os contatos comparando a chave pública VAPID
+      if (!contato) {
+        const todosContatos = await listarContatos();
+        for (const c of todosContatos) {
+          // Gera o hash da chave pública do contato e compara com a chave da mensagem
+          const hashKey = await serializarPublicKeyVapid(c.publicKeyVapid);
+          if (hashKey === msg.contatoPublicKeyVapid) {
+            contato = c;
+            break;
+          }
+        }
+      }
+    }
+
+    if (contato) {
+      nome = contato.nome || 'Remetente';
+      homologado = contato.homologado || false;
+      podeResponder = !!(contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
+    }
+
+    const homolEmoji = homologado ? '✅' : '🔄';
+    const homolTexto = homologado ? 'Homologado' : 'Não homologado';
+    const homolClass = homologado ? 'msg-item-homologado' : 'msg-item-nao-homologado';
+
+    const botaoHomologar = (!homologado && contato) ?
+      `<button class="btn-homologar-msg btn-sm homologar-btn" data-publickey='${JSON.stringify(contato.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; color: white; border: none; border-radius: 3px; cursor: pointer;">🔄 Homologar</button>` :
+      '';
+
+    const botaoResponder = (podeResponder) ?
+      `<button class="btn-responder-msg btn-sm" data-publickey='${JSON.stringify(contato.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #002b3d; color: white; border: none; border-radius: 3px; cursor: pointer;">💬 Responder</button>` :
+      '';
+
+    html += `
+      <div class="msg-item ${homolClass}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'nao_lida' ? '#fffde7' : '#f9f9f9'};">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <strong>${statusEmoji} De: ${nome}</strong>
+          <small style="color: #888;">${data}</small>
+        </div>
+        <p style="margin: 5px 0;">${msg.conteudo}</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 5px;">
+          <div>
+            <span class="status-badge status-badge-${msg.status}">${msg.status}</span>
+            <span class="status-badge ${homologado ? 'status-badge-homologado' : 'status-badge-nao-homologado'}" style="margin-left: 5px;">
+              ${homolEmoji} ${homolTexto}
+            </span>
+          </div>
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+            ${botaoHomologar}
+            ${botaoResponder}
+            ${msg.status === 'nao_lida' || msg.status === 'notificada' ?
+              `<button class="btn-marcar-lida" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #006c4f; color: white; border: none; border-radius: 3px; cursor: pointer;">📖 Marcar lida</button>` :
+              ''
+            }
+            <button class="btn-remover-msg" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+
+  // Event listeners (idênticos ao código anterior)
+  container.querySelectorAll('.btn-marcar-lida').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const id = (e.currentTarget as HTMLButtonElement).dataset.id;
+      if (id) {
+        await atualizarStatusMensagemRecebida(id, 'lida');
+        await carregarMensagensRecebidas();
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-remover-msg').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const id = (e.currentTarget as HTMLButtonElement).dataset.id;
+      if (id && confirm('Remover esta mensagem?')) {
+        await removerMensagemRecebida(id);
+        await carregarMensagensRecebidas();
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-homologar-msg').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const publicKeyStr = target.dataset.publickey || '';
+      try {
+        const publicKeyVapid = JSON.parse(publicKeyStr);
+        await homologarContato(publicKeyVapid);
+        showToast("✅ Emissor homologado!", "success");
+        await carregarMensagensRecebidas();
+        await carregarContatos();
+      } catch (err) {
+        showToast(`❌ Erro: ${err.message}`, "error");
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-responder-msg').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const publicKeyStr = target.dataset.publickey || '';
+      try {
+        const publicKeyVapid = JSON.parse(publicKeyStr);
+        const contato = await buscarContatoPorPublicKey(publicKeyVapid);
+        if (!contato) {
+          showToast("❌ Contato não encontrado.", "error");
+          return;
+        }
+        if (!contato.subscription || !contato.publicKeyRSA || !contato.vapidPrivateKey) {
+          showToast("❌ Contato incompleto para responder.", "error");
+          return;
+        }
+        const select = document.getElementById('contatoSelect') as HTMLSelectElement;
+        const key = await serializarPublicKeyVapid(publicKeyVapid);
+        select.value = key;
+        showToast(`✅ Contato ${contato.nome} selecionado para responder!`, "success");
+        document.querySelector('.container-emissor')?.scrollIntoView({ behavior: 'smooth' });
+      } catch (err) {
+        showToast(`❌ Erro: ${err.message}`, "error");
+      }
+    });
+  });
+}
+
+// ============================================================
+// HOMOLOGAR TODOS OS CONTATOS
+// ============================================================
+async function homologarTodasMensagens(): Promise<void> {
+  const contatos = await listarContatos();
+  const naoHomologados = contatos.filter(c => !c.homologado);
+  if (naoHomologados.length === 0) {
+    showToast("ℹ️ Nenhum contato não homologado.", "info");
+    return;
+  }
+  if (!confirm(`Homologar ${naoHomologados.length} contatos?`)) return;
+  let sucesso = 0;
+  for (const c of naoHomologados) {
+    try {
+      await homologarContato(c.publicKeyVapid);
+      sucesso++;
+    } catch (err) {
+      console.warn(`Falha ao homologar ${c.email}:`, err);
+    }
+  }
+  showToast(`✅ ${sucesso} contatos homologados.`, "success");
+  await carregarMensagensRecebidas();
+  await carregarContatos();
+}
+
+// ============================================================
+// REMOVER MENSAGENS LIDAS
+// ============================================================
+async function removerMensagensLidas(): Promise<void> {
+  if (!confirm('Remover todas as mensagens lidas?')) return;
+  const mensagens = await listarMensagensRecebidas();
+  const lidas = mensagens.filter(m => m.status === 'lida');
+  for (const msg of lidas) {
+    await removerMensagemRecebida(msg.id);
+  }
+  await carregarMensagensRecebidas();
+  showToast(`✅ ${lidas.length} mensagens removidas.`, "success");
+}
+
+// ============================================================
+// MENSAGENS ENVIADAS
+// ============================================================
+async function carregarMensagensEnviadasB(): Promise<void> {
+  console.log("📤 Carregando mensagens enviadas...");
+  const mensagens = await listarMensagensEnvio();
+  const container = document.getElementById('mensagensEnviadasB');
+  if (!container) return;
+  if (mensagens.length === 0) {
+    container.innerHTML = '<p style="color: #666;">Nenhuma mensagem enviada.</p>';
+    return;
+  }
+  mensagens.sort((a, b) => b.criadoEm - a.criadoEm);
+  let html = '';
+  for (const msg of mensagens) {
+    const statusMap: Record<string, { emoji: string; label: string; classe: string }> = {
+      'pendente': { emoji: '⏳', label: 'Pendente', classe: 'msg-item-pendente' },
+      'enviando': { emoji: '🔄', label: 'Enviando...', classe: 'msg-item-pendente' },
+      'enviada': { emoji: '✅', label: 'Enviada', classe: 'msg-item-enviada' },
+      'falha': { emoji: '❌', label: 'Falha', classe: 'msg-item-falha' },
+    };
+    const status = statusMap[msg.status] || { emoji: '❓', label: msg.status, classe: '' };
+    const data = new Date(msg.criadoEm).toLocaleString();
+
+    html += `
+      <div class="msg-item ${status.classe}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'enviada' ? '#e8f5e9' : msg.status === 'falha' ? '#ffebee' : '#fff8e1'};">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <strong>${status.emoji} Para: ${msg.destinatario}</strong>
+          <small style="color: #888;">${data}</small>
+        </div>
+        <p style="margin: 5px 0;">${msg.mensagemOriginal || '(mensagem oculta)'}</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span class="status-badge status-badge-${msg.status}">${status.label}</span>
+            ${msg.tentativas > 0 ? `<span style="font-size: 12px; color: #666; margin-left: 8px;">Tentativas: ${msg.tentativas}</span>` : ''}
+          </div>
+          ${msg.status === 'enviada' || msg.status === 'falha' ?
+            `<button class="btn-remover-enviada-b btn-sm danger" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>` :
+            ''
+          }
+        </div>
+        ${msg.erro ? `<div style="font-size: 12px; color: #cc0000; margin-top: 4px;">Erro: ${msg.erro}</div>` : ''}
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+
+  container.querySelectorAll('.btn-remover-enviada-b').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const id = (e.currentTarget as HTMLButtonElement).dataset.id;
+      if (id && confirm('Remover esta mensagem do histórico?')) {
+        await removerMensagemEnvio(id);
+        await carregarMensagensEnviadasB();
+      }
+    });
+  });
+}
+
+// ============================================================
+// TABS
+// ============================================================
+function initTabs(): void {
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const parent = tab.parentElement;
+      if (!parent) return;
+      parent.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+      const tabId = tab.getAttribute('data-tab');
+      if (!tabId) return;
+      const contentParent = parent.parentElement;
+      if (!contentParent) return;
+      contentParent.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
+      const target = document.getElementById(`tab-${tabId}`);
+      if (target) target.classList.add('active');
+    });
+  });
+}
+
+// ============================================================
+// CARREGAMENTO INICIAL
+// ============================================================
+async function carregarDadosIniciais(): Promise<void> {
+  console.log("📂 Carregando dados iniciais...");
+  try {
+    const identidade = await buscarIdentidadeA();
+    if (identidade) {
+      (document.getElementById('profileNameB') as HTMLInputElement).value = identidade.name;
+      (document.getElementById('profileEmailB') as HTMLInputElement).value = identidade.email;
+    }
+    await carregarContatos();
+    await carregarSelectContatos();
+    await carregarMensagensRecebidas();
+    await carregarMensagensEnviadasB();
+    console.log("✅ Dados iniciais carregados!");
+  } catch (err) {
+    console.warn("⚠️ Erro ao carregar dados iniciais:", err);
+  }
+}
+
+// ============================================================
+// EVENT LISTENERS
+// ============================================================
+window.addEventListener("DOMContentLoaded", async () => {
+  console.log("📄 DOM carregado, inicializando aplicação...");
+  initTabs();
+  await carregarDadosIniciais();
+
+  document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
+
+  document.getElementById('btnCopyProfile')?.addEventListener('click', () => {
+    const display = document.getElementById('myProfileDisplay');
+    if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
+      copyToClipboard('myProfileDisplay');
+    } else {
+      showToast("Primeiro gere seu perfil.", "info");
+    }
+  });
+
+  document.getElementById('btnAdicionarContato')?.addEventListener('click', adicionarContato);
+  document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);
+  document.getElementById('btnCarregarMensagens')?.addEventListener('click', carregarMensagensRecebidas);
+  document.getElementById('btnLimparLidas')?.addEventListener('click', removerMensagensLidas);
+  document.getElementById('btnHomologarTodas')?.addEventListener('click', homologarTodasMensagens);
+
+  document.getElementById('btnLimparSubscription')?.addEventListener('click', async () => {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await subscription.unsubscribe();
+        console.log("Subscription desinscrita.");
+      }
+      await removerSubscriptionB();
+      console.log("Subscription removida do IndexedDB.");
+      showToast("✅ Subscription limpa. Gere um novo perfil.", "success");
+    } catch (err) {
+      console.error(err);
+      showToast("❌ Erro ao limpar subscription.", "error");
+    }
+  });
+
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'PUSH_RECEIVED') {
+      console.log('📬 Push recebido, recarregando mensagens...');
+      showToast(`📩 Nova mensagem de ${event.data.payload?.remetente || 'alguém'}!`, "info");
+      setTimeout(() => {
+        carregarMensagensRecebidas();
+        carregarContatos();
+      }, 1000);
+    }
+    if (event.data?.type === 'MENSAGEM_ENVIADA') {
+      console.log('📤 Mensagem enviada, atualizando lista...');
+      setTimeout(carregarMensagensEnviadasB, 500);
+    }
+  });
 });
+```
+
+---
+
+## Arquivo: `src/styles.css`
+
+```css
+* { box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; padding: 20px; color: #333; max-width: 900px; margin: 0 auto; }
+.container { background: #f4f4f4; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 5px solid #006c4f; }
+.container-emissor { border-left-color: #002b3d; }
+.container-receptor { border-left-color: #ff6b00; }
+.container-contatos { border-left-color: #6c4f00; }
+textarea, input[type="text"] { width: 100%; max-width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 8px; font-family: monospace; }
+button { padding: 10px 16px; font-weight: bold; background-color: #006c4f; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
+button:hover { background-color: #004d3f; }
+button.send-btn { background-color: #002b3d; width: 100%; padding: 12px; font-size: 16px; margin-top: 10px; }
+button.send-btn:hover { background-color: #001a26; }
+button.danger { background-color: #cc0000; }
+button.danger:hover { background-color: #990000; }
+button.homologar-btn { background-color: #ff6b00; }
+button.homologar-btn:hover { background-color: #cc5500; }
+label { font-weight: bold; display: block; margin-top: 5px; }
+.row { display: flex; gap: 20px; flex-wrap: wrap; }
+.col { flex: 1; min-width: 300px; }
+.btn-sm { padding: 4px 12px; font-size: 12px; margin-bottom: 0; }
+.mt-10 { margin-top: 10px; }
+.mb-10 { margin-bottom: 10px; }
+.flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.flex-end { display: flex; gap: 8px; align-items: center; }
+.msg-item { border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; }
+.msg-item-nao-lida { background: #fffde7; }
+.msg-item-notificada { background: #e3f2fd; }
+.msg-item-lida { background: #f9f9f9; }
+.msg-item-homologado { border-left: 4px solid #28a745; }
+.msg-item-nao-homologado { border-left: 4px solid #ff6b00; }
+.status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+.status-badge-homologado { background: #d4edda; color: #155724; }
+.status-badge-nao-homologado { background: #fff3cd; color: #856404; }
+.status-badge-lida { background: #d1ecf1; color: #0c5460; }
+.status-badge-notificada { background: #d1ecf1; color: #0c5460; }
+.status-badge-enviada { background: #d4edda; color: #155724; }
+.status-badge-falha { background: #f8d7da; color: #721c24; }
+.tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+.tab { padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px 4px 0 0; cursor: pointer; font-weight: bold; }
+.tab.active { background: #006c4f; color: white; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; max-width: 400px; font-family: system-ui, sans-serif; animation: fadeInUp 0.3s ease; }
+.toast-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.toast-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+.toast-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+.profile-field { background: #fafafa; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; word-break: break-all; max-height: 150px; overflow-y: auto; white-space: pre-wrap; }
+.contato-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid #eee; }
+.contato-item:hover { background: #f0f0f0; }
+.contato-select { width: 100%; padding: 8px; margin-bottom: 10px; }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 ```
 
 ---
@@ -1966,11 +3090,329 @@ self.addEventListener('notificationclick', function(event) {
 
 ---
 
+## Arquivo: `README.md`
+
+````md
+# 📡 Web Push Descentralizado – Protótipo Detalhado
+
+## 1. Objetivo Geral
+
+Este protótipo implementa um sistema de mensagens **descentralizado** utilizando a API **Web Push** (especificamente via FCM no Chrome) como transporte. O objetivo é permitir que dois navegadores (ou mais) troquem mensagens diretamente, sem a necessidade de um servidor central para armazenar mensagens ou gerenciar contatos.
+
+Cada navegador atua como um **ponto autônomo**:
+- **Emissor**: envia mensagens para outro usuário.
+- **Receptor**: recebe mensagens e pode responder.
+
+A infraestrutura mínima necessária é um **servidor proxy** (fornecido neste projeto em Deno) que:
+- Fornece uma chave pública RSA usada para cifrar a chave privada VAPID durante a troca de perfis.
+- Reencaminha as requisições push ao serviço de push (FCM), após descriptografar a chave privada VAPID para assinar o cabeçalho de autorização.
+
+Não há banco de dados central, nem filas compartilhadas: cada navegador mantém seu próprio **IndexedDB** com contatos e histórico de mensagens.
+
+---
+
+## 2. Conceitos Fundamentais
+
+### 2.1. Perfil (Profile)
+Um **perfil** é um objeto JSON público gerado por cada usuário. Ele contém todas as informações necessárias para que outros possam enviar-lhe mensagens push. O perfil deve ser transferido fora de banda (por exemplo, copiando e colando) do receptor para o emissor.
+
+**Estrutura do Perfil:**
+```json
+{
+  "iss": "email@exemplo.com",       // Identificador único (e-mail do dono)
+  "nm": "Nome do Usuário",           // Nome legível (exibido nas mensagens)
+  "kid": { ... },                    // Chave pública VAPID (ECDSA P-256) em JWK
+  "s": {                             // Subscription do Web Push
+    "endpoint": "https://fcm.googleapis.com/...",
+    "keys": {
+      "p256dh": "base64...",
+      "auth": "base64..."
+    }
+  },
+  "p": { ... },                      // Chave pública RSA (RSA-OAEP-256) em JWK
+  "k": "base64..."                   // Chave privada VAPID cifrada (envelope RSA-AES)
+}
+```
+
+**Campos explicados:**
+- `iss`: E-mail ou identificador único do dono do perfil.
+- `nm`: Nome legível para exibição na interface e nas notificações.
+- `kid`: Chave pública VAPID. Usada para verificar a assinatura do JWT recebido e para identificar o contato.
+- `s`: Subscription obtida via `PushManager.subscribe()`. Contém o endpoint do serviço de push e as chaves `p256dh`/`auth`, necessárias para cifrar o payload.
+- `p`: Chave pública RSA. Usada pelo emissor para cifrar a chave AES que, por sua vez, cifra a mensagem.
+- `k`: Chave privada VAPID cifrada com um envelope híbrido: AES-GCM + RSA-OAEP usando a chave pública RSA do servidor proxy. Apenas o servidor proxy pode decifrá-la, garantindo que a chave privada VAPID nunca seja transmitida em texto puro.
+
+### 2.2. Contato (Contact)
+Quando um usuário recebe uma mensagem (ou adiciona manualmente um perfil), o emissor é salvo localmente como um **contato**. O contato armazena a subscription e as chaves públicas do emissor, permitindo que o receptor responda no futuro sem a necessidade de um novo perfil.
+
+**Estrutura do Contato (IndexedDB):**
+```typescript
+interface Contato {
+  publicKeyVapid: JsonWebKey;      // Chave pública VAPID (ECDSA)
+  email: string;
+  nome: string;
+  publicKeyRSA: JsonWebKey;        // Chave pública RSA (para cifrar a resposta)
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  };
+  vapidPrivateKey: string;         // Chave privada VAPID cifrada (para o proxy)
+  homologado: boolean;             // Se o contato é confiável (lista branca)
+  createdAt: number;
+  updatedAt: number;
+}
+```
+
+### 2.3. Mensagem (Message)
+A mensagem propriamente dita é transportada dentro de um **JWT** assinado. O conteúdo da mensagem é cifrado e comprimido para reduzir o tamanho (limite de 4096 bytes no Web Push).
+
+**Estrutura da mensagem recebida (IndexedDB):**
+```typescript
+interface MensagemRecebida {
+  id: string;                       // msg_<timestamp>_<random>
+  contatoPublicKeyVapid: string;   // Hash SHA-256 da chave VAPID do emissor (referência ao contato)
+  conteudo: string;                 // Texto decifrado
+  status: 'nao_lida' | 'lida' | 'notificada';
+  recebidoEm: number;
+}
+```
+
+---
+
+## 3. Armazenamento IndexedDB – Detalhamento
+
+O sistema utiliza as seguintes stores (bancos) no IndexedDB, gerenciadas pela biblioteca `idb-keyval`:
+
+| Nome da Store (`DB_NAMES`) | Chave | Valor | Finalidade |
+| :--- | :--- | :--- | :--- |
+| `BrowserB_Contatos_DB` | **Hash SHA-256** (hex) da chave VAPID pública serializada | `Contato` | Armazena todos os contatos conhecidos. A chave é um hash para evitar problemas de capitalização (case-insensitive) e inconsistências de serialização. |
+| `BrowserB_MensagensRecebidas_DB` | `msg_<timestamp>_<random>` | `MensagemRecebida` | Armazena mensagens recebidas. O campo `contatoPublicKeyVapid` referencia a chave hash do contato correspondente. |
+| `BrowserA_Identidade_DB` | `identidade_a` | `IdentidadeA` | Armazena a chave privada VAPID do usuário local (como `CryptoKey`), usada para assinar JWT. |
+| `BrowserA_MensagensEnvio_DB` | `msg_<timestamp>_<random>` | `MensagemEnvio` | Fila de mensagens aguardando envio (offline-first). |
+| `BrowserB_Subscription_DB` | `subscription_b` | `SubscriptionData` | Armazena a subscription atual do usuário. |
+| `BrowserA_Bundles_DB` | `bundle_ativo`, `bundle_historico` | `BundleData` | Armazena o perfil/bundle atual do usuário e histórico (para referência). |
+
+**Geração do Hash do Contato:**
+Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `"p-256"`), a chave primária da store de contatos é um **hash SHA-256** da string normalizada em minúsculo: `${kty}|${crv}|${x}|${y}` (extraídos da chave pública VAPID). Isso garante que a mesma chave pública gere sempre o mesmo hash, independentemente de como foi serializada.
+
+---
+
+## 4. Fluxos Detalhados
+
+### 4.1. Geração do Perfil
+**Função:** `gerarProfile()` em `src/app.tsx`
+
+1. **Verificação de permissões**: Checa se a permissão de notificação está concedida; caso contrário, solicita.
+2. **Registro do Service Worker**: Registra ou obtém a instância do Service Worker.
+3. **Geração de chaves VAPID**: Gera um par de chaves ECDSA P-256 (`vapidKeyPair`).
+4. **Geração de chaves RSA**: Gera um par de chaves RSA-OAEP-256 (`encryptionKeyPair`).
+5. **Obtenção da subscription**: Obtém a subscription do `PushManager` do navegador, usando a chave pública VAPID como `applicationServerKey`.
+6. **Busca da chave pública do servidor**: Faz uma requisição GET para `/api/server-public-key` para obter a chave pública RSA do servidor proxy.
+7. **Cifragem da chave privada VAPID**:
+   - A chave privada VAPID (em JWK) é cifrada com AES-GCM usando uma chave simétrica gerada aleatoriamente.
+   - A chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor.
+   - O resultado é um envelope JSON com `iv`, `dadosCifrados` e `chaveAesCifrada`, codificado em Base64. Esse envelope é colocado no campo `k` do perfil.
+8. **Montagem do perfil**: Combina `iss` (email), `nm` (nome), `kid` (chave pública VAPID), `s` (subscription), `p` (chave pública RSA), e `k` (chave privada VAPID cifrada).
+9. **Persistência**: Salva o perfil no IndexedDB (`bundle_ativo`) e também em histórico.
+10. **Exibição**: O perfil é mostrado em uma área de texto para o usuário copiar.
+
+### 4.2. Adição de Contato
+**Função:** `adicionarContato()` em `src/app.tsx`
+
+1. O usuário cola um perfil JSON em uma textarea e clica em "Adicionar Contato".
+2. Valida a estrutura do perfil (verifica campos obrigatórios).
+3. **Importa a chave pública VAPID** (campo `kid`) usando `crypto.subtle.importKey` com algoritmo `ECDSA` e `namedCurve: "P-256"` para validar o formato. Se falhar, o perfil é rejeitado.
+4. Cria um objeto `Contato` com os dados do perfil (`homologado: false`).
+5. **Gera o hash** da chave pública VAPID utilizando a função `serializarPublicKeyVapid` (que normaliza e aplica SHA-256).
+6. Salva o contato no IndexedDB (`BrowserB_Contatos_DB`) usando o hash como chave.
+7. Atualiza a interface: lista de contatos e dropdown de seleção.
+
+### 4.3. Envio de Mensagem
+**Função:** `enviarMensagemB()` em `src/app.tsx`
+
+1. O usuário seleciona um contato no dropdown (populado com os hashes) e digita a mensagem.
+2. Recupera o contato completo do IndexedDB usando o hash selecionado.
+3. **Prepara o objeto da mensagem**:
+   ```javascript
+   const mensagemObj = {
+     m: { c: conteudo },           // m = message, c = content (curto)
+     e: {
+       s: {                         // subscription do emissor (para resposta)
+         e: subscription.endpoint,
+         k: subscription.keys
+       },
+       p: publicKeyEncrypt,         // chave pública RSA do emissor
+       v: { k: vapidPrivateCifrada } // chave privada VAPID cifrada do emissor
+     }
+   };
+   ```
+4. **Comprime** o JSON com Gzip.
+5. **Gera uma chave AES-GCM** e IV aleatório.
+6. **Cifra os dados comprimidos** com AES-GCM.
+7. **Cifra a chave AES** com a chave pública RSA do contato (usando RSA-OAEP).
+8. Monta o envelope:
+   ```json
+   { "i": iv_base64, "d": dados_cifrados_base64, "k": chave_aes_cifrada_base64 }
+   ```
+9. **Constrói o JWT**:
+   - Header: `{ "alg": "ES256" }`
+   - Payload: 
+     ```json
+     {
+       "iss": email_do_emissor,
+       "sub": email_do_receptor,
+       "ct": envelope_json_string,
+       "p": publicKeyVapid_do_emissor,
+       "nm": nome_do_emissor
+     }
+     ```
+10. **Assina o JWT** usando a chave privada VAPID do emissor (ECDSA) – obtida da store `IdentidadeA`.
+11. **Salva a mensagem** na store de envio (`BrowserA_MensagensEnvio_DB`) com status `'pendente'`.
+12. **Envia uma mensagem ao Service Worker** via `postMessage` com tipo `ENVIAR_MENSAGEM`, contendo o bundle e o JWT.
+13. O Service Worker tentará enviar imediatamente ou mais tarde (offline).
+
+### 4.4. Processamento do Envio (Service Worker – `sw-mensagens.js`)
+1. O Service Worker recebe a mensagem da página via `postMessage`.
+2. Salva a mensagem na store `BrowserA_MensagensEnvio_DB` (se ainda não foi salva).
+3. Dispara a função `processarFilaEnvio()`.
+4. Para cada mensagem pendente (status `'pendente'` ou `'enviando'` há mais de 30 segundos):
+   - Atualiza status para `'enviando'`.
+   - Chama `enviarMensagemParaServidor(mensagem)`, que faz uma requisição HTTP POST para `/api/proxy-push` no servidor Deno, com os campos: `subscription`, `payloadText` (JWT), `vapid` (objeto com chaves), e `isVapidEncrypted: true`.
+   - Se a resposta for bem-sucedida, atualiza status para `'enviada'`. Em caso de erro, incrementa tentativas e, se exceder o máximo, marca como `'falha'`.
+5. A sincronização em segundo plano (`sync` event) também pode disparar esse processo quando a conexão for restaurada.
+
+### 4.5. Recebimento da Mensagem (Service Worker – `push.js`)
+1. O Service Worker recebe o evento `push` contendo o JWT no `event.data.text()`.
+2. Divide o JWT em header, payload e signature.
+3. **Verifica a assinatura**:
+   - Extrai o payload (Base64Url decodificado) e obtém `iss` (email), `nm` (nome), `p` (chave pública VAPID do emissor), `ct` (envelope).
+   - Verifica se `p` é uma chave válida e importa-a como `CryptoKey` para `ECDSA`.
+   - Decodifica a assinatura e verifica a integridade do JWT.
+4. Se a assinatura for inválida, descarta a mensagem e exibe notificação de erro.
+5. **Decifra o envelope**:
+   - Obtém a chave privada RSA do receptor (armazenada em `storeChavesE2E`).
+   - Decodifica `iv`, `dados` e `k` do envelope.
+   - Descriptografa a chave AES usando RSA-OAEP.
+   - Descriptografa os dados com AES-GCM.
+   - Descomprime (gunzip) o resultado, obtendo o objeto JSON original.
+6. **Salva/Atualiza o Contato**:
+   - Extrai `subscription`, `publicKeyRSA` e `vapidPrivateKey` do objeto decifrado.
+   - Gera o hash da chave pública VAPID do emissor (do campo `p` do JWT).
+   - Busca um contato existente pelo hash.
+   - Se não existir, cria um novo contato com os dados extraídos e o nome vindo de `nm` (ou fallback para o email). Se já existir, atualiza o nome e outros dados se necessário.
+   - Salva o contato na store `BrowserB_Contatos_DB`.
+7. **Salva a Mensagem**:
+   - Gera um ID único.
+   - Cria um objeto `MensagemRecebida` com o hash do contato, conteúdo decifrado, status `'nao_lida'` e timestamp.
+   - Salva na store `BrowserB_MensagensRecebidas_DB`.
+8. **Exibe notificação nativa** com o nome do remetente e o conteúdo.
+9. **Notifica as páginas abertas** via `postMessage` com tipo `PUSH_RECEIVED`, para que a UI seja atualizada em tempo real.
+
+### 4.6. Resposta (Responder)
+1. Na interface de mensagens recebidas, cada mensagem tem um botão "Responder".
+2. Ao clicar, o sistema obtém o hash do contato a partir da mensagem (campo `contatoPublicKeyVapid`).
+3. Busca o contato completo no IndexedDB.
+4. Preenche o dropdown de seleção de contatos com esse contato (via `select.value`) e navega para a aba de envio.
+5. O usuário digita a mensagem e o fluxo de envio (4.3) é executado, enviando a mensagem de volta para o emissor original.
+
+---
+
+## 5. Segurança e Criptografia
+
+| Etapa | Algoritmo/Esquema | Detalhe |
+| :--- | :--- | :--- |
+| **Assinatura do JWT** | ECDSA P-256 (`ES256`) | Garante que a mensagem não foi adulterada e autentica o emissor. |
+| **Cifragem do envelope** | AES-GCM (256 bits) | Cifra o conteúdo da mensagem, garantindo confidencialidade. |
+| **Cifragem da chave AES** | RSA-OAEP-256 | A chave AES é cifrada com a chave pública RSA do receptor, permitindo que apenas o receptor (com a chave privada) possa decifrá-la. |
+| **Compressão** | Gzip | Reduz o tamanho do payload (necessário devido ao limite de 4096 bytes do Web Push). |
+| **Chave privada VAPID** | Envelope RSA-AES (servidor) | A chave privada VAPID do emissor viaja cifrada no perfil. Apenas o servidor proxy (que possui a chave privada RSA correspondente) pode decifrá-la, evitando exposição no cliente. |
+
+**Observações sobre o limite de 4096 bytes:** O Web Push impõe um limite de 4096 bytes para o payload. Para respeitar esse limite, o sistema utiliza compressão gzip, campos curtos (ex: `ct`, `p`, `nm`) e estrutura compacta do envelope. O tamanho típico do JWT fica em torno de 3700-3800 bytes.
+
+---
+
+## 6. Estrutura do Projeto (Arquivos Relevantes)
+
+| Arquivo | Responsabilidade |
+| :--- | :--- |
+| `src/app.tsx` | Interface principal (UI) e lógica de negócio (geração de perfil, envio, recebimento via SW). Usa `preact` para componentes, mas é um arquivo único. |
+| `src/sw/push.js` | Lida com o evento `push`. Verifica assinatura, decifra envelope, salva contato e mensagem no IndexedDB, exibe notificação. |
+| `src/sw/sw-mensagens.js` | Gerencia filas de envio offline. Escuta mensagens da página (`postMessage`) e envia ao servidor proxy. |
+| `src/sw/cache.js` | Gerencia cache offline para os assets estáticos (HTML, CSS, JS). |
+| `src/sw/click.js` | Lida com o evento `notificationclick` – redireciona para a página principal. |
+| `src/constants/db.ts` | Define nomes das stores e interfaces TypeScript para contato, mensagem, etc. |
+| `src/utils/db-helpers.ts` | Funções auxiliares para operações IndexedDB: `salvarContato`, `buscarContatoPorChave`, `serializarPublicKeyVapid` (hash SHA-256). |
+| `main.ts` | Servidor Deno (proxy). Endpoints: `/api/server-public-key` (retorna chave pública RSA) e `/api/proxy-push` (recebe JSON com subscription e payload, descriptografa a chave privada VAPID, assina e encaminha para o endpoint de push). |
+| `build.ts` | Script de build usando `Deno.bundle` com entrypoints HTML. Compila `index.html` (que referencia `app.tsx`), gera bundle JS e atualiza o HTML. Também compila o Service Worker separadamente e injeta lista de assets e hash de versão. |
+
+---
+
+## 7. Build e Execução
+
+### Build
+O projeto utiliza **Deno** com `build.ts` para bundling:
+- O arquivo `src/index.html` é usado como entrypoint. O Deno bundler detecta a tag `<script src="./app.tsx" type="module">` e compila o código, gerando um arquivo JS com hash e atualizando o HTML.
+- O Service Worker é compilado separadamente em modo IIFE e tem seu conteúdo pós-processado para substituir `VERSION_HASH` e `__GENERATED_ASSETS__` pela lista de assets a cachear.
+
+Comando:
+```bash
+deno task build
+```
+
+### Execução do Servidor
+O servidor proxy é iniciado com:
+```bash
+deno task start
+```
+Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também fornece os endpoints `/api/server-public-key` (GET) e `/api/proxy-push` (POST).
+
+---
+
+## 8. Estado Atual e Pontos de Atenção
+
+- **Chave de Contato**: A migração para o hash SHA-256 está completa. Todos os contatos são armazenados com chave hash. As mensagens recebidas salvam o hash do contato (`contatoPublicKeyVapid`).
+- **Identificação do Emissor**: O campo `nm` (nome) é incluído no payload do JWT. O Service Worker extrai esse campo para salvar ou atualizar o nome do contato, garantindo que as mensagens exibam o nome correto.
+- **Limitação de Payload**: O JWT total deve ser inferior a 4096 bytes. O sistema utiliza compressão gzip, campos curtos (`ct`, `p`, `nm`) e estrutura compacta do envelope.
+- **Homologação**: A homologação é um campo booleano no contato, utilizado apenas para fins de interface (ex: exibir "Homologado" ou "Não homologado"). Não bloqueia o recebimento de mensagens.
+- **Service Worker**: Durante o desenvolvimento, é necessário desregistrar o Service Worker manualmente (Application → Service Workers → Unregister) e recarregar a página para que a nova versão seja carregada, devido ao cache agressivo.
+
+---
+
+## 9. Próximos Passos (Contexto para a Próxima IA)
+
+A próxima iteração deverá focar na **revisão da estrutura de dados no IndexedDB**, incluindo:
+1. **Consistência de chaves**: Verificar se todas as operações de contato e mensagem usam corretamente o hash SHA-256, e se não há divergências entre os campos de referência.
+2. **Atualização de contatos**: Garantir que, ao receber uma nova mensagem de um contato existente, o nome e outros dados sejam atualizados corretamente.
+3. **Limpeza de dados obsoletos**: Avaliar a possibilidade de remover stores ou campos que não são mais usados (ex: `BrowserB_ListaBranca_DB` ou campos antigos de mensagens).
+4. **Otimização de performance**: Verificar se as consultas ao IndexedDB são eficientes e se há índices que poderiam ser criados.
+5. **Validação do fluxo de resposta**: Testar exaustivamente o fluxo de resposta, assegurando que a chave privada VAPID cifrada (`vapidPrivateKey`) seja corretamente utilizada para montar o bundle de resposta.
+
+Além disso, considere a **documentação de testes manuais** e, se possível, a criação de um conjunto básico de testes unitários para as funções críticas (ex: serialização de chave, cifragem/decifragem).
+
+---
+
+## 10. Glossário de Termos
+
+| Termo | Significado |
+| :--- | :--- |
+| **VAPID** | Voluntary Application Server Identification – mecanismo para identificar o servidor de aplicação ao serviço de push. Utiliza chaves ECDSA. |
+| **JWK** | JSON Web Key – formato para representar chaves criptográficas. |
+| **JWT** | JSON Web Token – token assinado usado para transportar informações entre partes. |
+| **FCM** | Firebase Cloud Messaging – serviço de push da Google (utilizado no Chrome). |
+| **APNs** | Apple Push Notification service – serviço de push da Apple. |
+| **E2EE** | End-to-End Encryption – criptografia de ponta a ponta. |
+| **Subscription** | Objeto que representa a inscrição de um navegador no serviço de push, contendo endpoint e chaves de cifragem. |
+| **Proxy Server** | Servidor intermediário que encaminha requisições, neste caso, para o FCM, após assiná-las com a chave privada VAPID. |
+
+````
+
+---
+
 ## Arquivo: `build.ts`
 
 ```ts
 /// <reference lib="deno.ns" />
-import { ensureDir, copy } from "@std/fs";
+import { ensureDir, copy, walk } from "@std/fs";
 import { join } from "@std/path";
 
 const DIST_DIR = "dist";
@@ -2108,11 +3550,15 @@ async function gerarOuCarregarChavesServidor() {
 }
 
 async function listarAssetsParaCache(): Promise<string[]> {
-  const assets: string[] = [];
+  const assets: string[] = []; // Não Inclui a rota raiz explicitamente
   const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
-  for await (const entry of Deno.readDir(DIST_DIR)) {
-    if (entry.isFile && !entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      assets.push(`/${entry.name}`);
+  
+  // Caminha recursivamente por todos os subdiretórios criados pelo bundle dentro de dist
+  for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
+    if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
+      // Transforma o caminho do sistema de arquivos em caminho relativo web (ex: /assets/style.css)
+      const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
+      assets.push(webPath);
     }
   }
   return assets;
@@ -2155,13 +3601,18 @@ async function build() {
   if (swCode.length < 100) throw new Error("Não foi possível extrair o código do Service Worker");
   console.log(`   📄 Código extraído: ${swCode.length} caracteres`);
 
-  const assets = await listarAssetsParaCache();
-  const versionHash = Date.now().toString();
-  const assetsArrayString = assets.map(asset => `"${asset}"`).join(", ");
-  swCode = swCode.replace(/VERSION_HASH/g, versionHash);
-  swCode = swCode.replace(/__GENERATED_ASSETS__/g, assetsArrayString);
+const assets = await listarAssetsParaCache();
+const versionHash = Date.now().toString();
 
-  await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+// Injeta as propriedades de forma robusta
+swCode = swCode
+  .replace(/VERSION_HASH/g, versionHash)
+  // Substitui a expressão inteira __GENERATED_ASSETS__ pelo array serializado em JSON
+  .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets).slice(1, -1)); 
+  // O .slice(1, -1) remove os colchetes [ ] do JSON.stringify para encaixar perfeitamente dentro de [__GENERATED_ASSETS__]
+
+await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+
   console.log(`✨ Service Worker gerado com sucesso! (v_${versionHash})`);
   console.log(`   📦 ${assets.length} assets em cache`);
   console.log(`   📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
