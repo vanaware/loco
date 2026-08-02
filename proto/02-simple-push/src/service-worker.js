@@ -1,5 +1,11 @@
 // src/service-worker.js
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 // Importa os módulos fatiados
 import "./sw/cache.js";
 import "./sw/push.js";
@@ -12,19 +18,30 @@ console.log("[SW] 🌌 Orquestrador Modular do Service Worker carregado com suce
 // 🔥 PROCESSADOR DE FILAS EM BACKGROUND
 // Tenta processar filas quando o SW é ativado
 self.addEventListener('activate', (event) => {
-  console.log("[SW] 🔄 Ativando e processando filas pendentes...");
+  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
   event.waitUntil(
     (async () => {
       // Aguarda um pouco para garantir que tudo está pronto
       await new Promise(r => setTimeout(r, 1000));
       
-      // Processa filas
-      if (self.processarFilaEnvio) {
-        await self.processarFilaEnvio();
-      }
-      if (self.processarFilaNotificacao) {
-        await self.processarFilaNotificacao();
-      }
+      // Dispara o processamento em segundo plano, sem bloquear a ativação
+      // Usamos setTimeout para não travar o evento
+      setTimeout(async () => {
+        try {
+          if (self.processarFilaEnvio) {
+            await self.processarFilaEnvio();
+          }
+        } catch (e) {
+          console.error("[SW] Erro ao processar fila de envio:", e);
+        }
+        try {
+          if (self.processarFilaNotificacao) {
+            await self.processarFilaNotificacao();
+          }
+        } catch (e) {
+          console.error("[SW] Erro ao processar fila de notificações:", e);
+        }
+      }, 100);
     })()
   );
 });

@@ -1,16 +1,14 @@
 // src/constants/db.ts
 export const DB_NAMES = {
-  // Browser A (mantido apenas para compatibilidade com a identidade)
   IDENTIDADE_A: "BrowserA_Identidade_DB",
   BUNDLES_A: "BrowserA_Bundles_DB",
   MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
 
-  // Browser B
   CHAVES_E2E_B: "BrowserB_E2E_Chaves_DB",
   CHAVES_VAPID_B: "BrowserB_Vapid_DB",
   SUBSCRIPTION_B: "BrowserB_Subscription_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
-  CONTATOS: "BrowserB_Contatos_DB",
+  CONTATOS: "BrowserB_Contatos_DB", // Chave primária: SHA-256 da chave pública VAPID
 } as const;
 
 export const STORE_NAMES = {

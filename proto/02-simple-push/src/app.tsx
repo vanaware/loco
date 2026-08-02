@@ -57,14 +57,22 @@ console.log("🟢 [SW-LOG] Web Push Descentralizado - Perfis e Contatos");
 // ============================================================
 // UTILITÁRIOS
 // ============================================================
-function copyToClipboard(id: string): void {
-  const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement;
-  if (el) {
-    el.select();
+async function copyToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast("✅ Copiado para a área de transferência!", "success");
+  } catch {
+    // Fallback para browsers antigos
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
     document.execCommand('copy');
+    document.body.removeChild(textarea);
     showToast("✅ Copiado para a área de transferência!", "success");
   }
 }
+
 
 function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
   const toast = document.createElement('div');
@@ -96,7 +104,7 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
 }
 
 // ============================================================
-// FUNÇÃO PARA REGISTRAR O SERVICE WORKER
+// FUNÇÃO PARA REGISTRAR O SERVICE WORKER (VERSÃO SIMPLIFICADA)
 // ============================================================
 async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   console.log("📡 Verificando suporte ao Service Worker...");
@@ -105,71 +113,19 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
     throw new Error("Service Worker não é suportado neste navegador.");
   }
 
-  // 1. Sempre chamamos o register com cacheBuster. 
-  // O navegador é inteligente: se o arquivo for idêntico, ele não reinstala.
-  // Se o arquivo mudou no servidor (novo hash do Deno), ele inicia o processo de atualização.
+  // Usamos cache buster para forçar a atualização do arquivo
   const cacheBuster = Date.now();
   console.log("⏳ Registrando/Atualizando Service Worker...");
 
-  try {
-    const registration = await navigator.serviceWorker.register(
-      `./service-worker.js?cacheBuster=${cacheBuster}`,
-      { scope: "/" }
-    );
-    
-    console.log("Service Worker registrado. Escopo:", registration.scope);
+  const registration = await navigator.serviceWorker.register(
+    `./service-worker.js?cacheBuster=${cacheBuster}`,
+    { scope: "/" }
+  );
 
-    // 2. Aguarda a ativação do Worker desta transição atual
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error("Timeout de 5s: O SW pode estar aguardando abas antigas fecharem (waiting)."));
-      }, 5000);
-
-      const limparEInsucesso = (msg: string) => {
-        clearTimeout(timeout);
-        reject(new Error(msg));
-      };
-
-      const limparESucesso = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-
-      // Cenário A: Já está ativo e não há nenhuma atualização pendente (recarregamento simples)
-      if (registration.active && !registration.installing && !registration.waiting) {
-        return limparESucesso();
-      }
-
-      // Cenário B: Existe uma atualização acontecendo ou aguardando
-      // Prioriza o worker que está entrando (installing) ou na fila (waiting)
-      const novoWorker = registration.installing || registration.waiting || registration.active;
-
-      if (!novoWorker) {
-        return limparEInsucesso("Instância do Service Worker não encontrada.");
-      }
-
-      // Se o worker alvo já chegou no estado ativado de forma síncrona
-      if (novoWorker.state === "activated") {
-        return limparESucesso();
-      }
-
-      // Escuta a mudança de estado do worker correto
-      novoWorker.addEventListener("statechange", () => {
-        if (novoWorker.state === "activated") {
-          limparESucesso();
-        } else if (novoWorker.state === "redundant") {
-          limparEInsucesso("O Service Worker tornou-se redundante (falha na instalação).");
-        }
-      });
-    });
-
-    console.log("✅ Service Worker ativo e pronto.");
-    return registration;
-
-  } catch (err) {
-    console.error("❌ Erro no ciclo do Service Worker:", err);
-    throw new Error(`Falha ao registrar Service Worker: ${(err as Error).message}`);
-  }
+  // Aguarda a ativação completa do Service Worker
+  await navigator.serviceWorker.ready;
+  console.log("✅ Service Worker ativo e pronto.");
+  return registration;
 }
 
 
@@ -418,7 +374,7 @@ async function gerarProfile(): Promise<any> {
 }
 
 // ============================================================
-// ADICIONAR CONTATO A PARTIR DE UM PERFIL (CORRIGIDO)
+// ADICIONAR CONTATO – com validação reforçada
 // ============================================================
 async function adicionarContato(): Promise<void> {
   const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value;
@@ -428,19 +384,24 @@ async function adicionarContato(): Promise<void> {
   }
   try {
     const profile = JSON.parse(profileRaw);
-    if (!profile.iss || !profile.kid || !profile.s || !profile.p || !profile.k) {
-      throw new Error("Perfil inválido: faltam campos obrigatórios.");
+    // Verificação completa dos campos obrigatórios
+    const required = ['iss', 'kid', 's', 'p', 'k'];
+    for (const field of required) {
+      if (!profile[field]) throw new Error(`Campo obrigatório ausente: ${field}`);
     }
-    // 🔥 NÃO normaliza kty e crv – mantém o original (EC, P-256)
-    const kid = profile.kid;
-    await window.crypto.subtle.importKey(
-      "jwk", kid,
+    // Verifica se 's' contém endpoint e keys
+    if (!profile.s.endpoint || !profile.s.keys || !profile.s.keys.p256dh || !profile.s.keys.auth) {
+      throw new Error('Subscription inválida: falta endpoint ou keys.');
+    }
+    // Tenta importar a chave pública VAPID para validar
+    await crypto.subtle.importKey(
+      "jwk", profile.kid,
       { name: "ECDSA", namedCurve: "P-256" },
       true, ["verify"]
     );
 
     const contato: Contato = {
-      publicKeyVapid: kid,
+      publicKeyVapid: profile.kid,
       email: profile.iss,
       nome: profile.nm || profile.iss,
       publicKeyRSA: profile.p,
@@ -455,7 +416,7 @@ async function adicionarContato(): Promise<void> {
     (document.getElementById('profileInput') as HTMLTextAreaElement).value = '';
     await carregarContatos();
     await carregarSelectContatos();
-  } catch (err) {
+  } catch (err: any) {
     showToast(`❌ Erro ao adicionar contato: ${err.message}`, "error");
   }
 }
@@ -746,7 +707,7 @@ async function enviarMensagemB(): Promise<void> {
 }
 
 // ============================================================
-// COMPARTILHAR PERFIL (botão)
+// COMPARTILHAR PERFIL – usando copyToClipboard assíncrono
 // ============================================================
 async function compartilharProfile(): Promise<void> {
   console.log("🔄 Gerando e compartilhando perfil...");
@@ -758,13 +719,9 @@ async function compartilharProfile(): Promise<void> {
       display.textContent = profileJson;
       display.style.background = '#e8f5e9';
     }
-    try {
-      await navigator.clipboard.writeText(profileJson);
-      showToast("✅ Perfil copiado para a área de transferência!", "success");
-    } catch {
-      copyToClipboard('myProfileDisplay');
-    }
-  } catch (err) {
+    await copyToClipboard(profileJson);
+    showToast("✅ Perfil copiado para a área de transferência!", "success");
+  } catch (err: any) {
     showToast("❌ Erro ao gerar perfil: " + err.message, "error");
   }
 }
@@ -1087,14 +1044,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
 
-  document.getElementById('btnCopyProfile')?.addEventListener('click', () => {
-    const display = document.getElementById('myProfileDisplay');
-    if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
-      copyToClipboard('myProfileDisplay');
-    } else {
-      showToast("Primeiro gere seu perfil.", "info");
-    }
-  });
+document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
+  const display = document.getElementById('myProfileDisplay');
+  if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
+    await copyToClipboard(display.textContent);
+  } else {
+    showToast("Primeiro gere seu perfil.", "info");
+  }
+});
 
   document.getElementById('btnAdicionarContato')?.addEventListener('click', adicionarContato);
   document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);

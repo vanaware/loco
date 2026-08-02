@@ -48,3 +48,4 @@ label { font-weight: bold; display: block; margin-top: 5px; }
 .contato-item:hover { background: #f0f0f0; }
 .contato-select { width: 100%; padding: 8px; margin-bottom: 10px; }
 @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.meu-icone { width: 32px; height: auto;}

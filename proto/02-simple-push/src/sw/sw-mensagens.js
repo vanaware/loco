@@ -5,6 +5,7 @@ import { get, set, createStore, del, entries } from "idb-keyval";
 const DB_NAMES = {
   MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
+  CONTATOS: "BrowserB_Contatos_DB", // 🔥 Adicionado
 };
 
 const STORE_NAMES = {
@@ -14,8 +15,40 @@ const STORE_NAMES = {
 // 🔥 Cria as stores IMEDIATAMENTE (não lazy)
 const storeMensagensEnvioA = createStore(DB_NAMES.MENSAGENS_ENVIO_A, STORE_NAMES.KEYVAL);
 const storeMensagensRecebidasB = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
+const storeContatos = createStore(DB_NAMES.CONTATOS, STORE_NAMES.KEYVAL); // 🔥 Store de contatos
 
 console.log("[SW-MSG] ✅ Stores criadas com sucesso!");
+
+// ============================================================
+// FUNÇÕES AUXILIARES PARA CONTATOS (copiadas do db-helpers)
+// ============================================================
+async function sha256(message) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function serializarPublicKeyVapid(jwk) {
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+async function buscarContatoPorChave(chaveOuJwk) {
+  try {
+    let key;
+    if (typeof chaveOuJwk === 'string') {
+      key = chaveOuJwk;
+    } else if (chaveOuJwk && chaveOuJwk.kty) {
+      key = await serializarPublicKeyVapid(chaveOuJwk);
+    } else {
+      return null;
+    }
+    return await get(key, storeContatos) || null;
+  } catch {
+    return null;
+  }
+}
 
 // ============================================================
 // PROCESSADOR DE MENSAGENS - BROWSER A (ENVIO)
@@ -110,7 +143,6 @@ async function enviarMensagemParaServidor(mensagem) {
   } catch (err) {
     console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${mensagem.id}:`, err);
     
-    // Incrementa tentativas
     mensagem.tentativas++;
     mensagem.erro = err.message;
     
@@ -133,7 +165,6 @@ async function processarFilaEnvio() {
     const pendentes = await listarMensagensEnvioPorStatus('pendente');
     const enviando = await listarMensagensEnvioPorStatus('enviando');
     
-    // Recupera mensagens que ficaram presas em 'enviando'
     const todasEnviando = enviando.filter(m => {
       return (Date.now() - m.atualizadoEm) > 30000;
     });
@@ -205,7 +236,30 @@ async function atualizarStatusMensagemRecebida(id, status) {
   }
 }
 
-// 🔥 PROCESSADOR DE FILA DE NOTIFICAÇÃO
+/**
+ * Tenta exibir uma notificação com timeout de 5 segundos.
+ */
+async function mostrarNotificacaoComTimeout(titulo, opcoes, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      console.warn("[SW-MSG] ⚠️ Timeout ao exibir notificação, prosseguindo...");
+      resolve(false);
+    }, timeoutMs);
+
+    self.registration.showNotification(titulo, opcoes)
+      .then(() => {
+        clearTimeout(timeout);
+        resolve(true);
+      })
+      .catch((err) => {
+        clearTimeout(timeout);
+        console.error("[SW-MSG] ❌ Erro ao exibir notificação:", err);
+        resolve(false);
+      });
+  });
+}
+
+// 🔥 PROCESSADOR DE FILA DE NOTIFICAÇÃO (com busca do nome do contato)
 async function processarFilaNotificacao() {
   console.log("[SW-MSG] 🔔 Processando fila de notificações...");
   
@@ -219,22 +273,54 @@ async function processarFilaNotificacao() {
     
     console.log(`[SW-MSG] 📦 ${naoLidas.length} mensagens para notificar`);
     
+    // Ícone fallback (caso logo.svh não seja encontrado)
+    const fallbackIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const iconUrl = '/logo.svg'; // 🔥 ícone principal
+    
     for (const msg of naoLidas) {
       try {
         console.log(`[SW-MSG] 🔔 Notificando mensagem ${msg.id}...`);
         
-        await self.registration.showNotification(`📥 De: ${msg.remetente}`, {
-          body: msg.conteudo,
-          icon: '/icon.png',
-          badge: '/icon.png',
-          vibrate: [200, 100, 200],
-          data: msg.dadosJwt,
-          tag: msg.id,
-          requireInteraction: true
-        });
+        // 🔥 Busca o contato usando a chave armazenada na mensagem
+        let nomeRemetente = 'Remetente desconhecido';
+        if (msg.contatoPublicKeyVapid) {
+          const contato = await buscarContatoPorChave(msg.contatoPublicKeyVapid);
+          if (contato && contato.nome) {
+            nomeRemetente = contato.nome;
+          }
+        }
         
-        await atualizarStatusMensagemRecebida(msg.id, 'notificada');
-        console.log(`[SW-MSG] ✅ Mensagem ${msg.id} notificada com sucesso!`);
+        // Verifica se o ícone existe (fallback se não)
+        let iconToUse = iconUrl;
+        try {
+          const resp = await fetch(iconUrl, { method: 'HEAD' });
+          if (!resp.ok) {
+            iconToUse = fallbackIcon;
+          }
+        } catch {
+          iconToUse = fallbackIcon;
+        }
+
+        const exibida = await mostrarNotificacaoComTimeout(
+          `📥 De: ${nomeRemetente}`,
+          {
+            body: msg.conteudo,
+            icon: iconToUse,
+            badge: iconToUse,
+            vibrate: [200, 100, 200],
+            data: msg.dadosJwt || {},
+            tag: msg.id,
+            requireInteraction: true
+          },
+          5000 // timeout de 5 segundos
+        );
+
+        if (exibida) {
+          await atualizarStatusMensagemRecebida(msg.id, 'notificada');
+          console.log(`[SW-MSG] ✅ Mensagem ${msg.id} notificada com sucesso!`);
+        } else {
+          console.warn(`[SW-MSG] ⚠️ Notificação para ${msg.id} não foi exibida (timeout ou erro).`);
+        }
         
         await new Promise(resolve => setTimeout(resolve, 300));
       } catch (err) {
@@ -250,7 +336,6 @@ async function processarFilaNotificacao() {
 // LISTENERS DE EVENTOS
 // ============================================================
 
-// 🔥 OUVE MENSAGENS DA PÁGINA (Browser A/B)
 self.addEventListener('message', async (event) => {
   const data = event.data;
   
@@ -258,11 +343,7 @@ self.addEventListener('message', async (event) => {
     console.log(`[SW-MSG] 📩 Recebida mensagem da página para enviar: ${data.payload.id}`);
     try {
       await salvarMensagemEnvio(data.payload);
-      
-      // Tenta enviar imediatamente
       await processarFilaEnvio();
-      
-      // Responde para a página
       if (event.source) {
         event.source.postMessage({
           type: 'MENSAGEM_ENVIADA',
@@ -297,37 +378,30 @@ self.addEventListener('message', async (event) => {
   }
 });
 
-// 🔥 SINC - Disparado quando o navegador está online
 self.addEventListener('sync', async function(event) {
   console.log(`[SW-MSG] 🔄 Sync disparado: ${event.tag}`);
-  
   if (event.tag === 'sync-envio-mensagens') {
     event.waitUntil(processarFilaEnvio());
   }
-  
   if (event.tag === 'sync-notificar-mensagens') {
     event.waitUntil(processarFilaNotificacao());
   }
 });
 
-// 🔥 PERIODIC SYNC (se disponível)
 self.addEventListener('periodicsync', async function(event) {
   console.log(`[SW-MSG] ⏰ Periodic sync: ${event.tag}`);
-  
   if (event.tag === 'periodic-sync-mensagens') {
     await processarFilaEnvio();
     await processarFilaNotificacao();
   }
 });
 
-// 🔥 ONLINE/OFFLINE - Processa filas quando volta online
 self.addEventListener('online', async function() {
   console.log("[SW-MSG] 🌐 Conexão restaurada, processando filas...");
   await processarFilaEnvio();
   await processarFilaNotificacao();
 });
 
-// 🔥 EXPORTA FUNÇÕES PARA O SERVICE WORKER PRINCIPAL
 self.processarFilaEnvio = processarFilaEnvio;
 self.processarFilaNotificacao = processarFilaNotificacao;
 

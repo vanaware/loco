@@ -8,7 +8,7 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/2/2026, 10:22:06 AM
+Gerado automaticamente em: 8/2/2026, 12:51:34 PM
 
 ---
 
@@ -1149,7 +1149,7 @@ self.addEventListener('push', function(event) {
       const jwtPayload = JSON.parse(base64UrlDecode(payloadB64Url));
       const emailRemetente = jwtPayload.iss || "remetente@desconhecido";
       // 🔥 Extrai nome: prioriza 'nm', depois 'name', fallback
-      const nomeRemetente = jwtPayload.nm || jwtPayload.name || "Remetente";
+      const nomeRemetente = jwtPayload.nm || jwtPayload.name || emailRemetente.split('@')[0] || "Remetente";
 
       console.log(`[SW-PUSH] 🔐 Mensagem de ${nomeRemetente} <${emailRemetente}>`);
 
@@ -1270,25 +1270,21 @@ self.addEventListener('push', function(event) {
       // SALVA CONTATO (se novo ou atualizado) – com nome do JWT
       // ============================================================
       if (publicKeyVapid && publicKeyRSA && subscription) {
-        // Busca contato existente (pode ter sido encontrado antes)
-        let contatoExistente = contato;
-        if (!contatoExistente) {
-          contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
-        }
-        const novoContato = {
-          publicKeyVapid: publicKeyVapid,
-          email: emailRemetente,
-          nome: nomeRemetente, // usa nome do JWT
-          publicKeyRSA: publicKeyRSA,
-          subscription: subscription,
-          vapidPrivateKey: vapidPrivateKey || '',
-          homologado: homologado,
-          createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
-          updatedAt: Date.now()
-        };
-        await salvarContato(novoContato);
-        contato = novoContato;
-      } else {
+  let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
+  const novoContato = {
+    publicKeyVapid: publicKeyVapid,
+    email: emailRemetente,
+    nome: contatoExistente?.nome || nomeRemetente, // Mantém nome existente se já tiver
+    publicKeyRSA: publicKeyRSA,
+    subscription: subscription,
+    vapidPrivateKey: vapidPrivateKey || '',
+    homologado: contatoExistente ? contatoExistente.homologado : false,
+    createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(novoContato);
+  contato = novoContato;
+} else {
         console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
       }
 
@@ -1368,17 +1364,15 @@ console.log("[SW-PUSH] 📦 Módulo push carregado (com contatos via hash, DEBUG
 ```ts
 // src/constants/db.ts
 export const DB_NAMES = {
-  // Browser A (mantido apenas para compatibilidade com a identidade)
   IDENTIDADE_A: "BrowserA_Identidade_DB",
   BUNDLES_A: "BrowserA_Bundles_DB",
   MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
 
-  // Browser B
   CHAVES_E2E_B: "BrowserB_E2E_Chaves_DB",
   CHAVES_VAPID_B: "BrowserB_Vapid_DB",
   SUBSCRIPTION_B: "BrowserB_Subscription_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
-  CONTATOS: "BrowserB_Contatos_DB",
+  CONTATOS: "BrowserB_Contatos_DB", // Chave primária: SHA-256 da chave pública VAPID
 } as const;
 
 export const STORE_NAMES = {
@@ -1698,7 +1692,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos (com hash)
+// Contatos (com hash) – funções melhoradas
 // ============================================================
 
 async function sha256(message: string): Promise<string> {
@@ -1717,6 +1711,18 @@ export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string>
   return await sha256(raw);
 }
 
+/**
+ * Normaliza uma entrada (hash ou JWK) para a chave hash usada na store de contatos.
+ * Se for string, assume que já é hash; se for objeto, serializa.
+ */
+export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object' && input !== null && 'kty' in input) {
+    return await serializarPublicKeyVapid(input);
+  }
+  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
+}
+
 export async function salvarContato(contato: Contato): Promise<void> {
   const key = await serializarPublicKeyVapid(contato.publicKeyVapid);
   await salvarChave(storeContatos, key, contato);
@@ -1727,8 +1733,13 @@ export async function buscarContatoPorPublicKey(publicKeyVapid: JsonWebKey): Pro
   return buscarChave<Contato>(storeContatos, key);
 }
 
-export async function buscarContatoPorChave(chave: string): Promise<Contato | undefined> {
-  return buscarChave<Contato>(storeContatos, chave);
+/**
+ * Busca contato por chave (hash) ou JWK.
+ * @param chaveOuJwk - string (hash) ou JsonWebKey
+ */
+export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
+  const key = await normalizarChaveContato(chaveOuJwk);
+  return buscarChave<Contato>(storeContatos, key);
 }
 
 export async function listarContatos(): Promise<Contato[]> {
@@ -1769,6 +1780,7 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
 <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
 <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
 <meta name="application-name" content="loco" />
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     
   </head>
   <body>
@@ -1930,14 +1942,22 @@ console.log("🟢 [SW-LOG] Web Push Descentralizado - Perfis e Contatos");
 // ============================================================
 // UTILITÁRIOS
 // ============================================================
-function copyToClipboard(id: string): void {
-  const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement;
-  if (el) {
-    el.select();
+async function copyToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast("✅ Copiado para a área de transferência!", "success");
+  } catch {
+    // Fallback para browsers antigos
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
     document.execCommand('copy');
+    document.body.removeChild(textarea);
     showToast("✅ Copiado para a área de transferência!", "success");
   }
 }
+
 
 function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
   const toast = document.createElement('div');
@@ -2291,7 +2311,7 @@ async function gerarProfile(): Promise<any> {
 }
 
 // ============================================================
-// ADICIONAR CONTATO A PARTIR DE UM PERFIL (CORRIGIDO)
+// ADICIONAR CONTATO – com validação reforçada
 // ============================================================
 async function adicionarContato(): Promise<void> {
   const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value;
@@ -2301,19 +2321,24 @@ async function adicionarContato(): Promise<void> {
   }
   try {
     const profile = JSON.parse(profileRaw);
-    if (!profile.iss || !profile.kid || !profile.s || !profile.p || !profile.k) {
-      throw new Error("Perfil inválido: faltam campos obrigatórios.");
+    // Verificação completa dos campos obrigatórios
+    const required = ['iss', 'kid', 's', 'p', 'k'];
+    for (const field of required) {
+      if (!profile[field]) throw new Error(`Campo obrigatório ausente: ${field}`);
     }
-    // 🔥 NÃO normaliza kty e crv – mantém o original (EC, P-256)
-    const kid = profile.kid;
-    await window.crypto.subtle.importKey(
-      "jwk", kid,
+    // Verifica se 's' contém endpoint e keys
+    if (!profile.s.endpoint || !profile.s.keys || !profile.s.keys.p256dh || !profile.s.keys.auth) {
+      throw new Error('Subscription inválida: falta endpoint ou keys.');
+    }
+    // Tenta importar a chave pública VAPID para validar
+    await crypto.subtle.importKey(
+      "jwk", profile.kid,
       { name: "ECDSA", namedCurve: "P-256" },
       true, ["verify"]
     );
 
     const contato: Contato = {
-      publicKeyVapid: kid,
+      publicKeyVapid: profile.kid,
       email: profile.iss,
       nome: profile.nm || profile.iss,
       publicKeyRSA: profile.p,
@@ -2328,7 +2353,7 @@ async function adicionarContato(): Promise<void> {
     (document.getElementById('profileInput') as HTMLTextAreaElement).value = '';
     await carregarContatos();
     await carregarSelectContatos();
-  } catch (err) {
+  } catch (err: any) {
     showToast(`❌ Erro ao adicionar contato: ${err.message}`, "error");
   }
 }
@@ -2619,7 +2644,7 @@ async function enviarMensagemB(): Promise<void> {
 }
 
 // ============================================================
-// COMPARTILHAR PERFIL (botão)
+// COMPARTILHAR PERFIL – usando copyToClipboard assíncrono
 // ============================================================
 async function compartilharProfile(): Promise<void> {
   console.log("🔄 Gerando e compartilhando perfil...");
@@ -2631,13 +2656,9 @@ async function compartilharProfile(): Promise<void> {
       display.textContent = profileJson;
       display.style.background = '#e8f5e9';
     }
-    try {
-      await navigator.clipboard.writeText(profileJson);
-      showToast("✅ Perfil copiado para a área de transferência!", "success");
-    } catch {
-      copyToClipboard('myProfileDisplay');
-    }
-  } catch (err) {
+    await copyToClipboard(profileJson);
+    showToast("✅ Perfil copiado para a área de transferência!", "success");
+  } catch (err: any) {
     showToast("❌ Erro ao gerar perfil: " + err.message, "error");
   }
 }
@@ -3074,7 +3095,12 @@ label { font-weight: bold; display: block; margin-top: 5px; }
 {
   "extends": "../../deno.json",
   "imports": {
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle"
   },
   "tasks": {
     "build": "deno run --allow-read --allow-write --allow-env --allow-net --unstable-bundle --env-file build.ts",

@@ -146,7 +146,7 @@ self.addEventListener('push', function(event) {
       const jwtPayload = JSON.parse(base64UrlDecode(payloadB64Url));
       const emailRemetente = jwtPayload.iss || "remetente@desconhecido";
       // 🔥 Extrai nome: prioriza 'nm', depois 'name', fallback
-      const nomeRemetente = jwtPayload.nm || jwtPayload.name || "Remetente";
+      const nomeRemetente = jwtPayload.nm || jwtPayload.name || emailRemetente.split('@')[0] || "Remetente";
 
       console.log(`[SW-PUSH] 🔐 Mensagem de ${nomeRemetente} <${emailRemetente}>`);
 
@@ -267,25 +267,21 @@ self.addEventListener('push', function(event) {
       // SALVA CONTATO (se novo ou atualizado) – com nome do JWT
       // ============================================================
       if (publicKeyVapid && publicKeyRSA && subscription) {
-        // Busca contato existente (pode ter sido encontrado antes)
-        let contatoExistente = contato;
-        if (!contatoExistente) {
-          contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
-        }
-        const novoContato = {
-          publicKeyVapid: publicKeyVapid,
-          email: emailRemetente,
-          nome: nomeRemetente, // usa nome do JWT
-          publicKeyRSA: publicKeyRSA,
-          subscription: subscription,
-          vapidPrivateKey: vapidPrivateKey || '',
-          homologado: homologado,
-          createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
-          updatedAt: Date.now()
-        };
-        await salvarContato(novoContato);
-        contato = novoContato;
-      } else {
+  let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
+  const novoContato = {
+    publicKeyVapid: publicKeyVapid,
+    email: emailRemetente,
+    nome: contatoExistente?.nome || nomeRemetente, // Mantém nome existente se já tiver
+    publicKeyRSA: publicKeyRSA,
+    subscription: subscription,
+    vapidPrivateKey: vapidPrivateKey || '',
+    homologado: contatoExistente ? contatoExistente.homologado : false,
+    createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(novoContato);
+  contato = novoContato;
+} else {
         console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
       }
 

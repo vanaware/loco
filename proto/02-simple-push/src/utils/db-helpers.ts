@@ -214,7 +214,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos (com hash)
+// Contatos (com hash) – funções melhoradas
 // ============================================================
 
 async function sha256(message: string): Promise<string> {
@@ -233,6 +233,18 @@ export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string>
   return await sha256(raw);
 }
 
+/**
+ * Normaliza uma entrada (hash ou JWK) para a chave hash usada na store de contatos.
+ * Se for string, assume que já é hash; se for objeto, serializa.
+ */
+export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object' && input !== null && 'kty' in input) {
+    return await serializarPublicKeyVapid(input);
+  }
+  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
+}
+
 export async function salvarContato(contato: Contato): Promise<void> {
   const key = await serializarPublicKeyVapid(contato.publicKeyVapid);
   await salvarChave(storeContatos, key, contato);
@@ -243,8 +255,13 @@ export async function buscarContatoPorPublicKey(publicKeyVapid: JsonWebKey): Pro
   return buscarChave<Contato>(storeContatos, key);
 }
 
-export async function buscarContatoPorChave(chave: string): Promise<Contato | undefined> {
-  return buscarChave<Contato>(storeContatos, chave);
+/**
+ * Busca contato por chave (hash) ou JWK.
+ * @param chaveOuJwk - string (hash) ou JsonWebKey
+ */
+export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
+  const key = await normalizarChaveContato(chaveOuJwk);
+  return buscarChave<Contato>(storeContatos, key);
 }
 
 export async function listarContatos(): Promise<Contato[]> {
