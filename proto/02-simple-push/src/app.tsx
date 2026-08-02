@@ -1,4 +1,7 @@
 // src/app.tsx
+
+import "./styles.css";
+
 import {
   storeChavesE2E,
   storeChavesVapid,
@@ -96,38 +99,79 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
 // FUNÇÃO PARA REGISTRAR O SERVICE WORKER
 // ============================================================
 async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  console.log("📡 Verificando registro do Service Worker...");
-  if (!navigator.serviceWorker) {
+  console.log("📡 Verificando suporte ao Service Worker...");
+
+  if (!("serviceWorker" in navigator)) {
     throw new Error("Service Worker não é suportado neste navegador.");
   }
-  let registration = await navigator.serviceWorker.getRegistration();
-  if (registration && registration.active) {
-    console.log("✅ Service Worker já está ativo.");
-    return registration;
-  }
-  console.log("⏳ Registrando Service Worker...");
+
+  // 1. Sempre chamamos o register com cacheBuster. 
+  // O navegador é inteligente: se o arquivo for idêntico, ele não reinstala.
+  // Se o arquivo mudou no servidor (novo hash do Deno), ele inicia o processo de atualização.
+  const cacheBuster = Date.now();
+  console.log("⏳ Registrando/Atualizando Service Worker...");
+
   try {
-    registration = await navigator.serviceWorker.register("./service-worker.js", { scope: "/" });
-    console.log("✅ Service Worker registrado com sucesso.");
+    const registration = await navigator.serviceWorker.register(
+      `./service-worker.js?cacheBuster=${cacheBuster}`,
+      { scope: "/" }
+    );
+    
+    console.log("Service Worker registrado. Escopo:", registration.scope);
+
+    // 2. Aguarda a ativação do Worker desta transição atual
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timeout ao esperar ativação do SW")), 5000);
-      if (registration.active) {
+      const timeout = setTimeout(() => {
+        reject(new Error("Timeout de 5s: O SW pode estar aguardando abas antigas fecharem (waiting)."));
+      }, 5000);
+
+      const limparEInsucesso = (msg: string) => {
+        clearTimeout(timeout);
+        reject(new Error(msg));
+      };
+
+      const limparESucesso = () => {
         clearTimeout(timeout);
         resolve();
-      } else {
-        registration.addEventListener('activate', () => {
-          clearTimeout(timeout);
-          resolve();
-        });
+      };
+
+      // Cenário A: Já está ativo e não há nenhuma atualização pendente (recarregamento simples)
+      if (registration.active && !registration.installing && !registration.waiting) {
+        return limparESucesso();
       }
+
+      // Cenário B: Existe uma atualização acontecendo ou aguardando
+      // Prioriza o worker que está entrando (installing) ou na fila (waiting)
+      const novoWorker = registration.installing || registration.waiting || registration.active;
+
+      if (!novoWorker) {
+        return limparEInsucesso("Instância do Service Worker não encontrada.");
+      }
+
+      // Se o worker alvo já chegou no estado ativado de forma síncrona
+      if (novoWorker.state === "activated") {
+        return limparESucesso();
+      }
+
+      // Escuta a mudança de estado do worker correto
+      novoWorker.addEventListener("statechange", () => {
+        if (novoWorker.state === "activated") {
+          limparESucesso();
+        } else if (novoWorker.state === "redundant") {
+          limparEInsucesso("O Service Worker tornou-se redundante (falha na instalação).");
+        }
+      });
     });
-    console.log("✅ Service Worker ativado.");
+
+    console.log("✅ Service Worker ativo e pronto.");
     return registration;
+
   } catch (err) {
-    console.error("❌ Erro ao registrar Service Worker:", err);
-    throw new Error("Falha ao registrar Service Worker: " + (err as Error).message);
+    console.error("❌ Erro no ciclo do Service Worker:", err);
+    throw new Error(`Falha ao registrar Service Worker: ${(err as Error).message}`);
   }
 }
+
 
 // ============================================================
 // CRIPTOGRAFIA DA CHAVE VAPID (para o servidor)

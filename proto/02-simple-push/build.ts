@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { ensureDir, copy } from "@std/fs";
+import { ensureDir, copy, walk } from "@std/fs";
 import { join } from "@std/path";
 
 const DIST_DIR = "dist";
@@ -137,11 +137,15 @@ async function gerarOuCarregarChavesServidor() {
 }
 
 async function listarAssetsParaCache(): Promise<string[]> {
-  const assets: string[] = [];
+  const assets: string[] = []; // Não Inclui a rota raiz explicitamente
   const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
-  for await (const entry of Deno.readDir(DIST_DIR)) {
-    if (entry.isFile && !entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      assets.push(`/${entry.name}`);
+  
+  // Caminha recursivamente por todos os subdiretórios criados pelo bundle dentro de dist
+  for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
+    if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
+      // Transforma o caminho do sistema de arquivos em caminho relativo web (ex: /assets/style.css)
+      const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
+      assets.push(webPath);
     }
   }
   return assets;
@@ -184,13 +188,18 @@ async function build() {
   if (swCode.length < 100) throw new Error("Não foi possível extrair o código do Service Worker");
   console.log(`   📄 Código extraído: ${swCode.length} caracteres`);
 
-  const assets = await listarAssetsParaCache();
-  const versionHash = Date.now().toString();
-  const assetsArrayString = assets.map(asset => `"${asset}"`).join(", ");
-  swCode = swCode.replace(/VERSION_HASH/g, versionHash);
-  swCode = swCode.replace(/__GENERATED_ASSETS__/g, assetsArrayString);
+const assets = await listarAssetsParaCache();
+const versionHash = Date.now().toString();
 
-  await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+// Injeta as propriedades de forma robusta
+swCode = swCode
+  .replace(/VERSION_HASH/g, versionHash)
+  // Substitui a expressão inteira __GENERATED_ASSETS__ pelo array serializado em JSON
+  .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets).slice(1, -1)); 
+  // O .slice(1, -1) remove os colchetes [ ] do JSON.stringify para encaixar perfeitamente dentro de [__GENERATED_ASSETS__]
+
+await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+
   console.log(`✨ Service Worker gerado com sucesso! (v_${versionHash})`);
   console.log(`   📦 ${assets.length} assets em cache`);
   console.log(`   📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
