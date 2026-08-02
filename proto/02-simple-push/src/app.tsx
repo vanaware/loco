@@ -3,9 +3,6 @@
 import "./styles.css";
 
 import {
-  storeChavesE2E,
-  storeChavesVapid,
-  storeSubscription,
   salvarChavesE2EB,
   buscarChavesE2EB,
   salvarPublicEncryptB,
@@ -14,13 +11,9 @@ import {
   salvarSubscriptionB,
   buscarSubscriptionB,
   removerSubscriptionB,
-  salvarBundleAtivo,
-  buscarBundleAtivo,
-  salvarBundleHistorico,
   salvarMensagemEnvio,
   listarMensagensEnvio,
   removerMensagemEnvio,
-  salvarMensagemRecebida,
   listarMensagensRecebidas,
   atualizarStatusMensagemRecebida,
   removerMensagemRecebida,
@@ -28,9 +21,7 @@ import {
   buscarIdentidadeA,
   salvarPublicKeyA,
   buscarPublicKeyA,
-  buscarMensagemRecebida,
   // CONTATOS
-  storeContatos,
   salvarContato,
   buscarContatoPorPublicKey,
   buscarContatoPorChave,
@@ -38,8 +29,6 @@ import {
   homologarContato,
   removerContato,
   serializarPublicKeyVapid,
-  salvarChave,
-  removerChave,
 } from "./utils/db-helpers.ts";
 import type {
   ChavesE2EB,
@@ -62,7 +51,6 @@ async function copyToClipboard(text: string): Promise<void> {
     await navigator.clipboard.writeText(text);
     showToast("✅ Copiado para a área de transferência!", "success");
   } catch {
-    // Fallback para browsers antigos
     const textarea = document.createElement('textarea');
     textarea.value = text;
     document.body.appendChild(textarea);
@@ -72,7 +60,6 @@ async function copyToClipboard(text: string): Promise<void> {
     showToast("✅ Copiado para a área de transferência!", "success");
   }
 }
-
 
 function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
   const toast = document.createElement('div');
@@ -113,7 +100,6 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
     throw new Error("Service Worker não é suportado neste navegador.");
   }
 
-  // Usamos cache buster para forçar a atualização do arquivo
   const cacheBuster = Date.now();
   console.log("⏳ Registrando/Atualizando Service Worker...");
 
@@ -122,12 +108,10 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
     { scope: "/" }
   );
 
-  // Aguarda a ativação completa do Service Worker
   await navigator.serviceWorker.ready;
   console.log("✅ Service Worker ativo e pronto.");
   return registration;
 }
-
 
 // ============================================================
 // CRIPTOGRAFIA DA CHAVE VAPID (para o servidor)
@@ -348,24 +332,6 @@ async function gerarProfile(): Promise<any> {
       k: privateKeyEncrypted
     };
 
-    const bundle = {
-      subscription: subscriptionJson,
-      vapid: {
-        subject: `mailto:${email}`,
-        publicKey: publicKeyJwk,
-        privateKey: privateKeyEncrypted
-      },
-      isVapidEncrypted: true,
-      e2e: {
-        ownerName: nome,
-        ownerEmail: email,
-        browserB_PublicKeyEncrypt: publicEncryptJwk,
-      },
-      payloadText: ""
-    };
-    await salvarBundleAtivo(bundle);
-    await salvarBundleHistorico(bundle);
-
     return profile;
   } catch (err) {
     console.error("❌ Erro ao gerar perfil:", err);
@@ -384,16 +350,13 @@ async function adicionarContato(): Promise<void> {
   }
   try {
     const profile = JSON.parse(profileRaw);
-    // Verificação completa dos campos obrigatórios
     const required = ['iss', 'kid', 's', 'p', 'k'];
     for (const field of required) {
       if (!profile[field]) throw new Error(`Campo obrigatório ausente: ${field}`);
     }
-    // Verifica se 's' contém endpoint e keys
     if (!profile.s.endpoint || !profile.s.keys || !profile.s.keys.p256dh || !profile.s.keys.auth) {
       throw new Error('Subscription inválida: falta endpoint ou keys.');
     }
-    // Tenta importar a chave pública VAPID para validar
     await crypto.subtle.importKey(
       "jwk", profile.kid,
       { name: "ECDSA", namedCurve: "P-256" },
@@ -420,8 +383,6 @@ async function adicionarContato(): Promise<void> {
     showToast(`❌ Erro ao adicionar contato: ${err.message}`, "error");
   }
 }
-
-
 
 // ============================================================
 // CARREGAR LISTA DE CONTATOS (UI)
@@ -497,6 +458,7 @@ async function enviarMensagemB(): Promise<void> {
   }
 
   try {
+    // 1. Buscar contato destino (destinatário)
     let contato = await buscarContatoPorChave(selectedKey);
     if (!contato) {
       console.warn("Contato não encontrado pela chave exata. Tentando fallback...");
@@ -519,7 +481,8 @@ async function enviarMensagemB(): Promise<void> {
       return;
     }
 
-    const bundle = {
+    // Bundle do destinatário (para cifrar a mensagem)
+    const bundleDestino = {
       subscription: contato.subscription,
       vapid: {
         subject: `mailto:${contato.email}`,
@@ -535,84 +498,65 @@ async function enviarMensagemB(): Promise<void> {
       payloadText: ""
     };
 
-    const e2eConfig = bundle.e2e;
-    const publicKeyJwk = e2eConfig.browserB_PublicKeyEncrypt;
-    if (publicKeyJwk.kty !== "RSA") {
+    // Chave pública RSA do destinatário para cifrar a chave AES
+    const publicKeyDestino = bundleDestino.e2e.browserB_PublicKeyEncrypt;
+    if (publicKeyDestino.kty !== "RSA") {
       showToast("❌ Chave pública do contato não é RSA.", "error");
       return;
     }
 
     const cryptoKeyDestino = await window.crypto.subtle.importKey(
-      "jwk", publicKeyJwk,
+      "jwk", publicKeyDestino,
       { name: "RSA-OAEP", hash: "SHA-256" },
       true,
       ["encrypt"]
     );
 
-    const subscription = await buscarSubscriptionB();
+    // 2. Buscar dados do emissor (usuário atual)
+    const identidade = await buscarIdentidadeA();
+    const subscriptionData = await buscarSubscriptionB();
     const chavesVapid = await buscarChavesVapidB();
     const chavesE2E = await buscarChavesE2EB();
-    const publicKeyEncrypt = chavesE2E?.publicEncrypt;
-    const publicVapid = chavesVapid?.publicKey;
-    if (!publicVapid) throw new Error("Chave pública VAPID não encontrada.");
 
-    let vapidPrivateCifrada: string | undefined;
-    let meuBundle = await buscarBundleAtivo();
-    if (meuBundle?.vapid?.privateKey) {
-      vapidPrivateCifrada = meuBundle.vapid.privateKey;
-    } else {
-      const chavesVapidSalvas = await buscarChavesVapidB();
-      if (chavesVapidSalvas?.privateKey) {
-        const resServerKey = await fetch("/api/server-public-key");
-        const serverPublicKeyJwk = await resServerKey.json();
-        vapidPrivateCifrada = await criptografarChaveVapid(chavesVapidSalvas.privateKey, serverPublicKeyJwk);
-        if (!meuBundle) {
-          const nomeB = (document.getElementById('profileNameB') as HTMLInputElement).value;
-          const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
-          meuBundle = {
-            subscription: subscription ? {
-              endpoint: subscription.endpoint,
-              keys: subscription.keys
-            } : undefined,
-            vapid: {
-              subject: `mailto:${emailB || 'unknown'}`,
-              publicKey: publicVapid,
-              privateKey: vapidPrivateCifrada
-            },
-            isVapidEncrypted: true,
-            e2e: {
-              ownerName: nomeB || 'Usuário',
-              ownerEmail: emailB || 'unknown',
-              browserB_PublicKeyEncrypt: publicKeyEncrypt
-            },
-            payloadText: ""
-          };
-        } else {
-          if (!meuBundle.vapid) meuBundle.vapid = {};
-          meuBundle.vapid.privateKey = vapidPrivateCifrada;
-          meuBundle.vapid.publicKey = publicVapid;
-          if (!meuBundle.vapid.subject) {
-            const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
-            meuBundle.vapid.subject = `mailto:${emailB || 'unknown'}`;
-          }
-        }
-        await salvarBundleAtivo(meuBundle);
-      } else {
-        throw new Error("Chave privada VAPID não encontrada. Gere seu perfil novamente.");
-      }
+    if (!identidade || !subscriptionData || !chavesVapid || !chavesE2E) {
+      throw new Error("Dados de identidade ou chaves não encontrados. Gere seu perfil novamente.");
     }
 
+    // 3. Construir o bundle do emissor (para incluir no payload)
+    const bundleEmissor = {
+      subscription: {
+        endpoint: subscriptionData.endpoint,
+        keys: subscriptionData.keys
+      },
+      vapid: {
+        subject: `mailto:${identidade.email}`,
+        publicKey: chavesVapid.publicKey,
+        privateKey: chavesVapid.privateKey // já cifrada
+      },
+      isVapidEncrypted: true,
+      e2e: {
+        ownerName: identidade.name,
+        ownerEmail: identidade.email,
+        browserB_PublicKeyEncrypt: chavesE2E.publicEncrypt
+      },
+      payloadText: ""
+    };
+
+    const publicKeyEncrypt = chavesE2E.publicEncrypt;
+    const publicVapid = chavesVapid.publicKey;
+
+    // 4. Construir o objeto de mensagem (com envelope)
     const encoder = new TextEncoder();
     const mensagemObj = {
       m: { c: conteudo },
       e: {
-        s: subscription ? {
-          e: subscription.endpoint,
-          k: subscription.keys
-        } : undefined,
+        s: {
+          e: subscriptionData.endpoint,
+          k: subscriptionData.keys
+        },
         p: publicKeyEncrypt,
         v: {
-          k: vapidPrivateCifrada
+          k: chavesVapid.privateKey // chave privada VAPID cifrada do emissor
         }
       }
     };
@@ -646,8 +590,7 @@ async function enviarMensagemB(): Promise<void> {
     };
     const envelopeJson = JSON.stringify(envelope);
 
-    const identidade = await buscarIdentidadeA();
-    if (!identidade) throw new Error("Identidade não encontrada.");
+    // 5. Construir JWT
     const header = { alg: "ES256" };
     const payload = {
       iss: identidade.email,
@@ -674,10 +617,11 @@ async function enviarMensagemB(): Promise<void> {
       console.log(`✅ JWT dentro do limite (${4096 - jwt.length} bytes restantes)`);
     }
 
+    // 6. Salvar mensagem na fila de envio
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const mensagem: MensagemEnvio = {
       id: msgId,
-      bundle: bundle,
+      bundle: bundleDestino, // salva o bundle do destinatário (para o SW enviar)
       payloadText: jwt,
       mensagemOriginal: conteudo,
       destinatario: contato.email,
@@ -727,7 +671,7 @@ async function compartilharProfile(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR MENSAGENS RECEBIDAS – com fallback robusto
+// CARREGAR MENSAGENS RECEBIDAS
 // ============================================================
 async function carregarMensagensRecebidas(): Promise<void> {
   console.log("📬 Carregando mensagens recebidas...");
@@ -746,33 +690,27 @@ async function carregarMensagensRecebidas(): Promise<void> {
     const statusEmoji = msg.status === 'nao_lida' ? '🟡' : msg.status === 'notificada' ? '🔔' : '✅';
     const data = new Date(msg.recebidoEm).toLocaleString();
 
-    // 🔥 Busca contato pela chave da mensagem (agora hash)
     let contato: Contato | null = null;
     let nome = 'Remetente desconhecido';
     let homologado = false;
     let podeResponder = false;
 
     if (msg.contatoPublicKeyVapid) {
-      // Primeiro, tenta buscar diretamente pela chave
       contato = await buscarContatoPorChave(msg.contatoPublicKeyVapid);
       if (!contato) {
-        // Fallback: se a chave for JSON antigo, tenta converter para hash e buscar
         try {
           const parsed = JSON.parse(msg.contatoPublicKeyVapid);
-          // Se for um objeto JWK, serializa para hash e busca
           if (parsed && parsed.kty) {
             const hashKey = await serializarPublicKeyVapid(parsed);
             contato = await buscarContatoPorChave(hashKey);
           }
         } catch (e) {
-          // Não é JSON, ignora
+          // ignora
         }
       }
-      // Se ainda não encontrou, percorre todos os contatos comparando a chave pública VAPID
       if (!contato) {
         const todosContatos = await listarContatos();
         for (const c of todosContatos) {
-          // Gera o hash da chave pública do contato e compara com a chave da mensagem
           const hashKey = await serializarPublicKeyVapid(c.publicKeyVapid);
           if (hashKey === msg.contatoPublicKeyVapid) {
             contato = c;
@@ -830,7 +768,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
 
   container.innerHTML = html;
 
-  // Event listeners (idênticos ao código anterior)
   container.querySelectorAll('.btn-marcar-lida').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const id = (e.currentTarget as HTMLButtonElement).dataset.id;
@@ -1044,14 +981,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
 
-document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
-  const display = document.getElementById('myProfileDisplay');
-  if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
-    await copyToClipboard(display.textContent);
-  } else {
-    showToast("Primeiro gere seu perfil.", "info");
-  }
-});
+  document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
+    const display = document.getElementById('myProfileDisplay');
+    if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
+      await copyToClipboard(display.textContent);
+    } else {
+      showToast("Primeiro gere seu perfil.", "info");
+    }
+  });
 
   document.getElementById('btnAdicionarContato')?.addEventListener('click', adicionarContato);
   document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);

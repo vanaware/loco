@@ -1,6 +1,6 @@
 // src/utils/db-helpers.ts
 import { get, set, createStore, del, entries } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, IdentidadeA, ChavesE2EB, ChavesVapidB, SubscriptionData, BundleData, MensagemEnvio } from "../constants/db.ts";
+import { STORE_NAMES, KEY_NAMES, IdentidadeA, ChavesE2EB, ChavesVapidB, SubscriptionData, MensagemEnvio } from "../constants/db.ts";
 import { DB_NAMES, Contato, MensagemRecebida } from "../constants/db.ts";
 
 // ============================================================
@@ -12,7 +12,6 @@ export function criarStore(nome: string) {
 }
 
 export const storeIdentidadeA = criarStore(DB_NAMES.IDENTIDADE_A);
-export const storeBundlesA = criarStore(DB_NAMES.BUNDLES_A);
 export const storeMensagensEnvioA = criarStore(DB_NAMES.MENSAGENS_ENVIO_A);
 export const storeChavesE2E = criarStore(DB_NAMES.CHAVES_E2E_B);
 export const storeChavesVapid = criarStore(DB_NAMES.CHAVES_VAPID_B);
@@ -58,49 +57,6 @@ export async function salvarPublicKeyA(publicKeyJwk: JsonWebKey): Promise<void> 
 
 export async function buscarPublicKeyA(): Promise<JsonWebKey | undefined> {
   return buscarChave<JsonWebKey>(storeIdentidadeA, KEY_NAMES.PUBLIC_KEY_A);
-}
-
-// ============================================================
-// Bundles
-// ============================================================
-
-export async function salvarBundleAtivo(bundle: any): Promise<void> {
-  const bundleData: BundleData = {
-    id: `bundle_${Date.now()}`,
-    nomeReceptor: bundle.e2e?.ownerName || "Desconhecido",
-    emailReceptor: bundle.e2e?.ownerEmail || "Desconhecido",
-    bundle: bundle,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
-  await salvarChave(storeBundlesA, KEY_NAMES.BUNDLE_ATIVO, bundleData);
-}
-
-export async function buscarBundleAtivo(): Promise<BundleData | undefined> {
-  return buscarChave<BundleData>(storeBundlesA, KEY_NAMES.BUNDLE_ATIVO);
-}
-
-export async function salvarBundleHistorico(bundle: any): Promise<void> {
-  const bundleData: BundleData = {
-    id: `bundle_${Date.now()}`,
-    nomeReceptor: bundle.e2e?.ownerName || "Desconhecido",
-    emailReceptor: bundle.e2e?.ownerEmail || "Desconhecido",
-    bundle: bundle,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
-  const historico = await buscarChave<BundleData[]>(storeBundlesA, KEY_NAMES.BUNDLE_HISTORICO) || [];
-  historico.push(bundleData);
-  if (historico.length > 10) historico.shift();
-  await salvarChave(storeBundlesA, KEY_NAMES.BUNDLE_HISTORICO, historico);
-}
-
-export async function buscarHistoricoBundles(): Promise<BundleData[]> {
-  return await buscarChave<BundleData[]>(storeBundlesA, KEY_NAMES.BUNDLE_HISTORICO) || [];
-}
-
-export async function limparBundleAtivo(): Promise<void> {
-  await removerChave(storeBundlesA, KEY_NAMES.BUNDLE_ATIVO);
 }
 
 // ============================================================
@@ -214,7 +170,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos (com hash) – funções melhoradas
+// Contatos (com hash)
 // ============================================================
 
 async function sha256(message: string): Promise<string> {
@@ -224,19 +180,11 @@ async function sha256(message: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Serializa uma chave pública VAPID para um hash estável (SHA-256).
- * Ignora diferenças de capitalização, espaços, etc.
- */
 export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
   const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
   return await sha256(raw);
 }
 
-/**
- * Normaliza uma entrada (hash ou JWK) para a chave hash usada na store de contatos.
- * Se for string, assume que já é hash; se for objeto, serializa.
- */
 export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
   if (typeof input === 'string') return input;
   if (typeof input === 'object' && input !== null && 'kty' in input) {
@@ -255,10 +203,6 @@ export async function buscarContatoPorPublicKey(publicKeyVapid: JsonWebKey): Pro
   return buscarChave<Contato>(storeContatos, key);
 }
 
-/**
- * Busca contato por chave (hash) ou JWK.
- * @param chaveOuJwk - string (hash) ou JsonWebKey
- */
 export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
   const key = await normalizarChaveContato(chaveOuJwk);
   return buscarChave<Contato>(storeContatos, key);

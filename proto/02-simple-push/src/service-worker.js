@@ -1,17 +1,10 @@
 // src/service-worker.js
 
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
-
-// Importa os módulos fatiados
+// Importa os módulos fatiados (sem sync.js)
 import "./sw/cache.js";
 import "./sw/push.js";
-import "./sw/sync.js";
 import "./sw/click.js";
-import "./sw/sw-mensagens.js"; // 🔥 NOVO - Processador de mensagens
+import "./sw/sw-mensagens.js";
 
 console.log("[SW] 🌌 Orquestrador Modular do Service Worker carregado com sucesso!");
 
@@ -25,7 +18,6 @@ self.addEventListener('activate', (event) => {
       await new Promise(r => setTimeout(r, 1000));
       
       // Dispara o processamento em segundo plano, sem bloquear a ativação
-      // Usamos setTimeout para não travar o evento
       setTimeout(async () => {
         try {
           if (self.processarFilaEnvio) {

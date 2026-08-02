@@ -95,7 +95,10 @@ O sistema utiliza as seguintes stores (bancos) no IndexedDB, gerenciadas pela bi
 | `BrowserA_Identidade_DB` | `identidade_a` | `IdentidadeA` | Armazena a chave privada VAPID do usuário local (como `CryptoKey`), usada para assinar JWT. |
 | `BrowserA_MensagensEnvio_DB` | `msg_<timestamp>_<random>` | `MensagemEnvio` | Fila de mensagens aguardando envio (offline-first). |
 | `BrowserB_Subscription_DB` | `subscription_b` | `SubscriptionData` | Armazena a subscription atual do usuário. |
-| `BrowserA_Bundles_DB` | `bundle_ativo`, `bundle_historico` | `BundleData` | Armazena o perfil/bundle atual do usuário e histórico (para referência). |
+| `BrowserB_E2E_Chaves_DB` | `chaves_e2e_b` | `ChavesE2EB` | Armazena as chaves RSA do usuário (pública e privada) para criptografia E2E. |
+| `BrowserB_Vapid_DB` | `chaves_vapid_b` | `ChavesVapidB` | Armazena as chaves VAPID (pública e privada) do usuário. |
+
+**Observação:** A store `BrowserA_Bundles_DB` foi removida. Agora o **bundle** (conjunto de informações para envio) é construído dinamicamente a partir das stores `IdentidadeA`, `SubscriptionB`, `VapidB` e `E2E` sempre que necessário, eliminando a duplicação de dados e simplificando a persistência.
 
 **Geração do Hash do Contato:**
 Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `"p-256"`), a chave primária da store de contatos é um **hash SHA-256** da string normalizada em minúsculo: `${kty}|${crv}|${x}|${y}` (extraídos da chave pública VAPID). Isso garante que a mesma chave pública gere sempre o mesmo hash, independentemente de como foi serializada.
@@ -118,7 +121,7 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
    - A chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor.
    - O resultado é um envelope JSON com `iv`, `dadosCifrados` e `chaveAesCifrada`, codificado em Base64. Esse envelope é colocado no campo `k` do perfil.
 8. **Montagem do perfil**: Combina `iss` (email), `nm` (nome), `kid` (chave pública VAPID), `s` (subscription), `p` (chave pública RSA), e `k` (chave privada VAPID cifrada).
-9. **Persistência**: Salva o perfil no IndexedDB (`bundle_ativo`) e também em histórico.
+9. **Persistência**: As chaves e a subscription são salvas individualmente nas stores `IdentidadeA`, `SubscriptionB`, `VapidB` e `E2E`.
 10. **Exibição**: O perfil é mostrado em uma área de texto para o usuário copiar.
 
 ### 4.2. Adição de Contato
@@ -137,44 +140,15 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 
 1. O usuário seleciona um contato no dropdown (populado com os hashes) e digita a mensagem.
 2. Recupera o contato completo do IndexedDB usando o hash selecionado.
-3. **Prepara o objeto da mensagem**:
-   ```javascript
-   const mensagemObj = {
-     m: { c: conteudo },           // m = message, c = content (curto)
-     e: {
-       s: {                         // subscription do emissor (para resposta)
-         e: subscription.endpoint,
-         k: subscription.keys
-       },
-       p: publicKeyEncrypt,         // chave pública RSA do emissor
-       v: { k: vapidPrivateCifrada } // chave privada VAPID cifrada do emissor
-     }
-   };
-   ```
-4. **Comprime** o JSON com Gzip.
-5. **Gera uma chave AES-GCM** e IV aleatório.
-6. **Cifra os dados comprimidos** com AES-GCM.
-7. **Cifra a chave AES** com a chave pública RSA do contato (usando RSA-OAEP).
-8. Monta o envelope:
-   ```json
-   { "i": iv_base64, "d": dados_cifrados_base64, "k": chave_aes_cifrada_base64 }
-   ```
-9. **Constrói o JWT**:
-   - Header: `{ "alg": "ES256" }`
-   - Payload: 
-     ```json
-     {
-       "iss": email_do_emissor,
-       "sub": email_do_receptor,
-       "ct": envelope_json_string,
-       "p": publicKeyVapid_do_emissor,
-       "nm": nome_do_emissor
-     }
-     ```
-10. **Assina o JWT** usando a chave privada VAPID do emissor (ECDSA) – obtida da store `IdentidadeA`.
-11. **Salva a mensagem** na store de envio (`BrowserA_MensagensEnvio_DB`) com status `'pendente'`.
-12. **Envia uma mensagem ao Service Worker** via `postMessage` com tipo `ENVIAR_MENSAGEM`, contendo o bundle e o JWT.
-13. O Service Worker tentará enviar imediatamente ou mais tarde (offline).
+3. **Recupera os dados do emissor**: busca `identidade`, `subscription`, `chaves VAPID` e `chaves E2E` das respectivas stores.
+4. **Constrói dinamicamente o bundle do emissor** (contendo subscription, chaves VAPID cifradas e chave pública RSA) para incluir no payload.
+5. **Prepara o objeto da mensagem** com o conteúdo e os dados do emissor.
+6. **Comprime** o JSON com Gzip, **gera uma chave AES-GCM** e IV, **cifra os dados** com AES e **cifra a chave AES** com a chave pública RSA do contato (destinatário).
+7. Monta o envelope com `iv`, `dadosCifrados` e `chaveAesCifrada` em Base64.
+8. **Constrói e assina o JWT** com a chave privada VAPID do emissor.
+9. **Salva a mensagem** na store de envio (`BrowserA_MensagensEnvio_DB`) com status `'pendente'`.
+10. **Envia uma mensagem ao Service Worker** via `postMessage` com tipo `ENVIAR_MENSAGEM`, contendo o bundle do destinatário e o JWT.
+11. O Service Worker tentará enviar imediatamente ou mais tarde (offline).
 
 ### 4.4. Processamento do Envio (Service Worker – `sw-mensagens.js`)
 1. O Service Worker recebe a mensagem da página via `postMessage`.
@@ -189,13 +163,10 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 ### 4.5. Recebimento da Mensagem (Service Worker – `push.js`)
 1. O Service Worker recebe o evento `push` contendo o JWT no `event.data.text()`.
 2. Divide o JWT em header, payload e signature.
-3. **Verifica a assinatura**:
-   - Extrai o payload (Base64Url decodificado) e obtém `iss` (email), `nm` (nome), `p` (chave pública VAPID do emissor), `ct` (envelope).
-   - Verifica se `p` é uma chave válida e importa-a como `CryptoKey` para `ECDSA`.
-   - Decodifica a assinatura e verifica a integridade do JWT.
+3. **Verifica a assinatura** usando a chave pública VAPID do emissor (campo `p` do payload).
 4. Se a assinatura for inválida, descarta a mensagem e exibe notificação de erro.
 5. **Decifra o envelope**:
-   - Obtém a chave privada RSA do receptor (armazenada em `storeChavesE2E`).
+   - Obtém a chave privada RSA do receptor (store `ChavesE2EB`).
    - Decodifica `iv`, `dados` e `k` do envelope.
    - Descriptografa a chave AES usando RSA-OAEP.
    - Descriptografa os dados com AES-GCM.
@@ -210,7 +181,7 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
    - Gera um ID único.
    - Cria um objeto `MensagemRecebida` com o hash do contato, conteúdo decifrado, status `'nao_lida'` e timestamp.
    - Salva na store `BrowserB_MensagensRecebidas_DB`.
-8. **Exibe notificação nativa** com o nome do remetente e o conteúdo.
+8. **Exibe notificação nativa** com o nome do remetente (buscado do contato) e o conteúdo.
 9. **Notifica as páginas abertas** via `postMessage` com tipo `PUSH_RECEIVED`, para que a UI seja atualizada em tempo real.
 
 ### 4.6. Resposta (Responder)
@@ -259,6 +230,9 @@ O projeto utiliza **Deno** com `build.ts` para bundling:
 - O arquivo `src/index.html` é usado como entrypoint. O Deno bundler detecta a tag `<script src="./app.tsx" type="module">` e compila o código, gerando um arquivo JS com hash e atualizando o HTML.
 - O Service Worker é compilado separadamente em modo IIFE e tem seu conteúdo pós-processado para substituir `VERSION_HASH` e `__GENERATED_ASSETS__` pela lista de assets a cachear.
 
+Observação sobre o CSS:    
+O arquivo src/styles.css é importado no app.tsx via import "./styles.css". Para que o TypeScript não reclame, criamos um arquivo de declaração (src/styles.d.ts) que declara o módulo .css. O Deno.bundle, ao processar o HTML, reconhece a tag <link rel="stylesheet" href="./styles.css"> e copia o arquivo CSS para a pasta dist/, garantindo que o estilo seja carregado corretamente. A importação no código é mantida para compatibilidade com ferramentas de build futuras e para que o CSS seja tratado como dependência do módulo.
+
 Comando:
 ```bash
 deno task build
@@ -280,19 +254,17 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 - **Limitação de Payload**: O JWT total deve ser inferior a 4096 bytes. O sistema utiliza compressão gzip, campos curtos (`ct`, `p`, `nm`) e estrutura compacta do envelope.
 - **Homologação**: A homologação é um campo booleano no contato, utilizado apenas para fins de interface (ex: exibir "Homologado" ou "Não homologado"). Não bloqueia o recebimento de mensagens.
 - **Service Worker**: Durante o desenvolvimento, é necessário desregistrar o Service Worker manualmente (Application → Service Workers → Unregister) e recarregar a página para que a nova versão seja carregada, devido ao cache agressivo.
+- **Remoção do Bundle**: O armazenamento do perfil em `BrowserA_Bundles_DB` foi substituído pela construção dinâmica do bundle a partir das stores individuais (`IdentidadeA`, `SubscriptionB`, `VapidB`, `E2E`). Isso reduz a duplicação de dados e simplifica a manutenção.
 
 ---
 
-## 9. Próximos Passos (Contexto para a Próxima IA)
+## 9. Próximos Passos
 
-A próxima iteração deverá focar na **revisão da estrutura de dados no IndexedDB**, incluindo:
-1. **Consistência de chaves**: Verificar se todas as operações de contato e mensagem usam corretamente o hash SHA-256, e se não há divergências entre os campos de referência.
-2. **Atualização de contatos**: Garantir que, ao receber uma nova mensagem de um contato existente, o nome e outros dados sejam atualizados corretamente.
-3. **Limpeza de dados obsoletos**: Avaliar a possibilidade de remover stores ou campos que não são mais usados (ex: `BrowserB_ListaBranca_DB` ou campos antigos de mensagens).
-4. **Otimização de performance**: Verificar se as consultas ao IndexedDB são eficientes e se há índices que poderiam ser criados.
-5. **Validação do fluxo de resposta**: Testar exaustivamente o fluxo de resposta, assegurando que a chave privada VAPID cifrada (`vapidPrivateKey`) seja corretamente utilizada para montar o bundle de resposta.
-
-Além disso, considere a **documentação de testes manuais** e, se possível, a criação de um conjunto básico de testes unitários para as funções críticas (ex: serialização de chave, cifragem/decifragem).
+- **Consistência de chaves**: Verificar se todas as operações de contato e mensagem usam corretamente o hash SHA-256, e se não há divergências entre os campos de referência.
+- **Atualização de contatos**: Garantir que, ao receber uma nova mensagem de um contato existente, o nome e outros dados sejam atualizados corretamente.
+- **Limpeza de dados obsoletos**: Remover stores ou campos que não são mais usados.
+- **Otimização de performance**: Avaliar consultas ao IndexedDB e possíveis índices.
+- **Validação do fluxo de resposta**: Testar exaustivamente a resposta, assegurando que a chave privada VAPID cifrada seja corretamente utilizada.
 
 ---
 

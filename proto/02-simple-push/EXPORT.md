@@ -8,7 +8,7 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/2/2026, 12:51:34 PM
+Gerado automaticamente em: 8/2/2026, 2:32:26 PM
 
 ---
 
@@ -422,43 +422,6 @@ console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
 
 ---
 
-## Arquivo: `src/service-worker.js`
-
-```js
-// src/service-worker.js
-
-// Importa os módulos fatiados
-import "./sw/cache.js";
-import "./sw/push.js";
-import "./sw/sync.js";
-import "./sw/click.js";
-import "./sw/sw-mensagens.js"; // 🔥 NOVO - Processador de mensagens
-
-console.log("[SW] 🌌 Orquestrador Modular do Service Worker carregado com sucesso!");
-
-// 🔥 PROCESSADOR DE FILAS EM BACKGROUND
-// Tenta processar filas quando o SW é ativado
-self.addEventListener('activate', (event) => {
-  console.log("[SW] 🔄 Ativando e processando filas pendentes...");
-  event.waitUntil(
-    (async () => {
-      // Aguarda um pouco para garantir que tudo está pronto
-      await new Promise(r => setTimeout(r, 1000));
-      
-      // Processa filas
-      if (self.processarFilaEnvio) {
-        await self.processarFilaEnvio();
-      }
-      if (self.processarFilaNotificacao) {
-        await self.processarFilaNotificacao();
-      }
-    })()
-  );
-});
-```
-
----
-
 ## Arquivo: `src/sw/cache.js`
 
 ```js
@@ -531,426 +494,6 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-```
-
----
-
-## Arquivo: `src/sw/sync.js`
-
-```js
-// src/sw/sync.js
-import { del, entries, createStore } from "idb-keyval";
-
-// 🔥 Constantes centralizadas (copiadas do db.ts para uso no SW)
-const DB_NAMES = {
-  FILA_A: "BrowserA_OfflineFila_DB",
-};
-
-const STORE_NAMES = {
-  KEYVAL: "keyval",
-};
-
-function criarStore(nome) {
-  return createStore(nome, STORE_NAMES.KEYVAL);
-}
-
-const storeFilaDisparosA = criarStore(DB_NAMES.FILA_A);
-
-self.addEventListener('sync', function(event) {
-  console.log(`[SW-SYNC] 🔄 Sincronização em segundo plano disparada! Tag: ${event.tag}`);
-  if (event.tag === 'sync-push-notifications') {
-    event.waitUntil(enviarMensagensPendentes());
-  }
-});
-
-async function enviarMensagensPendentes() {
-  try {
-    const todasAsChavesFila = await entries(storeFilaDisparosA);
-    if (!todasAsChavesFila || todasAsChavesFila.length === 0) {
-      console.log("[SW-SYNC] ℹ️ Nenhuma mensagem pendente na fila de sincronização.");
-      return;
-    }
-
-    console.log(`[SW-SYNC] 📦 Encontrados ${todasAsChavesFila.length} push(es) pendentes para enviar...`);
-    let totalSucesso = 0;
-
-    for (const [id, payload] of todasAsChavesFila) {
-      try {
-        const response = await fetch("/api/proxy-push", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-          totalSucesso++;
-          console.log(`[SW-SYNC] ✅ Mensagem enviada com sucesso ao servidor!`);
-          await del(id, storeFilaDisparosA);
-        } else {
-          console.error("[SW-SYNC] ❌ Servidor rejeitou o POST da fila. Removendo item inválido.");
-          await del(id, storeFilaDisparosA);
-        }
-      } catch (fetchErr) {
-        console.error("[SW-SYNC] 🔌 Servidor inalcançável ou desligado. Reagendando mensagens no idb-keyval...");
-        throw fetchErr; 
-      }
-    }
-
-    if (totalSucesso > 0) {
-      await self.registration.showNotification("✨ Conexão Restaurada!", {
-        body: "Sua fila de notificações offline foi transmitida com sucesso!",
-        icon: '/icon.png',
-        badge: '/icon.png',
-        vibrate: [100, 50, 100]
-      });
-    }
-
-  } catch (err) {
-    console.error("[SW-SYNC] ⚠️ Falha ao processar o envio de fundo:", err);
-    throw err;
-  }
-}
-```
-
----
-
-## Arquivo: `src/sw/sw-mensagens.js`
-
-```js
-// src/sw/sw-mensagens.js
-import { get, set, createStore, del, entries } from "idb-keyval";
-
-// 🔥 Constantes
-const DB_NAMES = {
-  MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
-  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
-};
-
-const STORE_NAMES = {
-  KEYVAL: "keyval",
-};
-
-// 🔥 Cria as stores IMEDIATAMENTE (não lazy)
-const storeMensagensEnvioA = createStore(DB_NAMES.MENSAGENS_ENVIO_A, STORE_NAMES.KEYVAL);
-const storeMensagensRecebidasB = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
-
-console.log("[SW-MSG] ✅ Stores criadas com sucesso!");
-
-// ============================================================
-// PROCESSADOR DE MENSAGENS - BROWSER A (ENVIO)
-// ============================================================
-
-async function salvarMensagemEnvio(mensagem) {
-  try {
-    console.log(`[SW-MSG] 💾 Salvando mensagem ${mensagem.id}...`);
-    await set(mensagem.id, mensagem, storeMensagensEnvioA);
-    console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} salva no IndexedDB`);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
-    throw err;
-  }
-}
-
-async function buscarMensagemEnvio(id) {
-  try {
-    return await get(id, storeMensagensEnvioA);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao buscar mensagem ${id}:`, err);
-    return null;
-  }
-}
-
-async function listarMensagensEnvioPorStatus(status) {
-  try {
-    const todas = await listarMensagensEnvio();
-    return todas.filter(m => m.status === status);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens por status:", err);
-    return [];
-  }
-}
-
-async function listarMensagensEnvio() {
-  try {
-    const entriesList = await entries(storeMensagensEnvioA);
-    return entriesList.map(([_, msg]) => msg);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
-    return [];
-  }
-}
-
-async function atualizarStatusMensagemEnvio(id, status, erro) {
-  try {
-    const mensagem = await buscarMensagemEnvio(id);
-    if (mensagem) {
-      mensagem.status = status;
-      mensagem.atualizadoEm = Date.now();
-      if (erro) mensagem.erro = erro;
-      await salvarMensagemEnvio(mensagem);
-      console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
-    }
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao atualizar mensagem ${id}:`, err);
-  }
-}
-
-async function removerMensagemEnvio(id) {
-  try {
-    await del(id, storeMensagensEnvioA);
-    console.log(`[SW-MSG] ✅ Mensagem ${id} removida`);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao remover mensagem ${id}:`, err);
-  }
-}
-
-// 🔥 ENVIA UMA MENSAGEM PARA O SERVIDOR
-async function enviarMensagemParaServidor(mensagem) {
-  try {
-    console.log(`[SW-MSG] 📤 Enviando mensagem ${mensagem.id} para o servidor...`);
-    
-    const response = await fetch("/api/proxy-push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...mensagem.bundle,
-        payloadText: mensagem.payloadText
-      })
-    });
-
-    if (response.ok) {
-      console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} enviada com sucesso!`);
-      await atualizarStatusMensagemEnvio(mensagem.id, 'enviada');
-      return true;
-    } else {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${mensagem.id}:`, err);
-    
-    // Incrementa tentativas
-    mensagem.tentativas++;
-    mensagem.erro = err.message;
-    
-    if (mensagem.tentativas >= mensagem.maxTentativas) {
-      console.log(`[SW-MSG] ⛔ Mensagem ${mensagem.id} excedeu tentativas máximas.`);
-      await atualizarStatusMensagemEnvio(mensagem.id, 'falha', err.message);
-    } else {
-      await salvarMensagemEnvio(mensagem);
-    }
-    
-    return false;
-  }
-}
-
-// 🔥 PROCESSADOR DE FILA DE ENVIO
-async function processarFilaEnvio() {
-  console.log("[SW-MSG] 🔄 Processando fila de envio...");
-  
-  try {
-    const pendentes = await listarMensagensEnvioPorStatus('pendente');
-    const enviando = await listarMensagensEnvioPorStatus('enviando');
-    
-    // Recupera mensagens que ficaram presas em 'enviando'
-    const todasEnviando = enviando.filter(m => {
-      return (Date.now() - m.atualizadoEm) > 30000;
-    });
-    
-    const paraProcessar = [...pendentes, ...todasEnviando];
-    
-    if (paraProcessar.length === 0) {
-      console.log("[SW-MSG] ℹ️ Nenhuma mensagem pendente para enviar.");
-      return;
-    }
-    
-    console.log(`[SW-MSG] 📦 ${paraProcessar.length} mensagens para processar`);
-    
-    for (const msg of paraProcessar) {
-      await atualizarStatusMensagemEnvio(msg.id, 'enviando');
-      await enviarMensagemParaServidor(msg);
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao processar fila de envio:", err);
-  }
-}
-
-// ============================================================
-// PROCESSADOR DE MENSAGENS - BROWSER B (RECEBIDAS)
-// ============================================================
-
-async function salvarMensagemRecebida(mensagem) {
-  try {
-    await set(mensagem.id, mensagem, storeMensagensRecebidasB);
-    console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} salva no IndexedDB`);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
-  }
-}
-
-async function listarMensagensRecebidasPorStatus(status) {
-  try {
-    const todas = await listarMensagensRecebidas();
-    return todas.filter(m => m.status === status);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens recebidas:", err);
-    return [];
-  }
-}
-
-async function listarMensagensRecebidas() {
-  try {
-    const entriesList = await entries(storeMensagensRecebidasB);
-    return entriesList.map(([_, msg]) => msg);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens recebidas:", err);
-    return [];
-  }
-}
-
-async function atualizarStatusMensagemRecebida(id, status) {
-  try {
-    const mensagem = await get(id, storeMensagensRecebidasB);
-    if (mensagem) {
-      mensagem.status = status;
-      if (status === 'lida') mensagem.lidaEm = Date.now();
-      if (status === 'notificada') mensagem.notificadaEm = Date.now();
-      await set(id, mensagem, storeMensagensRecebidasB);
-      console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
-    }
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao atualizar mensagem ${id}:`, err);
-  }
-}
-
-// 🔥 PROCESSADOR DE FILA DE NOTIFICAÇÃO
-async function processarFilaNotificacao() {
-  console.log("[SW-MSG] 🔔 Processando fila de notificações...");
-  
-  try {
-    const naoLidas = await listarMensagensRecebidasPorStatus('nao_lida');
-    
-    if (naoLidas.length === 0) {
-      console.log("[SW-MSG] ℹ️ Nenhuma mensagem não lida.");
-      return;
-    }
-    
-    console.log(`[SW-MSG] 📦 ${naoLidas.length} mensagens para notificar`);
-    
-    for (const msg of naoLidas) {
-      try {
-        console.log(`[SW-MSG] 🔔 Notificando mensagem ${msg.id}...`);
-        
-        await self.registration.showNotification(`📥 De: ${msg.remetente}`, {
-          body: msg.conteudo,
-          icon: '/icon.png',
-          badge: '/icon.png',
-          vibrate: [200, 100, 200],
-          data: msg.dadosJwt,
-          tag: msg.id,
-          requireInteraction: true
-        });
-        
-        await atualizarStatusMensagemRecebida(msg.id, 'notificada');
-        console.log(`[SW-MSG] ✅ Mensagem ${msg.id} notificada com sucesso!`);
-        
-        await new Promise(resolve => setTimeout(resolve, 300));
-      } catch (err) {
-        console.error(`[SW-MSG] ❌ Erro ao notificar mensagem ${msg.id}:`, err);
-      }
-    }
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao processar fila de notificações:", err);
-  }
-}
-
-// ============================================================
-// LISTENERS DE EVENTOS
-// ============================================================
-
-// 🔥 OUVE MENSAGENS DA PÁGINA (Browser A/B)
-self.addEventListener('message', async (event) => {
-  const data = event.data;
-  
-  if (data.type === 'ENVIAR_MENSAGEM') {
-    console.log(`[SW-MSG] 📩 Recebida mensagem da página para enviar: ${data.payload.id}`);
-    try {
-      await salvarMensagemEnvio(data.payload);
-      
-      // Tenta enviar imediatamente
-      await processarFilaEnvio();
-      
-      // Responde para a página
-      if (event.source) {
-        event.source.postMessage({
-          type: 'MENSAGEM_ENVIADA',
-          id: data.payload.id,
-          status: 'pendente'
-        });
-      }
-    } catch (err) {
-      console.error("[SW-MSG] ❌ Erro ao processar mensagem:", err);
-      if (event.source) {
-        event.source.postMessage({
-          type: 'MENSAGEM_ERRO',
-          id: data.payload.id,
-          error: err.message
-        });
-      }
-    }
-  }
-  
-  if (data.type === 'LISTAR_MENSAGENS_PENDENTES') {
-    try {
-      const mensagens = await listarMensagensEnvioPorStatus('pendente');
-      if (event.source) {
-        event.source.postMessage({
-          type: 'LISTA_MENSAGENS',
-          mensagens: mensagens
-        });
-      }
-    } catch (err) {
-      console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
-    }
-  }
-});
-
-// 🔥 SINC - Disparado quando o navegador está online
-self.addEventListener('sync', async function(event) {
-  console.log(`[SW-MSG] 🔄 Sync disparado: ${event.tag}`);
-  
-  if (event.tag === 'sync-envio-mensagens') {
-    event.waitUntil(processarFilaEnvio());
-  }
-  
-  if (event.tag === 'sync-notificar-mensagens') {
-    event.waitUntil(processarFilaNotificacao());
-  }
-});
-
-// 🔥 PERIODIC SYNC (se disponível)
-self.addEventListener('periodicsync', async function(event) {
-  console.log(`[SW-MSG] ⏰ Periodic sync: ${event.tag}`);
-  
-  if (event.tag === 'periodic-sync-mensagens') {
-    await processarFilaEnvio();
-    await processarFilaNotificacao();
-  }
-});
-
-// 🔥 ONLINE/OFFLINE - Processa filas quando volta online
-self.addEventListener('online', async function() {
-  console.log("[SW-MSG] 🌐 Conexão restaurada, processando filas...");
-  await processarFilaEnvio();
-  await processarFilaNotificacao();
-});
-
-// 🔥 EXPORTA FUNÇÕES PARA O SERVICE WORKER PRINCIPAL
-self.processarFilaEnvio = processarFilaEnvio;
-self.processarFilaNotificacao = processarFilaNotificacao;
-
-console.log("[SW-MSG] 📦 Módulo de mensagens carregado com sucesso!");
 ```
 
 ---
@@ -1359,20 +902,433 @@ console.log("[SW-PUSH] 📦 Módulo push carregado (com contatos via hash, DEBUG
 
 ---
 
+## Arquivo: `src/sw/sw-mensagens.js`
+
+```js
+// src/sw/sw-mensagens.js
+import { get, set, createStore, del, entries } from "idb-keyval";
+
+// 🔥 Constantes
+const DB_NAMES = {
+  MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
+  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
+  CONTATOS: "BrowserB_Contatos_DB", // 🔥 Adicionado
+};
+
+const STORE_NAMES = {
+  KEYVAL: "keyval",
+};
+
+// 🔥 Cria as stores IMEDIATAMENTE (não lazy)
+const storeMensagensEnvioA = createStore(DB_NAMES.MENSAGENS_ENVIO_A, STORE_NAMES.KEYVAL);
+const storeMensagensRecebidasB = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
+const storeContatos = createStore(DB_NAMES.CONTATOS, STORE_NAMES.KEYVAL); // 🔥 Store de contatos
+
+console.log("[SW-MSG] ✅ Stores criadas com sucesso!");
+
+// ============================================================
+// FUNÇÕES AUXILIARES PARA CONTATOS (copiadas do db-helpers)
+// ============================================================
+async function sha256(message) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function serializarPublicKeyVapid(jwk) {
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+async function buscarContatoPorChave(chaveOuJwk) {
+  try {
+    let key;
+    if (typeof chaveOuJwk === 'string') {
+      key = chaveOuJwk;
+    } else if (chaveOuJwk && chaveOuJwk.kty) {
+      key = await serializarPublicKeyVapid(chaveOuJwk);
+    } else {
+      return null;
+    }
+    return await get(key, storeContatos) || null;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================
+// PROCESSADOR DE MENSAGENS - BROWSER A (ENVIO)
+// ============================================================
+
+async function salvarMensagemEnvio(mensagem) {
+  try {
+    console.log(`[SW-MSG] 💾 Salvando mensagem ${mensagem.id}...`);
+    await set(mensagem.id, mensagem, storeMensagensEnvioA);
+    console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} salva no IndexedDB`);
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
+    throw err;
+  }
+}
+
+async function buscarMensagemEnvio(id) {
+  try {
+    return await get(id, storeMensagensEnvioA);
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao buscar mensagem ${id}:`, err);
+    return null;
+  }
+}
+
+async function listarMensagensEnvioPorStatus(status) {
+  try {
+    const todas = await listarMensagensEnvio();
+    return todas.filter(m => m.status === status);
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao listar mensagens por status:", err);
+    return [];
+  }
+}
+
+async function listarMensagensEnvio() {
+  try {
+    const entriesList = await entries(storeMensagensEnvioA);
+    return entriesList.map(([_, msg]) => msg);
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
+    return [];
+  }
+}
+
+async function atualizarStatusMensagemEnvio(id, status, erro) {
+  try {
+    const mensagem = await buscarMensagemEnvio(id);
+    if (mensagem) {
+      mensagem.status = status;
+      mensagem.atualizadoEm = Date.now();
+      if (erro) mensagem.erro = erro;
+      await salvarMensagemEnvio(mensagem);
+      console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
+    }
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao atualizar mensagem ${id}:`, err);
+  }
+}
+
+async function removerMensagemEnvio(id) {
+  try {
+    await del(id, storeMensagensEnvioA);
+    console.log(`[SW-MSG] ✅ Mensagem ${id} removida`);
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao remover mensagem ${id}:`, err);
+  }
+}
+
+// 🔥 ENVIA UMA MENSAGEM PARA O SERVIDOR
+async function enviarMensagemParaServidor(mensagem) {
+  try {
+    console.log(`[SW-MSG] 📤 Enviando mensagem ${mensagem.id} para o servidor...`);
+    
+    const response = await fetch("/api/proxy-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...mensagem.bundle,
+        payloadText: mensagem.payloadText
+      })
+    });
+
+    if (response.ok) {
+      console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} enviada com sucesso!`);
+      await atualizarStatusMensagemEnvio(mensagem.id, 'enviada');
+      return true;
+    } else {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${mensagem.id}:`, err);
+    
+    mensagem.tentativas++;
+    mensagem.erro = err.message;
+    
+    if (mensagem.tentativas >= mensagem.maxTentativas) {
+      console.log(`[SW-MSG] ⛔ Mensagem ${mensagem.id} excedeu tentativas máximas.`);
+      await atualizarStatusMensagemEnvio(mensagem.id, 'falha', err.message);
+    } else {
+      await salvarMensagemEnvio(mensagem);
+    }
+    
+    return false;
+  }
+}
+
+// 🔥 PROCESSADOR DE FILA DE ENVIO
+async function processarFilaEnvio() {
+  console.log("[SW-MSG] 🔄 Processando fila de envio...");
+  
+  try {
+    const pendentes = await listarMensagensEnvioPorStatus('pendente');
+    const enviando = await listarMensagensEnvioPorStatus('enviando');
+    
+    const todasEnviando = enviando.filter(m => {
+      return (Date.now() - m.atualizadoEm) > 30000;
+    });
+    
+    const paraProcessar = [...pendentes, ...todasEnviando];
+    
+    if (paraProcessar.length === 0) {
+      console.log("[SW-MSG] ℹ️ Nenhuma mensagem pendente para enviar.");
+      return;
+    }
+    
+    console.log(`[SW-MSG] 📦 ${paraProcessar.length} mensagens para processar`);
+    
+    for (const msg of paraProcessar) {
+      await atualizarStatusMensagemEnvio(msg.id, 'enviando');
+      await enviarMensagemParaServidor(msg);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao processar fila de envio:", err);
+  }
+}
+
+// ============================================================
+// PROCESSADOR DE MENSAGENS - BROWSER B (RECEBIDAS)
+// ============================================================
+
+async function salvarMensagemRecebida(mensagem) {
+  try {
+    await set(mensagem.id, mensagem, storeMensagensRecebidasB);
+    console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} salva no IndexedDB`);
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
+  }
+}
+
+async function listarMensagensRecebidasPorStatus(status) {
+  try {
+    const todas = await listarMensagensRecebidas();
+    return todas.filter(m => m.status === status);
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao listar mensagens recebidas:", err);
+    return [];
+  }
+}
+
+async function listarMensagensRecebidas() {
+  try {
+    const entriesList = await entries(storeMensagensRecebidasB);
+    return entriesList.map(([_, msg]) => msg);
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao listar mensagens recebidas:", err);
+    return [];
+  }
+}
+
+async function atualizarStatusMensagemRecebida(id, status) {
+  try {
+    const mensagem = await get(id, storeMensagensRecebidasB);
+    if (mensagem) {
+      mensagem.status = status;
+      if (status === 'lida') mensagem.lidaEm = Date.now();
+      if (status === 'notificada') mensagem.notificadaEm = Date.now();
+      await set(id, mensagem, storeMensagensRecebidasB);
+      console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
+    }
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao atualizar mensagem ${id}:`, err);
+  }
+}
+
+/**
+ * Tenta exibir uma notificação com timeout de 5 segundos.
+ */
+async function mostrarNotificacaoComTimeout(titulo, opcoes, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      console.warn("[SW-MSG] ⚠️ Timeout ao exibir notificação, prosseguindo...");
+      resolve(false);
+    }, timeoutMs);
+
+    self.registration.showNotification(titulo, opcoes)
+      .then(() => {
+        clearTimeout(timeout);
+        resolve(true);
+      })
+      .catch((err) => {
+        clearTimeout(timeout);
+        console.error("[SW-MSG] ❌ Erro ao exibir notificação:", err);
+        resolve(false);
+      });
+  });
+}
+
+// 🔥 PROCESSADOR DE FILA DE NOTIFICAÇÃO (com busca do nome do contato)
+async function processarFilaNotificacao() {
+  console.log("[SW-MSG] 🔔 Processando fila de notificações...");
+  
+  try {
+    const naoLidas = await listarMensagensRecebidasPorStatus('nao_lida');
+    
+    if (naoLidas.length === 0) {
+      console.log("[SW-MSG] ℹ️ Nenhuma mensagem não lida.");
+      return;
+    }
+    
+    console.log(`[SW-MSG] 📦 ${naoLidas.length} mensagens para notificar`);
+    
+    // Ícone fallback (caso logo.svh não seja encontrado)
+    const fallbackIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const iconUrl = '/logo.svg'; // 🔥 ícone principal
+    
+    for (const msg of naoLidas) {
+      try {
+        console.log(`[SW-MSG] 🔔 Notificando mensagem ${msg.id}...`);
+        
+        // 🔥 Busca o contato usando a chave armazenada na mensagem
+        let nomeRemetente = 'Remetente desconhecido';
+        if (msg.contatoPublicKeyVapid) {
+          const contato = await buscarContatoPorChave(msg.contatoPublicKeyVapid);
+          if (contato && contato.nome) {
+            nomeRemetente = contato.nome;
+          }
+        }
+        
+        // Verifica se o ícone existe (fallback se não)
+        let iconToUse = iconUrl;
+        try {
+          const resp = await fetch(iconUrl, { method: 'HEAD' });
+          if (!resp.ok) {
+            iconToUse = fallbackIcon;
+          }
+        } catch {
+          iconToUse = fallbackIcon;
+        }
+
+        const exibida = await mostrarNotificacaoComTimeout(
+          `📥 De: ${nomeRemetente}`,
+          {
+            body: msg.conteudo,
+            icon: iconToUse,
+            badge: iconToUse,
+            vibrate: [200, 100, 200],
+            data: msg.dadosJwt || {},
+            tag: msg.id,
+            requireInteraction: true
+          },
+          5000 // timeout de 5 segundos
+        );
+
+        if (exibida) {
+          await atualizarStatusMensagemRecebida(msg.id, 'notificada');
+          console.log(`[SW-MSG] ✅ Mensagem ${msg.id} notificada com sucesso!`);
+        } else {
+          console.warn(`[SW-MSG] ⚠️ Notificação para ${msg.id} não foi exibida (timeout ou erro).`);
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } catch (err) {
+        console.error(`[SW-MSG] ❌ Erro ao notificar mensagem ${msg.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao processar fila de notificações:", err);
+  }
+}
+
+// ============================================================
+// LISTENERS DE EVENTOS
+// ============================================================
+
+self.addEventListener('message', async (event) => {
+  const data = event.data;
+  
+  if (data.type === 'ENVIAR_MENSAGEM') {
+    console.log(`[SW-MSG] 📩 Recebida mensagem da página para enviar: ${data.payload.id}`);
+    try {
+      await salvarMensagemEnvio(data.payload);
+      await processarFilaEnvio();
+      if (event.source) {
+        event.source.postMessage({
+          type: 'MENSAGEM_ENVIADA',
+          id: data.payload.id,
+          status: 'pendente'
+        });
+      }
+    } catch (err) {
+      console.error("[SW-MSG] ❌ Erro ao processar mensagem:", err);
+      if (event.source) {
+        event.source.postMessage({
+          type: 'MENSAGEM_ERRO',
+          id: data.payload.id,
+          error: err.message
+        });
+      }
+    }
+  }
+  
+  if (data.type === 'LISTAR_MENSAGENS_PENDENTES') {
+    try {
+      const mensagens = await listarMensagensEnvioPorStatus('pendente');
+      if (event.source) {
+        event.source.postMessage({
+          type: 'LISTA_MENSAGENS',
+          mensagens: mensagens
+        });
+      }
+    } catch (err) {
+      console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
+    }
+  }
+});
+
+self.addEventListener('sync', async function(event) {
+  console.log(`[SW-MSG] 🔄 Sync disparado: ${event.tag}`);
+  if (event.tag === 'sync-envio-mensagens') {
+    event.waitUntil(processarFilaEnvio());
+  }
+  if (event.tag === 'sync-notificar-mensagens') {
+    event.waitUntil(processarFilaNotificacao());
+  }
+});
+
+self.addEventListener('periodicsync', async function(event) {
+  console.log(`[SW-MSG] ⏰ Periodic sync: ${event.tag}`);
+  if (event.tag === 'periodic-sync-mensagens') {
+    await processarFilaEnvio();
+    await processarFilaNotificacao();
+  }
+});
+
+self.addEventListener('online', async function() {
+  console.log("[SW-MSG] 🌐 Conexão restaurada, processando filas...");
+  await processarFilaEnvio();
+  await processarFilaNotificacao();
+});
+
+self.processarFilaEnvio = processarFilaEnvio;
+self.processarFilaNotificacao = processarFilaNotificacao;
+
+console.log("[SW-MSG] 📦 Módulo de mensagens carregado com sucesso!");
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
 // src/constants/db.ts
 export const DB_NAMES = {
   IDENTIDADE_A: "BrowserA_Identidade_DB",
-  BUNDLES_A: "BrowserA_Bundles_DB",
   MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
-
   CHAVES_E2E_B: "BrowserB_E2E_Chaves_DB",
   CHAVES_VAPID_B: "BrowserB_Vapid_DB",
   SUBSCRIPTION_B: "BrowserB_Subscription_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
-  CONTATOS: "BrowserB_Contatos_DB", // Chave primária: SHA-256 da chave pública VAPID
+  CONTATOS: "BrowserB_Contatos_DB",
 } as const;
 
 export const STORE_NAMES = {
@@ -1382,8 +1338,6 @@ export const STORE_NAMES = {
 export const KEY_NAMES = {
   IDENTIDADE_A: "identidade_a",
   PUBLIC_KEY_A: "public_key_a",
-  BUNDLE_ATIVO: "bundle_ativo",
-  BUNDLE_HISTORICO: "bundle_historico",
   MENSAGENS_ENVIO: "mensagens_envio",
   CHAVES_E2E_B: "chaves_e2e_b",
   PUBLIC_ENCRYPT_B: "public_encrypt_b",
@@ -1401,16 +1355,7 @@ export const KEY_NAMES = {
 export interface IdentidadeA {
   name: string;
   email: string;
-  privateKey: CryptoKey; // chave privada VAPID (ECDSA)
-}
-
-export interface BundleData {
-  id: string;
-  nomeReceptor: string;
-  emailReceptor: string;
-  bundle: any;
-  createdAt: number;
-  updatedAt: number;
+  privateKey: CryptoKey;
 }
 
 export interface ChavesE2EB {
@@ -1447,7 +1392,7 @@ export interface MensagemEnvio {
 
 export interface MensagemRecebida {
   id: string;
-  contatoPublicKeyVapid: string; // chave do contato (serializada)
+  contatoPublicKeyVapid: string;
   conteudo: string;
   status: 'nao_lida' | 'lida' | 'notificada';
   recebidoEm: number;
@@ -1464,7 +1409,7 @@ export interface Contato {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   };
-  vapidPrivateKey: string; // cifrada
+  vapidPrivateKey: string;
   homologado: boolean;
   createdAt: number;
   updatedAt: number;
@@ -1478,7 +1423,7 @@ export interface Contato {
 ```ts
 // src/utils/db-helpers.ts
 import { get, set, createStore, del, entries } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, IdentidadeA, ChavesE2EB, ChavesVapidB, SubscriptionData, BundleData, MensagemEnvio } from "../constants/db.ts";
+import { STORE_NAMES, KEY_NAMES, IdentidadeA, ChavesE2EB, ChavesVapidB, SubscriptionData, MensagemEnvio } from "../constants/db.ts";
 import { DB_NAMES, Contato, MensagemRecebida } from "../constants/db.ts";
 
 // ============================================================
@@ -1490,7 +1435,6 @@ export function criarStore(nome: string) {
 }
 
 export const storeIdentidadeA = criarStore(DB_NAMES.IDENTIDADE_A);
-export const storeBundlesA = criarStore(DB_NAMES.BUNDLES_A);
 export const storeMensagensEnvioA = criarStore(DB_NAMES.MENSAGENS_ENVIO_A);
 export const storeChavesE2E = criarStore(DB_NAMES.CHAVES_E2E_B);
 export const storeChavesVapid = criarStore(DB_NAMES.CHAVES_VAPID_B);
@@ -1536,49 +1480,6 @@ export async function salvarPublicKeyA(publicKeyJwk: JsonWebKey): Promise<void> 
 
 export async function buscarPublicKeyA(): Promise<JsonWebKey | undefined> {
   return buscarChave<JsonWebKey>(storeIdentidadeA, KEY_NAMES.PUBLIC_KEY_A);
-}
-
-// ============================================================
-// Bundles
-// ============================================================
-
-export async function salvarBundleAtivo(bundle: any): Promise<void> {
-  const bundleData: BundleData = {
-    id: `bundle_${Date.now()}`,
-    nomeReceptor: bundle.e2e?.ownerName || "Desconhecido",
-    emailReceptor: bundle.e2e?.ownerEmail || "Desconhecido",
-    bundle: bundle,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
-  await salvarChave(storeBundlesA, KEY_NAMES.BUNDLE_ATIVO, bundleData);
-}
-
-export async function buscarBundleAtivo(): Promise<BundleData | undefined> {
-  return buscarChave<BundleData>(storeBundlesA, KEY_NAMES.BUNDLE_ATIVO);
-}
-
-export async function salvarBundleHistorico(bundle: any): Promise<void> {
-  const bundleData: BundleData = {
-    id: `bundle_${Date.now()}`,
-    nomeReceptor: bundle.e2e?.ownerName || "Desconhecido",
-    emailReceptor: bundle.e2e?.ownerEmail || "Desconhecido",
-    bundle: bundle,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
-  const historico = await buscarChave<BundleData[]>(storeBundlesA, KEY_NAMES.BUNDLE_HISTORICO) || [];
-  historico.push(bundleData);
-  if (historico.length > 10) historico.shift();
-  await salvarChave(storeBundlesA, KEY_NAMES.BUNDLE_HISTORICO, historico);
-}
-
-export async function buscarHistoricoBundles(): Promise<BundleData[]> {
-  return await buscarChave<BundleData[]>(storeBundlesA, KEY_NAMES.BUNDLE_HISTORICO) || [];
-}
-
-export async function limparBundleAtivo(): Promise<void> {
-  await removerChave(storeBundlesA, KEY_NAMES.BUNDLE_ATIVO);
 }
 
 // ============================================================
@@ -1692,7 +1593,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos (com hash) – funções melhoradas
+// Contatos (com hash)
 // ============================================================
 
 async function sha256(message: string): Promise<string> {
@@ -1702,19 +1603,11 @@ async function sha256(message: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Serializa uma chave pública VAPID para um hash estável (SHA-256).
- * Ignora diferenças de capitalização, espaços, etc.
- */
 export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
   const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
   return await sha256(raw);
 }
 
-/**
- * Normaliza uma entrada (hash ou JWK) para a chave hash usada na store de contatos.
- * Se for string, assume que já é hash; se for objeto, serializa.
- */
 export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
   if (typeof input === 'string') return input;
   if (typeof input === 'object' && input !== null && 'kty' in input) {
@@ -1733,10 +1626,6 @@ export async function buscarContatoPorPublicKey(publicKeyVapid: JsonWebKey): Pro
   return buscarChave<Contato>(storeContatos, key);
 }
 
-/**
- * Busca contato por chave (hash) ou JWK.
- * @param chaveOuJwk - string (hash) ou JsonWebKey
- */
 export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
   const key = await normalizarChaveContato(chaveOuJwk);
   return buscarChave<Contato>(storeContatos, key);
@@ -1880,6 +1769,110 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
 
 ---
 
+## Arquivo: `src/styles.css`
+
+```css
+* { box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; padding: 20px; color: #333; max-width: 900px; margin: 0 auto; }
+.container { background: #f4f4f4; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 5px solid #006c4f; }
+.container-emissor { border-left-color: #002b3d; }
+.container-receptor { border-left-color: #ff6b00; }
+.container-contatos { border-left-color: #6c4f00; }
+textarea, input[type="text"] { width: 100%; max-width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 8px; font-family: monospace; }
+button { padding: 10px 16px; font-weight: bold; background-color: #006c4f; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
+button:hover { background-color: #004d3f; }
+button.send-btn { background-color: #002b3d; width: 100%; padding: 12px; font-size: 16px; margin-top: 10px; }
+button.send-btn:hover { background-color: #001a26; }
+button.danger { background-color: #cc0000; }
+button.danger:hover { background-color: #990000; }
+button.homologar-btn { background-color: #ff6b00; }
+button.homologar-btn:hover { background-color: #cc5500; }
+label { font-weight: bold; display: block; margin-top: 5px; }
+.row { display: flex; gap: 20px; flex-wrap: wrap; }
+.col { flex: 1; min-width: 300px; }
+.btn-sm { padding: 4px 12px; font-size: 12px; margin-bottom: 0; }
+.mt-10 { margin-top: 10px; }
+.mb-10 { margin-bottom: 10px; }
+.flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.flex-end { display: flex; gap: 8px; align-items: center; }
+.msg-item { border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; }
+.msg-item-nao-lida { background: #fffde7; }
+.msg-item-notificada { background: #e3f2fd; }
+.msg-item-lida { background: #f9f9f9; }
+.msg-item-homologado { border-left: 4px solid #28a745; }
+.msg-item-nao-homologado { border-left: 4px solid #ff6b00; }
+.status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+.status-badge-homologado { background: #d4edda; color: #155724; }
+.status-badge-nao-homologado { background: #fff3cd; color: #856404; }
+.status-badge-lida { background: #d1ecf1; color: #0c5460; }
+.status-badge-notificada { background: #d1ecf1; color: #0c5460; }
+.status-badge-enviada { background: #d4edda; color: #155724; }
+.status-badge-falha { background: #f8d7da; color: #721c24; }
+.tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+.tab { padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px 4px 0 0; cursor: pointer; font-weight: bold; }
+.tab.active { background: #006c4f; color: white; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; max-width: 400px; font-family: system-ui, sans-serif; animation: fadeInUp 0.3s ease; }
+.toast-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.toast-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+.toast-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+.profile-field { background: #fafafa; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; word-break: break-all; max-height: 150px; overflow-y: auto; white-space: pre-wrap; }
+.contato-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid #eee; }
+.contato-item:hover { background: #f0f0f0; }
+.contato-select { width: 100%; padding: 8px; margin-bottom: 10px; }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.meu-icone { width: 32px; height: auto;}
+```
+
+---
+
+## Arquivo: `src/service-worker.js`
+
+```js
+// src/service-worker.js
+
+// Importa os módulos fatiados (sem sync.js)
+import "./sw/cache.js";
+import "./sw/push.js";
+import "./sw/click.js";
+import "./sw/sw-mensagens.js";
+
+console.log("[SW] 🌌 Orquestrador Modular do Service Worker carregado com sucesso!");
+
+// 🔥 PROCESSADOR DE FILAS EM BACKGROUND
+// Tenta processar filas quando o SW é ativado
+self.addEventListener('activate', (event) => {
+  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
+  event.waitUntil(
+    (async () => {
+      // Aguarda um pouco para garantir que tudo está pronto
+      await new Promise(r => setTimeout(r, 1000));
+      
+      // Dispara o processamento em segundo plano, sem bloquear a ativação
+      setTimeout(async () => {
+        try {
+          if (self.processarFilaEnvio) {
+            await self.processarFilaEnvio();
+          }
+        } catch (e) {
+          console.error("[SW] Erro ao processar fila de envio:", e);
+        }
+        try {
+          if (self.processarFilaNotificacao) {
+            await self.processarFilaNotificacao();
+          }
+        } catch (e) {
+          console.error("[SW] Erro ao processar fila de notificações:", e);
+        }
+      }, 100);
+    })()
+  );
+});
+```
+
+---
+
 ## Arquivo: `src/app.tsx`
 
 ```tsx
@@ -1888,9 +1881,6 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
 import "./styles.css";
 
 import {
-  storeChavesE2E,
-  storeChavesVapid,
-  storeSubscription,
   salvarChavesE2EB,
   buscarChavesE2EB,
   salvarPublicEncryptB,
@@ -1899,13 +1889,9 @@ import {
   salvarSubscriptionB,
   buscarSubscriptionB,
   removerSubscriptionB,
-  salvarBundleAtivo,
-  buscarBundleAtivo,
-  salvarBundleHistorico,
   salvarMensagemEnvio,
   listarMensagensEnvio,
   removerMensagemEnvio,
-  salvarMensagemRecebida,
   listarMensagensRecebidas,
   atualizarStatusMensagemRecebida,
   removerMensagemRecebida,
@@ -1913,9 +1899,7 @@ import {
   buscarIdentidadeA,
   salvarPublicKeyA,
   buscarPublicKeyA,
-  buscarMensagemRecebida,
   // CONTATOS
-  storeContatos,
   salvarContato,
   buscarContatoPorPublicKey,
   buscarContatoPorChave,
@@ -1923,8 +1907,6 @@ import {
   homologarContato,
   removerContato,
   serializarPublicKeyVapid,
-  salvarChave,
-  removerChave,
 } from "./utils/db-helpers.ts";
 import type {
   ChavesE2EB,
@@ -1947,7 +1929,6 @@ async function copyToClipboard(text: string): Promise<void> {
     await navigator.clipboard.writeText(text);
     showToast("✅ Copiado para a área de transferência!", "success");
   } catch {
-    // Fallback para browsers antigos
     const textarea = document.createElement('textarea');
     textarea.value = text;
     document.body.appendChild(textarea);
@@ -1957,7 +1938,6 @@ async function copyToClipboard(text: string): Promise<void> {
     showToast("✅ Copiado para a área de transferência!", "success");
   }
 }
-
 
 function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
   const toast = document.createElement('div');
@@ -1989,7 +1969,7 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
 }
 
 // ============================================================
-// FUNÇÃO PARA REGISTRAR O SERVICE WORKER
+// FUNÇÃO PARA REGISTRAR O SERVICE WORKER (VERSÃO SIMPLIFICADA)
 // ============================================================
 async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   console.log("📡 Verificando suporte ao Service Worker...");
@@ -1998,73 +1978,18 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
     throw new Error("Service Worker não é suportado neste navegador.");
   }
 
-  // 1. Sempre chamamos o register com cacheBuster. 
-  // O navegador é inteligente: se o arquivo for idêntico, ele não reinstala.
-  // Se o arquivo mudou no servidor (novo hash do Deno), ele inicia o processo de atualização.
   const cacheBuster = Date.now();
   console.log("⏳ Registrando/Atualizando Service Worker...");
 
-  try {
-    const registration = await navigator.serviceWorker.register(
-      `./service-worker.js?cacheBuster=${cacheBuster}`,
-      { scope: "/" }
-    );
-    
-    console.log("Service Worker registrado. Escopo:", registration.scope);
+  const registration = await navigator.serviceWorker.register(
+    `./service-worker.js?cacheBuster=${cacheBuster}`,
+    { scope: "/" }
+  );
 
-    // 2. Aguarda a ativação do Worker desta transição atual
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error("Timeout de 5s: O SW pode estar aguardando abas antigas fecharem (waiting)."));
-      }, 5000);
-
-      const limparEInsucesso = (msg: string) => {
-        clearTimeout(timeout);
-        reject(new Error(msg));
-      };
-
-      const limparESucesso = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-
-      // Cenário A: Já está ativo e não há nenhuma atualização pendente (recarregamento simples)
-      if (registration.active && !registration.installing && !registration.waiting) {
-        return limparESucesso();
-      }
-
-      // Cenário B: Existe uma atualização acontecendo ou aguardando
-      // Prioriza o worker que está entrando (installing) ou na fila (waiting)
-      const novoWorker = registration.installing || registration.waiting || registration.active;
-
-      if (!novoWorker) {
-        return limparEInsucesso("Instância do Service Worker não encontrada.");
-      }
-
-      // Se o worker alvo já chegou no estado ativado de forma síncrona
-      if (novoWorker.state === "activated") {
-        return limparESucesso();
-      }
-
-      // Escuta a mudança de estado do worker correto
-      novoWorker.addEventListener("statechange", () => {
-        if (novoWorker.state === "activated") {
-          limparESucesso();
-        } else if (novoWorker.state === "redundant") {
-          limparEInsucesso("O Service Worker tornou-se redundante (falha na instalação).");
-        }
-      });
-    });
-
-    console.log("✅ Service Worker ativo e pronto.");
-    return registration;
-
-  } catch (err) {
-    console.error("❌ Erro no ciclo do Service Worker:", err);
-    throw new Error(`Falha ao registrar Service Worker: ${(err as Error).message}`);
-  }
+  await navigator.serviceWorker.ready;
+  console.log("✅ Service Worker ativo e pronto.");
+  return registration;
 }
-
 
 // ============================================================
 // CRIPTOGRAFIA DA CHAVE VAPID (para o servidor)
@@ -2285,24 +2210,6 @@ async function gerarProfile(): Promise<any> {
       k: privateKeyEncrypted
     };
 
-    const bundle = {
-      subscription: subscriptionJson,
-      vapid: {
-        subject: `mailto:${email}`,
-        publicKey: publicKeyJwk,
-        privateKey: privateKeyEncrypted
-      },
-      isVapidEncrypted: true,
-      e2e: {
-        ownerName: nome,
-        ownerEmail: email,
-        browserB_PublicKeyEncrypt: publicEncryptJwk,
-      },
-      payloadText: ""
-    };
-    await salvarBundleAtivo(bundle);
-    await salvarBundleHistorico(bundle);
-
     return profile;
   } catch (err) {
     console.error("❌ Erro ao gerar perfil:", err);
@@ -2321,16 +2228,13 @@ async function adicionarContato(): Promise<void> {
   }
   try {
     const profile = JSON.parse(profileRaw);
-    // Verificação completa dos campos obrigatórios
     const required = ['iss', 'kid', 's', 'p', 'k'];
     for (const field of required) {
       if (!profile[field]) throw new Error(`Campo obrigatório ausente: ${field}`);
     }
-    // Verifica se 's' contém endpoint e keys
     if (!profile.s.endpoint || !profile.s.keys || !profile.s.keys.p256dh || !profile.s.keys.auth) {
       throw new Error('Subscription inválida: falta endpoint ou keys.');
     }
-    // Tenta importar a chave pública VAPID para validar
     await crypto.subtle.importKey(
       "jwk", profile.kid,
       { name: "ECDSA", namedCurve: "P-256" },
@@ -2357,8 +2261,6 @@ async function adicionarContato(): Promise<void> {
     showToast(`❌ Erro ao adicionar contato: ${err.message}`, "error");
   }
 }
-
-
 
 // ============================================================
 // CARREGAR LISTA DE CONTATOS (UI)
@@ -2434,6 +2336,7 @@ async function enviarMensagemB(): Promise<void> {
   }
 
   try {
+    // 1. Buscar contato destino (destinatário)
     let contato = await buscarContatoPorChave(selectedKey);
     if (!contato) {
       console.warn("Contato não encontrado pela chave exata. Tentando fallback...");
@@ -2456,7 +2359,8 @@ async function enviarMensagemB(): Promise<void> {
       return;
     }
 
-    const bundle = {
+    // Bundle do destinatário (para cifrar a mensagem)
+    const bundleDestino = {
       subscription: contato.subscription,
       vapid: {
         subject: `mailto:${contato.email}`,
@@ -2472,84 +2376,65 @@ async function enviarMensagemB(): Promise<void> {
       payloadText: ""
     };
 
-    const e2eConfig = bundle.e2e;
-    const publicKeyJwk = e2eConfig.browserB_PublicKeyEncrypt;
-    if (publicKeyJwk.kty !== "RSA") {
+    // Chave pública RSA do destinatário para cifrar a chave AES
+    const publicKeyDestino = bundleDestino.e2e.browserB_PublicKeyEncrypt;
+    if (publicKeyDestino.kty !== "RSA") {
       showToast("❌ Chave pública do contato não é RSA.", "error");
       return;
     }
 
     const cryptoKeyDestino = await window.crypto.subtle.importKey(
-      "jwk", publicKeyJwk,
+      "jwk", publicKeyDestino,
       { name: "RSA-OAEP", hash: "SHA-256" },
       true,
       ["encrypt"]
     );
 
-    const subscription = await buscarSubscriptionB();
+    // 2. Buscar dados do emissor (usuário atual)
+    const identidade = await buscarIdentidadeA();
+    const subscriptionData = await buscarSubscriptionB();
     const chavesVapid = await buscarChavesVapidB();
     const chavesE2E = await buscarChavesE2EB();
-    const publicKeyEncrypt = chavesE2E?.publicEncrypt;
-    const publicVapid = chavesVapid?.publicKey;
-    if (!publicVapid) throw new Error("Chave pública VAPID não encontrada.");
 
-    let vapidPrivateCifrada: string | undefined;
-    let meuBundle = await buscarBundleAtivo();
-    if (meuBundle?.vapid?.privateKey) {
-      vapidPrivateCifrada = meuBundle.vapid.privateKey;
-    } else {
-      const chavesVapidSalvas = await buscarChavesVapidB();
-      if (chavesVapidSalvas?.privateKey) {
-        const resServerKey = await fetch("/api/server-public-key");
-        const serverPublicKeyJwk = await resServerKey.json();
-        vapidPrivateCifrada = await criptografarChaveVapid(chavesVapidSalvas.privateKey, serverPublicKeyJwk);
-        if (!meuBundle) {
-          const nomeB = (document.getElementById('profileNameB') as HTMLInputElement).value;
-          const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
-          meuBundle = {
-            subscription: subscription ? {
-              endpoint: subscription.endpoint,
-              keys: subscription.keys
-            } : undefined,
-            vapid: {
-              subject: `mailto:${emailB || 'unknown'}`,
-              publicKey: publicVapid,
-              privateKey: vapidPrivateCifrada
-            },
-            isVapidEncrypted: true,
-            e2e: {
-              ownerName: nomeB || 'Usuário',
-              ownerEmail: emailB || 'unknown',
-              browserB_PublicKeyEncrypt: publicKeyEncrypt
-            },
-            payloadText: ""
-          };
-        } else {
-          if (!meuBundle.vapid) meuBundle.vapid = {};
-          meuBundle.vapid.privateKey = vapidPrivateCifrada;
-          meuBundle.vapid.publicKey = publicVapid;
-          if (!meuBundle.vapid.subject) {
-            const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
-            meuBundle.vapid.subject = `mailto:${emailB || 'unknown'}`;
-          }
-        }
-        await salvarBundleAtivo(meuBundle);
-      } else {
-        throw new Error("Chave privada VAPID não encontrada. Gere seu perfil novamente.");
-      }
+    if (!identidade || !subscriptionData || !chavesVapid || !chavesE2E) {
+      throw new Error("Dados de identidade ou chaves não encontrados. Gere seu perfil novamente.");
     }
 
+    // 3. Construir o bundle do emissor (para incluir no payload)
+    const bundleEmissor = {
+      subscription: {
+        endpoint: subscriptionData.endpoint,
+        keys: subscriptionData.keys
+      },
+      vapid: {
+        subject: `mailto:${identidade.email}`,
+        publicKey: chavesVapid.publicKey,
+        privateKey: chavesVapid.privateKey // já cifrada
+      },
+      isVapidEncrypted: true,
+      e2e: {
+        ownerName: identidade.name,
+        ownerEmail: identidade.email,
+        browserB_PublicKeyEncrypt: chavesE2E.publicEncrypt
+      },
+      payloadText: ""
+    };
+
+    const publicKeyEncrypt = chavesE2E.publicEncrypt;
+    const publicVapid = chavesVapid.publicKey;
+
+    // 4. Construir o objeto de mensagem (com envelope)
     const encoder = new TextEncoder();
     const mensagemObj = {
       m: { c: conteudo },
       e: {
-        s: subscription ? {
-          e: subscription.endpoint,
-          k: subscription.keys
-        } : undefined,
+        s: {
+          e: subscriptionData.endpoint,
+          k: subscriptionData.keys
+        },
         p: publicKeyEncrypt,
         v: {
-          k: vapidPrivateCifrada
+          k: chavesVapid.privateKey // chave privada VAPID cifrada do emissor
         }
       }
     };
@@ -2583,8 +2468,7 @@ async function enviarMensagemB(): Promise<void> {
     };
     const envelopeJson = JSON.stringify(envelope);
 
-    const identidade = await buscarIdentidadeA();
-    if (!identidade) throw new Error("Identidade não encontrada.");
+    // 5. Construir JWT
     const header = { alg: "ES256" };
     const payload = {
       iss: identidade.email,
@@ -2611,10 +2495,11 @@ async function enviarMensagemB(): Promise<void> {
       console.log(`✅ JWT dentro do limite (${4096 - jwt.length} bytes restantes)`);
     }
 
+    // 6. Salvar mensagem na fila de envio
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const mensagem: MensagemEnvio = {
       id: msgId,
-      bundle: bundle,
+      bundle: bundleDestino, // salva o bundle do destinatário (para o SW enviar)
       payloadText: jwt,
       mensagemOriginal: conteudo,
       destinatario: contato.email,
@@ -2664,7 +2549,7 @@ async function compartilharProfile(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR MENSAGENS RECEBIDAS – com fallback robusto
+// CARREGAR MENSAGENS RECEBIDAS
 // ============================================================
 async function carregarMensagensRecebidas(): Promise<void> {
   console.log("📬 Carregando mensagens recebidas...");
@@ -2683,33 +2568,27 @@ async function carregarMensagensRecebidas(): Promise<void> {
     const statusEmoji = msg.status === 'nao_lida' ? '🟡' : msg.status === 'notificada' ? '🔔' : '✅';
     const data = new Date(msg.recebidoEm).toLocaleString();
 
-    // 🔥 Busca contato pela chave da mensagem (agora hash)
     let contato: Contato | null = null;
     let nome = 'Remetente desconhecido';
     let homologado = false;
     let podeResponder = false;
 
     if (msg.contatoPublicKeyVapid) {
-      // Primeiro, tenta buscar diretamente pela chave
       contato = await buscarContatoPorChave(msg.contatoPublicKeyVapid);
       if (!contato) {
-        // Fallback: se a chave for JSON antigo, tenta converter para hash e buscar
         try {
           const parsed = JSON.parse(msg.contatoPublicKeyVapid);
-          // Se for um objeto JWK, serializa para hash e busca
           if (parsed && parsed.kty) {
             const hashKey = await serializarPublicKeyVapid(parsed);
             contato = await buscarContatoPorChave(hashKey);
           }
         } catch (e) {
-          // Não é JSON, ignora
+          // ignora
         }
       }
-      // Se ainda não encontrou, percorre todos os contatos comparando a chave pública VAPID
       if (!contato) {
         const todosContatos = await listarContatos();
         for (const c of todosContatos) {
-          // Gera o hash da chave pública do contato e compara com a chave da mensagem
           const hashKey = await serializarPublicKeyVapid(c.publicKeyVapid);
           if (hashKey === msg.contatoPublicKeyVapid) {
             contato = c;
@@ -2767,7 +2646,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
 
   container.innerHTML = html;
 
-  // Event listeners (idênticos ao código anterior)
   container.querySelectorAll('.btn-marcar-lida').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const id = (e.currentTarget as HTMLButtonElement).dataset.id;
@@ -2981,10 +2859,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
 
-  document.getElementById('btnCopyProfile')?.addEventListener('click', () => {
+  document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
     const display = document.getElementById('myProfileDisplay');
     if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
-      copyToClipboard('myProfileDisplay');
+      await copyToClipboard(display.textContent);
     } else {
       showToast("Primeiro gere seu perfil.", "info");
     }
@@ -3032,59 +2910,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
 ---
 
-## Arquivo: `src/styles.css`
+## Arquivo: `src/styles.d.ts`
 
-```css
-* { box-sizing: border-box; }
-body { font-family: system-ui, sans-serif; padding: 20px; color: #333; max-width: 900px; margin: 0 auto; }
-.container { background: #f4f4f4; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 5px solid #006c4f; }
-.container-emissor { border-left-color: #002b3d; }
-.container-receptor { border-left-color: #ff6b00; }
-.container-contatos { border-left-color: #6c4f00; }
-textarea, input[type="text"] { width: 100%; max-width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 8px; font-family: monospace; }
-button { padding: 10px 16px; font-weight: bold; background-color: #006c4f; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
-button:hover { background-color: #004d3f; }
-button.send-btn { background-color: #002b3d; width: 100%; padding: 12px; font-size: 16px; margin-top: 10px; }
-button.send-btn:hover { background-color: #001a26; }
-button.danger { background-color: #cc0000; }
-button.danger:hover { background-color: #990000; }
-button.homologar-btn { background-color: #ff6b00; }
-button.homologar-btn:hover { background-color: #cc5500; }
-label { font-weight: bold; display: block; margin-top: 5px; }
-.row { display: flex; gap: 20px; flex-wrap: wrap; }
-.col { flex: 1; min-width: 300px; }
-.btn-sm { padding: 4px 12px; font-size: 12px; margin-bottom: 0; }
-.mt-10 { margin-top: 10px; }
-.mb-10 { margin-bottom: 10px; }
-.flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.flex-end { display: flex; gap: 8px; align-items: center; }
-.msg-item { border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; }
-.msg-item-nao-lida { background: #fffde7; }
-.msg-item-notificada { background: #e3f2fd; }
-.msg-item-lida { background: #f9f9f9; }
-.msg-item-homologado { border-left: 4px solid #28a745; }
-.msg-item-nao-homologado { border-left: 4px solid #ff6b00; }
-.status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
-.status-badge-homologado { background: #d4edda; color: #155724; }
-.status-badge-nao-homologado { background: #fff3cd; color: #856404; }
-.status-badge-lida { background: #d1ecf1; color: #0c5460; }
-.status-badge-notificada { background: #d1ecf1; color: #0c5460; }
-.status-badge-enviada { background: #d4edda; color: #155724; }
-.status-badge-falha { background: #f8d7da; color: #721c24; }
-.tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
-.tab { padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px 4px 0 0; cursor: pointer; font-weight: bold; }
-.tab.active { background: #006c4f; color: white; }
-.tab-content { display: none; }
-.tab-content.active { display: block; }
-.toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; max-width: 400px; font-family: system-ui, sans-serif; animation: fadeInUp 0.3s ease; }
-.toast-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-.toast-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-.toast-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
-.profile-field { background: #fafafa; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; word-break: break-all; max-height: 150px; overflow-y: auto; white-space: pre-wrap; }
-.contato-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid #eee; }
-.contato-item:hover { background: #f0f0f0; }
-.contato-select { width: 100%; padding: 8px; margin-bottom: 10px; }
-@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+```ts
+// src/styles.d.ts
+declare module "*.css" {
+  const content: string;
+  export default content;
+}
 ```
 
 ---
