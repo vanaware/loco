@@ -1,25 +1,16 @@
-// src/browser-b.tsx
-import { set, createStore } from "idb-keyval";
+// src/app.tsx
 import {
   storeChavesE2E,
-  storeListaBranca,
   storeChavesVapid,
   storeSubscription,
-  storeBundlesA,
-  storeMensagensEnvioA,
   salvarChavesE2EB,
   buscarChavesE2EB,
   salvarPublicEncryptB,
-  salvarPublicVerifyB,
   salvarChavesVapidB,
   buscarChavesVapidB,
   salvarSubscriptionB,
   buscarSubscriptionB,
   removerSubscriptionB,
-  salvarEmissorHomologado,
-  buscarEmissorHomologado,
-  listarEmissoresHomologados,
-  removerChave as removerEmissorHomologado,
   salvarBundleAtivo,
   buscarBundleAtivo,
   salvarBundleHistorico,
@@ -34,8 +25,18 @@ import {
   buscarIdentidadeA,
   salvarPublicKeyA,
   buscarPublicKeyA,
-  storeMensagensRecebidasB,
-  buscarMensagemRecebida, // 🔥 IMPORTADO
+  buscarMensagemRecebida,
+  // CONTATOS
+  storeContatos,
+  salvarContato,
+  buscarContatoPorPublicKey,
+  buscarContatoPorChave,
+  listarContatos,
+  homologarContato,
+  removerContato,
+  serializarPublicKeyVapid,
+  salvarChave,
+  removerChave,
 } from "./utils/db-helpers.ts";
 import type {
   ChavesE2EB,
@@ -43,12 +44,12 @@ import type {
   SubscriptionData,
   MensagemEnvio,
   MensagemRecebida,
-  EmissorHomologado,
   IdentidadeA,
+  Contato,
 } from "./constants/db.ts";
 import { gzipSync } from "fflate";
 
-console.log("🟢 [SW-LOG] Browser B - Emissor e Receptor (assinatura com VAPID)");
+console.log("🟢 [SW-LOG] Web Push Descentralizado - Perfis e Contatos");
 
 // ============================================================
 // UTILITÁRIOS
@@ -86,13 +87,6 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
-
 function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
   if (!buffer) return "";
   return arrayBufferToBase64Url(buffer);
@@ -103,24 +97,18 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
 // ============================================================
 async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   console.log("📡 Verificando registro do Service Worker...");
-  
   if (!navigator.serviceWorker) {
     throw new Error("Service Worker não é suportado neste navegador.");
   }
-
-  // Verifica se já existe um SW ativo
   let registration = await navigator.serviceWorker.getRegistration();
   if (registration && registration.active) {
     console.log("✅ Service Worker já está ativo.");
     return registration;
   }
-
-  // Tenta registrar
   console.log("⏳ Registrando Service Worker...");
   try {
     registration = await navigator.serviceWorker.register("./service-worker.js", { scope: "/" });
     console.log("✅ Service Worker registrado com sucesso.");
-    // Aguarda ativação
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("Timeout ao esperar ativação do SW")), 5000);
       if (registration.active) {
@@ -144,10 +132,7 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
 // ============================================================
 // CRIPTOGRAFIA DA CHAVE VAPID (para o servidor)
 // ============================================================
-async function criptografarChaveVapid(
-  privateKeyJwk: JsonWebKey,
-  serverPublicKeyJwk: JsonWebKey
-): Promise<string> {
+async function criptografarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
   const serverKey = await window.crypto.subtle.importKey(
     "jwk",
     serverPublicKeyJwk,
@@ -155,13 +140,11 @@ async function criptografarChaveVapid(
     true,
     ["encrypt"]
   );
-
   const aesKey = await window.crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
     true,
     ["encrypt"]
   );
-
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const encoder = new TextEncoder();
   const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
@@ -170,23 +153,19 @@ async function criptografarChaveVapid(
     aesKey,
     vapidBytes
   );
-
   const aesKeyRaw = await window.crypto.subtle.exportKey("raw", aesKey);
   const aesKeyCifrado = await window.crypto.subtle.encrypt(
     { name: "RSA-OAEP" },
     serverKey,
     aesKeyRaw
   );
-
   const toHex = (buf: ArrayBuffer) =>
     Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-
   const envelope = {
     iv: toHex(iv.buffer),
     dadosCifrados: toHex(vapidCifrado),
     chaveAesCifrada: toHex(aesKeyCifrado)
   };
-
   return btoa(JSON.stringify(envelope));
 }
 
@@ -200,16 +179,13 @@ async function generateE2EEKeys() {
     false,
     ["encrypt", "decrypt"]
   );
-
   const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
-
   const chavesE2E: ChavesE2EB = {
     privateDecrypt: encryptionKeyPair.privateKey,
     publicEncrypt: publicEncryptJwk,
   };
   await salvarChavesE2EB(chavesE2E);
   await salvarPublicEncryptB(publicEncryptJwk);
-
   return { publicEncryptJwk };
 }
 
@@ -226,47 +202,36 @@ async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
 }
 
 // ============================================================
-// FUNÇÃO GERAR MEU BUNDLE – COM REGISTRO EXPLÍCITO DO SW
+// GERAR PERFIL (profile) – substitui o bundle
 // ============================================================
-async function gerarMeuBundle(): Promise<any> {
-  console.log("📦 Iniciando geração do bundle...");
-  const nomeB = (document.getElementById('profileNameB') as HTMLInputElement).value;
-  const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
+async function gerarProfile(): Promise<any> {
+  console.log("📦 Gerando perfil...");
+  const nome = (document.getElementById('profileNameB') as HTMLInputElement).value;
+  const email = (document.getElementById('profileEmailB') as HTMLInputElement).value;
 
-  if (!nomeB || !emailB) {
+  if (!nome || !email) {
     throw new Error("Preencha Nome e E-mail primeiro.");
   }
 
   try {
-    // 1. Verificar permissão de notificação
-    console.log("🔔 Verificando permissão de notificação...");
     if (Notification.permission === "denied") {
-      throw new Error("Permissão de notificação negada. Habilite nas configurações do navegador.");
+      throw new Error("Permissão de notificação negada.");
     }
     if (Notification.permission === "default") {
-      console.log("📢 Solicitando permissão de notificação...");
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         throw new Error("Permissão de notificação não concedida.");
       }
-      console.log("✅ Permissão concedida.");
     }
 
-    // 2. Registrar/garantir que o Service Worker está ativo
     const registration = await registrarServiceWorker();
-    console.log("✅ Service Worker pronto para uso.");
 
-    // 3. Obter chave pública do servidor
-    console.log("📡 Buscando chave pública do servidor...");
     const resServerKey = await fetch("/api/server-public-key");
     if (!resServerKey.ok) {
       throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
     }
     const serverPublicKeyJwk = await resServerKey.json();
-    console.log("✅ Chave pública do servidor obtida.");
 
-    // 4. Chaves VAPID
-    console.log("🔑 Obtendo/gerando chaves VAPID...");
     let chavesVapidSalvas = await buscarChavesVapidB();
     let vapidKeyPair: CryptoKeyPair;
     let publicKeyJwk: JsonWebKey;
@@ -289,107 +254,75 @@ async function gerarMeuBundle(): Promise<any> {
             true, ["sign"]
           )
         } as CryptoKeyPair;
-      } catch (err) {
-        console.warn("⚠️ Erro ao importar chaves VAPID salvas, recriando...", err);
+      } catch {
         chavesVapidSalvas = undefined;
       }
     }
-
     if (!chavesVapidSalvas) {
       console.log("🔑 Gerando novas chaves VAPID...");
       vapidKeyPair = await generateVAPIDKeys();
       publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
       privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
       await salvarChavesVapidB({ publicKey: publicKeyJwk, privateKey: privateKeyJwk });
-      console.log("✅ Novas chaves VAPID salvas.");
     }
 
-    // 5. Subscription
-    console.log("📡 Obtendo subscription...");
     let existingSubscription = await registration.pushManager.getSubscription();
-    console.log("📡 Subscription obtida:", existingSubscription ? "sim" : "não");
-
     let subscriptionValida = false;
 
     if (existingSubscription) {
       const subscriptionData = await buscarSubscriptionB();
       if (subscriptionData && subscriptionData.vapidPublicKey?.n === publicKeyJwk.n) {
         subscriptionValida = true;
-        console.log("✅ Subscription existente é válida.");
       } else {
-        console.log("⚠️ Subscription existente não corresponde à chave VAPID atual. Removendo...");
         await existingSubscription.unsubscribe();
         await removerSubscriptionB();
         existingSubscription = null;
       }
     }
-
     if (!existingSubscription || !subscriptionValida) {
       console.log("📝 Criando nova subscription...");
       const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-      console.log("🔑 Chave pública VAPID exportada (raw).");
-      try {
-        existingSubscription = await registration.pushManager.subscribe({
-          applicationServerKey: new Uint8Array(rawPublicKey),
-          userVisibleOnly: true
-        });
-        console.log("✅ Nova subscription criada com sucesso.");
-      } catch (subErr) {
-        console.error("❌ Erro ao criar subscription:", subErr);
-        throw new Error("Falha ao criar subscription: " + (subErr as Error).message);
-      }
+      existingSubscription = await registration.pushManager.subscribe({
+        applicationServerKey: new Uint8Array(rawPublicKey),
+        userVisibleOnly: true
+      });
     }
 
-    // Extrair chaves da subscription
     const p256dhBuffer = existingSubscription.getKey('p256dh');
     const authBuffer = existingSubscription.getKey('auth');
     if (!p256dhBuffer || !authBuffer) {
       throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
     }
-    const customSubscriptionJson = {
+    const subscriptionJson = {
       endpoint: existingSubscription.endpoint,
       keys: {
         p256dh: rawBufferToBase64Url(p256dhBuffer),
         auth: rawBufferToBase64Url(authBuffer)
       }
     };
-    console.log("✅ Subscription processada.");
 
-    // 6. Chaves E2E (RSA para criptografia)
-    console.log("🔑 Obtendo/gerando chaves E2E...");
     let e2ePublicKeys = await buscarChavesE2EB();
     let publicEncryptJwk: JsonWebKey;
-
     if (e2ePublicKeys && e2ePublicKeys.publicEncrypt) {
       publicEncryptJwk = e2ePublicKeys.publicEncrypt;
-      console.log("📂 Chaves E2E encontradas.");
     } else {
-      console.log("🔑 Gerando novas chaves E2E...");
       const novasChaves = await generateE2EEKeys();
       publicEncryptJwk = novasChaves.publicEncryptJwk;
-      console.log("✅ Novas chaves E2E geradas.");
     }
 
-    // 7. Salvar subscription no IndexedDB
     const subscriptionData: SubscriptionData = {
       endpoint: existingSubscription.endpoint,
-      keys: customSubscriptionJson.keys,
+      keys: subscriptionJson.keys,
       vapidPublicKey: publicKeyJwk,
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
     await salvarSubscriptionB(subscriptionData);
-    console.log("✅ Subscription salva no IndexedDB.");
 
-    // 8. Cifrar chave privada VAPID
-    console.log("🔐 Cifrando chave privada VAPID para o servidor...");
     const privateKeyEncrypted = await criptografarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-    console.log("✅ Chave privada VAPID cifrada.");
 
-    // 9. Salvar IDENTIDADE usando a chave privada VAPID
     const identidadeExistente = await buscarIdentidadeA();
     if (!identidadeExistente) {
-      console.log("🔑 Salvando identidade com chave VAPID...");
       const privateVapidKey = await window.crypto.subtle.importKey(
         "jwk",
         privateKeyJwk,
@@ -398,78 +331,214 @@ async function gerarMeuBundle(): Promise<any> {
         ["sign"]
       );
       await salvarIdentidadeA({
-        name: nomeB,
-        email: emailB,
+        name: nome,
+        email: email,
         privateKey: privateVapidKey
       });
-      const extendedPublic = { ...publicKeyJwk, ownerName: nomeB, ownerEmail: emailB };
+      const extendedPublic = { ...publicKeyJwk, ownerName: nome, ownerEmail: email };
       await salvarPublicKeyA(extendedPublic);
-      console.log("✅ Identidade salva.");
-    } else {
-      console.log("📂 Identidade já existe, pulando.");
     }
 
-    // 10. Montar bundle
-    console.log("📦 Montando bundle final...");
+    const profile = {
+      iss: email,
+      nm: nome,
+      kid: publicKeyJwk,
+      s: subscriptionJson,
+      p: publicEncryptJwk,
+      k: privateKeyEncrypted
+    };
+
     const bundle = {
-      subscription: customSubscriptionJson,
+      subscription: subscriptionJson,
       vapid: {
-        subject: `mailto:${emailB}`,
+        subject: `mailto:${email}`,
         publicKey: publicKeyJwk,
         privateKey: privateKeyEncrypted
       },
       isVapidEncrypted: true,
       e2e: {
-        ownerName: nomeB,
-        ownerEmail: emailB,
+        ownerName: nome,
+        ownerEmail: email,
         browserB_PublicKeyEncrypt: publicEncryptJwk,
       },
       payloadText: ""
     };
-
     await salvarBundleAtivo(bundle);
     await salvarBundleHistorico(bundle);
-    console.log("✅ Bundle salvo no IndexedDB.");
 
-    return bundle;
+    return profile;
   } catch (err) {
-    console.error("❌ Erro ao gerar bundle:", err);
+    console.error("❌ Erro ao gerar perfil:", err);
     throw err;
   }
 }
 
 // ============================================================
-// FUNÇÃO ENVIAR MENSAGEM – com tratamento de erro 410
+// ADICIONAR CONTATO A PARTIR DE UM PERFIL (CORRIGIDO)
+// ============================================================
+async function adicionarContato(): Promise<void> {
+  const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value;
+  if (!profileRaw) {
+    showToast("Cole o perfil da pessoa que deseja adicionar.", "error");
+    return;
+  }
+  try {
+    const profile = JSON.parse(profileRaw);
+    if (!profile.iss || !profile.kid || !profile.s || !profile.p || !profile.k) {
+      throw new Error("Perfil inválido: faltam campos obrigatórios.");
+    }
+    // 🔥 NÃO normaliza kty e crv – mantém o original (EC, P-256)
+    const kid = profile.kid;
+    await window.crypto.subtle.importKey(
+      "jwk", kid,
+      { name: "ECDSA", namedCurve: "P-256" },
+      true, ["verify"]
+    );
+
+    const contato: Contato = {
+      publicKeyVapid: kid,
+      email: profile.iss,
+      nome: profile.nm || profile.iss,
+      publicKeyRSA: profile.p,
+      subscription: profile.s,
+      vapidPrivateKey: profile.k,
+      homologado: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    await salvarContato(contato);
+    showToast(`✅ Contato "${contato.nome}" adicionado!`, "success");
+    (document.getElementById('profileInput') as HTMLTextAreaElement).value = '';
+    await carregarContatos();
+    await carregarSelectContatos();
+  } catch (err) {
+    showToast(`❌ Erro ao adicionar contato: ${err.message}`, "error");
+  }
+}
+
+
+
+// ============================================================
+// CARREGAR LISTA DE CONTATOS (UI)
+// ============================================================
+async function carregarContatos(): Promise<void> {
+  const container = document.getElementById('listaContatos');
+  if (!container) return;
+  const contatos = await listarContatos();
+  if (contatos.length === 0) {
+    container.innerHTML = '<p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>';
+    return;
+  }
+  let html = '';
+  for (const c of contatos) {
+    const homol = c.homologado ? '✅' : '🔄';
+    html += `
+      <div class="contato-item">
+        <span><strong>${c.nome}</strong> &lt;${c.email}&gt; ${homol}</span>
+        <button class="btn-remover-contato btn-sm danger" data-publickey='${JSON.stringify(c.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+
+  container.querySelectorAll('.btn-remover-contato').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const publicKeyStr = target.dataset.publickey || '';
+      try {
+        const publicKeyVapid = JSON.parse(publicKeyStr);
+        if (confirm('Remover este contato?')) {
+          await removerContato(publicKeyVapid);
+          await carregarContatos();
+          await carregarSelectContatos();
+          showToast('Contato removido.', 'info');
+        }
+      } catch (err) {
+        showToast('Erro ao remover contato.', 'error');
+      }
+    });
+  });
+}
+
+// ============================================================
+// CARREGAR SELECT DE CONTATOS
+// ============================================================
+async function carregarSelectContatos(): Promise<void> {
+  const select = document.getElementById('contatoSelect') as HTMLSelectElement;
+  if (!select) return;
+  const contatos = await listarContatos();
+  select.innerHTML = '<option value="">-- Selecione um contato --</option>';
+  for (const c of contatos) {
+    const key = await serializarPublicKeyVapid(c.publicKeyVapid);
+    select.innerHTML += `<option value="${key}">${c.nome} (${c.email})</option>`;
+  }
+}
+
+// ============================================================
+// ENVIAR MENSAGEM PARA UM CONTATO SELECIONADO
 // ============================================================
 async function enviarMensagemB(): Promise<void> {
   console.log("🚀 Enviando mensagem...");
-  const bundleRaw = (document.getElementById('bundleDestinoB') as HTMLTextAreaElement).value;
-  const titulo = (document.getElementById('tituloMensagemB') as HTMLInputElement)?.value || "Nova mensagem";
+  const select = document.getElementById('contatoSelect') as HTMLSelectElement;
+  const selectedKey = select.value;
+  if (!selectedKey) {
+    showToast("Selecione um contato para enviar a mensagem.", "error");
+    return;
+  }
   const conteudo = (document.getElementById('mensagemEnvioB') as HTMLTextAreaElement).value;
-
-  if (!bundleRaw || !conteudo) {
-    showToast("Preencha o bundle e a mensagem.", "error");
+  if (!conteudo) {
+    showToast("Digite uma mensagem.", "error");
     return;
   }
 
   try {
-    const bodyPayload = JSON.parse(bundleRaw);
-    const e2eConfig = bodyPayload.e2e;
+    let contato = await buscarContatoPorChave(selectedKey);
+    if (!contato) {
+      console.warn("Contato não encontrado pela chave exata. Tentando fallback...");
+      const todosContatos = await listarContatos();
+      for (const c of todosContatos) {
+        const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
+        if (hash === selectedKey) {
+          contato = c;
+          break;
+        }
+      }
+      if (!contato) {
+        showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
+        return;
+      }
+    }
 
-    if (!e2eConfig || !e2eConfig.browserB_PublicKeyEncrypt) {
-      showToast("Bundle inválido: chave de criptografia não encontrada.", "error");
+    if (!contato.subscription || !contato.publicKeyRSA || !contato.vapidPrivateKey) {
+      showToast("❌ Contato incompleto para enviar mensagem. Peça para a pessoa gerar um novo perfil.", "error");
       return;
     }
 
+    const bundle = {
+      subscription: contato.subscription,
+      vapid: {
+        subject: `mailto:${contato.email}`,
+        publicKey: contato.publicKeyVapid,
+        privateKey: contato.vapidPrivateKey
+      },
+      isVapidEncrypted: true,
+      e2e: {
+        ownerName: contato.nome,
+        ownerEmail: contato.email,
+        browserB_PublicKeyEncrypt: contato.publicKeyRSA
+      },
+      payloadText: ""
+    };
+
+    const e2eConfig = bundle.e2e;
     const publicKeyJwk = e2eConfig.browserB_PublicKeyEncrypt;
     if (publicKeyJwk.kty !== "RSA") {
-      showToast("❌ A chave pública do destinatário não é RSA (kty=" + publicKeyJwk.kty + "). Verifique o bundle.", "error");
+      showToast("❌ Chave pública do contato não é RSA.", "error");
       return;
     }
 
     const cryptoKeyDestino = await window.crypto.subtle.importKey(
-      "jwk",
-      publicKeyJwk,
+      "jwk", publicKeyJwk,
       { name: "RSA-OAEP", hash: "SHA-256" },
       true,
       ["encrypt"]
@@ -482,20 +551,16 @@ async function enviarMensagemB(): Promise<void> {
     const publicVapid = chavesVapid?.publicKey;
     if (!publicVapid) throw new Error("Chave pública VAPID não encontrada.");
 
-    // Obtém a chave privada VAPID cifrada (com fallback)
     let vapidPrivateCifrada: string | undefined;
     let meuBundle = await buscarBundleAtivo();
     if (meuBundle?.vapid?.privateKey) {
       vapidPrivateCifrada = meuBundle.vapid.privateKey;
     } else {
-      console.warn("⚠️ Chave privada VAPID não encontrada no bundle ativo. Buscando no IndexedDB...");
       const chavesVapidSalvas = await buscarChavesVapidB();
       if (chavesVapidSalvas?.privateKey) {
-        console.log("🔑 Chave privada VAPID encontrada no IndexedDB. Cifrando novamente...");
         const resServerKey = await fetch("/api/server-public-key");
         const serverPublicKeyJwk = await resServerKey.json();
         vapidPrivateCifrada = await criptografarChaveVapid(chavesVapidSalvas.privateKey, serverPublicKeyJwk);
-        // Atualiza bundle ativo
         if (!meuBundle) {
           const nomeB = (document.getElementById('profileNameB') as HTMLInputElement).value;
           const emailB = (document.getElementById('profileEmailB') as HTMLInputElement).value;
@@ -527,17 +592,14 @@ async function enviarMensagemB(): Promise<void> {
           }
         }
         await salvarBundleAtivo(meuBundle);
-        console.log("✅ Bundle ativo atualizado.");
       } else {
-        throw new Error("Chave privada VAPID não encontrada. Gere o bundle novamente.");
+        throw new Error("Chave privada VAPID não encontrada. Gere seu perfil novamente.");
       }
     }
 
     const encoder = new TextEncoder();
-
-    // Objeto mensagem otimizado (sem v.u)
     const mensagemObj = {
-      m: { t: titulo, c: conteudo },
+      m: { c: conteudo },
       e: {
         s: subscription ? {
           e: subscription.endpoint,
@@ -552,7 +614,7 @@ async function enviarMensagemB(): Promise<void> {
 
     const mensagemBytes = encoder.encode(JSON.stringify(mensagemObj));
     const compressed = gzipSync(mensagemBytes);
-    console.log(`📦 Comprimido: ${compressed.length} bytes (original ${mensagemBytes.length})`);
+    console.log(`📦 Comprimido: ${compressed.length} bytes`);
 
     const aesKey = await window.crypto.subtle.generateKey(
       { name: "AES-GCM", length: 256 },
@@ -578,24 +640,20 @@ async function enviarMensagemB(): Promise<void> {
       k: arrayBufferToBase64(aesKeyEncrypted)
     };
     const envelopeJson = JSON.stringify(envelope);
-    console.log(`📦 Envelope JSON: ${envelopeJson.length} bytes`);
 
-    // JWT
     const identidade = await buscarIdentidadeA();
     if (!identidade) throw new Error("Identidade não encontrada.");
-
     const header = { alg: "ES256" };
     const payload = {
       iss: identidade.email,
-      sub: e2eConfig.ownerEmail,
+      sub: contato.email,
       ct: envelopeJson,
-      p: publicVapid
+      p: publicVapid,
+      nm: identidade.name
     };
-
     const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
     const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
     const toSign = `${headerB64}.${payloadB64}`;
-
     const signature = await window.crypto.subtle.sign(
       { name: "ECDSA", hash: "SHA-256" },
       identidade.privateKey,
@@ -604,21 +662,20 @@ async function enviarMensagemB(): Promise<void> {
     const sigB64 = arrayBufferToBase64Url(signature);
     const jwt = `${toSign}.${sigB64}`;
 
-    console.log(`📊 Tamanho do JWT (payloadText): ${jwt.length} bytes`);
+    console.log(`📊 Tamanho do JWT: ${jwt.length} bytes`);
     if (jwt.length > 4096) {
       console.warn(`⚠️ JWT excede 4096 bytes em ${jwt.length - 4096} bytes!`);
     } else {
       console.log(`✅ JWT dentro do limite (${4096 - jwt.length} bytes restantes)`);
     }
 
-    // Envia via Service Worker
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const mensagem: MensagemEnvio = {
       id: msgId,
-      bundle: bodyPayload,
+      bundle: bundle,
       payloadText: jwt,
       mensagemOriginal: conteudo,
-      destinatario: e2eConfig.ownerEmail,
+      destinatario: contato.email,
       status: 'pendente',
       tentativas: 0,
       maxTentativas: 3,
@@ -626,21 +683,18 @@ async function enviarMensagemB(): Promise<void> {
       atualizadoEm: Date.now()
     };
 
-    // Adiciona ao IndexedDB e envia para o SW
     await salvarMensagemEnvio(mensagem);
     const reg = await navigator.serviceWorker.ready;
     reg.active?.postMessage({ type: 'ENVIAR_MENSAGEM', payload: mensagem });
 
-    showToast(`✅ Mensagem enviada! ID: ${msgId}`, "success");
+    showToast(`✅ Mensagem enviada para ${contato.nome}! ID: ${msgId}`, "success");
     (document.getElementById('mensagemEnvioB') as HTMLTextAreaElement).value = '';
-    (document.getElementById('tituloMensagemB') as HTMLInputElement).value = 'Nova mensagem';
     await carregarMensagensEnviadasB();
 
   } catch (err: any) {
     console.error(err);
-    // 🔥 Tratamento especial para erro 410
     if (err.message && err.message.includes('410')) {
-      showToast("❌ A subscription do destinatário expirou. Peça para ele gerar um novo bundle.", "error");
+      showToast("❌ A subscription do contato expirou. Peça para ele gerar um novo perfil.", "error");
     } else {
       showToast(`❌ Erro: ${err.message}`, "error");
     }
@@ -648,103 +702,31 @@ async function enviarMensagemB(): Promise<void> {
 }
 
 // ============================================================
-// HOMOLOGAÇÃO DE EMISSORES (usando chave pública VAPID)
+// COMPARTILHAR PERFIL (botão)
 // ============================================================
-async function homologarEmissorDaMensagem(email: string, nome: string, publicKeyJwk: JsonWebKey): Promise<void> {
+async function compartilharProfile(): Promise<void> {
+  console.log("🔄 Gerando e compartilhando perfil...");
   try {
-    const existente = await buscarEmissorHomologado(email);
-    if (existente) {
-      showToast(`ℹ️ Emissor "${nome}" já está homologado.`, "info");
-      return;
+    const profile = await gerarProfile();
+    const profileJson = JSON.stringify(profile, null, 2);
+    const display = document.getElementById('myProfileDisplay');
+    if (display) {
+      display.textContent = profileJson;
+      display.style.background = '#e8f5e9';
     }
-
-    await window.crypto.subtle.importKey(
-      "jwk", publicKeyJwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      true, ["verify"]
-    );
-
-    const emissor: EmissorHomologado = {
-      email: email,
-      name: nome,
-      jwk: publicKeyJwk
-    };
-    await salvarEmissorHomologado(email, emissor);
-
-    showToast(`✅ Emissor "${nome}" homologado com sucesso!`, "success");
-    await carregarMensagensRecebidas();
-    await carregarListaEmissores();
-  } catch (err) {
-    showToast(`❌ Falha ao homologar: ${(err as Error).message}`, "error");
-  }
-}
-
-async function homologarEmissorJWT(): Promise<void> {
-  const rawJwk = (document.getElementById('senderPublicKeyJson') as HTMLTextAreaElement).value;
-  try {
-    const jwkObject = JSON.parse(rawJwk);
-    if (!jwkObject.ownerEmail || !jwkObject.ownerName) {
-      throw new Error("JWK ausente de metadados de Perfil.");
+    try {
+      await navigator.clipboard.writeText(profileJson);
+      showToast("✅ Perfil copiado para a área de transferência!", "success");
+    } catch {
+      copyToClipboard('myProfileDisplay');
     }
-
-    await window.crypto.subtle.importKey("jwk", jwkObject, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
-
-    const emissor: EmissorHomologado = {
-      email: jwkObject.ownerEmail,
-      name: jwkObject.ownerName,
-      jwk: jwkObject
-    };
-    await salvarEmissorHomologado(jwkObject.ownerEmail, emissor);
-
-    showToast(`✅ Emissor "${jwkObject.ownerName}" homologado!`, "success");
-    await carregarListaEmissores();
   } catch (err) {
-    showToast("❌ Falha na validação: " + (err as Error).message, "error");
+    showToast("❌ Erro ao gerar perfil: " + err.message, "error");
   }
-}
-
-async function removerEmissorB(email: string): Promise<void> {
-  if (!confirm(`Remover emissor "${email}" da lista branca?`)) return;
-  try {
-    await removerEmissorHomologado(storeListaBranca, email);
-    showToast(`✅ Emissor "${email}" removido.`, "success");
-    await carregarListaEmissores();
-  } catch (err) {
-    showToast("❌ Erro ao remover emissor.", "error");
-  }
-}
-
-async function carregarListaEmissores(): Promise<void> {
-  const container = document.getElementById('listaEmissoresB');
-  if (!container) return;
-
-  const emissores = await listarEmissoresHomologados();
-  if (emissores.length === 0) {
-    container.innerHTML = '<p style="color: #666; font-size: 14px;">Nenhum emissor homologado ainda.</p>';
-    return;
-  }
-
-  let html = '';
-  for (const [email, data] of emissores) {
-    html += `
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid #eee; font-size: 14px;">
-        <span><strong>${data.name}</strong> &lt;${email}&gt;</span>
-        <button class="btn-remover-emissor btn-sm danger" data-email="${email}" style="font-size: 11px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>
-      </div>
-    `;
-  }
-  container.innerHTML = html;
-
-  container.querySelectorAll('.btn-remover-emissor').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      const email = (e.currentTarget as HTMLButtonElement).dataset.email;
-      if (email) await removerEmissorB(email);
-    });
-  });
 }
 
 // ============================================================
-// MENSAGENS RECEBIDAS (com lógica de resposta corrigida)
+// CARREGAR MENSAGENS RECEBIDAS – com fallback robusto
 // ============================================================
 async function carregarMensagensRecebidas(): Promise<void> {
   console.log("📬 Carregando mensagens recebidas...");
@@ -762,23 +744,65 @@ async function carregarMensagensRecebidas(): Promise<void> {
   for (const msg of mensagens) {
     const statusEmoji = msg.status === 'nao_lida' ? '🟡' : msg.status === 'notificada' ? '🔔' : '✅';
     const data = new Date(msg.recebidoEm).toLocaleString();
-    const homologado = msg.homologado || false;
+
+    // 🔥 Busca contato pela chave da mensagem (agora hash)
+    let contato: Contato | null = null;
+    let nome = 'Remetente desconhecido';
+    let homologado = false;
+    let podeResponder = false;
+
+    if (msg.contatoPublicKeyVapid) {
+      // Primeiro, tenta buscar diretamente pela chave
+      contato = await buscarContatoPorChave(msg.contatoPublicKeyVapid);
+      if (!contato) {
+        // Fallback: se a chave for JSON antigo, tenta converter para hash e buscar
+        try {
+          const parsed = JSON.parse(msg.contatoPublicKeyVapid);
+          // Se for um objeto JWK, serializa para hash e busca
+          if (parsed && parsed.kty) {
+            const hashKey = await serializarPublicKeyVapid(parsed);
+            contato = await buscarContatoPorChave(hashKey);
+          }
+        } catch (e) {
+          // Não é JSON, ignora
+        }
+      }
+      // Se ainda não encontrou, percorre todos os contatos comparando a chave pública VAPID
+      if (!contato) {
+        const todosContatos = await listarContatos();
+        for (const c of todosContatos) {
+          // Gera o hash da chave pública do contato e compara com a chave da mensagem
+          const hashKey = await serializarPublicKeyVapid(c.publicKeyVapid);
+          if (hashKey === msg.contatoPublicKeyVapid) {
+            contato = c;
+            break;
+          }
+        }
+      }
+    }
+
+    if (contato) {
+      nome = contato.nome || 'Remetente';
+      homologado = contato.homologado || false;
+      podeResponder = !!(contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
+    }
+
     const homolEmoji = homologado ? '✅' : '🔄';
     const homolTexto = homologado ? 'Homologado' : 'Não homologado';
     const homolClass = homologado ? 'msg-item-homologado' : 'msg-item-nao-homologado';
 
-    const botaoHomologar = (!homologado && msg.publicKey) ?
-      `<button class="btn-homologar-msg btn-sm homologar-btn" data-email="${msg.remetenteEmail}" data-nome="${msg.remetente}" data-publickey='${JSON.stringify(msg.publicKey).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; color: white; border: none; border-radius: 3px; cursor: pointer;">🔄 Homologar</button>` :
+    const botaoHomologar = (!homologado && contato) ?
+      `<button class="btn-homologar-msg btn-sm homologar-btn" data-publickey='${JSON.stringify(contato.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; color: white; border: none; border-radius: 3px; cursor: pointer;">🔄 Homologar</button>` :
       '';
 
-    const botaoResponder = (msg.emissorCompleto && msg.emissorCompleto.subscription && msg.emissorCompleto.publicKeyEncrypt) ?
-      `<button class="btn-responder-msg btn-sm" data-msgid="${msg.id}" style="font-size: 11px; padding: 2px 8px; background: #002b3d; color: white; border: none; border-radius: 3px; cursor: pointer;">💬 Responder</button>` :
+    const botaoResponder = (podeResponder) ?
+      `<button class="btn-responder-msg btn-sm" data-publickey='${JSON.stringify(contato.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #002b3d; color: white; border: none; border-radius: 3px; cursor: pointer;">💬 Responder</button>` :
       '';
 
     html += `
       <div class="msg-item ${homolClass}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'nao_lida' ? '#fffde7' : '#f9f9f9'};">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-          <strong>${statusEmoji} ${msg.titulo || 'Nova mensagem'} - ${msg.remetente}</strong>
+          <strong>${statusEmoji} De: ${nome}</strong>
           <small style="color: #888;">${data}</small>
         </div>
         <p style="margin: 5px 0;">${msg.conteudo}</p>
@@ -805,6 +829,7 @@ async function carregarMensagensRecebidas(): Promise<void> {
 
   container.innerHTML = html;
 
+  // Event listeners (idênticos ao código anterior)
   container.querySelectorAll('.btn-marcar-lida').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const id = (e.currentTarget as HTMLButtonElement).dataset.id;
@@ -828,115 +853,74 @@ async function carregarMensagensRecebidas(): Promise<void> {
   container.querySelectorAll('.btn-homologar-msg').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const target = e.currentTarget as HTMLButtonElement;
-      const email = target.dataset.email || '';
-      const nome = target.dataset.nome || '';
       const publicKeyStr = target.dataset.publickey || '';
       try {
-        const publicKey = JSON.parse(publicKeyStr);
-        await homologarEmissorDaMensagem(email, nome, publicKey);
+        const publicKeyVapid = JSON.parse(publicKeyStr);
+        await homologarContato(publicKeyVapid);
+        showToast("✅ Emissor homologado!", "success");
+        await carregarMensagensRecebidas();
+        await carregarContatos();
       } catch (err) {
-        showToast(`❌ Erro: ${(err as Error).message}`, "error");
+        showToast(`❌ Erro: ${err.message}`, "error");
       }
     });
   });
 
-  // 🔥 CORREÇÃO DA LÓGICA DE RESPONDER
   container.querySelectorAll('.btn-responder-msg').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
-      const msgId = (e.currentTarget as HTMLButtonElement).dataset.msgid;
-      if (!msgId) return;
-
+      const target = e.currentTarget as HTMLButtonElement;
+      const publicKeyStr = target.dataset.publickey || '';
       try {
-        const mensagem = await buscarMensagemRecebida(msgId);
-        if (!mensagem) {
-          showToast("❌ Mensagem não encontrada.", "error");
+        const publicKeyVapid = JSON.parse(publicKeyStr);
+        const contato = await buscarContatoPorPublicKey(publicKeyVapid);
+        if (!contato) {
+          showToast("❌ Contato não encontrado.", "error");
           return;
         }
-
-        // Tenta obter o bundle do emissor (prioriza bundleEmissor)
-        let bundleEmissor = mensagem.bundleEmissor;
-        if (!bundleEmissor && mensagem.emissorCompleto) {
-          // Constrói a partir de emissorCompleto (pode não ter a chave privada VAPID)
-          const e = mensagem.emissorCompleto;
-          if (e.subscription && e.publicKeyEncrypt) {
-            // Se não tiver vapid.privateKey, tenta buscar do campo original
-            const vapidData = e.vapid || {
-              subject: `mailto:${e.email}`,
-              publicKey: e.publicKeyVapid || mensagem.publicKey
-            };
-            bundleEmissor = {
-              subscription: e.subscription,
-              vapid: vapidData,
-              isVapidEncrypted: true,
-              nome: e.nome || mensagem.remetente,
-              email: e.email || mensagem.remetenteEmail,
-              publicKeyEncrypt: e.publicKeyEncrypt,
-              publicKeyVapid: e.publicKeyVapid || mensagem.publicKey
-            };
-          }
-        }
-
-        if (!bundleEmissor || !bundleEmissor.subscription || !bundleEmissor.publicKeyEncrypt) {
-          showToast("❌ Este emissor não possui dados para responder (sem push configurado).", "error");
+        if (!contato.subscription || !contato.publicKeyRSA || !contato.vapidPrivateKey) {
+          showToast("❌ Contato incompleto para responder.", "error");
           return;
         }
-
-        // Verifica se temos a chave privada VAPID cifrada (necessária para o servidor)
-        if (!bundleEmissor.vapid || !bundleEmissor.vapid.privateKey) {
-          showToast("❌ Não foi possível obter a chave privada VAPID do emissor para responder.", "error");
-          console.error("❌ bundleEmissor.vapid.privateKey ausente:", bundleEmissor);
-          return;
-        }
-
-        // Construir bundle para resposta
-        const bundleData = {
-          subscription: bundleEmissor.subscription,
-          vapid: bundleEmissor.vapid,
-          isVapidEncrypted: true,
-          e2e: {
-            ownerName: bundleEmissor.nome || mensagem.remetente,
-            ownerEmail: bundleEmissor.email || mensagem.remetenteEmail,
-            browserB_PublicKeyEncrypt: bundleEmissor.publicKeyEncrypt
-          },
-          payloadText: ""
-        };
-
-        const bundleTextarea = document.getElementById('bundleDestinoB') as HTMLTextAreaElement;
-        if (bundleTextarea) {
-          bundleTextarea.value = JSON.stringify(bundleData, null, 2);
-          showToast(`✅ Bundle de ${mensagem.remetente} carregado para resposta!`, "success");
-          document.querySelector('.container-emissor')?.scrollIntoView({ behavior: 'smooth' });
-        }
+        const select = document.getElementById('contatoSelect') as HTMLSelectElement;
+        const key = await serializarPublicKeyVapid(publicKeyVapid);
+        select.value = key;
+        showToast(`✅ Contato ${contato.nome} selecionado para responder!`, "success");
+        document.querySelector('.container-emissor')?.scrollIntoView({ behavior: 'smooth' });
       } catch (err) {
-        console.error("Erro ao responder:", err);
-        showToast(`❌ Erro ao preparar resposta: ${(err as Error).message}`, "error");
+        showToast(`❌ Erro: ${err.message}`, "error");
       }
     });
   });
 }
 
+// ============================================================
+// HOMOLOGAR TODOS OS CONTATOS
+// ============================================================
 async function homologarTodasMensagens(): Promise<void> {
-  const mensagens = await listarMensagensRecebidas();
-  const naoHomologadas = mensagens.filter(m => !m.homologado && m.publicKey);
-  if (naoHomologadas.length === 0) {
-    showToast("ℹ️ Nenhuma mensagem com emissor não homologado.", "info");
+  const contatos = await listarContatos();
+  const naoHomologados = contatos.filter(c => !c.homologado);
+  if (naoHomologados.length === 0) {
+    showToast("ℹ️ Nenhum contato não homologado.", "info");
     return;
   }
-  if (!confirm(`Homologar ${naoHomologadas.length} emissores não homologados?`)) return;
+  if (!confirm(`Homologar ${naoHomologados.length} contatos?`)) return;
   let sucesso = 0;
-  for (const msg of naoHomologadas) {
+  for (const c of naoHomologados) {
     try {
-      await homologarEmissorDaMensagem(msg.remetenteEmail, msg.remetente, msg.publicKey);
+      await homologarContato(c.publicKeyVapid);
       sucesso++;
     } catch (err) {
-      console.warn(`⚠️ Falha ao homologar ${msg.remetenteEmail}:`, err);
+      console.warn(`Falha ao homologar ${c.email}:`, err);
     }
   }
-  showToast(`✅ ${sucesso} emissores homologados com sucesso!`, "success");
+  showToast(`✅ ${sucesso} contatos homologados.`, "success");
   await carregarMensagensRecebidas();
-  await carregarListaEmissores();
+  await carregarContatos();
 }
 
+// ============================================================
+// REMOVER MENSAGENS LIDAS
+// ============================================================
 async function removerMensagensLidas(): Promise<void> {
   if (!confirm('Remover todas as mensagens lidas?')) return;
   const mensagens = await listarMensagensRecebidas();
@@ -956,12 +940,10 @@ async function carregarMensagensEnviadasB(): Promise<void> {
   const mensagens = await listarMensagensEnvio();
   const container = document.getElementById('mensagensEnviadasB');
   if (!container) return;
-
   if (mensagens.length === 0) {
     container.innerHTML = '<p style="color: #666;">Nenhuma mensagem enviada.</p>';
     return;
   }
-
   mensagens.sort((a, b) => b.criadoEm - a.criadoEm);
   let html = '';
   for (const msg of mensagens) {
@@ -995,7 +977,6 @@ async function carregarMensagensEnviadasB(): Promise<void> {
       </div>
     `;
   }
-
   container.innerHTML = html;
 
   container.querySelectorAll('.btn-remover-enviada-b').forEach((btn) => {
@@ -1007,17 +988,6 @@ async function carregarMensagensEnviadasB(): Promise<void> {
       }
     });
   });
-}
-
-async function limparMensagensEnviadasB(): Promise<void> {
-  if (!confirm('Remover todas as mensagens enviadas do histórico?')) return;
-  const mensagens = await listarMensagensEnvio();
-  const enviadas = mensagens.filter(m => m.status === 'enviada' || m.status === 'falha');
-  for (const msg of enviadas) {
-    await removerMensagemEnvio(msg.id);
-  }
-  await carregarMensagensEnviadasB();
-  showToast(`✅ ${enviadas.length} mensagens removidas.`, "success");
 }
 
 // ============================================================
@@ -1045,23 +1015,16 @@ function initTabs(): void {
 // ============================================================
 // CARREGAMENTO INICIAL
 // ============================================================
-async function carregarDadosIniciaisB(): Promise<void> {
+async function carregarDadosIniciais(): Promise<void> {
   console.log("📂 Carregando dados iniciais...");
   try {
     const identidade = await buscarIdentidadeA();
     if (identidade) {
       (document.getElementById('profileNameB') as HTMLInputElement).value = identidade.name;
       (document.getElementById('profileEmailB') as HTMLInputElement).value = identidade.email;
-      const publicKeyJwk = await buscarPublicKeyA();
-      if (publicKeyJwk) {
-        (document.getElementById('myPublicKeyB') as HTMLTextAreaElement).value = JSON.stringify(publicKeyJwk);
-      }
     }
-    const bundleData = await buscarBundleAtivo();
-    if (bundleData) {
-      (document.getElementById('unifiedBundle') as HTMLTextAreaElement).value = JSON.stringify(bundleData.bundle, null, 2);
-    }
-    await carregarListaEmissores();
+    await carregarContatos();
+    await carregarSelectContatos();
     await carregarMensagensRecebidas();
     await carregarMensagensEnviadasB();
     console.log("✅ Dados iniciais carregados!");
@@ -1074,102 +1037,56 @@ async function carregarDadosIniciaisB(): Promise<void> {
 // EVENT LISTENERS
 // ============================================================
 window.addEventListener("DOMContentLoaded", async () => {
-  console.log("📄 DOM carregado, inicializando Browser B...");
+  console.log("📄 DOM carregado, inicializando aplicação...");
   initTabs();
-  await carregarDadosIniciaisB();
+  await carregarDadosIniciais();
 
-  // Gerar bundle
-  document.getElementById('btnGerarBundle')?.addEventListener('click', async () => {
-    console.log("🔄 Botão Gerar Bundle clicado.");
-    try {
-      const bundle = await gerarMeuBundle();
-      console.log("✅ Bundle gerado com sucesso, atualizando UI...");
-      (document.getElementById('unifiedBundle') as HTMLTextAreaElement).value = JSON.stringify(bundle, null, 2);
-      const pk = await buscarPublicKeyA();
-      if (pk) {
-        (document.getElementById('myPublicKeyB') as HTMLTextAreaElement).value = JSON.stringify(pk);
-      }
-      showToast("Bundle gerado com sucesso!", "success");
-      await carregarListaEmissores();
-    } catch (e) {
-      console.error("❌ Erro ao gerar bundle:", e);
-      showToast("Erro ao gerar bundle: " + (e as Error).message, "error");
+  document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
+
+  document.getElementById('btnCopyProfile')?.addEventListener('click', () => {
+    const display = document.getElementById('myProfileDisplay');
+    if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
+      copyToClipboard('myProfileDisplay');
+    } else {
+      showToast("Primeiro gere seu perfil.", "info");
     }
   });
 
-  document.getElementById('btnLimparSubscription')?.addEventListener('click', async () => {
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    if (subscription) {
-      await subscription.unsubscribe();
-      console.log("Subscription desinscrita.");
-    }
-    await removerSubscriptionB();
-    console.log("Subscription removida do IndexedDB.");
-    showToast("✅ Subscription limpa. Gere um novo bundle.", "success");
-  } catch (err) {
-    console.error(err);
-    showToast("❌ Erro ao limpar subscription.", "error");
-  }
-});
-
-  document.getElementById('btnVerificarBundle')?.addEventListener('click', async () => {
-    const bundleRaw = (document.getElementById('bundleDestinoB') as HTMLTextAreaElement).value;
-    if (!bundleRaw) {
-      showToast("⚠️ Nenhum bundle colado.", "info");
-      return;
-    }
-    try {
-      const parsed = JSON.parse(bundleRaw);
-      console.log("🔍 Bundle válido:", Object.keys(parsed));
-      showToast("✅ Bundle válido! Verifique o console.", "success");
-    } catch {
-      showToast("❌ Bundle inválido.", "error");
-    }
-  });
-
-  // Homologação
-  document.getElementById('btnSaveSenderIdentity')?.addEventListener('click', homologarEmissorJWT);
-
-  // Envio
+  document.getElementById('btnAdicionarContato')?.addEventListener('click', adicionarContato);
   document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);
-
-  // Mensagens recebidas
   document.getElementById('btnCarregarMensagens')?.addEventListener('click', carregarMensagensRecebidas);
   document.getElementById('btnLimparLidas')?.addEventListener('click', removerMensagensLidas);
   document.getElementById('btnHomologarTodas')?.addEventListener('click', homologarTodasMensagens);
 
-  // Mensagens enviadas
-  document.getElementById('btnCarregarEnviadasB')?.addEventListener('click', carregarMensagensEnviadasB);
-  document.getElementById('btnLimparEnviadasB')?.addEventListener('click', limparMensagensEnviadasB);
-
-  // Copy buttons
-  document.querySelectorAll('.copy-btn').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      const targetId = (event.currentTarget as HTMLButtonElement).getAttribute('data-target');
-      if (targetId) copyToClipboard(targetId);
-    });
+  document.getElementById('btnLimparSubscription')?.addEventListener('click', async () => {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await subscription.unsubscribe();
+        console.log("Subscription desinscrita.");
+      }
+      await removerSubscriptionB();
+      console.log("Subscription removida do IndexedDB.");
+      showToast("✅ Subscription limpa. Gere um novo perfil.", "success");
+    } catch (err) {
+      console.error(err);
+      showToast("❌ Erro ao limpar subscription.", "error");
+    }
   });
 
-  // Service Worker messages
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data?.type === 'PUSH_RECEIVED') {
       console.log('📬 Push recebido, recarregando mensagens...');
-      const nome = event.data.payload?.title || 'Remetente';
-      showToast(`📩 Nova mensagem de ${nome}!`, "info");
-      setTimeout(carregarMensagensRecebidas, 1000);
+      showToast(`📩 Nova mensagem de ${event.data.payload?.remetente || 'alguém'}!`, "info");
+      setTimeout(() => {
+        carregarMensagensRecebidas();
+        carregarContatos();
+      }, 1000);
     }
     if (event.data?.type === 'MENSAGEM_ENVIADA') {
       console.log('📤 Mensagem enviada, atualizando lista...');
       setTimeout(carregarMensagensEnviadasB, 500);
-    }
-    if (event.data?.type === 'EMISSOR_HOMOLOGADO') {
-      console.log('✅ Emissor homologado via notificação, atualizando listas...');
-      setTimeout(() => {
-        carregarListaEmissores();
-        carregarMensagensRecebidas();
-      }, 500);
     }
   });
 });

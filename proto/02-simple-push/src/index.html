@@ -1,0 +1,153 @@
+<!-- src/index.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Web Push Descentralizado</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: system-ui, sans-serif; padding: 20px; color: #333; max-width: 900px; margin: 0 auto; }
+      .container { background: #f4f4f4; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 5px solid #006c4f; }
+      .container-emissor { border-left-color: #002b3d; }
+      .container-receptor { border-left-color: #ff6b00; }
+      .container-contatos { border-left-color: #6c4f00; }
+      textarea, input[type="text"] { width: 100%; max-width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 8px; font-family: monospace; }
+      button { padding: 10px 16px; font-weight: bold; background-color: #006c4f; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
+      button:hover { background-color: #004d3f; }
+      button.send-btn { background-color: #002b3d; width: 100%; padding: 12px; font-size: 16px; margin-top: 10px; }
+      button.send-btn:hover { background-color: #001a26; }
+      button.danger { background-color: #cc0000; }
+      button.danger:hover { background-color: #990000; }
+      button.homologar-btn { background-color: #ff6b00; }
+      button.homologar-btn:hover { background-color: #cc5500; }
+      label { font-weight: bold; display: block; margin-top: 5px; }
+      .row { display: flex; gap: 20px; flex-wrap: wrap; }
+      .col { flex: 1; min-width: 300px; }
+      .btn-sm { padding: 4px 12px; font-size: 12px; margin-bottom: 0; }
+      .mt-10 { margin-top: 10px; }
+      .mb-10 { margin-bottom: 10px; }
+      .flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+      .flex-end { display: flex; gap: 8px; align-items: center; }
+      .msg-item { border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; }
+      .msg-item-nao-lida { background: #fffde7; }
+      .msg-item-notificada { background: #e3f2fd; }
+      .msg-item-lida { background: #f9f9f9; }
+      .msg-item-homologado { border-left: 4px solid #28a745; }
+      .msg-item-nao-homologado { border-left: 4px solid #ff6b00; }
+      .status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+      .status-badge-homologado { background: #d4edda; color: #155724; }
+      .status-badge-nao-homologado { background: #fff3cd; color: #856404; }
+      .status-badge-lida { background: #d1ecf1; color: #0c5460; }
+      .status-badge-notificada { background: #d1ecf1; color: #0c5460; }
+      .status-badge-enviada { background: #d4edda; color: #155724; }
+      .status-badge-falha { background: #f8d7da; color: #721c24; }
+      .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+      .tab { padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px 4px 0 0; cursor: pointer; font-weight: bold; }
+      .tab.active { background: #006c4f; color: white; }
+      .tab-content { display: none; }
+      .tab-content.active { display: block; }
+      .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; max-width: 400px; font-family: system-ui, sans-serif; animation: fadeInUp 0.3s ease; }
+      .toast-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+      .toast-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+      .toast-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+      .profile-field { background: #fafafa; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; word-break: break-all; max-height: 150px; overflow-y: auto; white-space: pre-wrap; }
+      .contato-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid #eee; }
+      .contato-item:hover { background: #f0f0f0; }
+      .contato-select { width: 100%; padding: 8px; margin-bottom: 10px; }
+      @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+  </head>
+  <body>
+    <h1>📬 Web Push Descentralizado</h1>
+    <p style="color: #666; margin-bottom: 20px;">Compartilhe seu perfil e receba mensagens de forma descentralizada.</p>
+
+    <!-- ============================================================ -->
+    <!-- MEU PERFIL                                                   -->
+    <!-- ============================================================ -->
+    <div class="container" style="background: #f0f8f4;">
+      <h2>👤 Meu Perfil</h2>
+      <div class="row">
+        <div class="col">
+          <label for="profileNameB">Meu Nome:</label>
+          <input type="text" id="profileNameB" value="Alice" />
+        </div>
+        <div class="col">
+          <label for="profileEmailB">Meu E-mail:</label>
+          <input type="text" id="profileEmailB" value="alice@example.com" />
+        </div>
+      </div>
+      <button id="btnGerarProfile" style="width: 100%;">📦 Gerar e Compartilhar Meu Perfil</button>
+      <button id="btnLimparSubscription" class="btn-sm danger" style="margin-top: 10px;">🗑️ Limpar Subscription</button>
+      
+      <div class="row mt-10">
+        <div class="col">
+          <label for="myProfileDisplay">📋 Meu Perfil (copie e cole para quem quiser te enviar mensagens):</label>
+          <div id="myProfileDisplay" class="profile-field" style="background: #e8f5e9; border-color: #006c4f;">
+            Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.
+          </div>
+          <button id="btnCopyProfile" class="btn-sm">📋 Copiar Perfil</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- CONTATOS                                                     -->
+    <!-- ============================================================ -->
+    <div class="container container-contatos">
+      <h2>📇 Contatos</h2>
+      <div class="row">
+        <div class="col">
+          <label for="profileInput">Cole aqui o perfil de outra pessoa para adicionar como contato:</label>
+          <textarea id="profileInput" rows="4" placeholder='{"iss":"...","kid":{...},"nm":"...","s":{...},"p":{...},"k":"..."}'></textarea>
+          <button id="btnAdicionarContato">➕ Adicionar Contato</button>
+        </div>
+      </div>
+      <div class="mt-10">
+        <label>📋 Meus Contatos:</label>
+        <div id="listaContatos" style="max-height: 200px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
+          <p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- ENVIAR MENSAGENS                                             -->
+    <!-- ============================================================ -->
+    <div class="container container-emissor">
+      <h2>📤 Enviar Mensagem</h2>
+      <div class="row">
+        <div class="col">
+          <label for="contatoSelect">Selecione o contato destino:</label>
+          <select id="contatoSelect" class="contato-select">
+            <option value="">-- Selecione um contato --</option>
+          </select>
+        </div>
+      </div>
+      <label for="mensagemEnvioB">Mensagem:</label>
+      <textarea id="mensagemEnvioB" rows="3" placeholder="Escreva sua mensagem aqui..."></textarea>
+      <button id="btnEnviarB" class="send-btn">🚀 Enviar Mensagem</button>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- MENSAGENS RECEBIDAS                                          -->
+    <!-- ============================================================ -->
+    <div class="container container-receptor">
+      <h2>📬 Mensagens Recebidas</h2>
+      <div class="flex mb-10">
+        <span></span>
+        <div class="flex-end">
+          <button id="btnCarregarMensagens" class="btn-sm">🔄 Atualizar</button>
+          <button id="btnLimparLidas" class="btn-sm danger">🗑️ Remover Lidas</button>
+          <button id="btnHomologarTodas" class="btn-sm homologar-btn">🔄 Homologar Todos</button>
+        </div>
+      </div>
+      <div id="mensagensRecebidas">
+        <p style="color: #666;">Nenhuma mensagem recebida ainda.</p>
+      </div>
+    </div>
+
+    <!-- Ponto de entrada -->
+    <script src="./app.tsx" type="module"></script>
+  </body>
+</html>

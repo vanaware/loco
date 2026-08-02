@@ -1,258 +1,173 @@
-# Loco Proto 02 — Sistema de Web Push Inteligente, E2EE com Identidade JWT, Filas Offline e Persistência Total
+# 📡 Web Push Descentralizado - Browser B
 
-Este protótipo demonstra a implementação completa de um pipeline de **Web Push Notifications** moderno, resiliente e de segurança máxima (*Zero-Trust*) utilizando o ecossistema **Deno 2.0+**.
+## Visão Geral
 
-O projeto resolve os principais desafios arquiteturais de privacidade e rede em PWAs:
+Este protótipo implementa um sistema de **mensagens descentralizadas** utilizando Web Push, onde dois navegadores distintos (navegador emissor e navegador receptor) se comunicam sem a necessidade de um servidor central para armazenar ou rotear mensagens. O **mesmo código** (Browser B) é executado em ambos os navegadores, assumindo papéis de **emissor** ou **receptor** conforme a necessidade.
 
-1. **Identidade Digital Federada via JWT (RFC 7519):** Remetentes assinam mensagens gerando tokens JWT estruturados com metadados dinâmicos (Nome/E-mail) usando chaves RSA-PSS permanentes e inexportáveis.
-2. **Criptografia de Aplicação de Ponta a Ponta (E2EE):** O texto trafega totalmente ilegível (*cipherText*) para intermediários (Deno e Google/Apple), sendo aberto apenas na RAM do destinatário utilizando RSA-OAEP.
-3. **Mascaramento RSA-OAEP de Infraestrutura:** A chave privada VAPID gerada no navegador viaja e reside na tela protegida por criptografia híbrida (AES-GCM + RSA-OAEP), sendo decodificada unicamente na RAM do servidor Deno no milissegundo do disparo.
-4. **Resiliência de Rede (Background Sync API + IndexedDB):** Mensagens enviadas em modo offline são enfileiradas localmente de forma transacional e disparadas sozinhas assim que a conexão é restaurada.
-5. **Persistência Total com IndexedDB:** Todas as chaves, inscrições, bundles e mensagens são persistentes entre sessões. Não há perda de dados ao recarregar a página ou fechar o navegador.
+A comunicação ocorre diretamente do emissor para o receptor através da infraestrutura de Web Push (FCM, no caso do Chrome), utilizando um **servidor proxy mínimo** (fornecido com o protótipo) apenas para intermediar o envio do payload ao serviço de push. Não há banco de dados central, nem filas compartilhadas – cada navegador mantém seu próprio armazenamento local (IndexedDB) e gerencia seus próprios contatos e mensagens.
 
----
+## Arquitetura
 
-## 🏗️ Arquitetura do Sistema e Fluxo Criptográfico
+- **Navegador Emissor**: gera um **bundle** contendo todas as informações necessárias para enviar mensagens ao receptor (subscription, chaves públicas, chave privada VAPID cifrada). Esse bundle é transferido **fora de banda** (ex: copiar/colar) para o navegador emissor.
+- **Navegador Receptor**: gera seu próprio bundle e o disponibiliza para quem desejar enviar mensagens. Quando recebe uma mensagem, extrai os dados do emissor (subscription, chaves) e os armazena localmente como um **contato**, permitindo responder no futuro sem necessidade de um novo bundle.
+- **Servidor Proxy**: recebe uma requisição POST contendo o payload JWT e a subscription do destinatário, e reencaminha para o endpoint de Web Push (FCM). Ele também descriptografa a chave privada VAPID (que chega cifrada) para assinar o cabeçalho de autorização. Este servidor não armazena mensagens nem estado – é apenas um "coringa" para permitir a utilização da API Web Push sem expor chaves privadas no cliente.
 
-### 🔐 Tipos de Chaves e Suas Funções
+## Objetivos
 
-| Tipo de Chave | Algoritmo | Onde é Gerada | Onde é Armazenada | Função |
-|---------------|-----------|---------------|-------------------|--------|
-| Chave de Identidade do Emissor (Browser A) | RSA-PSS (2048) | Browser A | IndexedDB (BrowserA_Identidade_DB) | Assinar JWT |
-| Chave Pública do Emissor (Browser A) | RSA-PSS (2048) | Browser A (exportada) | IndexedDB + Textarea | Verificar assinatura |
-| Chave E2E do Receptor (Browser B) | RSA-OAEP (2048) | Browser B | IndexedDB (BrowserB_E2E_Chaves_DB) | Cifrar/decifrar conteúdo |
-| Chave VAPID do Receptor (Browser B) | ECDSA (P-256) | Browser B | IndexedDB + Bundle cifrado | Autenticar push |
-| Chave de Infraestrutura do Servidor | RSA-OAEP (2048) | build.ts | .env + Deno.env | Cifrar chave VAPID |
-| Chave de Decodificação do SW | RSA-OAEP (2048) | Browser B | IndexedDB (BrowserB_E2E_Chaves_DB) | Decifrar conteúdo |
+- **Descentralização**: não há servidor central de mensagens; cada navegador é autônomo.
+- **Privacidade**: as mensagens são cifradas ponta a ponta (E2EE) e apenas o destinatário pode decifrá-las.
+- **Resposta bidirecional**: o receptor de uma mensagem pode responder ao emissor, utilizando os dados de contato salvos localmente.
+- **Offline first**: mensagens são enfileiradas no IndexedDB e enviadas quando a conexão for restaurada.
 
-### 🔄 Fluxo Completo
+## Objetos Importantes
 
-BROWSER A (Emissor)
-  │
-  ├─ 1. Carrega identidade do IndexedDB
-  ├─ 2. Carrega bundle do receptor
-  ├─ 3. Cifra mensagem com Chave Pública RSA-OAEP do Browser B
-  ├─ 4. Assina envelope com Chave Privada RSA-PSS
-  ├─ 5. Constrói JWT (header.payload.signature)
-  ├─ 6. Salva mensagem (status: pendente)
-  └─ 7. Envia para Service Worker
-  │
-  ├─ [Online] → Service Worker → fetch POST
-  └─ [Offline] → IndexedDB → Background Sync
-  │
-  ▼
-SERVIDOR DENO (Proxy Stateless)
-  │
-  ├─ 1. Auditoria cega do JWT
-  ├─ 2. Descriptografa Chave VAPID na RAM
-  └─ 3. Despacha para FCM/APNs
-  │
-  ▼
-BROWSER B (Receptor)
-  │
-  ├─ 1. Intercepta Push
-  ├─ 2. Valida assinatura RSA-PSS
-  ├─ 3. Descriptografa com Chave Privada RSA-OAEP
-  ├─ 4. Salva mensagem (status: nao_lida)
-  ├─ 5. Processa fila de notificações
-  └─ 6. Dispara notificação na tela
+### 1. Bundle (gerado pelo receptor)
 
----
+É um objeto JSON que contém todos os dados necessários para que um emissor possa enviar mensagens para aquele receptor.
 
-## 🧠 Conceitos Avançados
+**Estrutura**:
 
-### 1. Zero-Trust e Isolamento de Chaves
-Nenhuma chave privada trafega pela rede. Usando Web Crypto API com extractable: false, as chaves ficam no cofre de hardware/IndexedDB.
+```json
+{
+  "subscription": {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+    "keys": {
+      "p256dh": "base64...",
+      "auth": "base64..."
+    }
+  },
+  "vapid": {
+    "subject": "mailto:email@dominio.com",
+    "publicKey": { ... JWK ECDSA P-256 ... },
+    "privateKey": "envelope cifrado (base64)"
+  },
+  "isVapidEncrypted": true,
+  "e2e": {
+    "ownerName": "Nome do receptor",
+    "ownerEmail": "email@dominio.com",
+    "browserB_PublicKeyEncrypt": { ... JWK RSA-OAEP ... }
+  },
+  "payloadText": ""
+}
+```
 
-### 2. Persistência Total com IndexedDB
+- **`subscription`**: objeto de inscrição do Web Push, obtido via `PushManager.subscribe()`. Contém o endpoint (URL do servidor de push) e as chaves `p256dh` e `auth`, necessárias para cifrar o payload.
+- **`vapid`**: chaves VAPID (ECDSA P-256) usadas para assinar o cabeçalho `Authorization` da requisição push. A chave privada é **cifrada** com uma chave simétrica (AES-GCM) protegida pela chave pública RSA do servidor proxy – somente o proxy pode decifrá-la.
+- **`e2e`**: contém a chave pública RSA do receptor (para cifrar a mensagem) e os metadados do proprietário (nome/email).
+- **`payloadText`**: reservado para uso futuro.
 
-| Banco | Conteúdo | Persistência |
-|-------|----------|--------------|
-| BrowserA_Identidade_DB | Nome, Email, Chave Privada | ✅ |
-| BrowserA_Bundles_DB | Bundles ativo + histórico | ✅ |
-| BrowserA_MensagensEnvio_DB | Mensagens com status | ✅ |
-| BrowserB_E2E_Chaves_DB | Chaves E2E | ✅ |
-| BrowserB_Vapid_DB | Chaves VAPID | ✅ |
-| BrowserB_Subscription_DB | Inscrição push | ✅ |
-| BrowserB_ListaBranca_DB | Emissores autorizados | ✅ |
-| BrowserB_MensagensRecebidas_DB | Mensagens recebidas | ✅ |
+### 2. Mensagem (payload enviado via push)
 
-### 3. Sistema de Filas com Estado
+É um **JWT** assinado com a chave privada VAPID do emissor (ECDSA P-256), contendo no `payload` um campo `ct` que encapsula a mensagem propriamente dita (cifrada com RSA-OAEP + AES-GCM).
 
-Browser A (Envio): pendente → enviando → enviada → falha
-Browser B (Recepção): nao_lida → notificada → lida
+**Estrutura do JWT**:
 
-### 4. Criptografia Híbrida da Chave VAPID
-1. AES-GCM cifra a chave VAPID
-2. RSA-OAEP (chave pública do servidor) cifra a chave AES
-3. Envelope em Base64 no bundle
-4. Servidor descriptografa no momento do disparo
+```json
+Header: { "alg": "ES256" }
+Payload: {
+  "iss": "email@emissor",
+  "sub": "email@receptor",
+  "ct": "{ ... envelope ... }",
+  "p": { ... publicKeyVapid do emissor ... }
+}
+```
 
-### 5. Interface de Mensagens Recebidas
-- 📬 Lista todas as mensagens
-- 🟡 Destaque para não lidas
-- 🔔 Marcador para notificadas
-- ✅ Marcar como lida
-- 🗑️ Remover individual ou todas lidas
+- **`ct` (cipherText)**: envelope cifrado contendo a mensagem comprimida (gzip) e cifrada com chave simétrica derivada de AES-GCM, cuja chave é cifrada com RSA-OAEP usando a chave pública do receptor.
+- **`p` (publicKey Vapid)**: chave pública VAPID do emissor, utilizada para verificar a assinatura do JWT (ECDSA) e para futuras respostas.
 
----
+### 3. Contato (armazenado no IndexedDB do receptor)
 
-## 🤖 IA Replication Guide
+Quando uma mensagem é recebida, o receptor extrai as informações do emissor (`subscription`, `publicKeyRSA`, `publicKeyVapid`, `vapidPrivateKey`) e as salva em uma store `CONTATOS`, indexada pela chave pública VAPID do emissor (serializada como string). Este contato permite responder ao emissor sem a necessidade de um novo bundle.
 
-### 🔑 Padrões de Chaves
+**Estrutura**:
 
-| Chave | Formato | Algoritmo | Parâmetros |
-|-------|---------|-----------|------------|
-| Assinatura JWT | JWK | RSA-PSS | 2048, saltLength:32, SHA-256 |
-| Criptografia E2E | JWK | RSA-OAEP | 2048, [1,0,1], SHA-256 |
-| Chave VAPID | JWK | ECDSA | P-256 |
-| Chave Servidor | JWK | RSA-OAEP | 2048, [1,0,1], SHA-256 |
+```json
+{
+  "publicKeyVapid": { ... JWK ECDSA ... },
+  "email": "email@emissor",
+  "nome": "Nome do emissor",
+  "publicKeyRSA": { ... JWK RSA ... },
+  "subscription": { ... subscription do emissor ... },
+  "vapidPrivateKey": "chave privada VAPID cifrada (base64)",
+  "homologado": boolean,
+  "createdAt": timestamp,
+  "updatedAt": timestamp
+}
+```
 
-### 📦 Bundle Unificado
+### 4. Mensagem Recebida (armazenada no IndexedDB do receptor)
 
-subscription: { endpoint, keys: { p256dh, auth } }
-vapid: { subject, publicKey, privateKey: base64(envelope) }
-isVapidEncrypted: true
-e2e: { ownerName, ownerEmail, browserB_PublicKeyEncrypt, browserB_PublicKeyVerify }
-payloadText: jwt.token.string
+Após decifrar o conteúdo, o receptor salva a mensagem em uma store `MENSAGENS_RECEBIDAS_B`, contendo apenas o conteúdo, o status de leitura, a chave do contato associado e timestamps.
 
-### 📨 JWT
+**Estrutura**:
 
-Header: { alg: PS256, typ: JWT }
-Payload: { iss, sub, name, iat, cipherText: hex... }
-Signature: RSA-PSS
+```json
+{
+  "id": "msg_...",
+  "contatoPublicKeyVapid": "serialização da chave pública VAPID do emissor",
+  "conteudo": "texto da mensagem",
+  "status": "nao_lida|lida|notificada",
+  "recebidoEm": timestamp
+}
+```
 
-### 🗄️ IndexedDB
+## Fluxo de Funcionamento
 
-Browser A:
-- BrowserA_Identidade_DB → identidade_a
-- BrowserA_Bundles_DB → bundle_ativo, bundle_historico
-- BrowserA_MensagensEnvio_DB → msg_*
+### 1. Geração do Bundle (Receptor)
 
-Browser B:
-- BrowserB_E2E_Chaves_DB → chaves_e2e_b
-- BrowserB_Vapid_DB → chaves_vapid_b
-- BrowserB_Subscription_DB → subscription_b
-- BrowserB_ListaBranca_DB → email@exemplo.com
-- BrowserB_MensagensRecebidas_DB → msg_*
+1. O navegador receptor solicita permissão para notificações e registra o Service Worker.
+2. Gera um par de chaves VAPID (ECDSA P-256) e um par de chaves RSA (RSA-OAEP) para cifrar mensagens.
+3. Inscreve-se no serviço de push (PushManager.subscribe) utilizando a chave pública VAPID como `applicationServerKey`.
+4. Obtém a chave pública do servidor proxy (`/api/server-public-key`) e **cifra a chave privada VAPID** utilizando um envelope híbrido (AES-GCM + RSA-OAEP). Esse envelope é armazenado no bundle como `vapid.privateKey`.
+5. Monta o objeto `bundle` com a subscription, chaves públicas (VAPID e RSA) e metadados.
+6. O bundle é exibido em uma textarea para ser copiado e transferido ao emissor (ex: por copiar/colar, QR Code, etc).
 
-### 🔧 Padrões Obrigatórios
+### 2. Envio de Mensagem (Emissor)
 
-- Assinatura JWT: RSA-PSS SHA-256, saltLength:32, header {alg:PS256,typ:JWT}
-- Cifragem E2E: RSA-OAEP SHA-256, output em Hex
-- Base64 URL-Safe: Recalcular padding (=)
-- Evento Push: Usar event.data.text() antes de qualquer parse
+1. O emissor obtém o **bundle do receptor** (via cópia/cola) e o insere na interface.
+2. Digita a mensagem (texto).
+3. O emissor **cifra a mensagem** utilizando um esquema híbrido:
+   - Gera uma chave AES-GCM aleatória.
+   - Cifra a mensagem (após compressão gzip) com AES-GCM.
+   - Cifra a chave AES com RSA-OAEP utilizando a chave pública RSA do receptor (do bundle).
+   - Monta um envelope JSON (`{ i: iv, d: dados, k: chaveAesCifrada }`).
+4. O emissor **constrói um JWT**:
+   - Header: `{ alg: "ES256" }`.
+   - Payload: contém `iss` (email do emissor), `sub` (email do receptor), `ct` (envelope JSON) e `p` (chave pública VAPID do emissor).
+   - Assina o JWT com a chave privada VAPID do emissor (ECDSA P-256).
+5. O JWT é então transmitido ao Service Worker do próprio emissor, que o coloca em uma fila de envio (IndexedDB) e tenta enviá-lo ao servidor proxy imediatamente (ou quando a conexão for restaurada).
 
-### 🔐 Chaves do Servidor
+### 3. Recebimento e Processamento da Mensagem (Receptor)
 
-1. Geração: deno task build → .env
-2. Ignorado pelo Git (.gitignore)
-3. Carregamento: Deno.env com flag --env
+1. O Service Worker do receptor recebe o evento `push` contendo o JWT.
+2. Extrai o payload do JWT e verifica a assinatura usando a chave pública VAPID do emissor (campo `p`).
+3. Com a chave privada RSA do receptor (armazenada localmente), decifra o envelope:
+   - Descriptografa a chave AES.
+   - Descriptografa os dados cifrados com AES-GCM.
+   - Descomprime (gunzip) para obter o texto original.
+4. Extrai os dados do emissor (`subscription`, `publicKeyRSA`, `publicKeyVapid`, `vapidPrivateKey`) do envelope da mensagem e **salva ou atualiza um contato** na store `CONTATOS` do receptor.
+5. Salva a mensagem na store `MENSAGENS_RECEBIDAS_B` com status `nao_lida`.
+6. Exibe uma notificação push (nativa do navegador) com o conteúdo da mensagem.
+7. Quando o usuário clica na notificação, é direcionado à interface do Browser B, onde pode visualizar a mensagem, marcar como lida ou **responder**.
 
----
+### 4. Resposta (Receptor → Emissor)
 
-## 🛠️ Instalação
+1. Na lista de mensagens recebidas, o receptor pode clicar em **"Responder"**.
+2. O sistema localiza o contato do emissor (pela chave pública VAPID) e monta um **bundle** a partir dos dados do contato (subscription, chaves públicas, chave privada VAPID cifrada).
+3. Este bundle é preenchido automaticamente no campo de destino, permitindo que o receptor envie uma mensagem de volta utilizando o mesmo fluxo de envio descrito acima.
+4. A mensagem de resposta é enviada para o emissor original, que por sua vez a recebe, processa e pode responder novamente, estabelecendo uma conversa descentralizada.
 
-### Pré-requisitos
-- Deno 2.0+
-- Navegador com Service Workers e Push API
+## Segurança
 
-### Comandos
+- **Chaves privadas nunca são transmitidas em texto puro**: a chave privada VAPID viaja cifrada no bundle, e apenas o servidor proxy (que possui a chave RSA correspondente) pode decifrá-la para assinar o cabeçalho VAPID.
+- **Criptografia ponta a ponta**: o conteúdo da mensagem é cifrado com RSA-OAEP + AES-GCM, garantindo que apenas o receptor possa ler.
+- **Assinatura digital**: o JWT é assinado com ECDSA, garantindo autenticidade e integridade da mensagem.
+- **Homologação opcional**: o receptor pode "homologar" um emissor, confiando em sua chave pública para futuras mensagens, mas mesmo sem homologação as mensagens são verificadas criptograficamente.
 
-deno task build    # Compila e gera chaves
-deno task start    # Inicia servidor
-deno task dev      # Modo watch
-deno task clean    # Remove dist/
+## Considerações Finais
 
-### HTTPS (Obrigatório para Push)
-ngrok http 8000
+- O servidor proxy não armazena dados; é um ponto de passagem necessário para utilizar a API Web Push (que exige um cabeçalho de autorização assinado). Ele poderia ser substituído por uma função serverless ou mesmo ser executado localmente.
+- O fluxo de transferência do bundle (cópia/cola) é offline; em uma versão futura, poderia ser substituído por QR Codes, Bluetooth, ou um servidor de descoberta (ainda descentralizado).
+- O sistema é **totalmente descentralizado**: não há uma única entidade que conheça todos os contatos ou mensagens; cada navegador mantém seu próprio universo de contatos e mensagens.
 
----
-
-## 🧪 Roteiro de Testes
-
-### Teste 1: Configuração Inicial
-1. browser-a.html → Gerar Minha Chave de Identidade
-2. browser-b.html → colar JSON → Autorizar e Salvar Emissor
-
-### Teste 2: Carga Unificada
-1. browser-b.html → Gerar Carga Unificada com Perfil
-2. Copiar JSON
-3. Recarregar página → carga persiste
-
-### Teste 3: Envio
-1. browser-a.html → colar carga → mensagem → enviar
-2. Notificação aparece no Browser B
-3. Recarregar → campos persistem
-
-### Teste 4: Mensagens Recebidas
-1. browser-b.html → 📬 Mensagens Recebidas
-2. Carregar Mensagens
-3. Marcar como lida / Remover
-
-### Teste 5: Bloqueio de Ataque
-1. Adulterar token JWT
-2. Sistema bloqueia: ⚠️ Bloqueio de Segurança
-
-### Teste 6: Offline
-1. Desativar rede
-2. Enviar mensagem → fila
-3. Restaurar rede → envio automático
-
-### Teste 7: Persistência
-1. Fechar navegador
-2. Abrir novamente → dados permanecem
-
----
-
-## 📊 Resumo das Funcionalidades
-
-| Funcionalidade | Status | Descrição |
-|----------------|--------|-----------|
-| Identidade Digital | ✅ | RSA-PSS no IndexedDB |
-| Criptografia E2E | ✅ | RSA-OAEP com Hex |
-| Assinatura JWT | ✅ | PS256 (RSA-PSS SHA-256) |
-| Homologação | ✅ | Lista branca |
-| Chaves VAPID | ✅ | IndexedDB |
-| Chaves E2E | ✅ | IndexedDB |
-| Subscription | ✅ | IndexedDB |
-| Mensagens Envio | ✅ | Filas com status |
-| Mensagens Recebidas | ✅ | Filas com status |
-| Persistência Total | ✅ | Entre sessões |
-| Interface Mensagens | ✅ | Listagem, marcar, remover |
-| Offline First | ✅ | Background Sync |
-| Chaves Servidor | ✅ | .env com Deno.env |
-| CORS | ✅ | *.vanaware.com, localhost |
-
----
-
-## 📁 Estrutura
-
-proto/02-simple-push/
-├── main.ts
-├── build.ts
-├── deno.json
-├── .env (ignorado)
-├── public/
-│   └── manifest.json
-├── src/
-│   ├── browser-a.html
-│   ├── browser-a.tsx
-│   ├── browser-b.html
-│   ├── browser-b.tsx
-│   ├── service-worker.js
-│   ├── constants/
-│   │   └── db.ts
-│   ├── utils/
-│   │   └── db-helpers.ts
-│   └── sw/
-│       ├── cache.js
-│       ├── push.js
-│       ├── sync.js
-│       ├── click.js
-│       └── sw-mensagens.js
-└── dist/
-
----
-
-**Desenvolvido com ❤️ pela equipe Loco** 🚀
+Este protótipo serve como base para aplicações de mensageria privada, onde a confiança é estabelecida diretamente entre os pares, sem intermediários.

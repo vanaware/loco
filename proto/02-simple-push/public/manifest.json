@@ -1,7 +1,7 @@
 {
   "name": "Loco Proto 02 — Simple Push",
   "short_name": "Proto Simple Push",
-  "start_url": "/browser-b.html",
+  "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#006c4f"
