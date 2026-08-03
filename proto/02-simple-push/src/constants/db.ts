@@ -2,7 +2,7 @@
 
 export const DB_NAMES = {
   CONFIG: "AppConfig_DB",
-  MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
+  MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
   CONTATOS: "BrowserB_Contatos_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
 } as const;
@@ -13,10 +13,15 @@ export const STORE_NAMES = {
 
 export const KEY_NAMES = {
   PROFILE: "profile",
-  MENSAGENS_ENVIO: "mensagens_envio",
+  MENSAGENS_ENVIADAS: "mensagens_enviadas",
   CONTATO: "contato_",
   MENSAGENS_RECEBIDAS: "mensagens_recebidas",
 } as const;
+
+// ============================================================
+// Constantes
+// ============================================================
+export const MAX_TENTATIVAS = 3;
 
 // ============================================================
 // INTERFACES PRINCIPAIS (UNIFICADAS)
@@ -34,11 +39,12 @@ export interface ProfileConfig {
 
   // Chaves VAPID (ECDSA P-256) – completas
   vapidPublicKey: JsonWebKey;
-  vapidPrivateKeyJwk: JsonWebKey;  // chave privada exportável (para assinar)
+  vapidPrivateKeyJwk: JsonWebKey;  // chave privada em JWK (para assinar)
+  vapidPrivateKeyEnvelope: string; // envelope cifrado da chave privada (para enviar ao proxy)
 
   // Chaves E2E (RSA-OAEP) – completas
   e2ePublicKey: JsonWebKey;
-  e2ePrivateKeyJwk: JsonWebKey;    // chave privada exportável (para decifrar)
+  e2ePrivateKeyJwk: JsonWebKey;    // chave privada em JWK (para decifrar envelopes)
 
   // Subscription do Web Push
   subscription: {
@@ -55,20 +61,17 @@ export interface ProfileConfig {
 }
 
 // ============================================================
-// INTERFACES DE DADOS (MANTIDAS)
+// INTERFACES DE DADOS
 // ============================================================
 
-export interface MensagemEnvio {
-  id: string;
-  bundle: any;
-  payloadText: string;
-  mensagemOriginal: string;
-  destinatario: string;
+export interface MensagemEnviada {
+  id: string;                      // Ex: "msg_1738765432100_abc123"
+  contatoHash: string;             // hash SHA-256 da chave pública VAPID do contato
+  conteudo: string;                // texto original da mensagem
   status: 'pendente' | 'enviando' | 'enviada' | 'falha';
   tentativas: number;
-  maxTentativas: number;
-  criadoEm: number;
-  atualizadoEm: number;
+  createdAt: number;
+  updatedAt: number;
   erro?: string;
 }
 
@@ -91,7 +94,7 @@ export interface Contato {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   };
-  vapidPrivateKey: string;   // cifrada
+  vapidPrivateKey: string;   // envelope cifrado da chave privada VAPID (para o proxy)
   homologado: boolean;
   createdAt: number;
   updatedAt: number;

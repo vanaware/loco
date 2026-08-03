@@ -1,26 +1,34 @@
 // src/sw/sw-mensagens.js
 import { get, set, createStore, del, entries } from "idb-keyval";
+import { gunzipSync, gzipSync } from "fflate";
+import { MAX_TENTATIVAS } from "../constants/db.ts";
 
 // 🔥 Constantes
 const DB_NAMES = {
-  MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
+  MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
-  CONTATOS: "BrowserB_Contatos_DB", // 🔥 Adicionado
+  CONTATOS: "BrowserB_Contatos_DB",
+  CONFIG: "AppConfig_DB",
 };
 
 const STORE_NAMES = {
   KEYVAL: "keyval",
 };
 
-// 🔥 Cria as stores IMEDIATAMENTE (não lazy)
-const storeMensagensEnvioA = createStore(DB_NAMES.MENSAGENS_ENVIO_A, STORE_NAMES.KEYVAL);
+const KEY_NAMES = {
+  PROFILE: "profile",
+};
+
+// 🔥 Cria as stores
+const storeMensagensEnviadas = createStore(DB_NAMES.MENSAGENS_ENVIADAS, STORE_NAMES.KEYVAL);
 const storeMensagensRecebidasB = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
-const storeContatos = createStore(DB_NAMES.CONTATOS, STORE_NAMES.KEYVAL); // 🔥 Store de contatos
+const storeContatos = createStore(DB_NAMES.CONTATOS, STORE_NAMES.KEYVAL);
+const storeConfig = createStore(DB_NAMES.CONFIG, STORE_NAMES.KEYVAL);
 
 console.log("[SW-MSG] ✅ Stores criadas com sucesso!");
 
 // ============================================================
-// FUNÇÕES AUXILIARES PARA CONTATOS (copiadas do db-helpers)
+// FUNÇÕES AUXILIARES PARA CONTATOS E PERFIL
 // ============================================================
 async function sha256(message) {
   const encoder = new TextEncoder();
@@ -50,33 +58,47 @@ async function buscarContatoPorChave(chaveOuJwk) {
   }
 }
 
-// ============================================================
-// PROCESSADOR DE MENSAGENS - BROWSER A (ENVIO)
-// ============================================================
-
-async function salvarMensagemEnvio(mensagem) {
+async function buscarProfile() {
   try {
-    console.log(`[SW-MSG] 💾 Salvando mensagem ${mensagem.id}...`);
-    await set(mensagem.id, mensagem, storeMensagensEnvioA);
-    console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} salva no IndexedDB`);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
-    throw err;
+    return await get(KEY_NAMES.PROFILE, storeConfig);
+  } catch {
+    return null;
   }
 }
 
-async function buscarMensagemEnvio(id) {
+async function salvarProfile(profile) {
   try {
-    return await get(id, storeMensagensEnvioA);
+    await set(KEY_NAMES.PROFILE, profile, storeConfig);
+    console.log("[SW-MSG] ✅ Perfil atualizado com sucesso.");
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao salvar perfil:", err);
+  }
+}
+
+// ============================================================
+// FUNÇÕES DE BANCO PARA MENSAGENS ENVIADAS
+// ============================================================
+async function salvarMensagemEnviada(mensagem) {
+  try {
+    await set(mensagem.id, mensagem, storeMensagensEnviadas);
+    console.log(`[SW-MSG] 💾 Mensagem ${mensagem.id} salva.`);
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
+  }
+}
+
+async function buscarMensagemEnviada(id) {
+  try {
+    return await get(id, storeMensagensEnviadas);
   } catch (err) {
     console.error(`[SW-MSG] ❌ Erro ao buscar mensagem ${id}:`, err);
     return null;
   }
 }
 
-async function listarMensagensEnvioPorStatus(status) {
+async function listarMensagensEnviadasPorStatus(status) {
   try {
-    const todas = await listarMensagensEnvio();
+    const todas = await listarMensagensEnviadas();
     return todas.filter(m => m.status === status);
   } catch (err) {
     console.error("[SW-MSG] ❌ Erro ao listar mensagens por status:", err);
@@ -84,9 +106,9 @@ async function listarMensagensEnvioPorStatus(status) {
   }
 }
 
-async function listarMensagensEnvio() {
+async function listarMensagensEnviadas() {
   try {
-    const entriesList = await entries(storeMensagensEnvioA);
+    const entriesList = await entries(storeMensagensEnviadas);
     return entriesList.map(([_, msg]) => msg);
   } catch (err) {
     console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
@@ -94,14 +116,14 @@ async function listarMensagensEnvio() {
   }
 }
 
-async function atualizarStatusMensagemEnvio(id, status, erro) {
+async function atualizarStatusMensagemEnviada(id, status, erro) {
   try {
-    const mensagem = await buscarMensagemEnvio(id);
+    const mensagem = await buscarMensagemEnviada(id);
     if (mensagem) {
       mensagem.status = status;
-      mensagem.atualizadoEm = Date.now();
+      mensagem.updatedAt = Date.now();
       if (erro) mensagem.erro = erro;
-      await salvarMensagemEnvio(mensagem);
+      await salvarMensagemEnviada(mensagem);
       console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
     }
   } catch (err) {
@@ -109,79 +131,262 @@ async function atualizarStatusMensagemEnvio(id, status, erro) {
   }
 }
 
-async function removerMensagemEnvio(id) {
+async function removerMensagemEnviada(id) {
   try {
-    await del(id, storeMensagensEnvioA);
+    await del(id, storeMensagensEnviadas);
     console.log(`[SW-MSG] ✅ Mensagem ${id} removida`);
   } catch (err) {
     console.error(`[SW-MSG] ❌ Erro ao remover mensagem ${id}:`, err);
   }
 }
 
-// 🔥 ENVIA UMA MENSAGEM PARA O SERVIDOR
-async function enviarMensagemParaServidor(mensagem) {
-  try {
-    console.log(`[SW-MSG] 📤 Enviando mensagem ${mensagem.id} para o servidor...`);
-    
-    const response = await fetch("/api/proxy-push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...mensagem.bundle,
-        payloadText: mensagem.payloadText
-      })
-    });
-
-    if (response.ok) {
-      console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} enviada com sucesso!`);
-      await atualizarStatusMensagemEnvio(mensagem.id, 'enviada');
-      return true;
-    } else {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${mensagem.id}:`, err);
-    
-    mensagem.tentativas++;
-    mensagem.erro = err.message;
-    
-    if (mensagem.tentativas >= mensagem.maxTentativas) {
-      console.log(`[SW-MSG] ⛔ Mensagem ${mensagem.id} excedeu tentativas máximas.`);
-      await atualizarStatusMensagemEnvio(mensagem.id, 'falha', err.message);
-    } else {
-      await salvarMensagemEnvio(mensagem);
-    }
-    
-    return false;
-  }
+// ============================================================
+// UTILITÁRIOS DE CRIPTOGRAFIA
+// ============================================================
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
 
-// 🔥 PROCESSADOR DE FILA DE ENVIO
+function arrayBufferToBase64Url(buffer) {
+  const binary = String.fromCharCode(...new Uint8Array(buffer));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Função para cifrar a chave VAPID (mesma lógica do app)
+async function cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk) {
+  const serverKey = await crypto.subtle.importKey(
+    "jwk",
+    serverPublicKeyJwk,
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    true,
+    ["encrypt"]
+  );
+  const aesKey = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt"]
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoder = new TextEncoder();
+  const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+  const vapidCifrado = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    vapidBytes
+  );
+  const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+  const aesKeyCifrado = await crypto.subtle.encrypt(
+    { name: "RSA-OAEP" },
+    serverKey,
+    aesKeyRaw
+  );
+  const toHex = (buf) =>
+    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const envelope = {
+    iv: toHex(iv.buffer),
+    dadosCifrados: toHex(vapidCifrado),
+    chaveAesCifrada: toHex(aesKeyCifrado)
+  };
+  return btoa(JSON.stringify(envelope));
+}
+
+async function cifrarPayloadObj(payloadObj, publicKeyRSA) {
+  const encoder = new TextEncoder();
+  const jsonString = JSON.stringify(payloadObj);
+  const bytes = encoder.encode(jsonString);
+  const compressed = gzipSync(bytes);
+  console.log(`[SW-MSG] 📦 Comprimido: ${compressed.length} bytes (original: ${bytes.length})`);
+
+  const aesKey = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt"]
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  const encryptedBuffer = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    compressed
+  );
+
+  const cryptoKeyDestino = await crypto.subtle.importKey(
+    "jwk",
+    publicKeyRSA,
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    true,
+    ["encrypt"]
+  );
+  const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+  const aesKeyEncrypted = await crypto.subtle.encrypt(
+    { name: "RSA-OAEP" },
+    cryptoKeyDestino,
+    aesKeyRaw
+  );
+
+  return {
+    i: arrayBufferToBase64(iv.buffer),
+    d: arrayBufferToBase64(encryptedBuffer),
+    k: arrayBufferToBase64(aesKeyEncrypted)
+  };
+}
+
+// ============================================================
+// FUNÇÃO PRINCIPAL: PROCESSAR FILA DE ENVIO
+// ============================================================
 async function processarFilaEnvio() {
   console.log("[SW-MSG] 🔄 Processando fila de envio...");
-  
+
   try {
-    const pendentes = await listarMensagensEnvioPorStatus('pendente');
-    const enviando = await listarMensagensEnvioPorStatus('enviando');
-    
-    const todasEnviando = enviando.filter(m => {
-      return (Date.now() - m.atualizadoEm) > 30000;
-    });
-    
-    const paraProcessar = [...pendentes, ...todasEnviando];
-    
+    const pendentes = await listarMensagensEnviadasPorStatus('pendente');
+    const enviandoAntigos = (await listarMensagensEnviadasPorStatus('enviando'))
+      .filter(m => (Date.now() - m.updatedAt) > 30000);
+
+    const paraProcessar = [...pendentes, ...enviandoAntigos];
+
     if (paraProcessar.length === 0) {
       console.log("[SW-MSG] ℹ️ Nenhuma mensagem pendente para enviar.");
       return;
     }
-    
+
     console.log(`[SW-MSG] 📦 ${paraProcessar.length} mensagens para processar`);
-    
+
     for (const msg of paraProcessar) {
-      await atualizarStatusMensagemEnvio(msg.id, 'enviando');
-      await enviarMensagemParaServidor(msg);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await atualizarStatusMensagemEnviada(msg.id, 'enviando');
+
+      try {
+        // 1. Buscar contato e perfil
+        const contato = await buscarContatoPorChave(msg.contatoHash);
+        let profile = await buscarProfile();
+
+        if (!contato) throw new Error("Contato não encontrado");
+        if (!profile) throw new Error("Perfil não encontrado");
+
+        // 2. Validações
+        if (!profile.e2ePublicKey || !profile.vapidPublicKey || !profile.vapidPrivateKeyJwk) {
+          throw new Error("Usuário não logado (sem Chaves)");
+        }
+        if (!profile.subscription) {
+          throw new Error("Mensagens Web Push não configurada (sem Subscription)");
+        }
+        if (!contato.publicKeyRSA || !contato.publicKeyVapid || !contato.vapidPrivateKey) {
+          throw new Error("Contato sem Chaves");
+        }
+        if (!contato.subscription) {
+          throw new Error("Contato sem Subscription");
+        }
+
+        // 3. Obter o envelope da chave VAPID do emissor
+        let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
+
+        // Se o envelope não existir (perfil antigo), cifrar a chave e salvar no perfil
+        if (!vapidPrivateKeyEnvelope) {
+          console.warn("[SW-MSG] ⚠️ Envelope da chave VAPID não encontrado no perfil. Cifrando e salvando...");
+          // Buscar chave pública do servidor
+          const res = await fetch("/api/server-public-key");
+          if (!res.ok) throw new Error("Não foi possível obter a chave pública do servidor.");
+          const serverPublicKeyJwk = await res.json();
+          vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
+          
+          // Salvar o envelope no perfil para uso futuro
+          profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
+          await salvarProfile(profile);
+          console.log("[SW-MSG] ✅ Envelope da chave VAPID salvo no perfil.");
+        }
+
+        // 4. Montar payloadObj
+        const payloadObj = {
+          c: msg.conteudo,
+          e: {
+            s: {
+              e: profile.subscription.endpoint,
+              k: profile.subscription.keys,
+              v: vapidPrivateKeyEnvelope
+            },
+            p: profile.e2ePublicKey
+          }
+        };
+
+        // 5. Cifrar payloadObj
+        const envelope = await cifrarPayloadObj(payloadObj, contato.publicKeyRSA);
+        const envelopeJson = JSON.stringify(envelope);
+
+        // 6. Construir JWT
+        const header = { alg: "ES256" };
+        const payloadJwt = {
+          iss: profile.email,
+          sub: contato.email,
+          ct: envelopeJson,
+          p: profile.vapidPublicKey,
+          nm: profile.name
+        };
+
+        const encoder = new TextEncoder();
+        const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
+        const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payloadJwt)));
+        const toSign = `${headerB64}.${payloadB64}`;
+
+        const privateKey = await crypto.subtle.importKey(
+          "jwk",
+          profile.vapidPrivateKeyJwk,
+          { name: "ECDSA", namedCurve: "P-256" },
+          false,
+          ["sign"]
+        );
+        const signature = await crypto.subtle.sign(
+          { name: "ECDSA", hash: "SHA-256" },
+          privateKey,
+          encoder.encode(toSign)
+        );
+        const sigB64 = arrayBufferToBase64Url(signature);
+        const jwt = `${toSign}.${sigB64}`;
+
+        console.log(`[SW-MSG] 📊 JWT tamanho: ${jwt.length} bytes`);
+
+        // 7. Enviar para o servidor proxy
+        const response = await fetch("/api/proxy-push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subscription: contato.subscription,
+            payloadText: jwt,
+            vapid: {
+              subject: `mailto:${contato.email}`,
+              publicKey: contato.publicKeyVapid,
+              privateKey: contato.vapidPrivateKey
+            }
+          })
+        });
+
+        if (response.ok) {
+          await atualizarStatusMensagemEnviada(msg.id, 'enviada');
+          console.log(`[SW-MSG] ✅ Mensagem ${msg.id} enviada com sucesso!`);
+        } else {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+      } catch (err) {
+        console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${msg.id}:`, err);
+
+        const mensagemAtual = await buscarMensagemEnviada(msg.id);
+        if (mensagemAtual) {
+          mensagemAtual.tentativas++;
+          mensagemAtual.erro = err.message;
+
+          if (mensagemAtual.tentativas >= MAX_TENTATIVAS) {
+            mensagemAtual.status = 'falha';
+            console.log(`[SW-MSG] ⛔ Mensagem ${msg.id} excedeu tentativas máximas.`);
+          } else {
+            mensagemAtual.status = 'pendente';
+          }
+          mensagemAtual.updatedAt = Date.now();
+          await salvarMensagemEnviada(mensagemAtual);
+        }
+      }
     }
   } catch (err) {
     console.error("[SW-MSG] ❌ Erro ao processar fila de envio:", err);
@@ -189,192 +394,13 @@ async function processarFilaEnvio() {
 }
 
 // ============================================================
-// PROCESSADOR DE MENSAGENS - BROWSER B (RECEBIDAS)
-// ============================================================
-
-async function salvarMensagemRecebida(mensagem) {
-  try {
-    await set(mensagem.id, mensagem, storeMensagensRecebidasB);
-    console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} salva no IndexedDB`);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
-  }
-}
-
-async function listarMensagensRecebidasPorStatus(status) {
-  try {
-    const todas = await listarMensagensRecebidas();
-    return todas.filter(m => m.status === status);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens recebidas:", err);
-    return [];
-  }
-}
-
-async function listarMensagensRecebidas() {
-  try {
-    const entriesList = await entries(storeMensagensRecebidasB);
-    return entriesList.map(([_, msg]) => msg);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens recebidas:", err);
-    return [];
-  }
-}
-
-async function atualizarStatusMensagemRecebida(id, status) {
-  try {
-    const mensagem = await get(id, storeMensagensRecebidasB);
-    if (mensagem) {
-      mensagem.status = status;
-      if (status === 'lida') mensagem.lidaEm = Date.now();
-      if (status === 'notificada') mensagem.notificadaEm = Date.now();
-      await set(id, mensagem, storeMensagensRecebidasB);
-      console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
-    }
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao atualizar mensagem ${id}:`, err);
-  }
-}
-
-/**
- * Tenta exibir uma notificação com timeout de 5 segundos.
- */
-async function mostrarNotificacaoComTimeout(titulo, opcoes, timeoutMs = 5000) {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      console.warn("[SW-MSG] ⚠️ Timeout ao exibir notificação, prosseguindo...");
-      resolve(false);
-    }, timeoutMs);
-
-    self.registration.showNotification(titulo, opcoes)
-      .then(() => {
-        clearTimeout(timeout);
-        resolve(true);
-      })
-      .catch((err) => {
-        clearTimeout(timeout);
-        console.error("[SW-MSG] ❌ Erro ao exibir notificação:", err);
-        resolve(false);
-      });
-  });
-}
-
-// 🔥 PROCESSADOR DE FILA DE NOTIFICAÇÃO (com busca do nome do contato)
-async function processarFilaNotificacao() {
-  console.log("[SW-MSG] 🔔 Processando fila de notificações...");
-  
-  try {
-    const naoLidas = await listarMensagensRecebidasPorStatus('nao_lida');
-    
-    if (naoLidas.length === 0) {
-      console.log("[SW-MSG] ℹ️ Nenhuma mensagem não lida.");
-      return;
-    }
-    
-    console.log(`[SW-MSG] 📦 ${naoLidas.length} mensagens para notificar`);
-    
-    // Ícone fallback (caso logo.svh não seja encontrado)
-    const fallbackIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-    const iconUrl = '/logo.svg'; // 🔥 ícone principal
-    
-    for (const msg of naoLidas) {
-      try {
-        console.log(`[SW-MSG] 🔔 Notificando mensagem ${msg.id}...`);
-        
-        // 🔥 Busca o contato usando a chave armazenada na mensagem
-        let nomeRemetente = 'Remetente desconhecido';
-        if (msg.contatoPublicKeyVapid) {
-          const contato = await buscarContatoPorChave(msg.contatoPublicKeyVapid);
-          if (contato && contato.nome) {
-            nomeRemetente = contato.nome;
-          }
-        }
-        
-        // Verifica se o ícone existe (fallback se não)
-        let iconToUse = iconUrl;
-        try {
-          const resp = await fetch(iconUrl, { method: 'HEAD' });
-          if (!resp.ok) {
-            iconToUse = fallbackIcon;
-          }
-        } catch {
-          iconToUse = fallbackIcon;
-        }
-
-        const exibida = await mostrarNotificacaoComTimeout(
-          `📥 De: ${nomeRemetente}`,
-          {
-            body: msg.conteudo,
-            icon: iconToUse,
-            badge: iconToUse,
-            vibrate: [200, 100, 200],
-            data: msg.dadosJwt || {},
-            tag: msg.id,
-            requireInteraction: true
-          },
-          5000 // timeout de 5 segundos
-        );
-
-        if (exibida) {
-          await atualizarStatusMensagemRecebida(msg.id, 'notificada');
-          console.log(`[SW-MSG] ✅ Mensagem ${msg.id} notificada com sucesso!`);
-        } else {
-          console.warn(`[SW-MSG] ⚠️ Notificação para ${msg.id} não foi exibida (timeout ou erro).`);
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 300));
-      } catch (err) {
-        console.error(`[SW-MSG] ❌ Erro ao notificar mensagem ${msg.id}:`, err);
-      }
-    }
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao processar fila de notificações:", err);
-  }
-}
-
-// ============================================================
 // LISTENERS DE EVENTOS
 // ============================================================
-
 self.addEventListener('message', async (event) => {
   const data = event.data;
-  
-  if (data.type === 'ENVIAR_MENSAGEM') {
-    console.log(`[SW-MSG] 📩 Recebida mensagem da página para enviar: ${data.payload.id}`);
-    try {
-      await salvarMensagemEnvio(data.payload);
-      await processarFilaEnvio();
-      if (event.source) {
-        event.source.postMessage({
-          type: 'MENSAGEM_ENVIADA',
-          id: data.payload.id,
-          status: 'pendente'
-        });
-      }
-    } catch (err) {
-      console.error("[SW-MSG] ❌ Erro ao processar mensagem:", err);
-      if (event.source) {
-        event.source.postMessage({
-          type: 'MENSAGEM_ERRO',
-          id: data.payload.id,
-          error: err.message
-        });
-      }
-    }
-  }
-  
-  if (data.type === 'LISTAR_MENSAGENS_PENDENTES') {
-    try {
-      const mensagens = await listarMensagensEnvioPorStatus('pendente');
-      if (event.source) {
-        event.source.postMessage({
-          type: 'LISTA_MENSAGENS',
-          mensagens: mensagens
-        });
-      }
-    } catch (err) {
-      console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
-    }
+  if (data.type === 'PROCESSAR_FILA_ENVIO') {
+    console.log("[SW-MSG] 📩 Recebido comando para processar fila de envio.");
+    await processarFilaEnvio();
   }
 });
 
@@ -383,26 +409,13 @@ self.addEventListener('sync', async function(event) {
   if (event.tag === 'sync-envio-mensagens') {
     event.waitUntil(processarFilaEnvio());
   }
-  if (event.tag === 'sync-notificar-mensagens') {
-    event.waitUntil(processarFilaNotificacao());
-  }
-});
-
-self.addEventListener('periodicsync', async function(event) {
-  console.log(`[SW-MSG] ⏰ Periodic sync: ${event.tag}`);
-  if (event.tag === 'periodic-sync-mensagens') {
-    await processarFilaEnvio();
-    await processarFilaNotificacao();
-  }
 });
 
 self.addEventListener('online', async function() {
   console.log("[SW-MSG] 🌐 Conexão restaurada, processando filas...");
   await processarFilaEnvio();
-  await processarFilaNotificacao();
 });
 
 self.processarFilaEnvio = processarFilaEnvio;
-self.processarFilaNotificacao = processarFilaNotificacao;
 
 console.log("[SW-MSG] 📦 Módulo de mensagens carregado com sucesso!");

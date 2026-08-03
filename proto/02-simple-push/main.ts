@@ -178,16 +178,11 @@ Deno.serve({ port: PORT }, async (req) => {
     });
   }
 
+  // ROTA DE LOGOUT (mantida)
   if (url.pathname === "/api/logout" && req.method === "POST") {
     const headers = new Headers();
-
-    // Remove o cookie que guarda a sessão (substitua 'session_token' pelo nome do seu cookie)
     deleteCookie(headers, "session_token", { path: "/" });
-
-    // Envia instrução nativa HTTP para o navegador apagar storages, cookies e caches
     headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
-    
-    // Retorna uma resposta de sucesso para o fetch do front-end
     return new Response(JSON.stringify({ disconnected: true }), {
       status: 200,
       headers: {
@@ -197,23 +192,22 @@ Deno.serve({ port: PORT }, async (req) => {
     });
   }
 
-
   // ROTA DE DISPARO: Processa o envelope VAPID e encaminha o JWT criptografado
+  // 🔥 CORREÇÃO: o caminho agora é "/api/proxy-push" (com barra)
   if (req.method === "POST" && url.pathname === "/api/proxy-push") {
     console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida!`);
     
     try {
       const body = await req.json();
-      const { subscription, payloadText, vapid, isVapidEncrypted } = body;
+      const { subscription, payloadText, vapid } = body;
 
       console.log(`   - Endpoint destino: ${subscription.endpoint.substring(0, 45)}...`);
-      console.log(`   - isVapidEncrypted: ${isVapidEncrypted}`);
       console.log(`   - Tamanho do payloadText: ${payloadText?.length || 0} bytes`);
 
       // Executa a auditoria cega das claims do token JWT
       const jwtClaims = lerMetadadosJJWT(payloadText);
       if (jwtClaims) {
-        console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.name || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+        console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         console.log(`   - [AUDITORIA JWT] Destinado a: <${jwtClaims.sub || "Sem e-mail"}>`);
         console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (Hex): ${jwtClaims.cipherText?.substring(0, 20) || "N/A"}...`);
       } else {
@@ -223,14 +217,13 @@ Deno.serve({ port: PORT }, async (req) => {
       let privateKeyFinal = vapid.privateKey;
 
       // 🔥 DESCRIPTOGRAFIA DA CHAVE PRIVADA VAPID NA RAM
-      if (isVapidEncrypted && typeof privateKeyFinal === "string") {
+      if (typeof privateKeyFinal === "string") {
         console.log("   - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
         console.log(`   - [SEGURANÇA] Tamanho do envelope: ${privateKeyFinal.length} bytes`);
         try {
           const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal);
           privateKeyFinal = decryptedPrivateKeyObj;
           console.log("   - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
-          console.log(`   - [SEGURANÇA] Chave descriptografada: kty=${privateKeyFinal.kty}, crv=${privateKeyFinal.crv}`);
         } catch (decryptErr) {
           console.error("   - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
           return new Response(
@@ -239,7 +232,7 @@ Deno.serve({ port: PORT }, async (req) => {
           );
         }
       } else {
-        console.log("   - Chave VAPID não está criptografada, usando diretamente");
+        console.log("   - Chave VAPID não é string, usando como está.");
       }
 
       // 1. Processa e normatiza as chaves do request
@@ -247,8 +240,6 @@ Deno.serve({ port: PORT }, async (req) => {
       try {
         jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
         console.log("   - ✅ Chaves VAPID parseadas com sucesso");
-        console.log(`   - PublicKey: kty=${jwkKeys.publicKey.kty}, crv=${jwkKeys.publicKey.crv}`);
-        console.log(`   - PrivateKey: kty=${jwkKeys.privateKey.kty}, crv=${jwkKeys.privateKey.crv}`);
       } catch (parseErr) {
         console.error("   - ❌ Erro ao parsear chaves VAPID:", parseErr);
         return new Response(
@@ -262,7 +253,6 @@ Deno.serve({ port: PORT }, async (req) => {
       try {
         vapidKeys = await webpush.importVapidKeys(jwkKeys);
         console.log("   - ✅ Chaves VAPID importadas com sucesso");
-        console.log(`   - VAPID Keys: publicKey=${!!vapidKeys.publicKey}, privateKey=${!!vapidKeys.privateKey}`);
       } catch (importErr) {
         console.error("   - ❌ Erro ao importar chaves VAPID:", importErr);
         return new Response(
@@ -325,7 +315,6 @@ Deno.serve({ port: PORT }, async (req) => {
         
         // Se o status for 400, pode ser problema no payload ou na chave
         if (pushErr instanceof webpush.PushMessageError && pushErr.response?.status === 400) {
-          // Se a resposta contiver "Invalid VAPID" ou similar, podemos personalizar
           let msg = "Requisição inválida. Verifique a subscription e o payload.";
           if (responseBody.includes("Invalid")) {
             msg = "Chave VAPID inválida ou malformada.";

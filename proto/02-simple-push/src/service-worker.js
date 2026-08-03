@@ -1,6 +1,6 @@
 // src/service-worker.js
 
-// Importa os módulos fatiados (sem sync.js)
+// Importa os módulos fatiados
 import "./sw/cache.js";
 import "./sw/push.js";
 import "./sw/click.js";

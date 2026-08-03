@@ -2,7 +2,6 @@
 import { get, set, createStore } from "idb-keyval";
 import { gunzipSync } from "fflate";
 import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
-// Removido: import type { ProfileConfig } from "../constants/db.ts";
 
 // ============================================================
 // CONFIGURAÇÃO
@@ -32,7 +31,7 @@ function garantirStores() {
 }
 
 // ============================================================
-// FUNÇÕES AUXILIARES - usando as mesmas de db-helpers (copiadas para o SW)
+// FUNÇÕES AUXILIARES
 // ============================================================
 async function sha256(message) {
   const encoder = new TextEncoder();
@@ -57,9 +56,6 @@ function base64ToArrayBuffer(base64) {
 // FUNÇÕES DE BANCO UNIFICADAS
 // ============================================================
 
-/**
- * Busca o perfil completo da store CONFIG.
- */
 async function buscarProfile() {
   try {
     garantirStores();
@@ -70,10 +66,6 @@ async function buscarProfile() {
   }
 }
 
-/**
- * Busca a chave privada RSA (E2E) a partir do perfil.
- * Retorna a CryptoKey privateDecrypt ou null se não encontrada.
- */
 async function buscarChaveDecript() {
   try {
     const profile = await buscarProfile();
@@ -81,8 +73,6 @@ async function buscarChaveDecript() {
       console.warn("[SW-PUSH] ⚠️ Perfil não encontrado.");
       return null;
     }
-
-    // A chave privada RSA deve estar em e2ePrivateKeyJwk
     if (!profile.e2ePrivateKeyJwk) {
       console.warn("[SW-PUSH] ⚠️ Chave privada RSA não encontrada no perfil.");
       return null;
@@ -103,9 +93,6 @@ async function buscarChaveDecript() {
   }
 }
 
-/**
- * Salva um contato (usando a store CONTATOS)
- */
 async function salvarContato(contato) {
   try {
     garantirStores();
@@ -117,9 +104,6 @@ async function salvarContato(contato) {
   }
 }
 
-/**
- * Busca um contato pela chave pública VAPID
- */
 async function buscarContatoPorPublicKey(publicKeyVapid) {
   try {
     garantirStores();
@@ -131,9 +115,6 @@ async function buscarContatoPorPublicKey(publicKeyVapid) {
   }
 }
 
-/**
- * Salva uma mensagem recebida
- */
 async function salvarMensagemRecebida(mensagem) {
   try {
     garantirStores();
@@ -145,7 +126,7 @@ async function salvarMensagemRecebida(mensagem) {
 }
 
 // ============================================================
-// EVENTO PUSH (mesma lógica, agora usando buscarProfile e buscarChaveDecript)
+// EVENTO PUSH
 // ============================================================
 self.addEventListener('push', function(event) {
   if (!event.data) return;
@@ -191,7 +172,6 @@ self.addEventListener('push', function(event) {
         }
       }
 
-      // Verifica assinatura
       let assinaturaValida = false;
       let homologado = contato ? contato.homologado : false;
 
@@ -231,7 +211,6 @@ self.addEventListener('push', function(event) {
 
       console.log("[SW-PUSH] 🛡️ Assinatura validada com sucesso!");
 
-      // Descriptografa envelope
       const privateDecryptKey = await buscarChaveDecript();
       if (!privateDecryptKey) {
         throw new Error("Chave privada RSA de decodificação não encontrada.");
@@ -270,9 +249,8 @@ self.addEventListener('push', function(event) {
       const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
       const textoDecifrado = new TextDecoder().decode(decompressed);
 
-      // Parse do objeto de mensagem
       let mensagemObj = JSON.parse(textoDecifrado);
-      const conteudo = mensagemObj.m?.c || textoDecifrado;
+      const conteudo = mensagemObj.c || textoDecifrado; // agora é 'c' (antes era m.c)
 
       const e = mensagemObj.e || {};
       const subscription = e.s ? {
@@ -280,9 +258,8 @@ self.addEventListener('push', function(event) {
         keys: e.s.k || e.s.keys
       } : null;
       const publicKeyRSA = e.p || null;
-      const vapidPrivateKey = (e.v && e.v.k) ? e.v.k : null;
+      const vapidPrivateKey = (e.s && e.s.v) ? e.s.v : null; // agora a chave privada VAPID cifrada está em e.s.v
 
-      // Salva/atualiza contato
       if (publicKeyVapid && publicKeyRSA && subscription) {
         let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
         const novoContato = {
@@ -302,7 +279,6 @@ self.addEventListener('push', function(event) {
         console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
       }
 
-      // Salva mensagem recebida
       const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
       const mensagemRecebida = {
@@ -317,7 +293,6 @@ self.addEventListener('push', function(event) {
       }
       await salvarMensagemRecebida(mensagemRecebida);
 
-      // Exibe notificação
       const podeResponder = !!(contato && contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
       const statusEmoji = homologado ? '✅' : '🔄';
       const statusTexto = homologado ? 'Homologado' : 'Não homologado';
@@ -337,7 +312,6 @@ self.addEventListener('push', function(event) {
         vibrate: [200, 100, 200]
       });
 
-      // Notifica clientes abertos
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach(client => {
         client.postMessage({

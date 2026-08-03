@@ -22,7 +22,7 @@ Não há banco de dados central, nem filas compartilhadas: cada navegador manté
 ### 2.1. Perfil (Profile)
 Um **perfil** é um objeto JSON público gerado por cada usuário. Ele contém todas as informações necessárias para que outros possam enviar-lhe mensagens push. O perfil deve ser transferido fora de banda (por exemplo, copiando e colando) do receptor para o emissor.
 
-**Estrutura do Perfil:**
+**Estrutura do Perfil Público (compartilhado):**
 ```json
 {
   "iss": "email@exemplo.com",       // Identificador único (e-mail do dono)
@@ -83,6 +83,21 @@ interface MensagemRecebida {
 }
 ```
 
+**Estrutura da mensagem enviada (IndexedDB) – fila de envio:**
+```typescript
+interface MensagemEnviada {
+  id: string;                      // msg_<timestamp>_<random>
+  contatoHash: string;             // Hash SHA-256 da chave pública VAPID do contato
+  conteudo: string;                // Texto original da mensagem
+  status: 'pendente' | 'enviando' | 'enviada' | 'falha';
+  tentativas: number;              // Número de tentativas de envio
+  createdAt: number;
+  updatedAt: number;
+  erro?: string;                   // Mensagem de erro, se houver
+}
+```
+**Constante:** `MAX_TENTATIVAS = 3` (número máximo de tentativas antes de marcar como falha).
+
 ---
 
 ## 3. Armazenamento IndexedDB – Detalhamento
@@ -91,15 +106,17 @@ O sistema utiliza as seguintes stores (bancos) no IndexedDB, gerenciadas pela bi
 
 | Nome da Store (`DB_NAMES`) | Chave | Valor | Finalidade |
 | :--- | :--- | :--- | :--- |
-| `AppConfig_DB` | `"profile"` | `ProfileConfig` | **Store unificada** – contém todos os dados do perfil do usuário: nome, e-mail, chaves VAPID (pública e privada), chaves RSA (pública e privada) e subscription. |
+| `AppConfig_DB` | `"profile"` | `ProfileConfig` | **Store unificada** – contém todos os dados do perfil do usuário: nome, e-mail, chaves VAPID (pública e privada em JWK), envelope da chave privada VAPID, chaves RSA (pública e privada em JWK) e subscription. |
 | `BrowserB_Contatos_DB` | **Hash SHA-256** (hex) da chave VAPID pública | `Contato` | Armazena todos os contatos conhecidos. A chave é um hash para evitar problemas de capitalização e inconsistências de serialização. |
 | `BrowserB_MensagensRecebidas_DB` | `msg_<timestamp>_<random>` | `MensagemRecebida` | Armazena mensagens recebidas. O campo `contatoPublicKeyVapid` referencia a chave hash do contato correspondente. |
-| `BrowserA_MensagensEnvio_DB` | `msg_<timestamp>_<random>` | `MensagemEnvio` | Fila de mensagens aguardando envio (offline-first). |
+| `BrowserA_MensagensEnviadas_DB` | `msg_<timestamp>_<random>` | `MensagemEnviada` | Fila de mensagens aguardando envio (offline-first). O status e o contador de tentativas permitem gerenciar o fluxo de envio. |
 
 **Observações importantes:**
 - **A store `AppConfig_DB` substitui as antigas stores `BrowserA_Identidade_DB`, `BrowserB_E2E_Chaves_DB`, `BrowserB_Vapid_DB` e `BrowserB_Subscription_DB`**, eliminando a duplicação de dados e centralizando todas as informações do perfil.
 - **Todas as chaves privadas** (VAPID e RSA) são persistidas como **JWK** dentro do `ProfileConfig`. Isso garante que, ao recarregar a página, o usuário não perca suas chaves, mantendo a capacidade de assinar e decifrar mensagens.
-- **O bundle do emissor** (conjunto de dados que inclui subscription, chaves VAPID e RSA) é **construído dinamicamente** a partir do perfil unificado sempre que necessário, eliminando a necessidade de uma store separada para bundles.
+- **O envelope da chave privada VAPID** (`vapidPrivateKeyEnvelope`) é armazenado no perfil para que o Service Worker possa incluí-lo no payload da mensagem sem precisar cifrá-lo novamente a cada envio.
+- **A store `BrowserA_Bundles_DB` foi removida** – o bundle do emissor é construído dinamicamente a partir do perfil unificado e do contato sempre que necessário.
+- **A store `BrowserA_MensagensEnvio_DB` foi renomeada para `BrowserA_MensagensEnviadas_DB`** e sua estrutura foi simplificada para armazenar apenas os dados essenciais da mensagem, transferindo a lógica de cifragem e envio para o Service Worker.
 
 **Geração do Hash do Contato:**
 Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `"p-256"`), a chave primária da store de contatos é um **hash SHA-256** da string normalizada em minúsculo: `${kty}|${crv}|${x}|${y}` (extraídos da chave pública VAPID). Isso garante que a mesma chave pública gere sempre o mesmo hash, independentemente de como foi serializada.
@@ -113,13 +130,13 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 
 1. **Verificação de permissões**: Checa se a permissão de notificação está concedida; caso contrário, solicita.
 2. **Registro do Service Worker**: Registra ou obtém a instância do Service Worker.
-3. **Geração/obtenção de chaves VAPID**: Tenta carregar do perfil existente; caso não existam, gera um novo par ECDSA P-256.
-4. **Geração/obtenção de chaves RSA**: Tenta carregar do perfil existente; caso não existam, gera um novo par RSA-OAEP-256.
+3. **Geração/obtenção de chaves VAPID**: Tenta carregar do perfil existente; caso não existam, gera um novo par ECDSA P-256 (`extractable: true`).
+4. **Geração/obtenção de chaves RSA**: Tenta carregar do perfil existente; caso não existam, gera um novo par RSA-OAEP-256 (`extractable: true`).
 5. **Obtenção da subscription**: Obtém a subscription do `PushManager` do navegador, usando a chave pública VAPID como `applicationServerKey`; reutiliza a subscription existente se ainda for válida.
 6. **Busca da chave pública do servidor**: Faz uma requisição GET para `/api/server-public-key` para obter a chave pública RSA do servidor proxy.
-7. **Cifragem da chave privada VAPID**: A chave privada VAPID (em JWK) é cifrada com AES-GCM, e a chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor. O envelope resultante é colocado no campo `k` do perfil público.
+7. **Cifragem da chave privada VAPID**: A chave privada VAPID (em JWK) é cifrada com AES-GCM, e a chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor. O envelope resultante é colocado no campo `k` do perfil público e também salvo no campo `vapidPrivateKeyEnvelope` do `ProfileConfig`.
 8. **Montagem do perfil público**: Combina `iss` (email), `nm` (nome), `kid` (chave pública VAPID), `s` (subscription), `p` (chave pública RSA), e `k` (chave privada VAPID cifrada).
-9. **Persistência do perfil unificado**: Salva todos os dados (nome, email, chaves VAPID e RSA em JWK, subscription) na store `AppConfig_DB` com a chave `"profile"`.
+9. **Persistência do perfil unificado**: Salva todos os dados (nome, email, chaves VAPID e RSA em JWK, envelope VAPID, subscription) na store `AppConfig_DB` com a chave `"profile"`.
 10. **Exibição**: O perfil público é mostrado em uma área de texto para o usuário copiar.
 
 ### 4.2. Adição de Contato
@@ -133,36 +150,71 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 6. Salva o contato na store `BrowserB_Contatos_DB` usando o hash como chave.
 7. Atualiza a interface: lista de contatos e dropdown de seleção.
 
-### 4.3. Envio de Mensagem
+### 4.3. Envio de Mensagem – App
 **Função:** `enviarMensagemB()` em `src/app.tsx`
 
 1. O usuário seleciona um contato no dropdown e digita a mensagem.
 2. Recupera o contato completo do IndexedDB usando o hash selecionado.
-3. **Recupera o perfil unificado** do emissor (store `AppConfig_DB`).
-4. A partir do perfil, extrai:
-   - `subscription` (endpoint e keys)
-   - chaves VAPID (pública e privada em JWK)
-   - chaves RSA E2E (pública e privada em JWK)
-5. **Constrói dinamicamente o bundle do emissor** (subscription, chaves VAPID e RSA) para incluir no payload da mensagem.
-6. **Prepara o objeto de mensagem** com o conteúdo e os dados do emissor (subscription, chave pública RSA, chave privada VAPID cifrada).
-7. **Comprime** o JSON com Gzip, **gera uma chave AES-GCM** e IV, **cifra os dados** com AES e **cifra a chave AES** com a chave pública RSA do contato (destinatário).
-8. Monta o envelope com `iv`, `dadosCifrados` e `chaveAesCifrada` em Base64.
-9. **Constrói e assina o JWT** com a chave privada VAPID do emissor (importada da CryptoKey em memória).
-10. **Salva a mensagem** na store de envio (`BrowserA_MensagensEnvio_DB`) com status `'pendente'`.
-11. **Envia uma mensagem ao Service Worker** via `postMessage` com tipo `ENVIAR_MENSAGEM`, contendo o bundle do destinatário e o JWT.
-12. O Service Worker tentará enviar imediatamente ou mais tarde (offline).
+3. **Salva a mensagem na fila de envio** (`BrowserA_MensagensEnviadas_DB`) com:
+   - `contatoHash`: hash do contato
+   - `conteudo`: texto original
+   - `status: 'pendente'`
+   - `tentativas: 0`
+4. **Notifica o Service Worker** via `postMessage` com o tipo `PROCESSAR_FILA_ENVIO`.
+5. O Service Worker processará a mensagem em background (offline-first).
 
-### 4.4. Processamento do Envio (Service Worker – `sw-mensagens.js`)
-1. O Service Worker recebe a mensagem da página via `postMessage`.
-2. Salva a mensagem na store `BrowserA_MensagensEnvio_DB` (se ainda não foi salva).
-3. Dispara a função `processarFilaEnvio()`.
-4. Para cada mensagem pendente (status `'pendente'` ou `'enviando'` há mais de 30 segundos):
+### 4.4. Processamento do Envio – Service Worker
+**Função:** `processarFilaEnvio()` em `src/sw/sw-mensagens.js`
+
+1. O Service Worker recebe a mensagem da página via `postMessage` ou é ativado por eventos de sincronização (`sync`) ou conexão online.
+2. Busca todas as mensagens com status `'pendente'` ou `'enviando'` com `updatedAt` há mais de 30 segundos.
+3. Para cada mensagem:
    - Atualiza status para `'enviando'`.
-   - Chama `enviarMensagemParaServidor(mensagem)`, que faz uma requisição HTTP POST para `/api/proxy-push` no servidor Deno, com os campos: `subscription`, `payloadText` (JWT), `vapid` (objeto com chaves), e `isVapidEncrypted: true`.
-   - Se a resposta for bem-sucedida, atualiza status para `'enviada'`. Em caso de erro, incrementa tentativas e, se exceder o máximo, marca como `'falha'`.
-5. A sincronização em segundo plano (`sync` event) também pode disparar esse processo quando a conexão for restaurada.
+   - Busca o contato pelo `contatoHash` e o perfil (store `AppConfig_DB`).
+   - **Validações:**
+     - Perfil: `e2ePublicKey`, `vapidPublicKey`, `vapidPrivateKeyJwk`, `vapidPrivateKeyEnvelope`, `subscription` → senão, erro "Usuário não logado (sem Chaves)" ou "Mensagens Web Push não configurada (sem Subscription)".
+     - Contato: `publicKeyRSA`, `publicKeyVapid`, `vapidPrivateKey`, `subscription` → senão, erro "Contato sem Chaves" ou "Contato sem Subscription".
+   - **Monta o payloadObj:**
+     ```js
+     {
+       c: msg.conteudo,
+       e: {
+         s: {
+           e: profile.subscription.endpoint,
+           k: profile.subscription.keys,
+           v: profile.vapidPrivateKeyEnvelope // envelope cifrado para o proxy
+         },
+         p: profile.e2ePublicKey
+       }
+     }
+     ```
+   - **Cifra o payloadObj:**
+     - Serializa e compacta com Gzip.
+     - Gera chave AES-GCM e IV.
+     - Cifra os dados comprimidos com AES-GCM.
+     - Cifra a chave AES com a chave pública RSA do contato.
+     - Monta envelope: `{ i: base64IV, d: base64Dados, k: base64ChaveAES }`.
+   - **Constrói o JWT:**
+     - Header: `{ alg: "ES256" }`.
+     - Payload: `{ iss: profile.email, sub: contato.email, ct: envelopeJSON, p: profile.vapidPublicKey, nm: profile.name }`.
+     - Assina com a chave privada VAPID do emissor (importada de `profile.vapidPrivateKeyJwk`).
+   - **Envia para o servidor proxy**: POST para `/api/proxy-push` com:
+     ```json
+     {
+       "subscription": contato.subscription,
+       "payloadText": jwt,
+       "vapid": {
+         "subject": `mailto:${contato.email}`,
+         "publicKey": contato.publicKeyVapid,
+         "privateKey": contato.vapidPrivateKey // envelope cifrado
+       }
+     }
+     ```
+   - **Atualiza status:**
+     - Sucesso: `'enviada'`.
+     - Falha: incrementa `tentativas`. Se `tentativas >= MAX_TENTATIVAS` (3), marca como `'falha'`; caso contrário, volta para `'pendente'`.
 
-### 4.5. Recebimento da Mensagem (Service Worker – `push.js`)
+### 4.5. Recebimento da Mensagem – Service Worker (`push.js`)
 1. O Service Worker recebe o evento `push` contendo o JWT no `event.data.text()`.
 2. Divide o JWT em header, payload e signature.
 3. **Verifica a assinatura** usando a chave pública VAPID do emissor (campo `p` do payload) e o algoritmo ECDSA P-256.
@@ -172,16 +224,16 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
    - Decodifica `iv`, `dados` e `k` do envelope.
    - Descriptografa a chave AES usando RSA-OAEP.
    - Descriptografa os dados com AES-GCM.
-   - Descomprime (gunzip) o resultado, obtendo o objeto JSON original.
+   - Descomprime (gunzip) o resultado, obtendo o objeto JSON original (agora com estrutura simplificada `{ c, e }`).
 6. **Salva/Atualiza o Contato**:
-   - Extrai `subscription`, `publicKeyRSA` e `vapidPrivateKey` do objeto decifrado.
+   - Extrai `subscription`, `publicKeyRSA` e `vapidPrivateKey` do objeto decifrado (agora `e.s`).
    - Gera o hash da chave pública VAPID do emissor (do campo `p` do JWT).
    - Busca um contato existente pelo hash.
    - Se não existir, cria um novo contato com os dados extraídos e o nome vindo de `nm` (ou fallback para o email). Se já existir, atualiza o nome e outros dados se necessário.
    - Salva o contato na store `BrowserB_Contatos_DB`.
 7. **Salva a Mensagem**:
    - Gera um ID único.
-   - Cria um objeto `MensagemRecebida` com o hash do contato, conteúdo decifrado, status `'nao_lida'` e timestamp.
+   - Cria um objeto `MensagemRecebida` com o hash do contato, conteúdo decifrado (`c` do objeto), status `'nao_lida'` e timestamp.
    - Salva na store `BrowserB_MensagensRecebidas_DB`.
 8. **Exibe notificação nativa** com o nome do remetente (buscado do contato) e o conteúdo.
 9. **Notifica as páginas abertas** via `postMessage` com tipo `PUSH_RECEIVED`, para que a UI seja atualizada em tempo real.
@@ -191,7 +243,7 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 2. Ao clicar, o sistema obtém o hash do contato a partir da mensagem (campo `contatoPublicKeyVapid`).
 3. Busca o contato completo no IndexedDB.
 4. Preenche o dropdown de seleção de contatos com esse contato (via `select.value`) e navega para a aba de envio.
-5. O usuário digita a mensagem e o fluxo de envio (4.3) é executado, enviando a mensagem de volta para o emissor original.
+5. O usuário digita a mensagem e o fluxo de envio (4.3 e 4.4) é executado, enviando a mensagem de volta para o emissor original.
 
 ---
 
@@ -204,8 +256,9 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 | **Cifragem da chave AES** | RSA-OAEP-256 | A chave AES é cifrada com a chave pública RSA do receptor, permitindo que apenas o receptor (com a chave privada) possa decifrá-la. |
 | **Compressão** | Gzip | Reduz o tamanho do payload (necessário devido ao limite de 4096 bytes do Web Push). |
 | **Chave privada VAPID** | Envelope RSA-AES (servidor) | A chave privada VAPID do emissor viaja cifrada no perfil. Apenas o servidor proxy (que possui a chave privada RSA correspondente) pode decifrá-la, evitando exposição no cliente. |
+| **Persistência de chaves** | IndexedDB (local) | As chaves privadas (VAPID e RSA) são armazenadas em JWK no IndexedDB. Embora não sejam cifradas adicionalmente, o acesso é restrito ao domínio e ao navegador, sendo adequado para protótipos. |
 
-**Observações sobre o limite de 4096 bytes:** O Web Push impõe um limite de 4096 bytes para o payload. Para respeitar esse limite, o sistema utiliza compressão gzip, campos curtos (ex: `ct`, `p`, `nm`) e estrutura compacta do envelope. O tamanho típico do JWT fica em torno de 3700-3800 bytes.
+**Observações sobre o limite de 4096 bytes:** O Web Push impõe um limite de 4096 bytes para o payload. Para respeitar esse limite, o sistema utiliza compressão gzip, campos curtos (`ct`, `p`, `nm`) e estrutura compacta do envelope. O tamanho típico do JWT fica em torno de 3700-3800 bytes.
 
 ---
 
@@ -213,13 +266,13 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 
 | Arquivo | Responsabilidade |
 | :--- | :--- |
-| `src/app.tsx` | Interface principal (UI) e lógica de negócio (geração de perfil, envio, recebimento via SW). Usa `preact` para componentes, mas é um arquivo único. |
+| `src/app.tsx` | Interface principal (UI) e lógica de negócio (geração de perfil, adição de contato, criação de mensagens na fila). |
+| `src/sw/sw-mensagens.js` | Gerencia filas de envio offline. Processa mensagens pendentes: monta payloadObj, cifra, constrói JWT e envia ao servidor proxy. Gerencia tentativas e status. |
 | `src/sw/push.js` | Lida com o evento `push`. Verifica assinatura, decifra envelope, salva contato e mensagem no IndexedDB, exibe notificação. |
-| `src/sw/sw-mensagens.js` | Gerencia filas de envio offline. Escuta mensagens da página (`postMessage`) e envia ao servidor proxy. |
 | `src/sw/cache.js` | Gerencia cache offline para os assets estáticos (HTML, CSS, JS). |
 | `src/sw/click.js` | Lida com o evento `notificationclick` – redireciona para a página principal. |
-| `src/constants/db.ts` | Define nomes das stores e interfaces TypeScript para contato, mensagem, e o perfil unificado `ProfileConfig`. |
-| `src/utils/db-helpers.ts` | Funções auxiliares para operações IndexedDB: salvar/buscar perfil, contatos, mensagens, serialização de chaves. |
+| `src/constants/db.ts` | Define nomes das stores, constantes (`MAX_TENTATIVAS`) e interfaces TypeScript para `ProfileConfig`, `MensagemEnviada`, `MensagemRecebida` e `Contato`. |
+| `src/utils/db-helpers.ts` | Funções auxiliares para operações IndexedDB: salvar/buscar perfil, contatos, mensagens enviadas/recebidas, serialização de chaves. |
 | `main.ts` | Servidor Deno (proxy). Endpoints: `/api/server-public-key` (retorna chave pública RSA) e `/api/proxy-push` (recebe JSON com subscription e payload, descriptografa a chave privada VAPID, assina e encaminha para o endpoint de push). |
 | `build.ts` | Script de build usando `Deno.bundle` com entrypoints HTML. Compila `index.html` (que referencia `app.tsx`), gera bundle JS e atualiza o HTML. Também compila o Service Worker separadamente e injeta lista de assets e hash de versão. |
 
@@ -252,13 +305,14 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 ## 8. Estado Atual e Pontos de Atenção
 
 - **Perfil unificado**: Todas as informações do usuário (nome, e-mail, chaves VAPID e RSA completas, subscription) são armazenadas em uma única store (`AppConfig_DB`), eliminando duplicação e inconsistências.
-- **Persistência de chaves privadas**: Tanto a chave privada VAPID quanto a chave privada RSA são armazenadas como JWK no perfil, garantindo que permaneçam disponíveis após recarregar a página.
+- **Persistência de chaves privadas**: Tanto a chave privada VAPID quanto a chave privada RSA são armazenadas como JWK no perfil, garantindo que permaneçam disponíveis após recarregar a página. O envelope da chave privada VAPID (`vapidPrivateKeyEnvelope`) também é persistido, evitando recifragem a cada envio.
+- **Fila de envio simplificada**: As mensagens enviadas são armazenadas com status e contador de tentativas, e o Service Worker é responsável por todo o processo de cifragem, montagem do JWT e envio. Isso torna o app mais leve e resiliente.
 - **Chave de Contato**: A migração para o hash SHA-256 está completa. Todos os contatos são armazenados com chave hash. As mensagens recebidas salvam o hash do contato (`contatoPublicKeyVapid`).
 - **Identificação do Emissor**: O campo `nm` (nome) é incluído no payload do JWT. O Service Worker extrai esse campo para salvar ou atualizar o nome do contato, garantindo que as mensagens exibam o nome correto.
 - **Limitação de Payload**: O JWT total deve ser inferior a 4096 bytes. O sistema utiliza compressão gzip, campos curtos (`ct`, `p`, `nm`) e estrutura compacta do envelope.
 - **Homologação**: A homologação é um campo booleano no contato, utilizado apenas para fins de interface (ex: exibir "Homologado" ou "Não homologado"). Não bloqueia o recebimento de mensagens.
 - **Service Worker**: Durante o desenvolvimento, é necessário desregistrar o Service Worker manualmente (Application → Service Workers → Unregister) e recarregar a página para que a nova versão seja carregada, devido ao cache agressivo.
-- **Remoção do Bundle**: A store `BrowserA_Bundles_DB` foi removida. O bundle do emissor é construído dinamicamente a partir do perfil unificado sempre que necessário.
+- **Remoção do Bundle**: A store `BrowserA_Bundles_DB` foi removida. O bundle do emissor é construído dinamicamente a partir do perfil unificado e do contato sempre que necessário.
 
 ---
 
@@ -284,3 +338,17 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 | **E2EE** | End-to-End Encryption – criptografia de ponta a ponta. |
 | **Subscription** | Objeto que representa a inscrição de um navegador no serviço de push, contendo endpoint e chaves de cifragem. |
 | **Proxy Server** | Servidor intermediário que encaminha requisições, neste caso, para o FCM, após assiná-las com a chave privada VAPID. |
+| **Envelope** | Estrutura contendo `iv`, `dadosCifrados` e `chaveAesCifrada`, usada para transportar a mensagem cifrada. |
+| **MAX_TENTATIVAS** | Constante que define o número máximo de tentativas de envio antes de marcar uma mensagem como falha (padrão 3). |
+
+
+---
+
+## ✅ Resumo das Atualizações no README
+
+- **Seção 2.3**: Adicionada estrutura de `MensagemEnviada` e constante `MAX_TENTATIVAS`.
+- **Seção 3**: Atualizada a tabela de stores com os novos nomes e descrições, incluindo `AppConfig_DB` e `BrowserA_MensagensEnviadas_DB`. Destacada a remoção de `BrowserA_Bundles_DB`.
+- **Seção 4.3 e 4.4**: Dividido o fluxo de envio em duas partes: App (criação da mensagem na fila) e Service Worker (processamento completo), detalhando o novo `payloadObj`, as validações e a cifragem.
+- **Seção 4.5**: Atualizada a estrutura do objeto decifrado no push para `{ c, e }` e o campo `vapidPrivateKey` agora em `e.s.v`.
+- **Seção 6**: Atualizada a tabela de arquivos para refletir as novas responsabilidades.
+- **Seção 8**: Atualizado o estado atual com as novas características (perfil unificado, persistência de chaves, fila simplificada).

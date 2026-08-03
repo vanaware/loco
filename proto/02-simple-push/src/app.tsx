@@ -4,10 +4,9 @@ import "./styles.css";
 import {
   salvarProfile,
   buscarProfile,
-  removerProfile,
-  salvarMensagemEnvio,
-  listarMensagensEnvio,
-  removerMensagemEnvio,
+  salvarMensagemEnviada,
+  listarMensagensEnviadas,
+  removerMensagemEnviada,
   listarMensagensRecebidas,
   atualizarStatusMensagemRecebida,
   removerMensagemRecebida,
@@ -31,12 +30,10 @@ import {
 
 import type {
   ProfileConfig,
-  MensagemEnvio,
+  MensagemEnviada,
   MensagemRecebida,
   Contato,
 } from "./constants/db.ts";
-
-import { gzipSync } from "fflate";
 
 console.log("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
 
@@ -156,7 +153,7 @@ async function generateE2EEKeys() {
   console.log("🔑 Gerando chaves E2E (RSA-2048)...");
   const encryptionKeyPair = await window.crypto.subtle.generateKey(
     { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: "SHA-256" },
-    true, // extractable: true
+    true,
     ["encrypt", "decrypt"]
   );
   const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
@@ -175,7 +172,7 @@ async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   console.log("🔑 Gerando chaves VAPID (ECDSA P-256)...");
   return await window.crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
-    true, // extractable: true
+    true,
     ["sign", "verify"]
   );
 }
@@ -216,14 +213,12 @@ async function gerarProfile(): Promise<any> {
     let publicKeyJwk: JsonWebKey;
     let privateKeyJwk: JsonWebKey;
 
-    // Tenta carregar do perfil existente
     let existingProfile = await buscarProfile();
     if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
       console.log("📂 Chaves VAPID encontradas no perfil.");
       publicKeyJwk = existingProfile.vapidPublicKey;
       privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
       try {
-        // Importamos com extractable: true para permitir exportação (embora não seja necessário, mas por segurança)
         vapidKeyPair = {
           publicKey: await window.crypto.subtle.importKey(
             "jwk", publicKeyJwk,
@@ -239,7 +234,6 @@ async function gerarProfile(): Promise<any> {
           )
         } as CryptoKeyPair;
       } catch {
-        // Se falhar, gera novas
         console.log("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
         existingProfile = undefined;
       }
@@ -256,7 +250,6 @@ async function gerarProfile(): Promise<any> {
     let subscriptionValida = false;
 
     if (existingSubscription) {
-      // Verifica se a subscription corresponde à chave pública atual
       const profileSub = existingProfile?.subscription;
       if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
         subscriptionValida = true;
@@ -298,12 +291,11 @@ async function gerarProfile(): Promise<any> {
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
       try {
-        // Importamos com extractable: true para permitir exportação, se necessário
         e2ePrivateKeyCrypto = await window.crypto.subtle.importKey(
           "jwk",
           e2ePrivateKeyJwk,
           { name: "RSA-OAEP", hash: "SHA-256" },
-          true, // extractable: true
+          true,
           ["decrypt"]
         );
       } catch {
@@ -321,7 +313,7 @@ async function gerarProfile(): Promise<any> {
       e2ePrivateKeyCrypto = newKeys.privateDecrypt;
     }
 
-    // Cifrar a chave privada VAPID para o servidor
+    // Cifrar a chave privada VAPID para o servidor (envelope)
     const privateKeyEncrypted = await criptografarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
     // Montar o perfil unificado
@@ -329,9 +321,10 @@ async function gerarProfile(): Promise<any> {
       name: nome,
       email: email,
       vapidPublicKey: publicKeyJwk,
-      vapidPrivateKeyJwk: privateKeyJwk, // JWK completo da privada
+      vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, // <-- novo campo
       e2ePublicKey: e2ePublicKey,
-      e2ePrivateKeyJwk: e2ePrivateKeyJwk, // JWK completo da privada RSA
+      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
       subscription: subscription,
       createdAt: existingProfile?.createdAt || Date.now(),
       updatedAt: Date.now()
@@ -340,10 +333,7 @@ async function gerarProfile(): Promise<any> {
     // Salvar perfil unificado
     await salvarProfile(profile);
 
-    // Também salvar a identidade (para compatibilidade com funções existentes)
-    // A identidade guarda a CryptoKey da VAPID em memória (não persistida)
-    // Mas a função salvarIdentidadeA espera uma identidade com privateKey (CryptoKey)
-    // Vamos criar uma identidade temporária com a CryptoKey que temos.
+    // Salvar identidade (para compatibilidade)
     const identidadeTemporaria = {
       name: nome,
       email: email,
@@ -351,7 +341,7 @@ async function gerarProfile(): Promise<any> {
     };
     await salvarIdentidadeA(identidadeTemporaria);
 
-    // Construir o objeto de perfil para compartilhamento (formato antigo)
+    // Construir o objeto de perfil para compartilhamento
     const profilePublic = {
       iss: email,
       nm: nome,
@@ -470,7 +460,7 @@ async function carregarSelectContatos(): Promise<void> {
 }
 
 // ============================================================
-// ENVIAR MENSAGEM PARA UM CONTATO
+// ENVIAR MENSAGEM
 // ============================================================
 async function enviarMensagemB(): Promise<void> {
   console.log("🚀 Enviando mensagem...");
@@ -487,203 +477,37 @@ async function enviarMensagemB(): Promise<void> {
   }
 
   try {
-    // Buscar contato destino
-    let contato = await buscarContatoPorChave(selectedKey);
+    // Validar contato
+    const contato = await buscarContatoPorChave(selectedKey);
     if (!contato) {
-      console.warn("Contato não encontrado pela chave exata. Tentando fallback...");
-      const todosContatos = await listarContatos();
-      for (const c of todosContatos) {
-        const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-        if (hash === selectedKey) {
-          contato = c;
-          break;
-        }
-      }
-      if (!contato) {
-        showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
-        return;
-      }
-    }
-
-    if (!contato.subscription || !contato.publicKeyRSA || !contato.vapidPrivateKey) {
-      showToast("❌ Contato incompleto para enviar mensagem. Peça para a pessoa gerar um novo perfil.", "error");
+      showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
       return;
-    }
-
-    // Bundle do destinatário
-    const bundleDestino = {
-      subscription: contato.subscription,
-      vapid: {
-        subject: `mailto:${contato.email}`,
-        publicKey: contato.publicKeyVapid,
-        privateKey: contato.vapidPrivateKey
-      },
-      isVapidEncrypted: true,
-      e2e: {
-        ownerName: contato.nome,
-        ownerEmail: contato.email,
-        browserB_PublicKeyEncrypt: contato.publicKeyRSA
-      },
-      payloadText: ""
-    };
-
-    const publicKeyDestino = bundleDestino.e2e.browserB_PublicKeyEncrypt;
-    if (publicKeyDestino.kty !== "RSA") {
-      showToast("❌ Chave pública do contato não é RSA.", "error");
-      return;
-    }
-
-    const cryptoKeyDestino = await window.crypto.subtle.importKey(
-      "jwk", publicKeyDestino,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-
-    // Buscar perfil do emissor (unificado)
-    const profile = await buscarProfile();
-    if (!profile) {
-      throw new Error("Perfil do emissor não encontrado. Gere seu perfil primeiro.");
-    }
-
-    // Extrair dados do emissor
-    const identidade = await buscarIdentidadeA();
-    if (!identidade) {
-      throw new Error("Identidade do emissor não encontrada.");
-    }
-
-    const subscriptionData = profile.subscription;
-    const chavesVapid = {
-      publicKey: profile.vapidPublicKey,
-      privateKey: profile.vapidPrivateKeyJwk
-    };
-    const chavesE2E = {
-      publicEncrypt: profile.e2ePublicKey,
-      privateDecryptJwk: profile.e2ePrivateKeyJwk
-    };
-
-    // Construir bundle do emissor (para incluir no payload)
-    const bundleEmissor = {
-      subscription: subscriptionData,
-      vapid: {
-        subject: `mailto:${profile.email}`,
-        publicKey: chavesVapid.publicKey,
-        privateKey: chavesVapid.privateKey
-      },
-      isVapidEncrypted: true,
-      e2e: {
-        ownerName: profile.name,
-        ownerEmail: profile.email,
-        browserB_PublicKeyEncrypt: chavesE2E.publicEncrypt
-      },
-      payloadText: ""
-    };
-
-    const publicKeyEncrypt = chavesE2E.publicEncrypt;
-    const publicVapid = chavesVapid.publicKey;
-
-    // Construir objeto de mensagem
-    const encoder = new TextEncoder();
-    const mensagemObj = {
-      m: { c: conteudo },
-      e: {
-        s: {
-          e: subscriptionData.endpoint,
-          k: subscriptionData.keys
-        },
-        p: publicKeyEncrypt,
-        v: {
-          k: chavesVapid.privateKey
-        }
-      }
-    };
-
-    const mensagemBytes = encoder.encode(JSON.stringify(mensagemObj));
-    const compressed = gzipSync(mensagemBytes);
-    console.log(`📦 Comprimido: ${compressed.length} bytes`);
-
-    const aesKey = await window.crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    const encryptedBuffer = await window.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      compressed
-    );
-    const aesKeyRaw = await window.crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyEncrypted = await window.crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      cryptoKeyDestino,
-      aesKeyRaw
-    );
-
-    const envelope = {
-      i: arrayBufferToBase64(iv.buffer),
-      d: arrayBufferToBase64(encryptedBuffer),
-      k: arrayBufferToBase64(aesKeyEncrypted)
-    };
-    const envelopeJson = JSON.stringify(envelope);
-
-    // Construir JWT
-    const header = { alg: "ES256" };
-    const payload = {
-      iss: profile.email,
-      sub: contato.email,
-      ct: envelopeJson,
-      p: publicVapid,
-      nm: profile.name
-    };
-    const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
-    const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
-    const toSign = `${headerB64}.${payloadB64}`;
-    const signature = await window.crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      identidade.privateKey,
-      encoder.encode(toSign)
-    );
-    const sigB64 = arrayBufferToBase64Url(signature);
-    const jwt = `${toSign}.${sigB64}`;
-
-    console.log(`📊 Tamanho do JWT: ${jwt.length} bytes`);
-    if (jwt.length > 4096) {
-      console.warn(`⚠️ JWT excede 4096 bytes em ${jwt.length - 4096} bytes!`);
-    } else {
-      console.log(`✅ JWT dentro do limite (${4096 - jwt.length} bytes restantes)`);
     }
 
     // Salvar mensagem na fila
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const mensagem: MensagemEnvio = {
+    const mensagem: MensagemEnviada = {
       id: msgId,
-      bundle: bundleDestino,
-      payloadText: jwt,
-      mensagemOriginal: conteudo,
-      destinatario: contato.email,
+      contatoHash: selectedKey,
+      conteudo: conteudo,
       status: 'pendente',
       tentativas: 0,
-      maxTentativas: 3,
-      criadoEm: Date.now(),
-      atualizadoEm: Date.now()
+      createdAt: Date.now(),
+      updatedAt: Date.now()
     };
+    await salvarMensagemEnviada(mensagem);
 
-    await salvarMensagemEnvio(mensagem);
+    // Notificar Service Worker
     const reg = await navigator.serviceWorker.ready;
-    reg.active?.postMessage({ type: 'ENVIAR_MENSAGEM', payload: mensagem });
+    reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
 
-    showToast(`✅ Mensagem enviada para ${contato.nome}! ID: ${msgId}`, "success");
+    showToast(`✅ Mensagem adicionada à fila para ${contato.nome}! ID: ${msgId}`, "success");
     (document.getElementById('mensagemEnvioB') as HTMLTextAreaElement).value = '';
-    await carregarMensagensEnviadasB();
+    await carregarMensagensEnviadas();
 
   } catch (err: any) {
     console.error(err);
-    if (err.message && err.message.includes('410')) {
-      showToast("❌ A subscription do contato expirou. Peça para ele gerar um novo perfil.", "error");
-    } else {
-      showToast(`❌ Erro: ${err.message}`, "error");
-    }
+    showToast(`❌ Erro: ${err.message}`, "error");
   }
 }
 
@@ -708,7 +532,7 @@ async function compartilharProfile(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR MENSAGENS RECEBIDAS
+// CARREGAR MENSAGENS RECEBIDAS (implementação completa)
 // ============================================================
 async function carregarMensagensRecebidas(): Promise<void> {
   console.log("📬 Carregando mensagens recebidas...");
@@ -869,6 +693,69 @@ async function carregarMensagensRecebidas(): Promise<void> {
 }
 
 // ============================================================
+// CARREGAR MENSAGENS ENVIADAS
+// ============================================================
+async function carregarMensagensEnviadas(): Promise<void> {
+  console.log("📤 Carregando mensagens enviadas...");
+  const mensagens = await listarMensagensEnviadas();
+  const container = document.getElementById('mensagensEnviadasB');
+  if (!container) return;
+  if (mensagens.length === 0) {
+    container.innerHTML = '<p style="color: #666;">Nenhuma mensagem enviada.</p>';
+    return;
+  }
+  mensagens.sort((a, b) => b.createdAt - a.createdAt);
+  let html = '';
+  for (const msg of mensagens) {
+    const statusMap: Record<string, { emoji: string; label: string; classe: string }> = {
+      'pendente': { emoji: '⏳', label: 'Pendente', classe: 'msg-item-pendente' },
+      'enviando': { emoji: '🔄', label: 'Enviando...', classe: 'msg-item-pendente' },
+      'enviada': { emoji: '✅', label: 'Enviada', classe: 'msg-item-enviada' },
+      'falha': { emoji: '❌', label: 'Falha', classe: 'msg-item-falha' },
+    };
+    const status = statusMap[msg.status] || { emoji: '❓', label: msg.status, classe: '' };
+    const data = new Date(msg.createdAt).toLocaleString();
+    let nomeContato = msg.contatoHash;
+    try {
+      const contato = await buscarContatoPorChave(msg.contatoHash);
+      if (contato) nomeContato = contato.nome;
+    } catch {}
+
+    html += `
+      <div class="msg-item ${status.classe}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'enviada' ? '#e8f5e9' : msg.status === 'falha' ? '#ffebee' : '#fff8e1'};">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <strong>${status.emoji} Para: ${nomeContato}</strong>
+          <small style="color: #888;">${data}</small>
+        </div>
+        <p style="margin: 5px 0;">${msg.conteudo || '(mensagem oculta)'}</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span class="status-badge status-badge-${msg.status}">${status.label}</span>
+            ${msg.tentativas > 0 ? `<span style="font-size: 12px; color: #666; margin-left: 8px;">Tentativas: ${msg.tentativas}</span>` : ''}
+          </div>
+          ${msg.status === 'enviada' || msg.status === 'falha' ?
+            `<button class="btn-remover-enviada-b btn-sm danger" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>` :
+            ''
+          }
+        </div>
+        ${msg.erro ? `<div style="font-size: 12px; color: #cc0000; margin-top: 4px;">Erro: ${msg.erro}</div>` : ''}
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+
+  container.querySelectorAll('.btn-remover-enviada-b').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const id = (e.currentTarget as HTMLButtonElement).dataset.id;
+      if (id && confirm('Remover esta mensagem do histórico?')) {
+        await removerMensagemEnviada(id);
+        await carregarMensagensEnviadas();
+      }
+    });
+  });
+}
+
+// ============================================================
 // HOMOLOGAR TODOS OS CONTATOS
 // ============================================================
 async function homologarTodasMensagens(): Promise<void> {
@@ -905,64 +792,6 @@ async function removerMensagensLidas(): Promise<void> {
   }
   await carregarMensagensRecebidas();
   showToast(`✅ ${lidas.length} mensagens removidas.`, "success");
-}
-
-// ============================================================
-// MENSAGENS ENVIADAS
-// ============================================================
-async function carregarMensagensEnviadasB(): Promise<void> {
-  console.log("📤 Carregando mensagens enviadas...");
-  const mensagens = await listarMensagensEnvio();
-  const container = document.getElementById('mensagensEnviadasB');
-  if (!container) return;
-  if (mensagens.length === 0) {
-    container.innerHTML = '<p style="color: #666;">Nenhuma mensagem enviada.</p>';
-    return;
-  }
-  mensagens.sort((a, b) => b.criadoEm - a.criadoEm);
-  let html = '';
-  for (const msg of mensagens) {
-    const statusMap: Record<string, { emoji: string; label: string; classe: string }> = {
-      'pendente': { emoji: '⏳', label: 'Pendente', classe: 'msg-item-pendente' },
-      'enviando': { emoji: '🔄', label: 'Enviando...', classe: 'msg-item-pendente' },
-      'enviada': { emoji: '✅', label: 'Enviada', classe: 'msg-item-enviada' },
-      'falha': { emoji: '❌', label: 'Falha', classe: 'msg-item-falha' },
-    };
-    const status = statusMap[msg.status] || { emoji: '❓', label: msg.status, classe: '' };
-    const data = new Date(msg.criadoEm).toLocaleString();
-
-    html += `
-      <div class="msg-item ${status.classe}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'enviada' ? '#e8f5e9' : msg.status === 'falha' ? '#ffebee' : '#fff8e1'};">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-          <strong>${status.emoji} Para: ${msg.destinatario}</strong>
-          <small style="color: #888;">${data}</small>
-        </div>
-        <p style="margin: 5px 0;">${msg.mensagemOriginal || '(mensagem oculta)'}</p>
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-          <div>
-            <span class="status-badge status-badge-${msg.status}">${status.label}</span>
-            ${msg.tentativas > 0 ? `<span style="font-size: 12px; color: #666; margin-left: 8px;">Tentativas: ${msg.tentativas}</span>` : ''}
-          </div>
-          ${msg.status === 'enviada' || msg.status === 'falha' ?
-            `<button class="btn-remover-enviada-b btn-sm danger" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>` :
-            ''
-          }
-        </div>
-        ${msg.erro ? `<div style="font-size: 12px; color: #cc0000; margin-top: 4px;">Erro: ${msg.erro}</div>` : ''}
-      </div>
-    `;
-  }
-  container.innerHTML = html;
-
-  container.querySelectorAll('.btn-remover-enviada-b').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      const id = (e.currentTarget as HTMLButtonElement).dataset.id;
-      if (id && confirm('Remover esta mensagem do histórico?')) {
-        await removerMensagemEnvio(id);
-        await carregarMensagensEnviadasB();
-      }
-    });
-  });
 }
 
 // ============================================================
@@ -1004,7 +833,7 @@ async function carregarDadosIniciais(): Promise<void> {
     await carregarContatos();
     await carregarSelectContatos();
     await carregarMensagensRecebidas();
-    await carregarMensagensEnviadasB();
+    await carregarMensagensEnviadas();
     console.log("✅ Dados iniciais carregados!");
   } catch (err) {
     console.warn("⚠️ Erro ao carregar dados iniciais:", err);
@@ -1020,7 +849,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   await carregarDadosIniciais();
 
   document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
-
   document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
     const display = document.getElementById('myProfileDisplay');
     if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
@@ -1029,7 +857,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       showToast("Primeiro gere seu perfil.", "info");
     }
   });
-
   document.getElementById('btnAdicionarContato')?.addEventListener('click', adicionarContato);
   document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);
   document.getElementById('btnCarregarMensagens')?.addEventListener('click', carregarMensagensRecebidas);
@@ -1044,7 +871,6 @@ window.addEventListener("DOMContentLoaded", async () => {
         await subscription.unsubscribe();
         console.log("Subscription desinscrita.");
       }
-      // Remover subscription do perfil
       const profile = await buscarProfile();
       if (profile) {
         delete profile.subscription;
@@ -1068,7 +894,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (event.data?.type === 'MENSAGEM_ENVIADA') {
       console.log('📤 Mensagem enviada, atualizando lista...');
-      setTimeout(carregarMensagensEnviadasB, 500);
+      setTimeout(carregarMensagensEnviadas, 500);
     }
   });
 });

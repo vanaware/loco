@@ -8,7 +8,7 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/2/2026, 4:51:32 PM
+Gerado automaticamente em: 8/2/2026, 10:52:34 PM
 
 ---
 
@@ -18,6 +18,7 @@ Gerado automaticamente em: 8/2/2026, 4:51:32 PM
 /// <reference lib="deno.ns" />
 import { serveDir } from "@std/http/file-server";
 import * as webpush from "@negrel/webpush";
+import { deleteCookie } from "@std/http/cookie";
 
 const PORT = 8000;
 
@@ -194,22 +195,41 @@ Deno.serve({ port: PORT }, async (req) => {
     });
   }
 
+  if (url.pathname === "/api/logout" && req.method === "POST") {
+    const headers = new Headers();
+
+    // Remove o cookie que guarda a sessão (substitua 'session_token' pelo nome do seu cookie)
+    deleteCookie(headers, "session_token", { path: "/" });
+
+    // Envia instrução nativa HTTP para o navegador apagar storages, cookies e caches
+    headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
+    
+    // Retorna uma resposta de sucesso para o fetch do front-end
+    return new Response(JSON.stringify({ disconnected: true }), {
+      status: 200,
+      headers: {
+        ...Object.fromEntries(headers.entries()),
+        "content-type": "application/json",
+      },
+    });
+  }
+
+
   // ROTA DE DISPARO: Processa o envelope VAPID e encaminha o JWT criptografado
-  if (req.method === "POST" && url.pathname === "/api/proxy-push") {
+  if (req.method === "POST" && url.pathname === "./api/proxy-push") {
     console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida!`);
     
     try {
       const body = await req.json();
-      const { subscription, payloadText, vapid, isVapidEncrypted } = body;
+      const { subscription, payloadText, vapid } = body;
 
       console.log(`   - Endpoint destino: ${subscription.endpoint.substring(0, 45)}...`);
-      console.log(`   - isVapidEncrypted: ${isVapidEncrypted}`);
       console.log(`   - Tamanho do payloadText: ${payloadText?.length || 0} bytes`);
 
       // Executa a auditoria cega das claims do token JWT
       const jwtClaims = lerMetadadosJJWT(payloadText);
       if (jwtClaims) {
-        console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.name || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+        console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         console.log(`   - [AUDITORIA JWT] Destinado a: <${jwtClaims.sub || "Sem e-mail"}>`);
         console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (Hex): ${jwtClaims.cipherText?.substring(0, 20) || "N/A"}...`);
       } else {
@@ -219,14 +239,13 @@ Deno.serve({ port: PORT }, async (req) => {
       let privateKeyFinal = vapid.privateKey;
 
       // 🔥 DESCRIPTOGRAFIA DA CHAVE PRIVADA VAPID NA RAM
-      if (isVapidEncrypted && typeof privateKeyFinal === "string") {
+      if (typeof privateKeyFinal === "string") {
         console.log("   - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
         console.log(`   - [SEGURANÇA] Tamanho do envelope: ${privateKeyFinal.length} bytes`);
         try {
           const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal);
           privateKeyFinal = decryptedPrivateKeyObj;
           console.log("   - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
-          console.log(`   - [SEGURANÇA] Chave descriptografada: kty=${privateKeyFinal.kty}, crv=${privateKeyFinal.crv}`);
         } catch (decryptErr) {
           console.error("   - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
           return new Response(
@@ -235,7 +254,7 @@ Deno.serve({ port: PORT }, async (req) => {
           );
         }
       } else {
-        console.log("   - Chave VAPID não está criptografada, usando diretamente");
+        console.log("   - Chave VAPID criptografada, não enviada como string");
       }
 
       // 1. Processa e normatiza as chaves do request
@@ -243,8 +262,8 @@ Deno.serve({ port: PORT }, async (req) => {
       try {
         jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
         console.log("   - ✅ Chaves VAPID parseadas com sucesso");
-        console.log(`   - PublicKey: kty=${jwkKeys.publicKey.kty}, crv=${jwkKeys.publicKey.crv}`);
-        console.log(`   - PrivateKey: kty=${jwkKeys.privateKey.kty}, crv=${jwkKeys.privateKey.crv}`);
+        //console.log(`   - PublicKey: kty=${jwkKeys.publicKey.kty}, crv=${jwkKeys.publicKey.crv}`);
+        //console.log(`   - PrivateKey: kty=${jwkKeys.privateKey.kty}, crv=${jwkKeys.privateKey.crv}`);
       } catch (parseErr) {
         console.error("   - ❌ Erro ao parsear chaves VAPID:", parseErr);
         return new Response(
@@ -258,7 +277,7 @@ Deno.serve({ port: PORT }, async (req) => {
       try {
         vapidKeys = await webpush.importVapidKeys(jwkKeys);
         console.log("   - ✅ Chaves VAPID importadas com sucesso");
-        console.log(`   - VAPID Keys: publicKey=${!!vapidKeys.publicKey}, privateKey=${!!vapidKeys.privateKey}`);
+        //console.log(`   - VAPID Keys: publicKey=${!!vapidKeys.publicKey}, privateKey=${!!vapidKeys.privateKey}`);
       } catch (importErr) {
         console.error("   - ❌ Erro ao importar chaves VAPID:", importErr);
         return new Response(
@@ -541,421 +560,6 @@ self.addEventListener('notificationclick', function(event) {
 
 ---
 
-## Arquivo: `src/sw/sw-mensagens.js`
-
-```js
-// src/sw/sw-mensagens.js
-import { get, set, createStore, del, entries } from "idb-keyval";
-
-// 🔥 Constantes
-const DB_NAMES = {
-  MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
-  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
-  CONTATOS: "BrowserB_Contatos_DB", // 🔥 Adicionado
-};
-
-const STORE_NAMES = {
-  KEYVAL: "keyval",
-};
-
-// 🔥 Cria as stores IMEDIATAMENTE (não lazy)
-const storeMensagensEnvioA = createStore(DB_NAMES.MENSAGENS_ENVIO_A, STORE_NAMES.KEYVAL);
-const storeMensagensRecebidasB = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
-const storeContatos = createStore(DB_NAMES.CONTATOS, STORE_NAMES.KEYVAL); // 🔥 Store de contatos
-
-console.log("[SW-MSG] ✅ Stores criadas com sucesso!");
-
-// ============================================================
-// FUNÇÕES AUXILIARES PARA CONTATOS (copiadas do db-helpers)
-// ============================================================
-async function sha256(message) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function serializarPublicKeyVapid(jwk) {
-  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
-  return await sha256(raw);
-}
-
-async function buscarContatoPorChave(chaveOuJwk) {
-  try {
-    let key;
-    if (typeof chaveOuJwk === 'string') {
-      key = chaveOuJwk;
-    } else if (chaveOuJwk && chaveOuJwk.kty) {
-      key = await serializarPublicKeyVapid(chaveOuJwk);
-    } else {
-      return null;
-    }
-    return await get(key, storeContatos) || null;
-  } catch {
-    return null;
-  }
-}
-
-// ============================================================
-// PROCESSADOR DE MENSAGENS - BROWSER A (ENVIO)
-// ============================================================
-
-async function salvarMensagemEnvio(mensagem) {
-  try {
-    console.log(`[SW-MSG] 💾 Salvando mensagem ${mensagem.id}...`);
-    await set(mensagem.id, mensagem, storeMensagensEnvioA);
-    console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} salva no IndexedDB`);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
-    throw err;
-  }
-}
-
-async function buscarMensagemEnvio(id) {
-  try {
-    return await get(id, storeMensagensEnvioA);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao buscar mensagem ${id}:`, err);
-    return null;
-  }
-}
-
-async function listarMensagensEnvioPorStatus(status) {
-  try {
-    const todas = await listarMensagensEnvio();
-    return todas.filter(m => m.status === status);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens por status:", err);
-    return [];
-  }
-}
-
-async function listarMensagensEnvio() {
-  try {
-    const entriesList = await entries(storeMensagensEnvioA);
-    return entriesList.map(([_, msg]) => msg);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
-    return [];
-  }
-}
-
-async function atualizarStatusMensagemEnvio(id, status, erro) {
-  try {
-    const mensagem = await buscarMensagemEnvio(id);
-    if (mensagem) {
-      mensagem.status = status;
-      mensagem.atualizadoEm = Date.now();
-      if (erro) mensagem.erro = erro;
-      await salvarMensagemEnvio(mensagem);
-      console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
-    }
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao atualizar mensagem ${id}:`, err);
-  }
-}
-
-async function removerMensagemEnvio(id) {
-  try {
-    await del(id, storeMensagensEnvioA);
-    console.log(`[SW-MSG] ✅ Mensagem ${id} removida`);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao remover mensagem ${id}:`, err);
-  }
-}
-
-// 🔥 ENVIA UMA MENSAGEM PARA O SERVIDOR
-async function enviarMensagemParaServidor(mensagem) {
-  try {
-    console.log(`[SW-MSG] 📤 Enviando mensagem ${mensagem.id} para o servidor...`);
-    
-    const response = await fetch("/api/proxy-push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...mensagem.bundle,
-        payloadText: mensagem.payloadText
-      })
-    });
-
-    if (response.ok) {
-      console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} enviada com sucesso!`);
-      await atualizarStatusMensagemEnvio(mensagem.id, 'enviada');
-      return true;
-    } else {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${mensagem.id}:`, err);
-    
-    mensagem.tentativas++;
-    mensagem.erro = err.message;
-    
-    if (mensagem.tentativas >= mensagem.maxTentativas) {
-      console.log(`[SW-MSG] ⛔ Mensagem ${mensagem.id} excedeu tentativas máximas.`);
-      await atualizarStatusMensagemEnvio(mensagem.id, 'falha', err.message);
-    } else {
-      await salvarMensagemEnvio(mensagem);
-    }
-    
-    return false;
-  }
-}
-
-// 🔥 PROCESSADOR DE FILA DE ENVIO
-async function processarFilaEnvio() {
-  console.log("[SW-MSG] 🔄 Processando fila de envio...");
-  
-  try {
-    const pendentes = await listarMensagensEnvioPorStatus('pendente');
-    const enviando = await listarMensagensEnvioPorStatus('enviando');
-    
-    const todasEnviando = enviando.filter(m => {
-      return (Date.now() - m.atualizadoEm) > 30000;
-    });
-    
-    const paraProcessar = [...pendentes, ...todasEnviando];
-    
-    if (paraProcessar.length === 0) {
-      console.log("[SW-MSG] ℹ️ Nenhuma mensagem pendente para enviar.");
-      return;
-    }
-    
-    console.log(`[SW-MSG] 📦 ${paraProcessar.length} mensagens para processar`);
-    
-    for (const msg of paraProcessar) {
-      await atualizarStatusMensagemEnvio(msg.id, 'enviando');
-      await enviarMensagemParaServidor(msg);
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao processar fila de envio:", err);
-  }
-}
-
-// ============================================================
-// PROCESSADOR DE MENSAGENS - BROWSER B (RECEBIDAS)
-// ============================================================
-
-async function salvarMensagemRecebida(mensagem) {
-  try {
-    await set(mensagem.id, mensagem, storeMensagensRecebidasB);
-    console.log(`[SW-MSG] ✅ Mensagem ${mensagem.id} salva no IndexedDB`);
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
-  }
-}
-
-async function listarMensagensRecebidasPorStatus(status) {
-  try {
-    const todas = await listarMensagensRecebidas();
-    return todas.filter(m => m.status === status);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens recebidas:", err);
-    return [];
-  }
-}
-
-async function listarMensagensRecebidas() {
-  try {
-    const entriesList = await entries(storeMensagensRecebidasB);
-    return entriesList.map(([_, msg]) => msg);
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao listar mensagens recebidas:", err);
-    return [];
-  }
-}
-
-async function atualizarStatusMensagemRecebida(id, status) {
-  try {
-    const mensagem = await get(id, storeMensagensRecebidasB);
-    if (mensagem) {
-      mensagem.status = status;
-      if (status === 'lida') mensagem.lidaEm = Date.now();
-      if (status === 'notificada') mensagem.notificadaEm = Date.now();
-      await set(id, mensagem, storeMensagensRecebidasB);
-      console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
-    }
-  } catch (err) {
-    console.error(`[SW-MSG] ❌ Erro ao atualizar mensagem ${id}:`, err);
-  }
-}
-
-/**
- * Tenta exibir uma notificação com timeout de 5 segundos.
- */
-async function mostrarNotificacaoComTimeout(titulo, opcoes, timeoutMs = 5000) {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      console.warn("[SW-MSG] ⚠️ Timeout ao exibir notificação, prosseguindo...");
-      resolve(false);
-    }, timeoutMs);
-
-    self.registration.showNotification(titulo, opcoes)
-      .then(() => {
-        clearTimeout(timeout);
-        resolve(true);
-      })
-      .catch((err) => {
-        clearTimeout(timeout);
-        console.error("[SW-MSG] ❌ Erro ao exibir notificação:", err);
-        resolve(false);
-      });
-  });
-}
-
-// 🔥 PROCESSADOR DE FILA DE NOTIFICAÇÃO (com busca do nome do contato)
-async function processarFilaNotificacao() {
-  console.log("[SW-MSG] 🔔 Processando fila de notificações...");
-  
-  try {
-    const naoLidas = await listarMensagensRecebidasPorStatus('nao_lida');
-    
-    if (naoLidas.length === 0) {
-      console.log("[SW-MSG] ℹ️ Nenhuma mensagem não lida.");
-      return;
-    }
-    
-    console.log(`[SW-MSG] 📦 ${naoLidas.length} mensagens para notificar`);
-    
-    // Ícone fallback (caso logo.svh não seja encontrado)
-    const fallbackIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-    const iconUrl = '/logo.svg'; // 🔥 ícone principal
-    
-    for (const msg of naoLidas) {
-      try {
-        console.log(`[SW-MSG] 🔔 Notificando mensagem ${msg.id}...`);
-        
-        // 🔥 Busca o contato usando a chave armazenada na mensagem
-        let nomeRemetente = 'Remetente desconhecido';
-        if (msg.contatoPublicKeyVapid) {
-          const contato = await buscarContatoPorChave(msg.contatoPublicKeyVapid);
-          if (contato && contato.nome) {
-            nomeRemetente = contato.nome;
-          }
-        }
-        
-        // Verifica se o ícone existe (fallback se não)
-        let iconToUse = iconUrl;
-        try {
-          const resp = await fetch(iconUrl, { method: 'HEAD' });
-          if (!resp.ok) {
-            iconToUse = fallbackIcon;
-          }
-        } catch {
-          iconToUse = fallbackIcon;
-        }
-
-        const exibida = await mostrarNotificacaoComTimeout(
-          `📥 De: ${nomeRemetente}`,
-          {
-            body: msg.conteudo,
-            icon: iconToUse,
-            badge: iconToUse,
-            vibrate: [200, 100, 200],
-            data: msg.dadosJwt || {},
-            tag: msg.id,
-            requireInteraction: true
-          },
-          5000 // timeout de 5 segundos
-        );
-
-        if (exibida) {
-          await atualizarStatusMensagemRecebida(msg.id, 'notificada');
-          console.log(`[SW-MSG] ✅ Mensagem ${msg.id} notificada com sucesso!`);
-        } else {
-          console.warn(`[SW-MSG] ⚠️ Notificação para ${msg.id} não foi exibida (timeout ou erro).`);
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 300));
-      } catch (err) {
-        console.error(`[SW-MSG] ❌ Erro ao notificar mensagem ${msg.id}:`, err);
-      }
-    }
-  } catch (err) {
-    console.error("[SW-MSG] ❌ Erro ao processar fila de notificações:", err);
-  }
-}
-
-// ============================================================
-// LISTENERS DE EVENTOS
-// ============================================================
-
-self.addEventListener('message', async (event) => {
-  const data = event.data;
-  
-  if (data.type === 'ENVIAR_MENSAGEM') {
-    console.log(`[SW-MSG] 📩 Recebida mensagem da página para enviar: ${data.payload.id}`);
-    try {
-      await salvarMensagemEnvio(data.payload);
-      await processarFilaEnvio();
-      if (event.source) {
-        event.source.postMessage({
-          type: 'MENSAGEM_ENVIADA',
-          id: data.payload.id,
-          status: 'pendente'
-        });
-      }
-    } catch (err) {
-      console.error("[SW-MSG] ❌ Erro ao processar mensagem:", err);
-      if (event.source) {
-        event.source.postMessage({
-          type: 'MENSAGEM_ERRO',
-          id: data.payload.id,
-          error: err.message
-        });
-      }
-    }
-  }
-  
-  if (data.type === 'LISTAR_MENSAGENS_PENDENTES') {
-    try {
-      const mensagens = await listarMensagensEnvioPorStatus('pendente');
-      if (event.source) {
-        event.source.postMessage({
-          type: 'LISTA_MENSAGENS',
-          mensagens: mensagens
-        });
-      }
-    } catch (err) {
-      console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
-    }
-  }
-});
-
-self.addEventListener('sync', async function(event) {
-  console.log(`[SW-MSG] 🔄 Sync disparado: ${event.tag}`);
-  if (event.tag === 'sync-envio-mensagens') {
-    event.waitUntil(processarFilaEnvio());
-  }
-  if (event.tag === 'sync-notificar-mensagens') {
-    event.waitUntil(processarFilaNotificacao());
-  }
-});
-
-self.addEventListener('periodicsync', async function(event) {
-  console.log(`[SW-MSG] ⏰ Periodic sync: ${event.tag}`);
-  if (event.tag === 'periodic-sync-mensagens') {
-    await processarFilaEnvio();
-    await processarFilaNotificacao();
-  }
-});
-
-self.addEventListener('online', async function() {
-  console.log("[SW-MSG] 🌐 Conexão restaurada, processando filas...");
-  await processarFilaEnvio();
-  await processarFilaNotificacao();
-});
-
-self.processarFilaEnvio = processarFilaEnvio;
-self.processarFilaNotificacao = processarFilaNotificacao;
-
-console.log("[SW-MSG] 📦 Módulo de mensagens carregado com sucesso!");
-```
-
----
-
 ## Arquivo: `src/sw/push.js`
 
 ```js
@@ -963,7 +567,6 @@ console.log("[SW-MSG] 📦 Módulo de mensagens carregado com sucesso!");
 import { get, set, createStore } from "idb-keyval";
 import { gunzipSync } from "fflate";
 import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
-import type { ProfileConfig } from "../constants/db.ts";
 
 // ============================================================
 // CONFIGURAÇÃO
@@ -993,7 +596,7 @@ function garantirStores() {
 }
 
 // ============================================================
-// FUNÇÕES AUXILIARES - usando as mesmas de db-helpers (copiadas para o SW)
+// FUNÇÕES AUXILIARES
 // ============================================================
 async function sha256(message) {
   const encoder = new TextEncoder();
@@ -1018,9 +621,6 @@ function base64ToArrayBuffer(base64) {
 // FUNÇÕES DE BANCO UNIFICADAS
 // ============================================================
 
-/**
- * Busca o perfil completo da store CONFIG.
- */
 async function buscarProfile() {
   try {
     garantirStores();
@@ -1031,10 +631,6 @@ async function buscarProfile() {
   }
 }
 
-/**
- * Busca a chave privada RSA (E2E) a partir do perfil.
- * Retorna a CryptoKey privateDecrypt ou null se não encontrada.
- */
 async function buscarChaveDecript() {
   try {
     const profile = await buscarProfile();
@@ -1042,8 +638,6 @@ async function buscarChaveDecript() {
       console.warn("[SW-PUSH] ⚠️ Perfil não encontrado.");
       return null;
     }
-
-    // A chave privada RSA deve estar em e2ePrivateKeyJwk
     if (!profile.e2ePrivateKeyJwk) {
       console.warn("[SW-PUSH] ⚠️ Chave privada RSA não encontrada no perfil.");
       return null;
@@ -1064,9 +658,6 @@ async function buscarChaveDecript() {
   }
 }
 
-/**
- * Salva um contato (usando a store CONTATOS)
- */
 async function salvarContato(contato) {
   try {
     garantirStores();
@@ -1078,9 +669,6 @@ async function salvarContato(contato) {
   }
 }
 
-/**
- * Busca um contato pela chave pública VAPID
- */
 async function buscarContatoPorPublicKey(publicKeyVapid) {
   try {
     garantirStores();
@@ -1092,9 +680,6 @@ async function buscarContatoPorPublicKey(publicKeyVapid) {
   }
 }
 
-/**
- * Salva uma mensagem recebida
- */
 async function salvarMensagemRecebida(mensagem) {
   try {
     garantirStores();
@@ -1106,7 +691,7 @@ async function salvarMensagemRecebida(mensagem) {
 }
 
 // ============================================================
-// EVENTO PUSH (mesma lógica, agora usando buscarProfile e buscarChaveDecript)
+// EVENTO PUSH
 // ============================================================
 self.addEventListener('push', function(event) {
   if (!event.data) return;
@@ -1152,7 +737,6 @@ self.addEventListener('push', function(event) {
         }
       }
 
-      // Verifica assinatura
       let assinaturaValida = false;
       let homologado = contato ? contato.homologado : false;
 
@@ -1192,7 +776,6 @@ self.addEventListener('push', function(event) {
 
       console.log("[SW-PUSH] 🛡️ Assinatura validada com sucesso!");
 
-      // Descriptografa envelope
       const privateDecryptKey = await buscarChaveDecript();
       if (!privateDecryptKey) {
         throw new Error("Chave privada RSA de decodificação não encontrada.");
@@ -1231,9 +814,8 @@ self.addEventListener('push', function(event) {
       const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
       const textoDecifrado = new TextDecoder().decode(decompressed);
 
-      // Parse do objeto de mensagem
       let mensagemObj = JSON.parse(textoDecifrado);
-      const conteudo = mensagemObj.m?.c || textoDecifrado;
+      const conteudo = mensagemObj.c || textoDecifrado; // agora é 'c' (antes era m.c)
 
       const e = mensagemObj.e || {};
       const subscription = e.s ? {
@@ -1241,9 +823,8 @@ self.addEventListener('push', function(event) {
         keys: e.s.k || e.s.keys
       } : null;
       const publicKeyRSA = e.p || null;
-      const vapidPrivateKey = (e.v && e.v.k) ? e.v.k : null;
+      const vapidPrivateKey = (e.s && e.s.v) ? e.s.v : null; // agora a chave privada VAPID cifrada está em e.s.v
 
-      // Salva/atualiza contato
       if (publicKeyVapid && publicKeyRSA && subscription) {
         let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
         const novoContato = {
@@ -1263,7 +844,6 @@ self.addEventListener('push', function(event) {
         console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
       }
 
-      // Salva mensagem recebida
       const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
       const mensagemRecebida = {
@@ -1278,7 +858,6 @@ self.addEventListener('push', function(event) {
       }
       await salvarMensagemRecebida(mensagemRecebida);
 
-      // Exibe notificação
       const podeResponder = !!(contato && contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
       const statusEmoji = homologado ? '✅' : '🔄';
       const statusTexto = homologado ? 'Homologado' : 'Não homologado';
@@ -1298,7 +877,6 @@ self.addEventListener('push', function(event) {
         vibrate: [200, 100, 200]
       });
 
-      // Notifica clientes abertos
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach(client => {
         client.postMessage({
@@ -1329,6 +907,434 @@ console.log("[SW-PUSH] 📦 Módulo push carregado (com store unificada, DEBUG="
 
 ---
 
+## Arquivo: `src/sw/sw-mensagens.js`
+
+```js
+// src/sw/sw-mensagens.js
+import { get, set, createStore, del, entries } from "idb-keyval";
+import { gunzipSync, gzipSync } from "fflate";
+import { MAX_TENTATIVAS } from "../constants/db.ts";
+
+// 🔥 Constantes
+const DB_NAMES = {
+  MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
+  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
+  CONTATOS: "BrowserB_Contatos_DB",
+  CONFIG: "AppConfig_DB",
+};
+
+const STORE_NAMES = {
+  KEYVAL: "keyval",
+};
+
+const KEY_NAMES = {
+  PROFILE: "profile",
+};
+
+// 🔥 Cria as stores
+const storeMensagensEnviadas = createStore(DB_NAMES.MENSAGENS_ENVIADAS, STORE_NAMES.KEYVAL);
+const storeMensagensRecebidasB = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
+const storeContatos = createStore(DB_NAMES.CONTATOS, STORE_NAMES.KEYVAL);
+const storeConfig = createStore(DB_NAMES.CONFIG, STORE_NAMES.KEYVAL);
+
+console.log("[SW-MSG] ✅ Stores criadas com sucesso!");
+
+// ============================================================
+// FUNÇÕES AUXILIARES PARA CONTATOS E PERFIL
+// ============================================================
+async function sha256(message) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function serializarPublicKeyVapid(jwk) {
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+async function buscarContatoPorChave(chaveOuJwk) {
+  try {
+    let key;
+    if (typeof chaveOuJwk === 'string') {
+      key = chaveOuJwk;
+    } else if (chaveOuJwk && chaveOuJwk.kty) {
+      key = await serializarPublicKeyVapid(chaveOuJwk);
+    } else {
+      return null;
+    }
+    return await get(key, storeContatos) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function buscarProfile() {
+  try {
+    return await get(KEY_NAMES.PROFILE, storeConfig);
+  } catch {
+    return null;
+  }
+}
+
+async function salvarProfile(profile) {
+  try {
+    await set(KEY_NAMES.PROFILE, profile, storeConfig);
+    console.log("[SW-MSG] ✅ Perfil atualizado com sucesso.");
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao salvar perfil:", err);
+  }
+}
+
+// ============================================================
+// FUNÇÕES DE BANCO PARA MENSAGENS ENVIADAS
+// ============================================================
+async function salvarMensagemEnviada(mensagem) {
+  try {
+    await set(mensagem.id, mensagem, storeMensagensEnviadas);
+    console.log(`[SW-MSG] 💾 Mensagem ${mensagem.id} salva.`);
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
+  }
+}
+
+async function buscarMensagemEnviada(id) {
+  try {
+    return await get(id, storeMensagensEnviadas);
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao buscar mensagem ${id}:`, err);
+    return null;
+  }
+}
+
+async function listarMensagensEnviadasPorStatus(status) {
+  try {
+    const todas = await listarMensagensEnviadas();
+    return todas.filter(m => m.status === status);
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao listar mensagens por status:", err);
+    return [];
+  }
+}
+
+async function listarMensagensEnviadas() {
+  try {
+    const entriesList = await entries(storeMensagensEnviadas);
+    return entriesList.map(([_, msg]) => msg);
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao listar mensagens:", err);
+    return [];
+  }
+}
+
+async function atualizarStatusMensagemEnviada(id, status, erro) {
+  try {
+    const mensagem = await buscarMensagemEnviada(id);
+    if (mensagem) {
+      mensagem.status = status;
+      mensagem.updatedAt = Date.now();
+      if (erro) mensagem.erro = erro;
+      await salvarMensagemEnviada(mensagem);
+      console.log(`[SW-MSG] ✅ Mensagem ${id} atualizada para status: ${status}`);
+    }
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao atualizar mensagem ${id}:`, err);
+  }
+}
+
+async function removerMensagemEnviada(id) {
+  try {
+    await del(id, storeMensagensEnviadas);
+    console.log(`[SW-MSG] ✅ Mensagem ${id} removida`);
+  } catch (err) {
+    console.error(`[SW-MSG] ❌ Erro ao remover mensagem ${id}:`, err);
+  }
+}
+
+// ============================================================
+// UTILITÁRIOS DE CRIPTOGRAFIA
+// ============================================================
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function arrayBufferToBase64Url(buffer) {
+  const binary = String.fromCharCode(...new Uint8Array(buffer));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Função para cifrar a chave VAPID (mesma lógica do app)
+async function cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk) {
+  const serverKey = await crypto.subtle.importKey(
+    "jwk",
+    serverPublicKeyJwk,
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    true,
+    ["encrypt"]
+  );
+  const aesKey = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt"]
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoder = new TextEncoder();
+  const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+  const vapidCifrado = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    vapidBytes
+  );
+  const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+  const aesKeyCifrado = await crypto.subtle.encrypt(
+    { name: "RSA-OAEP" },
+    serverKey,
+    aesKeyRaw
+  );
+  const toHex = (buf) =>
+    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const envelope = {
+    iv: toHex(iv.buffer),
+    dadosCifrados: toHex(vapidCifrado),
+    chaveAesCifrada: toHex(aesKeyCifrado)
+  };
+  return btoa(JSON.stringify(envelope));
+}
+
+async function cifrarPayloadObj(payloadObj, publicKeyRSA) {
+  const encoder = new TextEncoder();
+  const jsonString = JSON.stringify(payloadObj);
+  const bytes = encoder.encode(jsonString);
+  const compressed = gzipSync(bytes);
+  console.log(`[SW-MSG] 📦 Comprimido: ${compressed.length} bytes (original: ${bytes.length})`);
+
+  const aesKey = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt"]
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  const encryptedBuffer = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    compressed
+  );
+
+  const cryptoKeyDestino = await crypto.subtle.importKey(
+    "jwk",
+    publicKeyRSA,
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    true,
+    ["encrypt"]
+  );
+  const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+  const aesKeyEncrypted = await crypto.subtle.encrypt(
+    { name: "RSA-OAEP" },
+    cryptoKeyDestino,
+    aesKeyRaw
+  );
+
+  return {
+    i: arrayBufferToBase64(iv.buffer),
+    d: arrayBufferToBase64(encryptedBuffer),
+    k: arrayBufferToBase64(aesKeyEncrypted)
+  };
+}
+
+// ============================================================
+// FUNÇÃO PRINCIPAL: PROCESSAR FILA DE ENVIO
+// ============================================================
+async function processarFilaEnvio() {
+  console.log("[SW-MSG] 🔄 Processando fila de envio...");
+
+  try {
+    const pendentes = await listarMensagensEnviadasPorStatus('pendente');
+    const enviandoAntigos = (await listarMensagensEnviadasPorStatus('enviando'))
+      .filter(m => (Date.now() - m.updatedAt) > 30000);
+
+    const paraProcessar = [...pendentes, ...enviandoAntigos];
+
+    if (paraProcessar.length === 0) {
+      console.log("[SW-MSG] ℹ️ Nenhuma mensagem pendente para enviar.");
+      return;
+    }
+
+    console.log(`[SW-MSG] 📦 ${paraProcessar.length} mensagens para processar`);
+
+    for (const msg of paraProcessar) {
+      await atualizarStatusMensagemEnviada(msg.id, 'enviando');
+
+      try {
+        // 1. Buscar contato e perfil
+        const contato = await buscarContatoPorChave(msg.contatoHash);
+        let profile = await buscarProfile();
+
+        if (!contato) throw new Error("Contato não encontrado");
+        if (!profile) throw new Error("Perfil não encontrado");
+
+        // 2. Validações
+        if (!profile.e2ePublicKey || !profile.vapidPublicKey || !profile.vapidPrivateKeyJwk) {
+          throw new Error("Usuário não logado (sem Chaves)");
+        }
+        if (!profile.subscription) {
+          throw new Error("Mensagens Web Push não configurada (sem Subscription)");
+        }
+        if (!contato.publicKeyRSA || !contato.publicKeyVapid || !contato.vapidPrivateKey) {
+          throw new Error("Contato sem Chaves");
+        }
+        if (!contato.subscription) {
+          throw new Error("Contato sem Subscription");
+        }
+
+        // 3. Obter o envelope da chave VAPID do emissor
+        let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
+
+        // Se o envelope não existir (perfil antigo), cifrar a chave e salvar no perfil
+        if (!vapidPrivateKeyEnvelope) {
+          console.warn("[SW-MSG] ⚠️ Envelope da chave VAPID não encontrado no perfil. Cifrando e salvando...");
+          // Buscar chave pública do servidor
+          const res = await fetch("/api/server-public-key");
+          if (!res.ok) throw new Error("Não foi possível obter a chave pública do servidor.");
+          const serverPublicKeyJwk = await res.json();
+          vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
+          
+          // Salvar o envelope no perfil para uso futuro
+          profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
+          await salvarProfile(profile);
+          console.log("[SW-MSG] ✅ Envelope da chave VAPID salvo no perfil.");
+        }
+
+        // 4. Montar payloadObj
+        const payloadObj = {
+          c: msg.conteudo,
+          e: {
+            s: {
+              e: profile.subscription.endpoint,
+              k: profile.subscription.keys,
+              v: vapidPrivateKeyEnvelope
+            },
+            p: profile.e2ePublicKey
+          }
+        };
+
+        // 5. Cifrar payloadObj
+        const envelope = await cifrarPayloadObj(payloadObj, contato.publicKeyRSA);
+        const envelopeJson = JSON.stringify(envelope);
+
+        // 6. Construir JWT
+        const header = { alg: "ES256" };
+        const payloadJwt = {
+          iss: profile.email,
+          sub: contato.email,
+          ct: envelopeJson,
+          p: profile.vapidPublicKey,
+          nm: profile.name
+        };
+
+        const encoder = new TextEncoder();
+        const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
+        const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payloadJwt)));
+        const toSign = `${headerB64}.${payloadB64}`;
+
+        const privateKey = await crypto.subtle.importKey(
+          "jwk",
+          profile.vapidPrivateKeyJwk,
+          { name: "ECDSA", namedCurve: "P-256" },
+          false,
+          ["sign"]
+        );
+        const signature = await crypto.subtle.sign(
+          { name: "ECDSA", hash: "SHA-256" },
+          privateKey,
+          encoder.encode(toSign)
+        );
+        const sigB64 = arrayBufferToBase64Url(signature);
+        const jwt = `${toSign}.${sigB64}`;
+
+        console.log(`[SW-MSG] 📊 JWT tamanho: ${jwt.length} bytes`);
+
+        // 7. Enviar para o servidor proxy
+        const response = await fetch("/api/proxy-push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subscription: contato.subscription,
+            payloadText: jwt,
+            vapid: {
+              subject: `mailto:${contato.email}`,
+              publicKey: contato.publicKeyVapid,
+              privateKey: contato.vapidPrivateKey
+            }
+          })
+        });
+
+        if (response.ok) {
+          await atualizarStatusMensagemEnviada(msg.id, 'enviada');
+          console.log(`[SW-MSG] ✅ Mensagem ${msg.id} enviada com sucesso!`);
+        } else {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+      } catch (err) {
+        console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${msg.id}:`, err);
+
+        const mensagemAtual = await buscarMensagemEnviada(msg.id);
+        if (mensagemAtual) {
+          mensagemAtual.tentativas++;
+          mensagemAtual.erro = err.message;
+
+          if (mensagemAtual.tentativas >= MAX_TENTATIVAS) {
+            mensagemAtual.status = 'falha';
+            console.log(`[SW-MSG] ⛔ Mensagem ${msg.id} excedeu tentativas máximas.`);
+          } else {
+            mensagemAtual.status = 'pendente';
+          }
+          mensagemAtual.updatedAt = Date.now();
+          await salvarMensagemEnviada(mensagemAtual);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao processar fila de envio:", err);
+  }
+}
+
+// ============================================================
+// LISTENERS DE EVENTOS
+// ============================================================
+self.addEventListener('message', async (event) => {
+  const data = event.data;
+  if (data.type === 'PROCESSAR_FILA_ENVIO') {
+    console.log("[SW-MSG] 📩 Recebido comando para processar fila de envio.");
+    await processarFilaEnvio();
+  }
+});
+
+self.addEventListener('sync', async function(event) {
+  console.log(`[SW-MSG] 🔄 Sync disparado: ${event.tag}`);
+  if (event.tag === 'sync-envio-mensagens') {
+    event.waitUntil(processarFilaEnvio());
+  }
+});
+
+self.addEventListener('online', async function() {
+  console.log("[SW-MSG] 🌐 Conexão restaurada, processando filas...");
+  await processarFilaEnvio();
+});
+
+self.processarFilaEnvio = processarFilaEnvio;
+
+console.log("[SW-MSG] 📦 Módulo de mensagens carregado com sucesso!");
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
@@ -1336,7 +1342,7 @@ console.log("[SW-PUSH] 📦 Módulo push carregado (com store unificada, DEBUG="
 
 export const DB_NAMES = {
   CONFIG: "AppConfig_DB",
-  MENSAGENS_ENVIO_A: "BrowserA_MensagensEnvio_DB",
+  MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
   CONTATOS: "BrowserB_Contatos_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
 } as const;
@@ -1347,10 +1353,15 @@ export const STORE_NAMES = {
 
 export const KEY_NAMES = {
   PROFILE: "profile",
-  MENSAGENS_ENVIO: "mensagens_envio",
+  MENSAGENS_ENVIADAS: "mensagens_enviadas",
   CONTATO: "contato_",
   MENSAGENS_RECEBIDAS: "mensagens_recebidas",
 } as const;
+
+// ============================================================
+// Constantes
+// ============================================================
+export const MAX_TENTATIVAS = 3;
 
 // ============================================================
 // INTERFACES PRINCIPAIS (UNIFICADAS)
@@ -1368,11 +1379,12 @@ export interface ProfileConfig {
 
   // Chaves VAPID (ECDSA P-256) – completas
   vapidPublicKey: JsonWebKey;
-  vapidPrivateKeyJwk: JsonWebKey;  // chave privada exportável (para assinar)
+  vapidPrivateKeyJwk: JsonWebKey;  // chave privada em JWK (para assinar)
+  vapidPrivateKeyEnvelope: string; // envelope cifrado da chave privada (para enviar ao proxy)
 
   // Chaves E2E (RSA-OAEP) – completas
   e2ePublicKey: JsonWebKey;
-  e2ePrivateKeyJwk: JsonWebKey;    // chave privada exportável (para decifrar)
+  e2ePrivateKeyJwk: JsonWebKey;    // chave privada em JWK (para decifrar envelopes)
 
   // Subscription do Web Push
   subscription: {
@@ -1389,20 +1401,17 @@ export interface ProfileConfig {
 }
 
 // ============================================================
-// INTERFACES DE DADOS (MANTIDAS)
+// INTERFACES DE DADOS
 // ============================================================
 
-export interface MensagemEnvio {
-  id: string;
-  bundle: any;
-  payloadText: string;
-  mensagemOriginal: string;
-  destinatario: string;
+export interface MensagemEnviada {
+  id: string;                      // Ex: "msg_1738765432100_abc123"
+  contatoHash: string;             // hash SHA-256 da chave pública VAPID do contato
+  conteudo: string;                // texto original da mensagem
   status: 'pendente' | 'enviando' | 'enviada' | 'falha';
   tentativas: number;
-  maxTentativas: number;
-  criadoEm: number;
-  atualizadoEm: number;
+  createdAt: number;
+  updatedAt: number;
   erro?: string;
 }
 
@@ -1425,7 +1434,7 @@ export interface Contato {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   };
-  vapidPrivateKey: string;   // cifrada
+  vapidPrivateKey: string;   // envelope cifrado da chave privada VAPID (para o proxy)
   homologado: boolean;
   createdAt: number;
   updatedAt: number;
@@ -1442,7 +1451,7 @@ import { get, set, createStore, del, entries } from "idb-keyval";
 import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
 import type {
   ProfileConfig,
-  MensagemEnvio,
+  MensagemEnviada,
   MensagemRecebida,
   Contato,
 } from "../constants/db.ts";
@@ -1456,7 +1465,7 @@ export function criarStore(nome: string) {
 }
 
 const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeMensagensEnvioA = criarStore(DB_NAMES.MENSAGENS_ENVIO_A);
+export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
 export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
 
@@ -1504,9 +1513,6 @@ export async function removerProfile(): Promise<void> {
 // Funções de Conveniência (operam sobre o ProfileConfig)
 // ============================================================
 
-/**
- * Retorna a identidade (nome, email) e a chave privada VAPID como CryptoKey.
- */
 export async function buscarIdentidadeA(): Promise<{ name: string; email: string; privateKey: CryptoKey } | undefined> {
   const profile = await buscarProfile();
   if (!profile) return undefined;
@@ -1528,9 +1534,6 @@ export async function buscarIdentidadeA(): Promise<{ name: string; email: string
   }
 }
 
-/**
- * Salva a identidade e a chave privada VAPID (a partir de uma CryptoKey).
- */
 export async function salvarIdentidadeA(identidade: { name: string; email: string; privateKey: CryptoKey }): Promise<void> {
   const profile = await buscarProfile() || {} as ProfileConfig;
   profile.name = identidade.name;
@@ -1539,10 +1542,6 @@ export async function salvarIdentidadeA(identidade: { name: string; email: strin
   await salvarProfile(profile);
 }
 
-/**
- * Retorna as chaves E2E: privateDecrypt (CryptoKey) e publicEncrypt (JWK).
- * A chave privada é importada a partir do JWK armazenado.
- */
 export async function buscarChavesE2EB(): Promise<{ privateDecrypt: CryptoKey; publicEncrypt: JsonWebKey } | undefined> {
   const profile = await buscarProfile();
   if (!profile || !profile.e2ePublicKey || !profile.e2ePrivateKeyJwk) return undefined;
@@ -1563,10 +1562,6 @@ export async function buscarChavesE2EB(): Promise<{ privateDecrypt: CryptoKey; p
   }
 }
 
-/**
- * Salva as chaves E2E (pública e privada) como JWK.
- * A privateKey é uma CryptoKey, que será exportada para JWK.
- */
 export async function salvarChavesE2EB(chaves: { privateDecrypt: CryptoKey; publicEncrypt: JsonWebKey }): Promise<void> {
   const profile = await buscarProfile() || {} as ProfileConfig;
   profile.e2ePublicKey = chaves.publicEncrypt;
@@ -1574,9 +1569,6 @@ export async function salvarChavesE2EB(chaves: { privateDecrypt: CryptoKey; publ
   await salvarProfile(profile);
 }
 
-/**
- * Retorna as chaves VAPID (pública e privada JWK) do perfil.
- */
 export async function buscarChavesVapidB(): Promise<{ publicKey: JsonWebKey; privateKey: JsonWebKey } | undefined> {
   const profile = await buscarProfile();
   if (!profile) return undefined;
@@ -1586,10 +1578,6 @@ export async function buscarChavesVapidB(): Promise<{ publicKey: JsonWebKey; pri
   };
 }
 
-/**
- * Salva as chaves VAPID no perfil.
- * A privateKey é um JWK.
- */
 export async function salvarChavesVapidB(chaves: { publicKey: JsonWebKey; privateKey: JsonWebKey }): Promise<void> {
   const profile = await buscarProfile() || {} as ProfileConfig;
   profile.vapidPublicKey = chaves.publicKey;
@@ -1597,26 +1585,17 @@ export async function salvarChavesVapidB(chaves: { publicKey: JsonWebKey; privat
   await salvarProfile(profile);
 }
 
-/**
- * Retorna a subscription do perfil.
- */
 export async function buscarSubscriptionB(): Promise<{ endpoint: string; keys: { p256dh: string; auth: string } } | undefined> {
   const profile = await buscarProfile();
   return profile?.subscription;
 }
 
-/**
- * Salva a subscription no perfil.
- */
 export async function salvarSubscriptionB(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<void> {
   const profile = await buscarProfile() || {} as ProfileConfig;
   profile.subscription = subscription;
   await salvarProfile(profile);
 }
 
-/**
- * Remove a subscription do perfil.
- */
 export async function removerSubscriptionB(): Promise<void> {
   const profile = await buscarProfile();
   if (profile) {
@@ -1626,34 +1605,34 @@ export async function removerSubscriptionB(): Promise<void> {
 }
 
 // ============================================================
-// Mensagens de Envio (não alteradas)
+// Mensagens Enviadas
 // ============================================================
 
-export async function salvarMensagemEnvio(mensagem: MensagemEnvio): Promise<void> {
-  await salvarChave(storeMensagensEnvioA, mensagem.id, mensagem);
+export async function salvarMensagemEnviada(mensagem: MensagemEnviada): Promise<void> {
+  await salvarChave(storeMensagensEnviadasA, mensagem.id, mensagem);
 }
 
-export async function buscarMensagemEnvio(id: string): Promise<MensagemEnvio | undefined> {
-  return buscarChave<MensagemEnvio>(storeMensagensEnvioA, id);
+export async function buscarMensagemEnviada(id: string): Promise<MensagemEnviada | undefined> {
+  return buscarChave<MensagemEnviada>(storeMensagensEnviadasA, id);
 }
 
-export async function listarMensagensEnvio(): Promise<MensagemEnvio[]> {
-  const entries = await listarChaves<MensagemEnvio>(storeMensagensEnvioA);
+export async function listarMensagensEnviadas(): Promise<MensagemEnviada[]> {
+  const entries = await listarChaves<MensagemEnviada>(storeMensagensEnviadasA);
   return entries.map(([_, msg]) => msg);
 }
 
-export async function atualizarStatusMensagemEnvio(id: string, status: MensagemEnvio['status'], erro?: string): Promise<void> {
-  const mensagem = await buscarMensagemEnvio(id);
+export async function atualizarStatusMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string): Promise<void> {
+  const mensagem = await buscarMensagemEnviada(id);
   if (mensagem) {
     mensagem.status = status;
-    mensagem.atualizadoEm = Date.now();
+    mensagem.updatedAt = Date.now();
     if (erro) mensagem.erro = erro;
-    await salvarMensagemEnvio(mensagem);
+    await salvarMensagemEnviada(mensagem);
   }
 }
 
-export async function removerMensagemEnvio(id: string): Promise<void> {
-  await removerChave(storeMensagensEnvioA, id);
+export async function removerMensagemEnviada(id: string): Promise<void> {
+  await removerChave(storeMensagensEnviadasA, id);
 }
 
 // ============================================================
@@ -1922,12 +1901,143 @@ label { font-weight: bold; display: block; margin-top: 5px; }
 
 ---
 
+## Arquivo: `src/styles.d.ts`
+
+```ts
+// src/styles.d.ts
+declare module "*.css" {
+  const content: string;
+  export default content;
+}
+```
+
+---
+
+## Arquivo: `src/logout.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Minha Área Restrita</title>
+  <style>
+    body { font-family: sans-serif; padding: 50px; text-align: center; }
+    .btn-logout {
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .btn-logout:hover { background-color: #c82333; }
+  </style>
+</head>
+<body>
+
+  <h1>Exclusão de Sessão</h1>
+
+  <!-- Botão que vai disparar o evento de Logout -->
+  <button id="logoutBtn" class="btn-logout">Sair do Sistema</button>
+
+  <script>
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        console.log("Processando logout local completo...");
+        // 1. Limpa Web Storage
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+        // 2. Apaga rigorosamente todos os Cookies
+        const cookies = document.cookie.split(";");
+        for (let i = 0; i < cookies.length; i++) {
+            const parts = cookies[i].split("=");
+            const name = parts[0].trim();
+            // Tenta apagar no path atual, na raiz e no domínio limpo (sem www)
+            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
+            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname.replace(/^www\./, '')}`;
+        }
+        // 3. Limpa IndexedDB
+        if (window.indexedDB?.databases) {
+            const dbs = await window.indexedDB.databases();
+            for (const db of dbs) window.indexedDB.deleteDatabase(db.name);
+        }
+        // 4. Cancela Push Subscriptions e Desregistra Service Workers
+        if ('serviceWorker' in navigator) {
+          try {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const registration of registrations) {
+              // Cancela a inscrição de Push Notification se ela existir
+              if (registration.pushManager) {
+                const subscription = await registration.pushManager.getSubscription();
+                if (subscription) {
+                  await subscription.unsubscribe();
+                  console.log("Inscrição de Push Notification cancelada.");
+                }
+              }
+              // Desregistra o Service Worker
+              await registration.unregister();
+              console.log("Service Worker desregistrado.");
+            }
+          } catch (error) {
+            console.error("Erro ao limpar Service Workers/Push:", error);
+          }
+        }
+        // 5. Limpa Cache Storage (Caso tenha sobrado resíduos do Service Worker)
+        if (window.caches) {
+          try {
+            const cacheNames = await window.caches.keys();
+            for (const name of cacheNames) {
+              await window.caches.delete(name);
+            }
+          } catch (cacheError) {
+            console.error("Erro ao limpar Cache Storage:", cacheError);
+          }
+        }
+        // 6. Origin Private File System
+        if (navigator.storage?.getDirectory) {
+          const root = await navigator.storage.getDirectory();
+          for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+        }
+
+        // Envia a requisição POST exatamente para a rota do Deno
+        const resposta = await fetch('./api/logout', {
+          method: 'POST'
+        });
+
+        if (resposta.ok) {
+          const dados = await resposta.json();
+          
+          if (dados.disconnected) {
+            alert('Você foi desconectado do servidor! O navegador também limpou seus dados locais via Clear-Site-Data.');
+            
+            // Redireciona o usuário para a página de login após o sucesso
+            window.location.href = './'; 
+          }
+        } else {
+          console.error('Falha no servidor ao tentar deslogar.');
+        }
+      } catch (erro) {
+        console.error('Erro de rede ao chamar a API de logout:', erro);
+      }
+    });
+  </script>
+
+</body>
+</html>
+
+```
+
+---
+
 ## Arquivo: `src/service-worker.js`
 
 ```js
 // src/service-worker.js
 
-// Importa os módulos fatiados (sem sync.js)
+// Importa os módulos fatiados
 import "./sw/cache.js";
 import "./sw/push.js";
 import "./sw/click.js";
@@ -1968,18 +2078,6 @@ self.addEventListener('activate', (event) => {
 
 ---
 
-## Arquivo: `src/styles.d.ts`
-
-```ts
-// src/styles.d.ts
-declare module "*.css" {
-  const content: string;
-  export default content;
-}
-```
-
----
-
 ## Arquivo: `src/app.tsx`
 
 ```tsx
@@ -1989,10 +2087,9 @@ import "./styles.css";
 import {
   salvarProfile,
   buscarProfile,
-  removerProfile,
-  salvarMensagemEnvio,
-  listarMensagensEnvio,
-  removerMensagemEnvio,
+  salvarMensagemEnviada,
+  listarMensagensEnviadas,
+  removerMensagemEnviada,
   listarMensagensRecebidas,
   atualizarStatusMensagemRecebida,
   removerMensagemRecebida,
@@ -2016,12 +2113,10 @@ import {
 
 import type {
   ProfileConfig,
-  MensagemEnvio,
+  MensagemEnviada,
   MensagemRecebida,
   Contato,
 } from "./constants/db.ts";
-
-import { gzipSync } from "fflate";
 
 console.log("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
 
@@ -2135,13 +2230,13 @@ async function criptografarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKey
 }
 
 // ============================================================
-// GERAÇÃO DE CHAVES E2E (RSA)
+// GERAÇÃO DE CHAVES E2E (RSA) - extractable: true
 // ============================================================
 async function generateE2EEKeys() {
   console.log("🔑 Gerando chaves E2E (RSA-2048)...");
   const encryptionKeyPair = await window.crypto.subtle.generateKey(
     { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: "SHA-256" },
-    false,
+    true,
     ["encrypt", "decrypt"]
   );
   const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
@@ -2154,7 +2249,7 @@ async function generateE2EEKeys() {
 }
 
 // ============================================================
-// GERAÇÃO DE CHAVES VAPID (ECDSA)
+// GERAÇÃO DE CHAVES VAPID (ECDSA) - extractable: true
 // ============================================================
 async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   console.log("🔑 Gerando chaves VAPID (ECDSA P-256)...");
@@ -2201,7 +2296,6 @@ async function gerarProfile(): Promise<any> {
     let publicKeyJwk: JsonWebKey;
     let privateKeyJwk: JsonWebKey;
 
-    // Tenta carregar do perfil existente
     let existingProfile = await buscarProfile();
     if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
       console.log("📂 Chaves VAPID encontradas no perfil.");
@@ -2212,16 +2306,17 @@ async function gerarProfile(): Promise<any> {
           publicKey: await window.crypto.subtle.importKey(
             "jwk", publicKeyJwk,
             { name: "ECDSA", namedCurve: "P-256" },
-            true, ["verify"]
+            true,
+            ["verify"]
           ),
           privateKey: await window.crypto.subtle.importKey(
             "jwk", privateKeyJwk,
             { name: "ECDSA", namedCurve: "P-256" },
-            true, ["sign"]
+            true,
+            ["sign"]
           )
         } as CryptoKeyPair;
       } catch {
-        // Se falhar, gera novas
         console.log("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
         existingProfile = undefined;
       }
@@ -2238,7 +2333,6 @@ async function gerarProfile(): Promise<any> {
     let subscriptionValida = false;
 
     if (existingSubscription) {
-      // Verifica se a subscription corresponde à chave pública atual
       const profileSub = existingProfile?.subscription;
       if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
         subscriptionValida = true;
@@ -2284,7 +2378,7 @@ async function gerarProfile(): Promise<any> {
           "jwk",
           e2ePrivateKeyJwk,
           { name: "RSA-OAEP", hash: "SHA-256" },
-          false,
+          true,
           ["decrypt"]
         );
       } catch {
@@ -2302,7 +2396,7 @@ async function gerarProfile(): Promise<any> {
       e2ePrivateKeyCrypto = newKeys.privateDecrypt;
     }
 
-    // Cifrar a chave privada VAPID para o servidor
+    // Cifrar a chave privada VAPID para o servidor (envelope)
     const privateKeyEncrypted = await criptografarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
     // Montar o perfil unificado
@@ -2310,9 +2404,10 @@ async function gerarProfile(): Promise<any> {
       name: nome,
       email: email,
       vapidPublicKey: publicKeyJwk,
-      vapidPrivateKeyJwk: privateKeyJwk, // JWK completo da privada
+      vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, // <-- novo campo
       e2ePublicKey: e2ePublicKey,
-      e2ePrivateKeyJwk: e2ePrivateKeyJwk, // JWK completo da privada RSA
+      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
       subscription: subscription,
       createdAt: existingProfile?.createdAt || Date.now(),
       updatedAt: Date.now()
@@ -2321,10 +2416,7 @@ async function gerarProfile(): Promise<any> {
     // Salvar perfil unificado
     await salvarProfile(profile);
 
-    // Também salvar a identidade (para compatibilidade com funções existentes)
-    // A identidade guarda a CryptoKey da VAPID em memória (não persistida)
-    // Mas a função salvarIdentidadeA espera uma identidade com privateKey (CryptoKey)
-    // Vamos criar uma identidade temporária com a CryptoKey que temos.
+    // Salvar identidade (para compatibilidade)
     const identidadeTemporaria = {
       name: nome,
       email: email,
@@ -2332,7 +2424,7 @@ async function gerarProfile(): Promise<any> {
     };
     await salvarIdentidadeA(identidadeTemporaria);
 
-    // Construir o objeto de perfil para compartilhamento (formato antigo)
+    // Construir o objeto de perfil para compartilhamento
     const profilePublic = {
       iss: email,
       nm: nome,
@@ -2451,7 +2543,7 @@ async function carregarSelectContatos(): Promise<void> {
 }
 
 // ============================================================
-// ENVIAR MENSAGEM PARA UM CONTATO
+// ENVIAR MENSAGEM
 // ============================================================
 async function enviarMensagemB(): Promise<void> {
   console.log("🚀 Enviando mensagem...");
@@ -2468,203 +2560,37 @@ async function enviarMensagemB(): Promise<void> {
   }
 
   try {
-    // Buscar contato destino
-    let contato = await buscarContatoPorChave(selectedKey);
+    // Validar contato
+    const contato = await buscarContatoPorChave(selectedKey);
     if (!contato) {
-      console.warn("Contato não encontrado pela chave exata. Tentando fallback...");
-      const todosContatos = await listarContatos();
-      for (const c of todosContatos) {
-        const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-        if (hash === selectedKey) {
-          contato = c;
-          break;
-        }
-      }
-      if (!contato) {
-        showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
-        return;
-      }
-    }
-
-    if (!contato.subscription || !contato.publicKeyRSA || !contato.vapidPrivateKey) {
-      showToast("❌ Contato incompleto para enviar mensagem. Peça para a pessoa gerar um novo perfil.", "error");
+      showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
       return;
-    }
-
-    // Bundle do destinatário
-    const bundleDestino = {
-      subscription: contato.subscription,
-      vapid: {
-        subject: `mailto:${contato.email}`,
-        publicKey: contato.publicKeyVapid,
-        privateKey: contato.vapidPrivateKey
-      },
-      isVapidEncrypted: true,
-      e2e: {
-        ownerName: contato.nome,
-        ownerEmail: contato.email,
-        browserB_PublicKeyEncrypt: contato.publicKeyRSA
-      },
-      payloadText: ""
-    };
-
-    const publicKeyDestino = bundleDestino.e2e.browserB_PublicKeyEncrypt;
-    if (publicKeyDestino.kty !== "RSA") {
-      showToast("❌ Chave pública do contato não é RSA.", "error");
-      return;
-    }
-
-    const cryptoKeyDestino = await window.crypto.subtle.importKey(
-      "jwk", publicKeyDestino,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-
-    // Buscar perfil do emissor (unificado)
-    const profile = await buscarProfile();
-    if (!profile) {
-      throw new Error("Perfil do emissor não encontrado. Gere seu perfil primeiro.");
-    }
-
-    // Extrair dados do emissor
-    const identidade = await buscarIdentidadeA();
-    if (!identidade) {
-      throw new Error("Identidade do emissor não encontrada.");
-    }
-
-    const subscriptionData = profile.subscription;
-    const chavesVapid = {
-      publicKey: profile.vapidPublicKey,
-      privateKey: profile.vapidPrivateKeyJwk
-    };
-    const chavesE2E = {
-      publicEncrypt: profile.e2ePublicKey,
-      privateDecryptJwk: profile.e2ePrivateKeyJwk
-    };
-
-    // Construir bundle do emissor (para incluir no payload)
-    const bundleEmissor = {
-      subscription: subscriptionData,
-      vapid: {
-        subject: `mailto:${profile.email}`,
-        publicKey: chavesVapid.publicKey,
-        privateKey: chavesVapid.privateKey
-      },
-      isVapidEncrypted: true,
-      e2e: {
-        ownerName: profile.name,
-        ownerEmail: profile.email,
-        browserB_PublicKeyEncrypt: chavesE2E.publicEncrypt
-      },
-      payloadText: ""
-    };
-
-    const publicKeyEncrypt = chavesE2E.publicEncrypt;
-    const publicVapid = chavesVapid.publicKey;
-
-    // Construir objeto de mensagem
-    const encoder = new TextEncoder();
-    const mensagemObj = {
-      m: { c: conteudo },
-      e: {
-        s: {
-          e: subscriptionData.endpoint,
-          k: subscriptionData.keys
-        },
-        p: publicKeyEncrypt,
-        v: {
-          k: chavesVapid.privateKey
-        }
-      }
-    };
-
-    const mensagemBytes = encoder.encode(JSON.stringify(mensagemObj));
-    const compressed = gzipSync(mensagemBytes);
-    console.log(`📦 Comprimido: ${compressed.length} bytes`);
-
-    const aesKey = await window.crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    const encryptedBuffer = await window.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      compressed
-    );
-    const aesKeyRaw = await window.crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyEncrypted = await window.crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      cryptoKeyDestino,
-      aesKeyRaw
-    );
-
-    const envelope = {
-      i: arrayBufferToBase64(iv.buffer),
-      d: arrayBufferToBase64(encryptedBuffer),
-      k: arrayBufferToBase64(aesKeyEncrypted)
-    };
-    const envelopeJson = JSON.stringify(envelope);
-
-    // Construir JWT
-    const header = { alg: "ES256" };
-    const payload = {
-      iss: profile.email,
-      sub: contato.email,
-      ct: envelopeJson,
-      p: publicVapid,
-      nm: profile.name
-    };
-    const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
-    const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
-    const toSign = `${headerB64}.${payloadB64}`;
-    const signature = await window.crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      identidade.privateKey,
-      encoder.encode(toSign)
-    );
-    const sigB64 = arrayBufferToBase64Url(signature);
-    const jwt = `${toSign}.${sigB64}`;
-
-    console.log(`📊 Tamanho do JWT: ${jwt.length} bytes`);
-    if (jwt.length > 4096) {
-      console.warn(`⚠️ JWT excede 4096 bytes em ${jwt.length - 4096} bytes!`);
-    } else {
-      console.log(`✅ JWT dentro do limite (${4096 - jwt.length} bytes restantes)`);
     }
 
     // Salvar mensagem na fila
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const mensagem: MensagemEnvio = {
+    const mensagem: MensagemEnviada = {
       id: msgId,
-      bundle: bundleDestino,
-      payloadText: jwt,
-      mensagemOriginal: conteudo,
-      destinatario: contato.email,
+      contatoHash: selectedKey,
+      conteudo: conteudo,
       status: 'pendente',
       tentativas: 0,
-      maxTentativas: 3,
-      criadoEm: Date.now(),
-      atualizadoEm: Date.now()
+      createdAt: Date.now(),
+      updatedAt: Date.now()
     };
+    await salvarMensagemEnviada(mensagem);
 
-    await salvarMensagemEnvio(mensagem);
+    // Notificar Service Worker
     const reg = await navigator.serviceWorker.ready;
-    reg.active?.postMessage({ type: 'ENVIAR_MENSAGEM', payload: mensagem });
+    reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
 
-    showToast(`✅ Mensagem enviada para ${contato.nome}! ID: ${msgId}`, "success");
+    showToast(`✅ Mensagem adicionada à fila para ${contato.nome}! ID: ${msgId}`, "success");
     (document.getElementById('mensagemEnvioB') as HTMLTextAreaElement).value = '';
-    await carregarMensagensEnviadasB();
+    await carregarMensagensEnviadas();
 
   } catch (err: any) {
     console.error(err);
-    if (err.message && err.message.includes('410')) {
-      showToast("❌ A subscription do contato expirou. Peça para ele gerar um novo perfil.", "error");
-    } else {
-      showToast(`❌ Erro: ${err.message}`, "error");
-    }
+    showToast(`❌ Erro: ${err.message}`, "error");
   }
 }
 
@@ -2689,7 +2615,7 @@ async function compartilharProfile(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR MENSAGENS RECEBIDAS
+// CARREGAR MENSAGENS RECEBIDAS (implementação completa)
 // ============================================================
 async function carregarMensagensRecebidas(): Promise<void> {
   console.log("📬 Carregando mensagens recebidas...");
@@ -2850,6 +2776,69 @@ async function carregarMensagensRecebidas(): Promise<void> {
 }
 
 // ============================================================
+// CARREGAR MENSAGENS ENVIADAS
+// ============================================================
+async function carregarMensagensEnviadas(): Promise<void> {
+  console.log("📤 Carregando mensagens enviadas...");
+  const mensagens = await listarMensagensEnviadas();
+  const container = document.getElementById('mensagensEnviadasB');
+  if (!container) return;
+  if (mensagens.length === 0) {
+    container.innerHTML = '<p style="color: #666;">Nenhuma mensagem enviada.</p>';
+    return;
+  }
+  mensagens.sort((a, b) => b.createdAt - a.createdAt);
+  let html = '';
+  for (const msg of mensagens) {
+    const statusMap: Record<string, { emoji: string; label: string; classe: string }> = {
+      'pendente': { emoji: '⏳', label: 'Pendente', classe: 'msg-item-pendente' },
+      'enviando': { emoji: '🔄', label: 'Enviando...', classe: 'msg-item-pendente' },
+      'enviada': { emoji: '✅', label: 'Enviada', classe: 'msg-item-enviada' },
+      'falha': { emoji: '❌', label: 'Falha', classe: 'msg-item-falha' },
+    };
+    const status = statusMap[msg.status] || { emoji: '❓', label: msg.status, classe: '' };
+    const data = new Date(msg.createdAt).toLocaleString();
+    let nomeContato = msg.contatoHash;
+    try {
+      const contato = await buscarContatoPorChave(msg.contatoHash);
+      if (contato) nomeContato = contato.nome;
+    } catch {}
+
+    html += `
+      <div class="msg-item ${status.classe}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'enviada' ? '#e8f5e9' : msg.status === 'falha' ? '#ffebee' : '#fff8e1'};">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <strong>${status.emoji} Para: ${nomeContato}</strong>
+          <small style="color: #888;">${data}</small>
+        </div>
+        <p style="margin: 5px 0;">${msg.conteudo || '(mensagem oculta)'}</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span class="status-badge status-badge-${msg.status}">${status.label}</span>
+            ${msg.tentativas > 0 ? `<span style="font-size: 12px; color: #666; margin-left: 8px;">Tentativas: ${msg.tentativas}</span>` : ''}
+          </div>
+          ${msg.status === 'enviada' || msg.status === 'falha' ?
+            `<button class="btn-remover-enviada-b btn-sm danger" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>` :
+            ''
+          }
+        </div>
+        ${msg.erro ? `<div style="font-size: 12px; color: #cc0000; margin-top: 4px;">Erro: ${msg.erro}</div>` : ''}
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+
+  container.querySelectorAll('.btn-remover-enviada-b').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const id = (e.currentTarget as HTMLButtonElement).dataset.id;
+      if (id && confirm('Remover esta mensagem do histórico?')) {
+        await removerMensagemEnviada(id);
+        await carregarMensagensEnviadas();
+      }
+    });
+  });
+}
+
+// ============================================================
 // HOMOLOGAR TODOS OS CONTATOS
 // ============================================================
 async function homologarTodasMensagens(): Promise<void> {
@@ -2886,64 +2875,6 @@ async function removerMensagensLidas(): Promise<void> {
   }
   await carregarMensagensRecebidas();
   showToast(`✅ ${lidas.length} mensagens removidas.`, "success");
-}
-
-// ============================================================
-// MENSAGENS ENVIADAS
-// ============================================================
-async function carregarMensagensEnviadasB(): Promise<void> {
-  console.log("📤 Carregando mensagens enviadas...");
-  const mensagens = await listarMensagensEnvio();
-  const container = document.getElementById('mensagensEnviadasB');
-  if (!container) return;
-  if (mensagens.length === 0) {
-    container.innerHTML = '<p style="color: #666;">Nenhuma mensagem enviada.</p>';
-    return;
-  }
-  mensagens.sort((a, b) => b.criadoEm - a.criadoEm);
-  let html = '';
-  for (const msg of mensagens) {
-    const statusMap: Record<string, { emoji: string; label: string; classe: string }> = {
-      'pendente': { emoji: '⏳', label: 'Pendente', classe: 'msg-item-pendente' },
-      'enviando': { emoji: '🔄', label: 'Enviando...', classe: 'msg-item-pendente' },
-      'enviada': { emoji: '✅', label: 'Enviada', classe: 'msg-item-enviada' },
-      'falha': { emoji: '❌', label: 'Falha', classe: 'msg-item-falha' },
-    };
-    const status = statusMap[msg.status] || { emoji: '❓', label: msg.status, classe: '' };
-    const data = new Date(msg.criadoEm).toLocaleString();
-
-    html += `
-      <div class="msg-item ${status.classe}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'enviada' ? '#e8f5e9' : msg.status === 'falha' ? '#ffebee' : '#fff8e1'};">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-          <strong>${status.emoji} Para: ${msg.destinatario}</strong>
-          <small style="color: #888;">${data}</small>
-        </div>
-        <p style="margin: 5px 0;">${msg.mensagemOriginal || '(mensagem oculta)'}</p>
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-          <div>
-            <span class="status-badge status-badge-${msg.status}">${status.label}</span>
-            ${msg.tentativas > 0 ? `<span style="font-size: 12px; color: #666; margin-left: 8px;">Tentativas: ${msg.tentativas}</span>` : ''}
-          </div>
-          ${msg.status === 'enviada' || msg.status === 'falha' ?
-            `<button class="btn-remover-enviada-b btn-sm danger" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>` :
-            ''
-          }
-        </div>
-        ${msg.erro ? `<div style="font-size: 12px; color: #cc0000; margin-top: 4px;">Erro: ${msg.erro}</div>` : ''}
-      </div>
-    `;
-  }
-  container.innerHTML = html;
-
-  container.querySelectorAll('.btn-remover-enviada-b').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      const id = (e.currentTarget as HTMLButtonElement).dataset.id;
-      if (id && confirm('Remover esta mensagem do histórico?')) {
-        await removerMensagemEnvio(id);
-        await carregarMensagensEnviadasB();
-      }
-    });
-  });
 }
 
 // ============================================================
@@ -2985,7 +2916,7 @@ async function carregarDadosIniciais(): Promise<void> {
     await carregarContatos();
     await carregarSelectContatos();
     await carregarMensagensRecebidas();
-    await carregarMensagensEnviadasB();
+    await carregarMensagensEnviadas();
     console.log("✅ Dados iniciais carregados!");
   } catch (err) {
     console.warn("⚠️ Erro ao carregar dados iniciais:", err);
@@ -3001,7 +2932,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   await carregarDadosIniciais();
 
   document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
-
   document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
     const display = document.getElementById('myProfileDisplay');
     if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
@@ -3010,7 +2940,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       showToast("Primeiro gere seu perfil.", "info");
     }
   });
-
   document.getElementById('btnAdicionarContato')?.addEventListener('click', adicionarContato);
   document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);
   document.getElementById('btnCarregarMensagens')?.addEventListener('click', carregarMensagensRecebidas);
@@ -3025,7 +2954,6 @@ window.addEventListener("DOMContentLoaded", async () => {
         await subscription.unsubscribe();
         console.log("Subscription desinscrita.");
       }
-      // Remover subscription do perfil
       const profile = await buscarProfile();
       if (profile) {
         delete profile.subscription;
@@ -3049,7 +2977,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (event.data?.type === 'MENSAGEM_ENVIADA') {
       console.log('📤 Mensagem enviada, atualizando lista...');
-      setTimeout(carregarMensagensEnviadasB, 500);
+      setTimeout(carregarMensagensEnviadas, 500);
     }
   });
 });
@@ -3250,7 +3178,7 @@ async function build() {
 
   console.log("📦 Compilando página HTML (browser-b)...");
   await runBundle("HTML", {
-    entrypoints: [join(SRC_DIR, "index.html")],
+    entrypoints: [join(SRC_DIR, "index.html"), join(SRC_DIR, "logout.html")],
     outputDir: DIST_DIR,
     platform: "browser",
     format: "esm",
@@ -3306,6 +3234,7 @@ await build();
 ## Arquivo: `README.md`
 
 ````md
+
 # 📡 Web Push Descentralizado – Protótipo Detalhado
 
 ## 1. Objetivo Geral
@@ -3320,7 +3249,7 @@ A infraestrutura mínima necessária é um **servidor proxy** (fornecido neste p
 - Fornece uma chave pública RSA usada para cifrar a chave privada VAPID durante a troca de perfis.
 - Reencaminha as requisições push ao serviço de push (FCM), após descriptografar a chave privada VAPID para assinar o cabeçalho de autorização.
 
-Não há banco de dados central, nem filas compartilhadas: cada navegador mantém seu próprio **IndexedDB** com contatos e histórico de mensagens.
+Não há banco de dados central, nem filas compartilhadas: cada navegador mantém seu próprio **IndexedDB** com contatos, histórico de mensagens e o perfil do usuário.
 
 ---
 
@@ -3329,7 +3258,7 @@ Não há banco de dados central, nem filas compartilhadas: cada navegador manté
 ### 2.1. Perfil (Profile)
 Um **perfil** é um objeto JSON público gerado por cada usuário. Ele contém todas as informações necessárias para que outros possam enviar-lhe mensagens push. O perfil deve ser transferido fora de banda (por exemplo, copiando e colando) do receptor para o emissor.
 
-**Estrutura do Perfil:**
+**Estrutura do Perfil Público (compartilhado):**
 ```json
 {
   "iss": "email@exemplo.com",       // Identificador único (e-mail do dono)
@@ -3390,6 +3319,21 @@ interface MensagemRecebida {
 }
 ```
 
+**Estrutura da mensagem enviada (IndexedDB) – fila de envio:**
+```typescript
+interface MensagemEnviada {
+  id: string;                      // msg_<timestamp>_<random>
+  contatoHash: string;             // Hash SHA-256 da chave pública VAPID do contato
+  conteudo: string;                // Texto original da mensagem
+  status: 'pendente' | 'enviando' | 'enviada' | 'falha';
+  tentativas: number;              // Número de tentativas de envio
+  createdAt: number;
+  updatedAt: number;
+  erro?: string;                   // Mensagem de erro, se houver
+}
+```
+**Constante:** `MAX_TENTATIVAS = 3` (número máximo de tentativas antes de marcar como falha).
+
 ---
 
 ## 3. Armazenamento IndexedDB – Detalhamento
@@ -3398,15 +3342,17 @@ O sistema utiliza as seguintes stores (bancos) no IndexedDB, gerenciadas pela bi
 
 | Nome da Store (`DB_NAMES`) | Chave | Valor | Finalidade |
 | :--- | :--- | :--- | :--- |
-| `BrowserB_Contatos_DB` | **Hash SHA-256** (hex) da chave VAPID pública serializada | `Contato` | Armazena todos os contatos conhecidos. A chave é um hash para evitar problemas de capitalização (case-insensitive) e inconsistências de serialização. |
+| `AppConfig_DB` | `"profile"` | `ProfileConfig` | **Store unificada** – contém todos os dados do perfil do usuário: nome, e-mail, chaves VAPID (pública e privada em JWK), envelope da chave privada VAPID, chaves RSA (pública e privada em JWK) e subscription. |
+| `BrowserB_Contatos_DB` | **Hash SHA-256** (hex) da chave VAPID pública | `Contato` | Armazena todos os contatos conhecidos. A chave é um hash para evitar problemas de capitalização e inconsistências de serialização. |
 | `BrowserB_MensagensRecebidas_DB` | `msg_<timestamp>_<random>` | `MensagemRecebida` | Armazena mensagens recebidas. O campo `contatoPublicKeyVapid` referencia a chave hash do contato correspondente. |
-| `BrowserA_Identidade_DB` | `identidade_a` | `IdentidadeA` | Armazena a chave privada VAPID do usuário local (como `CryptoKey`), usada para assinar JWT. |
-| `BrowserA_MensagensEnvio_DB` | `msg_<timestamp>_<random>` | `MensagemEnvio` | Fila de mensagens aguardando envio (offline-first). |
-| `BrowserB_Subscription_DB` | `subscription_b` | `SubscriptionData` | Armazena a subscription atual do usuário. |
-| `BrowserB_E2E_Chaves_DB` | `chaves_e2e_b` | `ChavesE2EB` | Armazena as chaves RSA do usuário (pública e privada) para criptografia E2E. |
-| `BrowserB_Vapid_DB` | `chaves_vapid_b` | `ChavesVapidB` | Armazena as chaves VAPID (pública e privada) do usuário. |
+| `BrowserA_MensagensEnviadas_DB` | `msg_<timestamp>_<random>` | `MensagemEnviada` | Fila de mensagens aguardando envio (offline-first). O status e o contador de tentativas permitem gerenciar o fluxo de envio. |
 
-**Observação:** A store `BrowserA_Bundles_DB` foi removida. Agora o **bundle** (conjunto de informações para envio) é construído dinamicamente a partir das stores `IdentidadeA`, `SubscriptionB`, `VapidB` e `E2E` sempre que necessário, eliminando a duplicação de dados e simplificando a persistência.
+**Observações importantes:**
+- **A store `AppConfig_DB` substitui as antigas stores `BrowserA_Identidade_DB`, `BrowserB_E2E_Chaves_DB`, `BrowserB_Vapid_DB` e `BrowserB_Subscription_DB`**, eliminando a duplicação de dados e centralizando todas as informações do perfil.
+- **Todas as chaves privadas** (VAPID e RSA) são persistidas como **JWK** dentro do `ProfileConfig`. Isso garante que, ao recarregar a página, o usuário não perca suas chaves, mantendo a capacidade de assinar e decifrar mensagens.
+- **O envelope da chave privada VAPID** (`vapidPrivateKeyEnvelope`) é armazenado no perfil para que o Service Worker possa incluí-lo no payload da mensagem sem precisar cifrá-lo novamente a cada envio.
+- **A store `BrowserA_Bundles_DB` foi removida** – o bundle do emissor é construído dinamicamente a partir do perfil unificado e do contato sempre que necessário.
+- **A store `BrowserA_MensagensEnvio_DB` foi renomeada para `BrowserA_MensagensEnviadas_DB`** e sua estrutura foi simplificada para armazenar apenas os dados essenciais da mensagem, transferindo a lógica de cifragem e envio para o Service Worker.
 
 **Geração do Hash do Contato:**
 Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `"p-256"`), a chave primária da store de contatos é um **hash SHA-256** da string normalizada em minúsculo: `${kty}|${crv}|${x}|${y}` (extraídos da chave pública VAPID). Isso garante que a mesma chave pública gere sempre o mesmo hash, independentemente de como foi serializada.
@@ -3420,74 +3366,110 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 
 1. **Verificação de permissões**: Checa se a permissão de notificação está concedida; caso contrário, solicita.
 2. **Registro do Service Worker**: Registra ou obtém a instância do Service Worker.
-3. **Geração de chaves VAPID**: Gera um par de chaves ECDSA P-256 (`vapidKeyPair`).
-4. **Geração de chaves RSA**: Gera um par de chaves RSA-OAEP-256 (`encryptionKeyPair`).
-5. **Obtenção da subscription**: Obtém a subscription do `PushManager` do navegador, usando a chave pública VAPID como `applicationServerKey`.
+3. **Geração/obtenção de chaves VAPID**: Tenta carregar do perfil existente; caso não existam, gera um novo par ECDSA P-256 (`extractable: true`).
+4. **Geração/obtenção de chaves RSA**: Tenta carregar do perfil existente; caso não existam, gera um novo par RSA-OAEP-256 (`extractable: true`).
+5. **Obtenção da subscription**: Obtém a subscription do `PushManager` do navegador, usando a chave pública VAPID como `applicationServerKey`; reutiliza a subscription existente se ainda for válida.
 6. **Busca da chave pública do servidor**: Faz uma requisição GET para `/api/server-public-key` para obter a chave pública RSA do servidor proxy.
-7. **Cifragem da chave privada VAPID**:
-   - A chave privada VAPID (em JWK) é cifrada com AES-GCM usando uma chave simétrica gerada aleatoriamente.
-   - A chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor.
-   - O resultado é um envelope JSON com `iv`, `dadosCifrados` e `chaveAesCifrada`, codificado em Base64. Esse envelope é colocado no campo `k` do perfil.
-8. **Montagem do perfil**: Combina `iss` (email), `nm` (nome), `kid` (chave pública VAPID), `s` (subscription), `p` (chave pública RSA), e `k` (chave privada VAPID cifrada).
-9. **Persistência**: As chaves e a subscription são salvas individualmente nas stores `IdentidadeA`, `SubscriptionB`, `VapidB` e `E2E`.
-10. **Exibição**: O perfil é mostrado em uma área de texto para o usuário copiar.
+7. **Cifragem da chave privada VAPID**: A chave privada VAPID (em JWK) é cifrada com AES-GCM, e a chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor. O envelope resultante é colocado no campo `k` do perfil público e também salvo no campo `vapidPrivateKeyEnvelope` do `ProfileConfig`.
+8. **Montagem do perfil público**: Combina `iss` (email), `nm` (nome), `kid` (chave pública VAPID), `s` (subscription), `p` (chave pública RSA), e `k` (chave privada VAPID cifrada).
+9. **Persistência do perfil unificado**: Salva todos os dados (nome, email, chaves VAPID e RSA em JWK, envelope VAPID, subscription) na store `AppConfig_DB` com a chave `"profile"`.
+10. **Exibição**: O perfil público é mostrado em uma área de texto para o usuário copiar.
 
 ### 4.2. Adição de Contato
 **Função:** `adicionarContato()` em `src/app.tsx`
 
 1. O usuário cola um perfil JSON em uma textarea e clica em "Adicionar Contato".
 2. Valida a estrutura do perfil (verifica campos obrigatórios).
-3. **Importa a chave pública VAPID** (campo `kid`) usando `crypto.subtle.importKey` com algoritmo `ECDSA` e `namedCurve: "P-256"` para validar o formato. Se falhar, o perfil é rejeitado.
+3. **Importa a chave pública VAPID** (campo `kid`) para validar o formato.
 4. Cria um objeto `Contato` com os dados do perfil (`homologado: false`).
-5. **Gera o hash** da chave pública VAPID utilizando a função `serializarPublicKeyVapid` (que normaliza e aplica SHA-256).
-6. Salva o contato no IndexedDB (`BrowserB_Contatos_DB`) usando o hash como chave.
+5. **Gera o hash** da chave pública VAPID utilizando a função `serializarPublicKeyVapid`.
+6. Salva o contato na store `BrowserB_Contatos_DB` usando o hash como chave.
 7. Atualiza a interface: lista de contatos e dropdown de seleção.
 
-### 4.3. Envio de Mensagem
+### 4.3. Envio de Mensagem – App
 **Função:** `enviarMensagemB()` em `src/app.tsx`
 
-1. O usuário seleciona um contato no dropdown (populado com os hashes) e digita a mensagem.
+1. O usuário seleciona um contato no dropdown e digita a mensagem.
 2. Recupera o contato completo do IndexedDB usando o hash selecionado.
-3. **Recupera os dados do emissor**: busca `identidade`, `subscription`, `chaves VAPID` e `chaves E2E` das respectivas stores.
-4. **Constrói dinamicamente o bundle do emissor** (contendo subscription, chaves VAPID cifradas e chave pública RSA) para incluir no payload.
-5. **Prepara o objeto da mensagem** com o conteúdo e os dados do emissor.
-6. **Comprime** o JSON com Gzip, **gera uma chave AES-GCM** e IV, **cifra os dados** com AES e **cifra a chave AES** com a chave pública RSA do contato (destinatário).
-7. Monta o envelope com `iv`, `dadosCifrados` e `chaveAesCifrada` em Base64.
-8. **Constrói e assina o JWT** com a chave privada VAPID do emissor.
-9. **Salva a mensagem** na store de envio (`BrowserA_MensagensEnvio_DB`) com status `'pendente'`.
-10. **Envia uma mensagem ao Service Worker** via `postMessage` com tipo `ENVIAR_MENSAGEM`, contendo o bundle do destinatário e o JWT.
-11. O Service Worker tentará enviar imediatamente ou mais tarde (offline).
+3. **Salva a mensagem na fila de envio** (`BrowserA_MensagensEnviadas_DB`) com:
+   - `contatoHash`: hash do contato
+   - `conteudo`: texto original
+   - `status: 'pendente'`
+   - `tentativas: 0`
+4. **Notifica o Service Worker** via `postMessage` com o tipo `PROCESSAR_FILA_ENVIO`.
+5. O Service Worker processará a mensagem em background (offline-first).
 
-### 4.4. Processamento do Envio (Service Worker – `sw-mensagens.js`)
-1. O Service Worker recebe a mensagem da página via `postMessage`.
-2. Salva a mensagem na store `BrowserA_MensagensEnvio_DB` (se ainda não foi salva).
-3. Dispara a função `processarFilaEnvio()`.
-4. Para cada mensagem pendente (status `'pendente'` ou `'enviando'` há mais de 30 segundos):
+### 4.4. Processamento do Envio – Service Worker
+**Função:** `processarFilaEnvio()` em `src/sw/sw-mensagens.js`
+
+1. O Service Worker recebe a mensagem da página via `postMessage` ou é ativado por eventos de sincronização (`sync`) ou conexão online.
+2. Busca todas as mensagens com status `'pendente'` ou `'enviando'` com `updatedAt` há mais de 30 segundos.
+3. Para cada mensagem:
    - Atualiza status para `'enviando'`.
-   - Chama `enviarMensagemParaServidor(mensagem)`, que faz uma requisição HTTP POST para `/api/proxy-push` no servidor Deno, com os campos: `subscription`, `payloadText` (JWT), `vapid` (objeto com chaves), e `isVapidEncrypted: true`.
-   - Se a resposta for bem-sucedida, atualiza status para `'enviada'`. Em caso de erro, incrementa tentativas e, se exceder o máximo, marca como `'falha'`.
-5. A sincronização em segundo plano (`sync` event) também pode disparar esse processo quando a conexão for restaurada.
+   - Busca o contato pelo `contatoHash` e o perfil (store `AppConfig_DB`).
+   - **Validações:**
+     - Perfil: `e2ePublicKey`, `vapidPublicKey`, `vapidPrivateKeyJwk`, `vapidPrivateKeyEnvelope`, `subscription` → senão, erro "Usuário não logado (sem Chaves)" ou "Mensagens Web Push não configurada (sem Subscription)".
+     - Contato: `publicKeyRSA`, `publicKeyVapid`, `vapidPrivateKey`, `subscription` → senão, erro "Contato sem Chaves" ou "Contato sem Subscription".
+   - **Monta o payloadObj:**
+     ```js
+     {
+       c: msg.conteudo,
+       e: {
+         s: {
+           e: profile.subscription.endpoint,
+           k: profile.subscription.keys,
+           v: profile.vapidPrivateKeyEnvelope // envelope cifrado para o proxy
+         },
+         p: profile.e2ePublicKey
+       }
+     }
+     ```
+   - **Cifra o payloadObj:**
+     - Serializa e compacta com Gzip.
+     - Gera chave AES-GCM e IV.
+     - Cifra os dados comprimidos com AES-GCM.
+     - Cifra a chave AES com a chave pública RSA do contato.
+     - Monta envelope: `{ i: base64IV, d: base64Dados, k: base64ChaveAES }`.
+   - **Constrói o JWT:**
+     - Header: `{ alg: "ES256" }`.
+     - Payload: `{ iss: profile.email, sub: contato.email, ct: envelopeJSON, p: profile.vapidPublicKey, nm: profile.name }`.
+     - Assina com a chave privada VAPID do emissor (importada de `profile.vapidPrivateKeyJwk`).
+   - **Envia para o servidor proxy**: POST para `/api/proxy-push` com:
+     ```json
+     {
+       "subscription": contato.subscription,
+       "payloadText": jwt,
+       "vapid": {
+         "subject": `mailto:${contato.email}`,
+         "publicKey": contato.publicKeyVapid,
+         "privateKey": contato.vapidPrivateKey // envelope cifrado
+       }
+     }
+     ```
+   - **Atualiza status:**
+     - Sucesso: `'enviada'`.
+     - Falha: incrementa `tentativas`. Se `tentativas >= MAX_TENTATIVAS` (3), marca como `'falha'`; caso contrário, volta para `'pendente'`.
 
-### 4.5. Recebimento da Mensagem (Service Worker – `push.js`)
+### 4.5. Recebimento da Mensagem – Service Worker (`push.js`)
 1. O Service Worker recebe o evento `push` contendo o JWT no `event.data.text()`.
 2. Divide o JWT em header, payload e signature.
-3. **Verifica a assinatura** usando a chave pública VAPID do emissor (campo `p` do payload).
+3. **Verifica a assinatura** usando a chave pública VAPID do emissor (campo `p` do payload) e o algoritmo ECDSA P-256.
 4. Se a assinatura for inválida, descarta a mensagem e exibe notificação de erro.
 5. **Decifra o envelope**:
-   - Obtém a chave privada RSA do receptor (store `ChavesE2EB`).
+   - Obtém a chave privada RSA do receptor a partir do perfil unificado (`ProfileConfig.e2ePrivateKeyJwk`), importando-a como CryptoKey.
    - Decodifica `iv`, `dados` e `k` do envelope.
    - Descriptografa a chave AES usando RSA-OAEP.
    - Descriptografa os dados com AES-GCM.
-   - Descomprime (gunzip) o resultado, obtendo o objeto JSON original.
+   - Descomprime (gunzip) o resultado, obtendo o objeto JSON original (agora com estrutura simplificada `{ c, e }`).
 6. **Salva/Atualiza o Contato**:
-   - Extrai `subscription`, `publicKeyRSA` e `vapidPrivateKey` do objeto decifrado.
+   - Extrai `subscription`, `publicKeyRSA` e `vapidPrivateKey` do objeto decifrado (agora `e.s`).
    - Gera o hash da chave pública VAPID do emissor (do campo `p` do JWT).
    - Busca um contato existente pelo hash.
    - Se não existir, cria um novo contato com os dados extraídos e o nome vindo de `nm` (ou fallback para o email). Se já existir, atualiza o nome e outros dados se necessário.
    - Salva o contato na store `BrowserB_Contatos_DB`.
 7. **Salva a Mensagem**:
    - Gera um ID único.
-   - Cria um objeto `MensagemRecebida` com o hash do contato, conteúdo decifrado, status `'nao_lida'` e timestamp.
+   - Cria um objeto `MensagemRecebida` com o hash do contato, conteúdo decifrado (`c` do objeto), status `'nao_lida'` e timestamp.
    - Salva na store `BrowserB_MensagensRecebidas_DB`.
 8. **Exibe notificação nativa** com o nome do remetente (buscado do contato) e o conteúdo.
 9. **Notifica as páginas abertas** via `postMessage` com tipo `PUSH_RECEIVED`, para que a UI seja atualizada em tempo real.
@@ -3497,7 +3479,7 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 2. Ao clicar, o sistema obtém o hash do contato a partir da mensagem (campo `contatoPublicKeyVapid`).
 3. Busca o contato completo no IndexedDB.
 4. Preenche o dropdown de seleção de contatos com esse contato (via `select.value`) e navega para a aba de envio.
-5. O usuário digita a mensagem e o fluxo de envio (4.3) é executado, enviando a mensagem de volta para o emissor original.
+5. O usuário digita a mensagem e o fluxo de envio (4.3 e 4.4) é executado, enviando a mensagem de volta para o emissor original.
 
 ---
 
@@ -3510,8 +3492,9 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 | **Cifragem da chave AES** | RSA-OAEP-256 | A chave AES é cifrada com a chave pública RSA do receptor, permitindo que apenas o receptor (com a chave privada) possa decifrá-la. |
 | **Compressão** | Gzip | Reduz o tamanho do payload (necessário devido ao limite de 4096 bytes do Web Push). |
 | **Chave privada VAPID** | Envelope RSA-AES (servidor) | A chave privada VAPID do emissor viaja cifrada no perfil. Apenas o servidor proxy (que possui a chave privada RSA correspondente) pode decifrá-la, evitando exposição no cliente. |
+| **Persistência de chaves** | IndexedDB (local) | As chaves privadas (VAPID e RSA) são armazenadas em JWK no IndexedDB. Embora não sejam cifradas adicionalmente, o acesso é restrito ao domínio e ao navegador, sendo adequado para protótipos. |
 
-**Observações sobre o limite de 4096 bytes:** O Web Push impõe um limite de 4096 bytes para o payload. Para respeitar esse limite, o sistema utiliza compressão gzip, campos curtos (ex: `ct`, `p`, `nm`) e estrutura compacta do envelope. O tamanho típico do JWT fica em torno de 3700-3800 bytes.
+**Observações sobre o limite de 4096 bytes:** O Web Push impõe um limite de 4096 bytes para o payload. Para respeitar esse limite, o sistema utiliza compressão gzip, campos curtos (`ct`, `p`, `nm`) e estrutura compacta do envelope. O tamanho típico do JWT fica em torno de 3700-3800 bytes.
 
 ---
 
@@ -3519,13 +3502,13 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 
 | Arquivo | Responsabilidade |
 | :--- | :--- |
-| `src/app.tsx` | Interface principal (UI) e lógica de negócio (geração de perfil, envio, recebimento via SW). Usa `preact` para componentes, mas é um arquivo único. |
+| `src/app.tsx` | Interface principal (UI) e lógica de negócio (geração de perfil, adição de contato, criação de mensagens na fila). |
+| `src/sw/sw-mensagens.js` | Gerencia filas de envio offline. Processa mensagens pendentes: monta payloadObj, cifra, constrói JWT e envia ao servidor proxy. Gerencia tentativas e status. |
 | `src/sw/push.js` | Lida com o evento `push`. Verifica assinatura, decifra envelope, salva contato e mensagem no IndexedDB, exibe notificação. |
-| `src/sw/sw-mensagens.js` | Gerencia filas de envio offline. Escuta mensagens da página (`postMessage`) e envia ao servidor proxy. |
 | `src/sw/cache.js` | Gerencia cache offline para os assets estáticos (HTML, CSS, JS). |
 | `src/sw/click.js` | Lida com o evento `notificationclick` – redireciona para a página principal. |
-| `src/constants/db.ts` | Define nomes das stores e interfaces TypeScript para contato, mensagem, etc. |
-| `src/utils/db-helpers.ts` | Funções auxiliares para operações IndexedDB: `salvarContato`, `buscarContatoPorChave`, `serializarPublicKeyVapid` (hash SHA-256). |
+| `src/constants/db.ts` | Define nomes das stores, constantes (`MAX_TENTATIVAS`) e interfaces TypeScript para `ProfileConfig`, `MensagemEnviada`, `MensagemRecebida` e `Contato`. |
+| `src/utils/db-helpers.ts` | Funções auxiliares para operações IndexedDB: salvar/buscar perfil, contatos, mensagens enviadas/recebidas, serialização de chaves. |
 | `main.ts` | Servidor Deno (proxy). Endpoints: `/api/server-public-key` (retorna chave pública RSA) e `/api/proxy-push` (recebe JSON com subscription e payload, descriptografa a chave privada VAPID, assina e encaminha para o endpoint de push). |
 | `build.ts` | Script de build usando `Deno.bundle` com entrypoints HTML. Compila `index.html` (que referencia `app.tsx`), gera bundle JS e atualiza o HTML. Também compila o Service Worker separadamente e injeta lista de assets e hash de versão. |
 
@@ -3538,8 +3521,8 @@ O projeto utiliza **Deno** com `build.ts` para bundling:
 - O arquivo `src/index.html` é usado como entrypoint. O Deno bundler detecta a tag `<script src="./app.tsx" type="module">` e compila o código, gerando um arquivo JS com hash e atualizando o HTML.
 - O Service Worker é compilado separadamente em modo IIFE e tem seu conteúdo pós-processado para substituir `VERSION_HASH` e `__GENERATED_ASSETS__` pela lista de assets a cachear.
 
-Observação sobre o CSS:    
-O arquivo src/styles.css é importado no app.tsx via import "./styles.css". Para que o TypeScript não reclame, criamos um arquivo de declaração (src/styles.d.ts) que declara o módulo .css. O Deno.bundle, ao processar o HTML, reconhece a tag <link rel="stylesheet" href="./styles.css"> e copia o arquivo CSS para a pasta dist/, garantindo que o estilo seja carregado corretamente. A importação no código é mantida para compatibilidade com ferramentas de build futuras e para que o CSS seja tratado como dependência do módulo.
+**Observação sobre o CSS:**  
+O arquivo `src/styles.css` é importado no `app.tsx` via `import "./styles.css"`. Para que o TypeScript não reclame, criamos um arquivo de declaração (`src/styles.d.ts`) que declara o módulo `.css`. O `Deno.bundle`, ao processar o HTML, reconhece a tag `<link rel="stylesheet" href="./styles.css">` e copia o arquivo CSS para a pasta `dist/`, garantindo que o estilo seja carregado corretamente. A importação no código é mantida para compatibilidade com ferramentas de build futuras e para que o CSS seja tratado como dependência do módulo.
 
 Comando:
 ```bash
@@ -3557,12 +3540,15 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 
 ## 8. Estado Atual e Pontos de Atenção
 
+- **Perfil unificado**: Todas as informações do usuário (nome, e-mail, chaves VAPID e RSA completas, subscription) são armazenadas em uma única store (`AppConfig_DB`), eliminando duplicação e inconsistências.
+- **Persistência de chaves privadas**: Tanto a chave privada VAPID quanto a chave privada RSA são armazenadas como JWK no perfil, garantindo que permaneçam disponíveis após recarregar a página. O envelope da chave privada VAPID (`vapidPrivateKeyEnvelope`) também é persistido, evitando recifragem a cada envio.
+- **Fila de envio simplificada**: As mensagens enviadas são armazenadas com status e contador de tentativas, e o Service Worker é responsável por todo o processo de cifragem, montagem do JWT e envio. Isso torna o app mais leve e resiliente.
 - **Chave de Contato**: A migração para o hash SHA-256 está completa. Todos os contatos são armazenados com chave hash. As mensagens recebidas salvam o hash do contato (`contatoPublicKeyVapid`).
 - **Identificação do Emissor**: O campo `nm` (nome) é incluído no payload do JWT. O Service Worker extrai esse campo para salvar ou atualizar o nome do contato, garantindo que as mensagens exibam o nome correto.
 - **Limitação de Payload**: O JWT total deve ser inferior a 4096 bytes. O sistema utiliza compressão gzip, campos curtos (`ct`, `p`, `nm`) e estrutura compacta do envelope.
 - **Homologação**: A homologação é um campo booleano no contato, utilizado apenas para fins de interface (ex: exibir "Homologado" ou "Não homologado"). Não bloqueia o recebimento de mensagens.
 - **Service Worker**: Durante o desenvolvimento, é necessário desregistrar o Service Worker manualmente (Application → Service Workers → Unregister) e recarregar a página para que a nova versão seja carregada, devido ao cache agressivo.
-- **Remoção do Bundle**: O armazenamento do perfil em `BrowserA_Bundles_DB` foi substituído pela construção dinâmica do bundle a partir das stores individuais (`IdentidadeA`, `SubscriptionB`, `VapidB`, `E2E`). Isso reduz a duplicação de dados e simplifica a manutenção.
+- **Remoção do Bundle**: A store `BrowserA_Bundles_DB` foi removida. O bundle do emissor é construído dinamicamente a partir do perfil unificado e do contato sempre que necessário.
 
 ---
 
@@ -3570,9 +3556,9 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 
 - **Consistência de chaves**: Verificar se todas as operações de contato e mensagem usam corretamente o hash SHA-256, e se não há divergências entre os campos de referência.
 - **Atualização de contatos**: Garantir que, ao receber uma nova mensagem de um contato existente, o nome e outros dados sejam atualizados corretamente.
-- **Limpeza de dados obsoletos**: Remover stores ou campos que não são mais usados.
 - **Otimização de performance**: Avaliar consultas ao IndexedDB e possíveis índices.
 - **Validação do fluxo de resposta**: Testar exaustivamente a resposta, assegurando que a chave privada VAPID cifrada seja corretamente utilizada.
+- **Segurança adicional**: Avaliar a possibilidade de cifrar as chaves privadas armazenadas no IndexedDB com uma senha ou chave derivada.
 
 ---
 
@@ -3588,6 +3574,20 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 | **E2EE** | End-to-End Encryption – criptografia de ponta a ponta. |
 | **Subscription** | Objeto que representa a inscrição de um navegador no serviço de push, contendo endpoint e chaves de cifragem. |
 | **Proxy Server** | Servidor intermediário que encaminha requisições, neste caso, para o FCM, após assiná-las com a chave privada VAPID. |
+| **Envelope** | Estrutura contendo `iv`, `dadosCifrados` e `chaveAesCifrada`, usada para transportar a mensagem cifrada. |
+| **MAX_TENTATIVAS** | Constante que define o número máximo de tentativas de envio antes de marcar uma mensagem como falha (padrão 3). |
+
+
+---
+
+## ✅ Resumo das Atualizações no README
+
+- **Seção 2.3**: Adicionada estrutura de `MensagemEnviada` e constante `MAX_TENTATIVAS`.
+- **Seção 3**: Atualizada a tabela de stores com os novos nomes e descrições, incluindo `AppConfig_DB` e `BrowserA_MensagensEnviadas_DB`. Destacada a remoção de `BrowserA_Bundles_DB`.
+- **Seção 4.3 e 4.4**: Dividido o fluxo de envio em duas partes: App (criação da mensagem na fila) e Service Worker (processamento completo), detalhando o novo `payloadObj`, as validações e a cifragem.
+- **Seção 4.5**: Atualizada a estrutura do objeto decifrado no push para `{ c, e }` e o campo `vapidPrivateKey` agora em `e.s.v`.
+- **Seção 6**: Atualizada a tabela de arquivos para refletir as novas responsabilidades.
+- **Seção 8**: Atualizado o estado atual com as novas características (perfil unificado, persistência de chaves, fila simplificada).
 ````
 
 ---

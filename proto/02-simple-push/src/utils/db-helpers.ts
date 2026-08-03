@@ -3,7 +3,7 @@ import { get, set, createStore, del, entries } from "idb-keyval";
 import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
 import type {
   ProfileConfig,
-  MensagemEnvio,
+  MensagemEnviada,
   MensagemRecebida,
   Contato,
 } from "../constants/db.ts";
@@ -17,7 +17,7 @@ export function criarStore(nome: string) {
 }
 
 const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeMensagensEnvioA = criarStore(DB_NAMES.MENSAGENS_ENVIO_A);
+export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
 export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
 
@@ -65,9 +65,6 @@ export async function removerProfile(): Promise<void> {
 // Funções de Conveniência (operam sobre o ProfileConfig)
 // ============================================================
 
-/**
- * Retorna a identidade (nome, email) e a chave privada VAPID como CryptoKey.
- */
 export async function buscarIdentidadeA(): Promise<{ name: string; email: string; privateKey: CryptoKey } | undefined> {
   const profile = await buscarProfile();
   if (!profile) return undefined;
@@ -89,9 +86,6 @@ export async function buscarIdentidadeA(): Promise<{ name: string; email: string
   }
 }
 
-/**
- * Salva a identidade e a chave privada VAPID (a partir de uma CryptoKey).
- */
 export async function salvarIdentidadeA(identidade: { name: string; email: string; privateKey: CryptoKey }): Promise<void> {
   const profile = await buscarProfile() || {} as ProfileConfig;
   profile.name = identidade.name;
@@ -100,10 +94,6 @@ export async function salvarIdentidadeA(identidade: { name: string; email: strin
   await salvarProfile(profile);
 }
 
-/**
- * Retorna as chaves E2E: privateDecrypt (CryptoKey) e publicEncrypt (JWK).
- * A chave privada é importada a partir do JWK armazenado.
- */
 export async function buscarChavesE2EB(): Promise<{ privateDecrypt: CryptoKey; publicEncrypt: JsonWebKey } | undefined> {
   const profile = await buscarProfile();
   if (!profile || !profile.e2ePublicKey || !profile.e2ePrivateKeyJwk) return undefined;
@@ -124,10 +114,6 @@ export async function buscarChavesE2EB(): Promise<{ privateDecrypt: CryptoKey; p
   }
 }
 
-/**
- * Salva as chaves E2E (pública e privada) como JWK.
- * A privateKey é uma CryptoKey, que será exportada para JWK.
- */
 export async function salvarChavesE2EB(chaves: { privateDecrypt: CryptoKey; publicEncrypt: JsonWebKey }): Promise<void> {
   const profile = await buscarProfile() || {} as ProfileConfig;
   profile.e2ePublicKey = chaves.publicEncrypt;
@@ -135,9 +121,6 @@ export async function salvarChavesE2EB(chaves: { privateDecrypt: CryptoKey; publ
   await salvarProfile(profile);
 }
 
-/**
- * Retorna as chaves VAPID (pública e privada JWK) do perfil.
- */
 export async function buscarChavesVapidB(): Promise<{ publicKey: JsonWebKey; privateKey: JsonWebKey } | undefined> {
   const profile = await buscarProfile();
   if (!profile) return undefined;
@@ -147,10 +130,6 @@ export async function buscarChavesVapidB(): Promise<{ publicKey: JsonWebKey; pri
   };
 }
 
-/**
- * Salva as chaves VAPID no perfil.
- * A privateKey é um JWK.
- */
 export async function salvarChavesVapidB(chaves: { publicKey: JsonWebKey; privateKey: JsonWebKey }): Promise<void> {
   const profile = await buscarProfile() || {} as ProfileConfig;
   profile.vapidPublicKey = chaves.publicKey;
@@ -158,26 +137,17 @@ export async function salvarChavesVapidB(chaves: { publicKey: JsonWebKey; privat
   await salvarProfile(profile);
 }
 
-/**
- * Retorna a subscription do perfil.
- */
 export async function buscarSubscriptionB(): Promise<{ endpoint: string; keys: { p256dh: string; auth: string } } | undefined> {
   const profile = await buscarProfile();
   return profile?.subscription;
 }
 
-/**
- * Salva a subscription no perfil.
- */
 export async function salvarSubscriptionB(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<void> {
   const profile = await buscarProfile() || {} as ProfileConfig;
   profile.subscription = subscription;
   await salvarProfile(profile);
 }
 
-/**
- * Remove a subscription do perfil.
- */
 export async function removerSubscriptionB(): Promise<void> {
   const profile = await buscarProfile();
   if (profile) {
@@ -187,34 +157,34 @@ export async function removerSubscriptionB(): Promise<void> {
 }
 
 // ============================================================
-// Mensagens de Envio (não alteradas)
+// Mensagens Enviadas
 // ============================================================
 
-export async function salvarMensagemEnvio(mensagem: MensagemEnvio): Promise<void> {
-  await salvarChave(storeMensagensEnvioA, mensagem.id, mensagem);
+export async function salvarMensagemEnviada(mensagem: MensagemEnviada): Promise<void> {
+  await salvarChave(storeMensagensEnviadasA, mensagem.id, mensagem);
 }
 
-export async function buscarMensagemEnvio(id: string): Promise<MensagemEnvio | undefined> {
-  return buscarChave<MensagemEnvio>(storeMensagensEnvioA, id);
+export async function buscarMensagemEnviada(id: string): Promise<MensagemEnviada | undefined> {
+  return buscarChave<MensagemEnviada>(storeMensagensEnviadasA, id);
 }
 
-export async function listarMensagensEnvio(): Promise<MensagemEnvio[]> {
-  const entries = await listarChaves<MensagemEnvio>(storeMensagensEnvioA);
+export async function listarMensagensEnviadas(): Promise<MensagemEnviada[]> {
+  const entries = await listarChaves<MensagemEnviada>(storeMensagensEnviadasA);
   return entries.map(([_, msg]) => msg);
 }
 
-export async function atualizarStatusMensagemEnvio(id: string, status: MensagemEnvio['status'], erro?: string): Promise<void> {
-  const mensagem = await buscarMensagemEnvio(id);
+export async function atualizarStatusMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string): Promise<void> {
+  const mensagem = await buscarMensagemEnviada(id);
   if (mensagem) {
     mensagem.status = status;
-    mensagem.atualizadoEm = Date.now();
+    mensagem.updatedAt = Date.now();
     if (erro) mensagem.erro = erro;
-    await salvarMensagemEnvio(mensagem);
+    await salvarMensagemEnviada(mensagem);
   }
 }
 
-export async function removerMensagemEnvio(id: string): Promise<void> {
-  await removerChave(storeMensagensEnvioA, id);
+export async function removerMensagemEnviada(id: string): Promise<void> {
+  await removerChave(storeMensagensEnviadasA, id);
 }
 
 // ============================================================
