@@ -3,6 +3,7 @@ import { get, set, createStore } from "idb-keyval";
 import { gunzipSync } from "fflate";
 import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
 import { verificarJWT, base64UrlToArrayBuffer } from "../utils/jwt-helpers.ts";
+import { gerarIdMensagem, gerarIdFallback } from "../utils/id-utils.ts";
 
 // ============================================================
 // CONFIGURAÇÃO
@@ -177,6 +178,11 @@ self.addEventListener('push', function(event) {
         // Não bloqueia o processamento – apenas avisa
       }
 
+      // 🔥 Extrair jti (JWT ID) – será usado como ID da mensagem recebida
+      // Usa a função centralizada: se jti existir usa, senão gera novo ID
+      const jti = payload.jti || gerarIdMensagem();
+      console.log(`[SW-PUSH] 📋 jti: ${jti}`);
+
       // Extrair chave pública VAPID do header (kid)
       const publicKeyVapid = header.kid;
       if (!publicKeyVapid) {
@@ -271,8 +277,8 @@ self.addEventListener('push', function(event) {
         console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
       }
 
-      // Salva mensagem recebida
-      const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      // 🔥 SALVA MENSAGEM RECEBIDA usando jti como ID
+      const msgId = jti;
       const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
       const mensagemRecebida = {
         id: msgId,

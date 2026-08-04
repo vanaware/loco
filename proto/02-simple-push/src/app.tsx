@@ -43,6 +43,9 @@ import {
   arrayBufferToBase64,
 } from "./utils/jwt-helpers.ts";
 
+// 🔥 Importar função centralizada de ID
+import { gerarIdMensagem } from "./utils/id-utils.ts";
+
 console.log("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
 
 // ============================================================
@@ -601,7 +604,7 @@ async function carregarSelectContatos(): Promise<void> {
 }
 
 // ============================================================
-// ENVIAR MENSAGEM
+// ENVIAR MENSAGEM (com ID centralizado)
 // ============================================================
 async function enviarMensagemB(): Promise<void> {
   console.log("🚀 Enviando mensagem...");
@@ -624,7 +627,10 @@ async function enviarMensagemB(): Promise<void> {
       return;
     }
 
-    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    // 🔥 Usar função centralizada para gerar ID (12 caracteres)
+    const msgId = gerarIdMensagem();
+    console.log(`[APP] 📝 ID da mensagem: ${msgId} (${msgId.length} caracteres)`);
+
     const mensagem: MensagemEnviada = {
       id: msgId,
       contatoHash: selectedKey,

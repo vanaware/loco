@@ -309,11 +309,12 @@ async function processarFilaEnvio() {
         const envelopeJson = JSON.stringify(envelope);
 
         // 6. Construir JWT usando função genérica
-        // 🔥 ALTERAÇÃO: sub="msg", aud=email do contato
+        // 🔥 ALTERAÇÃO: sub="msg", aud=email do contato, jti=msg.id
         const payloadJwt = {
           iss: profile.email,
-          sub: "msg",                // tipo de token: mensagem
-          aud: contato.email,        // destinatário
+          sub: "msg",
+          aud: contato.email,
+          jti: msg.id,               // 🔥 JWT ID = ID da mensagem
           ct: envelopeJson,
           nm: profile.name
         };

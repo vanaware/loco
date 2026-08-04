@@ -22,7 +22,8 @@
     "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
     "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0" 
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
+    "nanoid": "https://esm.sh/nanoid@5.0.7"
   },
   "tasks": {
     "build": "deno run --allow-read --allow-write --allow-env --allow-net --unstable-bundle build.ts",
