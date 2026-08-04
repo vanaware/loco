@@ -1,4 +1,3 @@
-
 # 📡 Web Push Descentralizado – Protótipo Detalhado
 
 ## 1. Objetivo Geral
@@ -20,23 +19,25 @@ Não há banco de dados central, nem filas compartilhadas: cada navegador manté
 ## 2. Conceitos Fundamentais
 
 ### 2.1. Perfil (Profile)
-Um **perfil** é um objeto JSON público gerado por cada usuário. Ele contém todas as informações necessárias para que outros possam enviar-lhe mensagens push. O perfil deve ser transferido fora de banda (por exemplo, copiando e colando) do receptor para o emissor.
+Um **perfil** é a identidade de um usuário no sistema. Ele é armazenado localmente no IndexedDB (`AppConfig_DB`) e pode ser compartilhado através de um **JWT** (JSON Web Token) para que outros usuários possam adicioná-lo como contato.
 
-**Estrutura do Perfil Público (compartilhado):**
+**Estrutura do Perfil Público (JWT com `sub: "contact"`):**
 ```json
 {
   "iss": "email@exemplo.com",       // Identificador único (e-mail do dono)
+  "sub": "contact",                 // Tipo de token (contato)
   "nm": "Nome do Usuário",           // Nome legível (exibido nas mensagens)
   "kid": { ... },                    // Chave pública VAPID (ECDSA P-256) em JWK
+  "p": { ... },                      // Chave pública RSA (RSA-OAEP-256) em JWK
   "s": {                             // Subscription do Web Push
     "endpoint": "https://fcm.googleapis.com/...",
     "keys": {
       "p256dh": "base64...",
       "auth": "base64..."
-    }
+    },
+    "k": "base64..."                 // Chave privada VAPID cifrada (envelope RSA-AES)
   },
-  "p": { ... },                      // Chave pública RSA (RSA-OAEP-256) em JWK
-  "k": "base64..."                   // Chave privada VAPID cifrada (envelope RSA-AES)
+  "iat": 1738765432                  // Timestamp de emissão
 }
 ```
 
@@ -44,12 +45,12 @@ Um **perfil** é um objeto JSON público gerado por cada usuário. Ele contém t
 - `iss`: E-mail ou identificador único do dono do perfil.
 - `nm`: Nome legível para exibição na interface e nas notificações.
 - `kid`: Chave pública VAPID. Usada para verificar a assinatura do JWT recebido e para identificar o contato.
-- `s`: Subscription obtida via `PushManager.subscribe()`. Contém o endpoint do serviço de push e as chaves `p256dh`/`auth`, necessárias para cifrar o payload.
 - `p`: Chave pública RSA. Usada pelo emissor para cifrar a chave AES que, por sua vez, cifra a mensagem.
-- `k`: Chave privada VAPID cifrada com um envelope híbrido: AES-GCM + RSA-OAEP usando a chave pública RSA do servidor proxy. Apenas o servidor proxy pode decifrá-la, garantindo que a chave privada VAPID nunca seja transmitida em texto puro.
+- `s`: Subscription obtida via `PushManager.subscribe()`. Contém o endpoint do serviço de push e as chaves `p256dh`/`auth`, necessárias para cifrar o payload. Inclui `k` (chave privada VAPID cifrada).
+- `k` (dentro de `s`): Chave privada VAPID cifrada com um envelope híbrido: AES-GCM + RSA-OAEP usando a chave pública RSA do servidor proxy. Apenas o servidor proxy pode decifrá-la, garantindo que a chave privada VAPID nunca seja transmitida em texto puro.
 
 ### 2.2. Contato (Contact)
-Quando um usuário recebe uma mensagem (ou adiciona manualmente um perfil), o emissor é salvo localmente como um **contato**. O contato armazena a subscription e as chaves públicas do emissor, permitindo que o receptor responda no futuro sem a necessidade de um novo perfil.
+Quando um usuário recebe uma mensagem (ou adiciona manualmente um perfil via JWT), o emissor é salvo localmente como um **contato**. O contato armazena a subscription e as chaves públicas do emissor, permitindo que o receptor responda no futuro sem a necessidade de um novo perfil.
 
 **Estrutura do Contato (IndexedDB):**
 ```typescript
@@ -68,6 +69,8 @@ interface Contato {
   updatedAt: number;
 }
 ```
+
+**Homologação:** Contatos importados via JWT já são considerados **homologados** (`homologado: true`). A homologação pode ser gerenciada na lista de contatos, onde o usuário pode homologar individualmente ou em massa.
 
 ### 2.3. Mensagem (Message)
 A mensagem propriamente dita é transportada dentro de um **JWT** assinado. O conteúdo da mensagem é cifrado e comprimido para reduzir o tamanho (limite de 4096 bytes no Web Push).
@@ -126,29 +129,34 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 ## 4. Fluxos Detalhados
 
 ### 4.1. Geração do Perfil
-**Função:** `gerarProfile()` em `src/app.tsx`
+O processo de criação do perfil é dividido em duas ações no front-end:
 
+**Ação 1: "Gerar/Atualizar Perfil"** (`gerarProfile()` em `src/app.tsx`)
 1. **Verificação de permissões**: Checa se a permissão de notificação está concedida; caso contrário, solicita.
 2. **Registro do Service Worker**: Registra ou obtém a instância do Service Worker.
 3. **Geração/obtenção de chaves VAPID**: Tenta carregar do perfil existente; caso não existam, gera um novo par ECDSA P-256 (`extractable: true`).
 4. **Geração/obtenção de chaves RSA**: Tenta carregar do perfil existente; caso não existam, gera um novo par RSA-OAEP-256 (`extractable: true`).
 5. **Obtenção da subscription**: Obtém a subscription do `PushManager` do navegador, usando a chave pública VAPID como `applicationServerKey`; reutiliza a subscription existente se ainda for válida.
 6. **Busca da chave pública do servidor**: Faz uma requisição GET para `/api/server-public-key` para obter a chave pública RSA do servidor proxy.
-7. **Cifragem da chave privada VAPID**: A chave privada VAPID (em JWK) é cifrada com AES-GCM, e a chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor. O envelope resultante é colocado no campo `k` do perfil público e também salvo no campo `vapidPrivateKeyEnvelope` do `ProfileConfig`.
-8. **Montagem do perfil público**: Combina `iss` (email), `nm` (nome), `kid` (chave pública VAPID), `s` (subscription), `p` (chave pública RSA), e `k` (chave privada VAPID cifrada).
-9. **Persistência do perfil unificado**: Salva todos os dados (nome, email, chaves VAPID e RSA em JWK, envelope VAPID, subscription) na store `AppConfig_DB` com a chave `"profile"`.
-10. **Exibição**: O perfil público é mostrado em uma área de texto para o usuário copiar.
+7. **Cifragem da chave privada VAPID**: A chave privada VAPID (em JWK) é cifrada com AES-GCM, e a chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor. O envelope resultante é salvo no campo `vapidPrivateKeyEnvelope` do `ProfileConfig`.
+8. **Persistência do perfil unificado**: Salva todos os dados (nome, email, chaves VAPID e RSA em JWK, envelope VAPID, subscription) na store `AppConfig_DB` com a chave `"profile"`.
+9. **Feedback**: O perfil é criado/atualizado, e o usuário é notificado com uma mensagem de sucesso.
+
+**Ação 2: "Compartilhar Perfil (JWT)"** (`compartilharProfile()` em `src/app.tsx`)
+1. **Validação**: Verifica se todos os campos obrigatórios estão presentes no perfil: `vapidPublicKey`, `vapidPrivateKeyJwk`, `e2ePublicKey`, `subscription` (com `endpoint` e `keys`), e `vapidPrivateKeyEnvelope`. Se algum faltar, exibe erro e interrompe o processo.
+2. **Montagem do payload**: Constrói o payload do JWT com `iss` (email), `sub: "contact"`, `nm` (nome), `p` (chave pública RSA), `s` (subscription com `k` = envelope), e `iat` (timestamp).
+3. **Criação do JWT**: Gera o JWT assinado com a chave privada VAPID do emissor (ECDSA P-256) e coloca a chave pública VAPID no header (`kid`).
+4. **Exibição**: O JWT é exibido em uma área de texto e copiado automaticamente para a área de transferência.
 
 ### 4.2. Adição de Contato
 **Função:** `adicionarContato()` em `src/app.tsx`
 
-1. O usuário cola um perfil JSON em uma textarea e clica em "Adicionar Contato".
-2. Valida a estrutura do perfil (verifica campos obrigatórios).
-3. **Importa a chave pública VAPID** (campo `kid`) para validar o formato.
-4. Cria um objeto `Contato` com os dados do perfil (`homologado: false`).
-5. **Gera o hash** da chave pública VAPID utilizando a função `serializarPublicKeyVapid`.
-6. Salva o contato na store `BrowserB_Contatos_DB` usando o hash como chave.
-7. Atualiza a interface: lista de contatos e dropdown de seleção.
+1. O usuário cola um JWT (gerado pela outra pessoa) no campo de texto e clica em "Adicionar Contato".
+2. **Validação do formato**: Verifica se o texto tem 3 partes separadas por `.` (header, payload, signature).
+3. **Verificação da assinatura**: Usa a função `verificarJWT` para validar a assinatura e decodificar o JWT. A chave pública é extraída do header (`kid`).
+4. **Validação de campos obrigatórios**: Verifica se `header.kid`, `payload.p`, `payload.s` e `payload.s.k` estão presentes. Também valida `payload.sub === "contact"`.
+5. **Criação do contato**: Com os dados extraídos, cria um objeto `Contato` com `homologado: true` (por ser importado via JWT) e o salva no IndexedDB (`BrowserB_Contatos_DB`), usando o hash da chave pública VAPID como chave primária.
+6. **Atualização da interface**: A lista de contatos e o dropdown de seleção são recarregados.
 
 ### 4.3. Envio de Mensagem – App
 **Função:** `enviarMensagemB()` em `src/app.tsx`
@@ -194,9 +202,9 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
      - Cifra os dados comprimidos com AES-GCM.
      - Cifra a chave AES com a chave pública RSA do contato.
      - Monta envelope: `{ i: base64IV, d: base64Dados, k: base64ChaveAES }`.
-   - **Constrói o JWT:**
-     - Header: `{ alg: "ES256" }`.
-     - Payload: `{ iss: profile.email, sub: contato.email, ct: envelopeJSON, p: profile.vapidPublicKey, nm: profile.name }`.
+   - **Constrói o JWT de mensagem (sub: "msg"):**
+     - Header: `{ alg: "ES256", kid: profile.vapidPublicKey }`.
+     - Payload: `{ iss: profile.email, sub: "msg", aud: contato.email, ct: envelopeJSON, nm: profile.name }`.
      - Assina com a chave privada VAPID do emissor (importada de `profile.vapidPrivateKeyJwk`).
    - **Envia para o servidor proxy**: POST para `/api/proxy-push` com:
      ```json
@@ -217,26 +225,27 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 ### 4.5. Recebimento da Mensagem – Service Worker (`push.js`)
 1. O Service Worker recebe o evento `push` contendo o JWT no `event.data.text()`.
 2. Divide o JWT em header, payload e signature.
-3. **Verifica a assinatura** usando a chave pública VAPID do emissor (campo `p` do payload) e o algoritmo ECDSA P-256.
-4. Se a assinatura for inválida, descarta a mensagem e exibe notificação de erro.
-5. **Decifra o envelope**:
+3. **Verifica a assinatura** usando a chave pública VAPID do emissor (extraída do header `kid`) e o algoritmo ECDSA P-256.
+4. **Valida `sub`**: Verifica se `payload.sub === "msg"`. Caso contrário, rejeita a mensagem.
+5. **Valida `aud`**: Verifica se `payload.aud` corresponde ao email do perfil do receptor. Se não corresponder, exibe um aviso no console e na notificação, mas continua processando a mensagem.
+6. **Decifra o envelope**:
    - Obtém a chave privada RSA do receptor a partir do perfil unificado (`ProfileConfig.e2ePrivateKeyJwk`), importando-a como CryptoKey.
    - Decodifica `iv`, `dados` e `k` do envelope.
    - Descriptografa a chave AES usando RSA-OAEP.
    - Descriptografa os dados com AES-GCM.
-   - Descomprime (gunzip) o resultado, obtendo o objeto JSON original (agora com estrutura simplificada `{ c, e }`).
-6. **Salva/Atualiza o Contato**:
+   - Descomprime (gunzip) o resultado, obtendo o objeto JSON original `{ c, e }`.
+7. **Salva/Atualiza o Contato**:
    - Extrai `subscription`, `publicKeyRSA` e `vapidPrivateKey` do objeto decifrado (agora `e.s`).
-   - Gera o hash da chave pública VAPID do emissor (do campo `p` do JWT).
+   - Gera o hash da chave pública VAPID do emissor (do campo `kid` do header).
    - Busca um contato existente pelo hash.
    - Se não existir, cria um novo contato com os dados extraídos e o nome vindo de `nm` (ou fallback para o email). Se já existir, atualiza o nome e outros dados se necessário.
    - Salva o contato na store `BrowserB_Contatos_DB`.
-7. **Salva a Mensagem**:
+8. **Salva a Mensagem**:
    - Gera um ID único.
    - Cria um objeto `MensagemRecebida` com o hash do contato, conteúdo decifrado (`c` do objeto), status `'nao_lida'` e timestamp.
    - Salva na store `BrowserB_MensagensRecebidas_DB`.
-8. **Exibe notificação nativa** com o nome do remetente (buscado do contato) e o conteúdo.
-9. **Notifica as páginas abertas** via `postMessage` com tipo `PUSH_RECEIVED`, para que a UI seja atualizada em tempo real.
+9. **Exibe notificação nativa** com o nome do remetente (buscado do contato) e o conteúdo.
+10. **Notifica as páginas abertas** via `postMessage` com tipo `PUSH_RECEIVED`, para que a UI seja atualizada em tempo real.
 
 ### 4.6. Resposta (Responder)
 1. Na interface de mensagens recebidas, cada mensagem tem um botão "Responder".
@@ -273,6 +282,7 @@ Para evitar diferenças de capitalização (ex: `"EC"` vs `"ec"`, `"P-256"` vs `
 | `src/sw/click.js` | Lida com o evento `notificationclick` – redireciona para a página principal. |
 | `src/constants/db.ts` | Define nomes das stores, constantes (`MAX_TENTATIVAS`) e interfaces TypeScript para `ProfileConfig`, `MensagemEnviada`, `MensagemRecebida` e `Contato`. |
 | `src/utils/db-helpers.ts` | Funções auxiliares para operações IndexedDB: salvar/buscar perfil, contatos, mensagens enviadas/recebidas, serialização de chaves. |
+| `src/utils/jwt-helpers.ts` | Funções genéricas para criar, verificar e decodificar JWTs assinados com ES256. |
 | `main.ts` | Servidor Deno (proxy). Endpoints: `/api/server-public-key` (retorna chave pública RSA) e `/api/proxy-push` (recebe JSON com subscription e payload, descriptografa a chave privada VAPID, assina e encaminha para o endpoint de push). |
 | `build.ts` | Script de build usando `Deno.bundle` com entrypoints HTML. Compila `index.html` (que referencia `app.tsx`), gera bundle JS e atualiza o HTML. Também compila o Service Worker separadamente e injeta lista de assets e hash de versão. |
 
@@ -310,7 +320,7 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 - **Chave de Contato**: A migração para o hash SHA-256 está completa. Todos os contatos são armazenados com chave hash. As mensagens recebidas salvam o hash do contato (`contatoPublicKeyVapid`).
 - **Identificação do Emissor**: O campo `nm` (nome) é incluído no payload do JWT. O Service Worker extrai esse campo para salvar ou atualizar o nome do contato, garantindo que as mensagens exibam o nome correto.
 - **Limitação de Payload**: O JWT total deve ser inferior a 4096 bytes. O sistema utiliza compressão gzip, campos curtos (`ct`, `p`, `nm`) e estrutura compacta do envelope.
-- **Homologação**: A homologação é um campo booleano no contato, utilizado apenas para fins de interface (ex: exibir "Homologado" ou "Não homologado"). Não bloqueia o recebimento de mensagens.
+- **Homologação**: A homologação é um campo booleano no contato, utilizado para fins de interface (ex: exibir "Homologado" ou "Não homologado"). A homologação é gerenciada na lista de contatos, com botões individuais e "Homologar Todos". Contatos importados via JWT já são homologados.
 - **Service Worker**: Durante o desenvolvimento, é necessário desregistrar o Service Worker manualmente (Application → Service Workers → Unregister) e recarregar a página para que a nova versão seja carregada, devido ao cache agressivo.
 - **Remoção do Bundle**: A store `BrowserA_Bundles_DB` foi removida. O bundle do emissor é construído dinamicamente a partir do perfil unificado e do contato sempre que necessário.
 
@@ -346,92 +356,11 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 
 ## ✅ Resumo das Atualizações no README
 
-- **Seção 2.3**: Adicionada estrutura de `MensagemEnviada` e constante `MAX_TENTATIVAS`.
-- **Seção 3**: Atualizada a tabela de stores com os novos nomes e descrições, incluindo `AppConfig_DB` e `BrowserA_MensagensEnviadas_DB`. Destacada a remoção de `BrowserA_Bundles_DB`.
-- **Seção 4.3 e 4.4**: Dividido o fluxo de envio em duas partes: App (criação da mensagem na fila) e Service Worker (processamento completo), detalhando o novo `payloadObj`, as validações e a cifragem.
-- **Seção 4.5**: Atualizada a estrutura do objeto decifrado no push para `{ c, e }` e o campo `vapidPrivateKey` agora em `e.s.v`.
-- **Seção 6**: Atualizada a tabela de arquivos para refletir as novas responsabilidades.
-- **Seção 8**: Atualizado o estado atual com as novas características (perfil unificado, persistência de chaves, fila simplificada).
-
-
-# Anotações para Ajuste
-
-Vamos melhorar o codigo do "bundle" gerado ao clicar em "Gerar e Compartilhar Meu Perfil" .
-Usado para compartilhar os dados do perfil para poder ser importado como contato em outro browser, que agora será um JWT
-Segue sugestão de código para gerar token (JWT) de compartilhamento de perfil
-
-```js
-// 1. Montar header e payload
-const header = { alg: "ES256", kid: profile.vapidPublicKey };
-const payloadJwt = {
-  iss: profile.email,
-  sub: "contact"
-  nm: profile.name,
-  "p": profile.e2ePublicKey,         // Chave pública RSA (RSA-OAEP-256) em JWK
-  "s": {                             // Subscription do Web Push
-    "endpoint": profile.subscription.endpoint,
-    "keys": {
-      "p256dh": profile.subscription.p256dh,
-      "auth": profile.subscription.auth
-    },
-    "k": profile.vapidPrivateKeyEnvelope,   // Chave privada VAPID cifrada (envelope RSA-AES)
-    "iat": Date.now()
-  }
-};
-
-// 2. Codificar em Base64Url
-const encoder = new TextEncoder();
-const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
-const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payloadJwt)));
-const toSign = `${headerB64}.${payloadB64}`;
-
-// 3. Assinar com a chave privada VAPID do emissor
-const privateKey = await crypto.subtle.importKey(
-  "jwk",
-  profile.vapidPrivateKeyJwk,
-  { name: "ECDSA", namedCurve: "P-256" },
-  false,
-  ["sign"]
-);
-const signature = await crypto.subtle.sign(
-  { name: "ECDSA", hash: "SHA-256" },
-  privateKey,
-  encoder.encode(toSign)
-);
-const sigB64 = arrayBufferToBase64Url(signature);
-
-// 4. JWT final
-const jwt = `${toSign}.${sigB64}`;
-```
-
-O outro navegador vai importar este token como um contato, se o jwt for válido e devidamente assinado    
-
-validar o sigB64 com o toSign do jwt recebido
-dados obrigatórios :
-* header.kid 
-* payloadJwt.p 
-* payloadJwt.s // completo
-
-Contatos importados manualmente devem ser já considerados homologados desde o inicio
-
-```js
-  let contatoExistente = await buscarContatoPorPublicKey(payloadJwt.kid);
-  const novoContato = {
-    publicKeyVapid: header.kid,
-    email: payloadJwt.iss,
-    nome: payloadJwt.nm
-    publicKeyRSA: payloadJwt.p,
-    subscription: {
-      endpoint: payloadJwt.s.endpoint,           
-      keys: {
-        p256dh: payloadJwt.s.keys.p256dh,
-        auth: payloadJwt.s.keys.auth     
-      };
-    }
-    vapidPrivateKey: payloadJwt.s.k,
-    homologado: true,
-    createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
-    updatedAt: Date.now()
-  };
-  await salvarContato(novoContato);
-```
+- **Seção 2.1**: Atualizada a estrutura do perfil público para refletir o uso de JWT com `sub: "contact"` e a inclusão de `s.k`.
+- **Seção 2.2**: Adicionada informação sobre homologação ser gerenciada na lista de contatos.
+- **Seção 4.1**: Dividida a geração do perfil em duas ações (Gerar/Atualizar e Compartilhar), com detalhamento das validações.
+- **Seção 4.2**: Atualizada a adição de contato para validar JWT com `sub: "contact"`, `kid`, `p`, `s`, `s.k`.
+- **Seção 4.4**: Adicionado detalhe sobre o JWT de mensagem com `sub: "msg"` e `aud`.
+- **Seção 4.5**: Adicionada validação de `sub: "msg"` e verificação de `aud` (apenas aviso).
+- **Seção 6**: Incluído `src/utils/jwt-helpers.ts` na tabela de arquivos.
+- **Seção 8**: Atualizado o estado atual com informações sobre homologação e novas funcionalidades.
