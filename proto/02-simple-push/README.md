@@ -364,3 +364,21 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 - **Seção 4.5**: Adicionada validação de `sub: "msg"` e verificação de `aud` (apenas aviso).
 - **Seção 6**: Incluído `src/utils/jwt-helpers.ts` na tabela de arquivos.
 - **Seção 8**: Atualizado o estado atual com informações sobre homologação e novas funcionalidades.
+
+
+# Anotações 
+
+jti enviado 
+criar rotina que envia handshake que mensagem foi recebida
+sub do handshake = hand
+para envio de handshake vamos precisar criar um novo indexdb. 
+nele salvaremos os handshakes recebidos e enviados separando eles por um campo (out/ in)
+
+o handshake será também de vários tipos então precisamos de um campo tipo. 
+
+o primeiro tipo a ser seu tratamento é o tipo "confirmação de entrega" 
+
+este indexdb terá também uma rotina no service worker para enviar o handshake para um destinatário separada do que envia mensagem hoje pois será um pouco diferente.
+
+as partes que forem iguais poderão depois ser unificadas em funções compartilhadas 
+
