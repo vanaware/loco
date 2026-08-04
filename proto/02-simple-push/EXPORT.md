@@ -8,409 +8,7 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/2/2026, 10:52:34 PM
-
----
-
-## Arquivo: `main.ts`
-
-```ts
-/// <reference lib="deno.ns" />
-import { serveDir } from "@std/http/file-server";
-import * as webpush from "@negrel/webpush";
-import { deleteCookie } from "@std/http/cookie";
-
-const PORT = 8000;
-
-// 🔥 Lê diretamente do Deno.env (carregado via --env)
-function carregarChavesDoServidor() {
-  const publicKeyStr = Deno.env.get('SERVER_PUBLIC_KEY');
-  const privateKeyStr = Deno.env.get('SERVER_PRIVATE_KEY');
-  
-  if (!publicKeyStr || !privateKeyStr) {
-    console.error("❌ Chaves do servidor não encontradas!");
-    console.error("   Execute 'deno task build' primeiro para gerar as chaves.");
-    console.error("   Ou defina as variáveis de ambiente SERVER_PUBLIC_KEY e SERVER_PRIVATE_KEY");
-    Deno.exit(1);
-  }
-  
-  try {
-    const publicKeyJwk = JSON.parse(publicKeyStr);
-    const privateKeyJwk = JSON.parse(privateKeyStr);
-    return { publicKeyJwk, privateKeyJwk };
-  } catch (err) {
-    console.error("❌ Erro ao parsear as chaves do servidor:", err);
-    Deno.exit(1);
-  }
-}
-
-// Chaves globais de infraestrutura do Servidor
-let serverPrivateKey: CryptoKey;
-let serverPublicKeyJwk: JsonWebKey;
-
-async function inicializarChavesDoServidor() {
-  const chaves = carregarChavesDoServidor();
-  serverPublicKeyJwk = chaves.publicKeyJwk;
-  
-  serverPrivateKey = await crypto.subtle.importKey(
-    "jwk",
-    chaves.privateKeyJwk,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    true,
-    ["decrypt"]
-  );
-  
-  console.log("🔒 Chaves RSA de Infraestrutura do Servidor carregadas do Deno.env!");
-}
-
-// Inicializa as chaves antes de o Deno abrir a escuta HTTP
-await inicializarChavesDoServidor();
-
-// Função auxiliar para descriptografar dados Hex usando a chave RSA exclusiva do servidor
-async function decryptWithServerKey(base64Envelope: string): Promise<any> {
-  try {
-    // 1. Desempacota o envelope Base64 enviado pelo navegador
-    const envelopeText = atob(base64Envelope);
-    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
-
-    // Helper para converter strings Hex textuais de volta para arrays de bytes inteiros
-    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-
-    const ivBytes = fromHex(iv);
-    const dadosBytes = fromHex(dadosCifrados);
-    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
-
-    // 2. Descriptografa a chave AES usando a chave privada RSA-OAEP exclusiva da RAM do servidor
-    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
-      { name: "RSA-OAEP" },
-      serverPrivateKey,
-      chaveAesCifradaBytes
-    );
-
-    // 3. Importa a chave simétrica AES recuperada de volta para o runtime do Deno
-    const chaveSimetricaAes = await crypto.subtle.importKey(
-      "raw",
-      aesChaveCruaBuffer,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
-
-    // 4. Descriptografa o conteúdo longo da chave privada VAPID original usando a chave AES aberta
-    const vapidOriginalBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
-      chaveSimetricaAes,
-      dadosBytes
-    );
-
-    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
-    return JSON.parse(jsonText);
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
-    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
-  }
-}
-
-// Transforma as strings textuais de chave pública/privada VAPID em JSON estruturado
-function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
-  try {
-    return {
-      publicKey: typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey,
-      privateKey: typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey
-    };
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
-  }
-}
-
-// Auditoria Cega: Lê as Claims do JWT sem precisar de chaves e sem descriptografar a mensagem
-function lerMetadadosJJWT(jwtString: string) {
-  try {
-    const parts = jwtString.split(".");
-    if (parts.length !== 3) return null;
-
-    let base64Url = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-
-    const jsonString = new TextDecoder().decode(
-      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
-    );
-    
-    return JSON.parse(jsonString);
-  } catch {
-    return null;
-  }
-}
-
-Deno.serve({ port: PORT }, async (req) => {
-  const url = new URL(req.url);
-  
-  // 1. Captura o Origin enviado pelo navegador
-  let origin = req.headers.get("origin") || "";
-
-  // CORREÇÃO CRUCIAL: Se o Origin vier vazio (comum em fetches relativos do mesmo domínio),
-  // nós reconstrói ele dinamicamente usando o protocolo (http/https) e o Host atual do servidor
-  if (origin === "") {
-    const host = req.headers.get("host") || `localhost:${PORT}`;
-    // Verifica se o seu servidor roda em ambiente seguro (HTTPS) na nuvem ou HTTP local
-    const protocolo = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-    origin = `${protocolo}://${host}`;
-  }
-
-  // 2. VALIDAÇÃO DE CORS ATUALIZADA
-  // Permite localhost (qualquer porta) ou qualquer subdomínio de .vanaware.com
-  const isAllowedOrigin = 
-    /^https?:\/\/localhost(:\d+)?$/.test(origin) || 
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/.test(origin);
-
-  // 3. Define os cabeçalhos de resposta baseados na validação acima
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "https://vanaware.com",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
-    "Access-Control-Allow-Credentials": "true"
-  };
-
-  // Trata requisições de preflight imediatamente
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  // Trava de segurança de API: Se a origem final gerada NÃO for permitida, bloqueia com 403
-  if (!isAllowedOrigin && url.pathname.startsWith("/api/")) {
-    console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
-    return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
-    });
-  }
-
-  // ROTA DE INFRAESTRUTURA: Compartilha a chave pública para cifragem da chave VAPID
-  if (req.method === "GET" && url.pathname === "/api/server-public-key") {
-    return new Response(JSON.stringify(serverPublicKeyJwk), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
-    });
-  }
-
-  if (url.pathname === "/api/logout" && req.method === "POST") {
-    const headers = new Headers();
-
-    // Remove o cookie que guarda a sessão (substitua 'session_token' pelo nome do seu cookie)
-    deleteCookie(headers, "session_token", { path: "/" });
-
-    // Envia instrução nativa HTTP para o navegador apagar storages, cookies e caches
-    headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
-    
-    // Retorna uma resposta de sucesso para o fetch do front-end
-    return new Response(JSON.stringify({ disconnected: true }), {
-      status: 200,
-      headers: {
-        ...Object.fromEntries(headers.entries()),
-        "content-type": "application/json",
-      },
-    });
-  }
-
-
-  // ROTA DE DISPARO: Processa o envelope VAPID e encaminha o JWT criptografado
-  if (req.method === "POST" && url.pathname === "./api/proxy-push") {
-    console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida!`);
-    
-    try {
-      const body = await req.json();
-      const { subscription, payloadText, vapid } = body;
-
-      console.log(`   - Endpoint destino: ${subscription.endpoint.substring(0, 45)}...`);
-      console.log(`   - Tamanho do payloadText: ${payloadText?.length || 0} bytes`);
-
-      // Executa a auditoria cega das claims do token JWT
-      const jwtClaims = lerMetadadosJJWT(payloadText);
-      if (jwtClaims) {
-        console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
-        console.log(`   - [AUDITORIA JWT] Destinado a: <${jwtClaims.sub || "Sem e-mail"}>`);
-        console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (Hex): ${jwtClaims.cipherText?.substring(0, 20) || "N/A"}...`);
-      } else {
-        console.log(`   - [AUDITORIA JWT] ⚠️ Não foi possível ler as claims do JWT`);
-      }
-
-      let privateKeyFinal = vapid.privateKey;
-
-      // 🔥 DESCRIPTOGRAFIA DA CHAVE PRIVADA VAPID NA RAM
-      if (typeof privateKeyFinal === "string") {
-        console.log("   - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
-        console.log(`   - [SEGURANÇA] Tamanho do envelope: ${privateKeyFinal.length} bytes`);
-        try {
-          const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal);
-          privateKeyFinal = decryptedPrivateKeyObj;
-          console.log("   - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
-        } catch (decryptErr) {
-          console.error("   - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
-          return new Response(
-            JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-      } else {
-        console.log("   - Chave VAPID criptografada, não enviada como string");
-      }
-
-      // 1. Processa e normatiza as chaves do request
-      let jwkKeys;
-      try {
-        jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
-        console.log("   - ✅ Chaves VAPID parseadas com sucesso");
-        //console.log(`   - PublicKey: kty=${jwkKeys.publicKey.kty}, crv=${jwkKeys.publicKey.crv}`);
-        //console.log(`   - PrivateKey: kty=${jwkKeys.privateKey.kty}, crv=${jwkKeys.privateKey.crv}`);
-      } catch (parseErr) {
-        console.error("   - ❌ Erro ao parsear chaves VAPID:", parseErr);
-        return new Response(
-          JSON.stringify({ success: false, error: "Chaves VAPID inválidas." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // 2. Importa a assinatura do cabeçalho de rede do push
-      let vapidKeys;
-      try {
-        vapidKeys = await webpush.importVapidKeys(jwkKeys);
-        console.log("   - ✅ Chaves VAPID importadas com sucesso");
-        //console.log(`   - VAPID Keys: publicKey=${!!vapidKeys.publicKey}, privateKey=${!!vapidKeys.privateKey}`);
-      } catch (importErr) {
-        console.error("   - ❌ Erro ao importar chaves VAPID:", importErr);
-        return new Response(
-          JSON.stringify({ success: false, error: "Falha ao importar chaves VAPID." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Cria o servidor de aplicação
-      let appServer;
-      try {
-        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
-        console.log(`   - Contact: ${contact}`);
-        appServer = await webpush.ApplicationServer.new({
-          contactInformation: contact,
-          vapidKeys: vapidKeys,
-        });
-        console.log("   - ✅ ApplicationServer criado com sucesso");
-      } catch (serverErr) {
-        console.error("   - ❌ Erro ao criar ApplicationServer:", serverErr);
-        return new Response(
-          JSON.stringify({ success: false, error: "Falha ao criar servidor de push." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // 3. Encaminha o token JWT fechado diretamente sem descriptografar o conteúdo
-      try {
-        console.log("   - 📤 Enviando push para:", subscription.endpoint.substring(0, 60) + "...");
-        console.log(`   - 📤 Tamanho do payload: ${payloadText.length} bytes`);
-        
-        const subscriber = appServer.subscribe(subscription);
-        await subscriber.pushTextMessage(payloadText, {});
-        
-        console.log("   ✅ [SUCESSO] Push despachado! Chave Privada VAPID descartada com segurança da RAM.");
-      } catch (pushErr) {
-        console.error("   - ❌ Erro ao enviar push:", pushErr);
-        
-        // 🔥 Tenta ler o corpo da resposta do FCM para diagnóstico
-        let responseBody = '';
-        let statusCode = 500;
-        
-        try {
-          if (pushErr instanceof webpush.PushMessageError && pushErr.response) {
-            statusCode = pushErr.response.status;
-            responseBody = await pushErr.response.text();
-            console.error(`   - 📄 Resposta do FCM (status ${statusCode}): ${responseBody}`);
-          }
-        } catch (e) {
-          console.error(`   - ❌ Não foi possível ler a resposta do FCM:`, e);
-        }
-        
-        // Se for erro de subscription inválida (410) ou 404
-        if (pushErr instanceof webpush.PushMessageError && (pushErr.response?.status === 410 || pushErr.response?.status === 404)) {
-          return new Response(
-            JSON.stringify({ success: false, error: "Inscrição expirada ou revogada.", statusCode: pushErr.response.status }),
-            { status: pushErr.response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Se o status for 400, pode ser problema no payload ou na chave
-        if (pushErr instanceof webpush.PushMessageError && pushErr.response?.status === 400) {
-          // Se a resposta contiver "Invalid VAPID" ou similar, podemos personalizar
-          let msg = "Requisição inválida. Verifique a subscription e o payload.";
-          if (responseBody.includes("Invalid")) {
-            msg = "Chave VAPID inválida ou malformada.";
-          } else if (responseBody.includes("payload")) {
-            msg = "Payload malformado ou muito grande.";
-          }
-          return new Response(
-            JSON.stringify({ success: false, error: msg, statusCode: 400 }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Re-lança o erro para ser tratado pelo catch externo se não for tratado acima
-        throw pushErr;
-      }
-
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-
-    } catch (error) {
-      console.error(`\n❌ [ERRO NO SERVIDOR PUSH] [${new Date().toLocaleTimeString()}]:`);
-
-      const isPushError = error && typeof error === 'object' && 'response' in error;
-      
-      if (isPushError) {
-        const statusCode = (error as any).response?.status || 400;
-        console.error(`   -> Servidor Remoto retornou Status HTTP: ${statusCode}`);
-        console.error(`   -> Detalhe do Erro: ${error.toString()}`);
-
-        let clienteMensagem = "Erro desconhecido no servidor de push.";
-        switch (statusCode) {
-          case 410: clienteMensagem = "Inscrição expirada ou revogada (Usuário desativou as notificações)."; break;
-          case 404: clienteMensagem = "Endpoint não encontrado ou expirado no servidor de push."; break;
-          case 401: clienteMensagem = "Chaves VAPID inválidas ou assinatura rejeitada pelo servidor."; break;
-          case 413: clienteMensagem = "Payload muito grande. O limite máximo permitido é 4096 bytes (4KB)."; break;
-          case 429: clienteMensagem = "Limite de requisições excedido para este dispositivo (Rate Limit)."; break;
-          default: clienteMensagem = `Servidor de push rejeitou com status ${statusCode}.`;
-        }
-
-        return new Response(
-          JSON.stringify({ success: false, error: clienteMensagem, statusCode }),
-          { status: statusCode, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      
-      console.error(`   -> Erro Interno/Local: ${errorMessage}`);
-      if (errorStack) console.error(errorStack);
-
-      return new Response(
-        JSON.stringify({ success: false, error: errorMessage, type: "InternalError" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-  }
-
-  // 4. FALLBACK: Serve os arquivos compilados da pasta dist/
-  return serveDir(req, {
-    fsRoot: "./dist",
-    showDirListing: false,
-    quiet: true,
-  });
-});
-
-console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
-```
+Gerado automaticamente em: 8/3/2026, 11:03:08 PM
 
 ---
 
@@ -560,353 +158,6 @@ self.addEventListener('notificationclick', function(event) {
 
 ---
 
-## Arquivo: `src/sw/push.js`
-
-```js
-// src/sw/push.js
-import { get, set, createStore } from "idb-keyval";
-import { gunzipSync } from "fflate";
-import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
-
-// ============================================================
-// CONFIGURAÇÃO
-// ============================================================
-const DEBUG = false;
-
-// ============================================================
-// STORES - usando as constantes do db.ts
-// ============================================================
-function criarStore(nome) {
-  try {
-    return createStore(nome, STORE_NAMES.KEYVAL);
-  } catch (err) {
-    console.error(`[SW-PUSH] ❌ Erro ao criar store ${nome}:`, err);
-    return null;
-  }
-}
-
-let storeConfig = criarStore(DB_NAMES.CONFIG);
-let storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
-let storeContatos = criarStore(DB_NAMES.CONTATOS);
-
-function garantirStores() {
-  if (!storeConfig) storeConfig = criarStore(DB_NAMES.CONFIG);
-  if (!storeMensagensRecebidasB) storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
-  if (!storeContatos) storeContatos = criarStore(DB_NAMES.CONTATOS);
-}
-
-// ============================================================
-// FUNÇÕES AUXILIARES
-// ============================================================
-async function sha256(message) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function serializarPublicKeyVapid(jwk) {
-  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
-  return await sha256(raw);
-}
-
-function base64ToArrayBuffer(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
-
-// ============================================================
-// FUNÇÕES DE BANCO UNIFICADAS
-// ============================================================
-
-async function buscarProfile() {
-  try {
-    garantirStores();
-    return await get(KEY_NAMES.PROFILE, storeConfig);
-  } catch (err) {
-    console.error("[SW-PUSH] ❌ Erro ao buscar perfil:", err);
-    return null;
-  }
-}
-
-async function buscarChaveDecript() {
-  try {
-    const profile = await buscarProfile();
-    if (!profile) {
-      console.warn("[SW-PUSH] ⚠️ Perfil não encontrado.");
-      return null;
-    }
-    if (!profile.e2ePrivateKeyJwk) {
-      console.warn("[SW-PUSH] ⚠️ Chave privada RSA não encontrada no perfil.");
-      return null;
-    }
-
-    const privateDecrypt = await crypto.subtle.importKey(
-      "jwk",
-      profile.e2ePrivateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["decrypt"]
-    );
-    console.log("[SW-PUSH] 🔑 Chave de decodificação RSA encontrada e importada.");
-    return privateDecrypt;
-  } catch (err) {
-    console.error("[SW-PUSH] ❌ Erro ao buscar chave de decodificação:", err);
-    return null;
-  }
-}
-
-async function salvarContato(contato) {
-  try {
-    garantirStores();
-    const key = await serializarPublicKeyVapid(contato.publicKeyVapid);
-    await set(key, contato, storeContatos);
-    console.log(`[SW-PUSH] ✅ Contato ${contato.email} salvo com chave hash: ${key.substring(0, 8)}...`);
-  } catch (err) {
-    console.error(`[SW-PUSH] ❌ Erro ao salvar contato:`, err);
-  }
-}
-
-async function buscarContatoPorPublicKey(publicKeyVapid) {
-  try {
-    garantirStores();
-    const key = await serializarPublicKeyVapid(publicKeyVapid);
-    return await get(key, storeContatos);
-  } catch (err) {
-    console.error("[SW-PUSH] ❌ Erro ao buscar contato:", err);
-    return null;
-  }
-}
-
-async function salvarMensagemRecebida(mensagem) {
-  try {
-    garantirStores();
-    await set(mensagem.id, mensagem, storeMensagensRecebidasB);
-    console.log(`[SW-PUSH] ✅ Mensagem ${mensagem.id} salva.`);
-  } catch (err) {
-    console.error(`[SW-PUSH] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
-  }
-}
-
-// ============================================================
-// EVENTO PUSH
-// ============================================================
-self.addEventListener('push', function(event) {
-  if (!event.data) return;
-  const rawText = event.data.text();
-  console.log("[SW-PUSH] 📩 Push recebido, tamanho:", rawText.length);
-
-  if (rawText.split('.').length !== 3) {
-    event.waitUntil(
-      self.registration.showNotification("Notificação", { body: rawText })
-    );
-    return;
-  }
-
-  event.waitUntil(async function() {
-    try {
-      const parts = rawText.split('.');
-      const headerB64Url = parts[0];
-      const payloadB64Url = parts[1];
-      const signatureB64Url = parts[2];
-      const encoder = new TextEncoder();
-      const decoder = new TextDecoder();
-
-      const base64UrlDecode = (str) => {
-        let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-        while (base64.length % 4) base64 += '=';
-        return decoder.decode(new Uint8Array([...atob(base64)].map(c => c.charCodeAt(0))));
-      };
-
-      const jwtPayload = JSON.parse(base64UrlDecode(payloadB64Url));
-      const emailRemetente = jwtPayload.iss || "remetente@desconhecido";
-      const nomeRemetente = jwtPayload.nm || jwtPayload.name || emailRemetente.split('@')[0] || "Remetente";
-
-      console.log(`[SW-PUSH] 🔐 Mensagem de ${nomeRemetente} <${emailRemetente}>`);
-
-      let publicKeyVapid = jwtPayload.p || jwtPayload.publicKey || null;
-      console.log(`[SW-PUSH] Chave pública VAPID: ${publicKeyVapid ? 'encontrada' : 'não encontrada'}`);
-
-      let contato = null;
-      if (publicKeyVapid) {
-        contato = await buscarContatoPorPublicKey(publicKeyVapid);
-        if (contato) {
-          console.log(`[SW-PUSH] Contato existente encontrado: ${contato.email}`);
-        }
-      }
-
-      let assinaturaValida = false;
-      let homologado = contato ? contato.homologado : false;
-
-      try {
-        if (publicKeyVapid) {
-          const keyVerify = await crypto.subtle.importKey(
-            "jwk", publicKeyVapid,
-            { name: "ECDSA", namedCurve: "P-256" },
-            true, ["verify"]
-          );
-
-          let b64Sig = signatureB64Url.replace(/-/g, '+').replace(/_/g, '/');
-          while (b64Sig.length % 4) b64Sig += '=';
-          const signatureBytes = new Uint8Array([...atob(b64Sig)].map(c => c.charCodeAt(0)));
-          const tokenStringWithoutSignature = `${headerB64Url}.${payloadB64Url}`;
-
-          assinaturaValida = await crypto.subtle.verify(
-            { name: "ECDSA", hash: "SHA-256" },
-            keyVerify,
-            signatureBytes,
-            encoder.encode(tokenStringWithoutSignature)
-          );
-        } else {
-          console.warn("[SW-PUSH] ⚠️ Chave pública VAPID não encontrada.");
-        }
-      } catch (err) {
-        console.error("[SW-PUSH] ❌ Erro na verificação:", err);
-      }
-
-      if (!assinaturaValida) {
-        await self.registration.showNotification("⚠️ Assinatura inválida", {
-          body: `Mensagem de ${nomeRemetente} rejeitada.`,
-          icon: '/icon.png'
-        });
-        return;
-      }
-
-      console.log("[SW-PUSH] 🛡️ Assinatura validada com sucesso!");
-
-      const privateDecryptKey = await buscarChaveDecript();
-      if (!privateDecryptKey) {
-        throw new Error("Chave privada RSA de decodificação não encontrada.");
-      }
-
-      const envelopeJson = jwtPayload.ct || jwtPayload.cipherText;
-      if (!envelopeJson) throw new Error("Envelope não encontrado.");
-
-      const envelope = JSON.parse(envelopeJson);
-      const iv = envelope.i || envelope.iv;
-      const dados = envelope.d || envelope.dadosCifrados;
-      const chaveAesCifrada = envelope.k || envelope.chaveAesCifrada;
-      if (!iv || !dados || !chaveAesCifrada) throw new Error("Envelope incompleto.");
-
-      const ivBytes = new Uint8Array(base64ToArrayBuffer(iv));
-      const dadosBytes = new Uint8Array(base64ToArrayBuffer(dados));
-      const chaveAesCifradaBytes = new Uint8Array(base64ToArrayBuffer(chaveAesCifrada));
-
-      const aesChaveCruaBuffer = await crypto.subtle.decrypt(
-        { name: "RSA-OAEP" },
-        privateDecryptKey,
-        chaveAesCifradaBytes
-      );
-      const chaveSimetricaAes = await crypto.subtle.importKey(
-        "raw",
-        aesChaveCruaBuffer,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["decrypt"]
-      );
-      const textoDecifradoBuffer = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: ivBytes },
-        chaveSimetricaAes,
-        dadosBytes
-      );
-      const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
-      const textoDecifrado = new TextDecoder().decode(decompressed);
-
-      let mensagemObj = JSON.parse(textoDecifrado);
-      const conteudo = mensagemObj.c || textoDecifrado; // agora é 'c' (antes era m.c)
-
-      const e = mensagemObj.e || {};
-      const subscription = e.s ? {
-        endpoint: e.s.e || e.s.endpoint,
-        keys: e.s.k || e.s.keys
-      } : null;
-      const publicKeyRSA = e.p || null;
-      const vapidPrivateKey = (e.s && e.s.v) ? e.s.v : null; // agora a chave privada VAPID cifrada está em e.s.v
-
-      if (publicKeyVapid && publicKeyRSA && subscription) {
-        let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
-        const novoContato = {
-          publicKeyVapid: publicKeyVapid,
-          email: emailRemetente,
-          nome: contatoExistente?.nome || nomeRemetente,
-          publicKeyRSA: publicKeyRSA,
-          subscription: subscription,
-          vapidPrivateKey: vapidPrivateKey || '',
-          homologado: contatoExistente ? contatoExistente.homologado : false,
-          createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
-          updatedAt: Date.now()
-        };
-        await salvarContato(novoContato);
-        contato = novoContato;
-      } else {
-        console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
-      }
-
-      const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
-      const mensagemRecebida = {
-        id: msgId,
-        contatoPublicKeyVapid: contatoKey,
-        conteudo: conteudo,
-        status: 'nao_lida',
-        recebidoEm: Date.now()
-      };
-      if (DEBUG) {
-        mensagemRecebida.dadosJwt = jwtPayload;
-      }
-      await salvarMensagemRecebida(mensagemRecebida);
-
-      const podeResponder = !!(contato && contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
-      const statusEmoji = homologado ? '✅' : '🔄';
-      const statusTexto = homologado ? 'Homologado' : 'Não homologado';
-
-      await self.registration.showNotification(`📥 Nova mensagem`, {
-        body: `${conteudo}\n\n${statusEmoji} De: ${nomeRemetente} - ${statusTexto}`,
-        icon: '/icon.png',
-        data: {
-          mensagemId: msgId,
-          publicKeyVapid: publicKeyVapid,
-          homologado: homologado,
-          podeResponder: podeResponder,
-          acao: homologado ? 'ver_mensagem' : 'homologar_emissor'
-        },
-        tag: msgId,
-        requireInteraction: !homologado,
-        vibrate: [200, 100, 200]
-      });
-
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => {
-        client.postMessage({
-          type: "PUSH_RECEIVED",
-          payload: {
-            id: msgId,
-            body: conteudo,
-            remetente: nomeRemetente,
-            homologado: homologado,
-            podeResponder: podeResponder,
-            status: 'nao_lida'
-          }
-        });
-      });
-
-    } catch (err) {
-      console.error("[SW-PUSH] ❌ Erro:", err);
-      await self.registration.showNotification("⚠️ Erro ao processar mensagem", {
-        body: err.message || "Falha na decriptografia.",
-        icon: '/icon.png'
-      });
-    }
-  }());
-});
-
-console.log("[SW-PUSH] 📦 Módulo push carregado (com store unificada, DEBUG=" + DEBUG + ")");
-```
-
----
-
 ## Arquivo: `src/sw/sw-mensagens.js`
 
 ```js
@@ -914,6 +165,7 @@ console.log("[SW-PUSH] 📦 Módulo push carregado (com store unificada, DEBUG="
 import { get, set, createStore, del, entries } from "idb-keyval";
 import { gunzipSync, gzipSync } from "fflate";
 import { MAX_TENTATIVAS } from "../constants/db.ts";
+import { arrayBufferToBase64Url, criarJWT } from "../utils/jwt-helpers.ts";
 
 // 🔥 Constantes
 const DB_NAMES = {
@@ -1062,12 +314,7 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-function arrayBufferToBase64Url(buffer) {
-  const binary = String.fromCharCode(...new Uint8Array(buffer));
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-// Função para cifrar a chave VAPID (mesma lógica do app)
+// Função para cifrar a chave VAPID (usada apenas se o envelope não existir)
 async function cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk) {
   const serverKey = await crypto.subtle.importKey(
     "jwk",
@@ -1197,13 +444,11 @@ async function processarFilaEnvio() {
         // Se o envelope não existir (perfil antigo), cifrar a chave e salvar no perfil
         if (!vapidPrivateKeyEnvelope) {
           console.warn("[SW-MSG] ⚠️ Envelope da chave VAPID não encontrado no perfil. Cifrando e salvando...");
-          // Buscar chave pública do servidor
           const res = await fetch("/api/server-public-key");
           if (!res.ok) throw new Error("Não foi possível obter a chave pública do servidor.");
           const serverPublicKeyJwk = await res.json();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
           
-          // Salvar o envelope no perfil para uso futuro
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
           await salvarProfile(profile);
           console.log("[SW-MSG] ✅ Envelope da chave VAPID salvo no perfil.");
@@ -1226,35 +471,18 @@ async function processarFilaEnvio() {
         const envelope = await cifrarPayloadObj(payloadObj, contato.publicKeyRSA);
         const envelopeJson = JSON.stringify(envelope);
 
-        // 6. Construir JWT
-        const header = { alg: "ES256" };
+        // 6. Construir JWT usando função genérica
+        // 🔥 ALTERAÇÃO: sub="msg", aud=email do contato
         const payloadJwt = {
           iss: profile.email,
-          sub: contato.email,
+          sub: "msg",                // tipo de token: mensagem
+          aud: contato.email,        // destinatário
           ct: envelopeJson,
-          p: profile.vapidPublicKey,
           nm: profile.name
         };
 
-        const encoder = new TextEncoder();
-        const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
-        const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payloadJwt)));
-        const toSign = `${headerB64}.${payloadB64}`;
-
-        const privateKey = await crypto.subtle.importKey(
-          "jwk",
-          profile.vapidPrivateKeyJwk,
-          { name: "ECDSA", namedCurve: "P-256" },
-          false,
-          ["sign"]
-        );
-        const signature = await crypto.subtle.sign(
-          { name: "ECDSA", hash: "SHA-256" },
-          privateKey,
-          encoder.encode(toSign)
-        );
-        const sigB64 = arrayBufferToBase64Url(signature);
-        const jwt = `${toSign}.${sigB64}`;
+        // Header com kid = chave pública VAPID
+        const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
 
         console.log(`[SW-MSG] 📊 JWT tamanho: ${jwt.length} bytes`);
 
@@ -1331,6 +559,355 @@ self.addEventListener('online', async function() {
 self.processarFilaEnvio = processarFilaEnvio;
 
 console.log("[SW-MSG] 📦 Módulo de mensagens carregado com sucesso!");
+```
+
+---
+
+## Arquivo: `src/sw/push.js`
+
+```js
+// src/sw/push.js
+import { get, set, createStore } from "idb-keyval";
+import { gunzipSync } from "fflate";
+import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
+import { verificarJWT, base64UrlToArrayBuffer } from "../utils/jwt-helpers.ts";
+
+// ============================================================
+// CONFIGURAÇÃO
+// ============================================================
+const DEBUG = false;
+
+// ============================================================
+// STORES - usando as constantes do db.ts
+// ============================================================
+function criarStore(nome) {
+  try {
+    return createStore(nome, STORE_NAMES.KEYVAL);
+  } catch (err) {
+    console.error(`[SW-PUSH] ❌ Erro ao criar store ${nome}:`, err);
+    return null;
+  }
+}
+
+let storeConfig = criarStore(DB_NAMES.CONFIG);
+let storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
+let storeContatos = criarStore(DB_NAMES.CONTATOS);
+
+function garantirStores() {
+  if (!storeConfig) storeConfig = criarStore(DB_NAMES.CONFIG);
+  if (!storeMensagensRecebidasB) storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
+  if (!storeContatos) storeContatos = criarStore(DB_NAMES.CONTATOS);
+}
+
+// ============================================================
+// FUNÇÕES AUXILIARES
+// ============================================================
+async function sha256(message) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function serializarPublicKeyVapid(jwk) {
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// ============================================================
+// FUNÇÕES DE BANCO UNIFICADAS
+// ============================================================
+
+async function buscarProfile() {
+  try {
+    garantirStores();
+    return await get(KEY_NAMES.PROFILE, storeConfig);
+  } catch (err) {
+    console.error("[SW-PUSH] ❌ Erro ao buscar perfil:", err);
+    return null;
+  }
+}
+
+async function buscarChaveDecript() {
+  try {
+    const profile = await buscarProfile();
+    if (!profile) {
+      console.warn("[SW-PUSH] ⚠️ Perfil não encontrado.");
+      return null;
+    }
+    if (!profile.e2ePrivateKeyJwk) {
+      console.warn("[SW-PUSH] ⚠️ Chave privada RSA não encontrada no perfil.");
+      return null;
+    }
+
+    const privateDecrypt = await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+    console.log("[SW-PUSH] 🔑 Chave de decodificação RSA encontrada e importada.");
+    return privateDecrypt;
+  } catch (err) {
+    console.error("[SW-PUSH] ❌ Erro ao buscar chave de decodificação:", err);
+    return null;
+  }
+}
+
+async function salvarContato(contato) {
+  try {
+    garantirStores();
+    const key = await serializarPublicKeyVapid(contato.publicKeyVapid);
+    await set(key, contato, storeContatos);
+    console.log(`[SW-PUSH] ✅ Contato ${contato.email} salvo com chave hash: ${key.substring(0, 8)}...`);
+  } catch (err) {
+    console.error(`[SW-PUSH] ❌ Erro ao salvar contato:`, err);
+  }
+}
+
+async function buscarContatoPorPublicKey(publicKeyVapid) {
+  try {
+    garantirStores();
+    const key = await serializarPublicKeyVapid(publicKeyVapid);
+    return await get(key, storeContatos);
+  } catch (err) {
+    console.error("[SW-PUSH] ❌ Erro ao buscar contato:", err);
+    return null;
+  }
+}
+
+async function salvarMensagemRecebida(mensagem) {
+  try {
+    garantirStores();
+    await set(mensagem.id, mensagem, storeMensagensRecebidasB);
+    console.log(`[SW-PUSH] ✅ Mensagem ${mensagem.id} salva.`);
+  } catch (err) {
+    console.error(`[SW-PUSH] ❌ Erro ao salvar mensagem ${mensagem.id}:`, err);
+  }
+}
+
+// ============================================================
+// EVENTO PUSH
+// ============================================================
+self.addEventListener('push', function(event) {
+  if (!event.data) return;
+  const rawText = event.data.text();
+  console.log("[SW-PUSH] 📩 Push recebido, tamanho:", rawText.length);
+
+  // Se não parecer JWT, exibe como notificação simples
+  if (rawText.split('.').length !== 3) {
+    event.waitUntil(
+      self.registration.showNotification("Notificação", { body: rawText })
+    );
+    return;
+  }
+
+  event.waitUntil(async function() {
+    try {
+      // Verificar assinatura usando a chave pública do header (kid)
+      const { header, payload, valid } = await verificarJWT(rawText);
+      if (!valid) {
+        await self.registration.showNotification("⚠️ Assinatura inválida", {
+          body: `Mensagem rejeitada.`,
+          icon: '/icon.png'
+        });
+        return;
+      }
+
+      // 🔥 VALIDAÇÃO: sub deve ser "msg"
+      if (payload.sub !== "msg") {
+        await self.registration.showNotification("⚠️ Tipo de mensagem inválido", {
+          body: `Esperado 'msg', recebido '${payload.sub}'`,
+          icon: '/icon.png'
+        });
+        console.warn(`[SW-PUSH] ⚠️ JWT com sub inválido: ${payload.sub}`);
+        return;
+      }
+
+      // Buscar o perfil do receptor (para validação do aud e para descriptografia)
+      const profile = await buscarProfile();
+      if (!profile) {
+        throw new Error("Perfil do receptor não encontrado.");
+      }
+
+      // 🔥 VALIDAÇÃO: aud (destinatário) deve corresponder ao email do perfil
+      const aud = payload.aud || payload.sub; // fallback para sub se aud não existir
+      if (aud !== profile.email) {
+        console.warn(`[SW-PUSH] ⚠️ 'aud' não corresponde ao email do perfil. Esperado: ${profile.email}, Recebido: ${aud}`);
+        // Não bloqueia o processamento – apenas avisa
+      }
+
+      // Extrair chave pública VAPID do header (kid)
+      const publicKeyVapid = header.kid;
+      if (!publicKeyVapid) {
+        throw new Error("Header JWT não contém 'kid' (chave pública VAPID).");
+      }
+
+      // Extrair dados do payload
+      const emailRemetente = payload.iss || "remetente@desconhecido";
+      const nomeRemetente = payload.nm || payload.name || emailRemetente.split('@')[0] || "Remetente";
+      console.log(`[SW-PUSH] 🔐 Mensagem de ${nomeRemetente} <${emailRemetente}>`);
+
+      // Buscar contato existente pela chave pública (header.kid)
+      let contato = null;
+      if (publicKeyVapid) {
+        contato = await buscarContatoPorPublicKey(publicKeyVapid);
+        if (contato) {
+          console.log(`[SW-PUSH] Contato existente encontrado: ${contato.email}`);
+        }
+      }
+
+      // Verificar se o contato é homologado (apenas para interface)
+      let homologado = contato ? contato.homologado : false;
+
+      // Descriptografar envelope
+      const privateDecryptKey = await buscarChaveDecript(); // usa o perfil internamente
+      if (!privateDecryptKey) {
+        throw new Error("Chave privada RSA de decodificação não encontrada.");
+      }
+
+      const envelopeJson = payload.ct || payload.cipherText;
+      if (!envelopeJson) throw new Error("Envelope não encontrado.");
+
+      const envelope = JSON.parse(envelopeJson);
+      const iv = envelope.i || envelope.iv;
+      const dados = envelope.d || envelope.dadosCifrados;
+      const chaveAesCifrada = envelope.k || envelope.chaveAesCifrada;
+      if (!iv || !dados || !chaveAesCifrada) throw new Error("Envelope incompleto.");
+
+      const ivBytes = new Uint8Array(base64ToArrayBuffer(iv));
+      const dadosBytes = new Uint8Array(base64ToArrayBuffer(dados));
+      const chaveAesCifradaBytes = new Uint8Array(base64ToArrayBuffer(chaveAesCifrada));
+
+      const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+        { name: "RSA-OAEP" },
+        privateDecryptKey,
+        chaveAesCifradaBytes
+      );
+      const chaveSimetricaAes = await crypto.subtle.importKey(
+        "raw",
+        aesChaveCruaBuffer,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["decrypt"]
+      );
+      const textoDecifradoBuffer = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: ivBytes },
+        chaveSimetricaAes,
+        dadosBytes
+      );
+      const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
+      const textoDecifrado = new TextDecoder().decode(decompressed);
+
+      // Parse do objeto de mensagem (agora { c, e })
+      let mensagemObj = JSON.parse(textoDecifrado);
+      const conteudo = mensagemObj.c || textoDecifrado;
+
+      const e = mensagemObj.e || {};
+      const subscription = e.s ? {
+        endpoint: e.s.e || e.s.endpoint,
+        keys: e.s.k || e.s.keys
+      } : null;
+      const publicKeyRSA = e.p || null;
+      const vapidPrivateKey = (e.s && e.s.v) ? e.s.v : null;
+
+      // Salva/atualiza contato (o emissor é o remetente)
+      if (publicKeyVapid && publicKeyRSA && subscription) {
+        let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
+        const novoContato = {
+          publicKeyVapid: publicKeyVapid,
+          email: emailRemetente,
+          nome: contatoExistente?.nome || nomeRemetente,
+          publicKeyRSA: publicKeyRSA,
+          subscription: subscription,
+          vapidPrivateKey: vapidPrivateKey || '',
+          homologado: contatoExistente ? contatoExistente.homologado : false,
+          createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
+          updatedAt: Date.now()
+        };
+        await salvarContato(novoContato);
+        contato = novoContato;
+      } else {
+        console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
+      }
+
+      // Salva mensagem recebida
+      const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
+      const mensagemRecebida = {
+        id: msgId,
+        contatoPublicKeyVapid: contatoKey,
+        conteudo: conteudo,
+        status: 'nao_lida',
+        recebidoEm: Date.now()
+      };
+      if (DEBUG) {
+        mensagemRecebida.dadosJwt = payload;
+      }
+      await salvarMensagemRecebida(mensagemRecebida);
+
+      // Exibe notificação
+      const podeResponder = !!(contato && contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
+      const statusEmoji = homologado ? '✅' : '🔄';
+      const statusTexto = homologado ? 'Homologado' : 'Não homologado';
+
+      // 🔥 Adiciona indicação se o aud não corresponde
+      let bodyNotificacao = `${conteudo}\n\n${statusEmoji} De: ${nomeRemetente} - ${statusTexto}`;
+      if (aud !== profile.email) {
+        bodyNotificacao += `\n⚠️ Esta mensagem foi enviada para outro destinatário (${aud})`;
+      }
+
+      await self.registration.showNotification(`📥 Nova mensagem`, {
+        body: bodyNotificacao,
+        icon: '/icon.png',
+        data: {
+          mensagemId: msgId,
+          publicKeyVapid: publicKeyVapid,
+          homologado: homologado,
+          podeResponder: podeResponder,
+          acao: homologado ? 'ver_mensagem' : 'homologar_emissor'
+        },
+        tag: msgId,
+        requireInteraction: !homologado,
+        vibrate: [200, 100, 200]
+      });
+
+      // Notifica clientes abertos
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      clients.forEach(client => {
+        client.postMessage({
+          type: "PUSH_RECEIVED",
+          payload: {
+            id: msgId,
+            body: conteudo,
+            remetente: nomeRemetente,
+            homologado: homologado,
+            podeResponder: podeResponder,
+            status: 'nao_lida',
+            audMismatch: aud !== profile.email // informa à UI se houve divergência
+          }
+        });
+      });
+
+    } catch (err) {
+      console.error("[SW-PUSH] ❌ Erro:", err);
+      await self.registration.showNotification("⚠️ Erro ao processar mensagem", {
+        body: err.message || "Falha na decriptografia.",
+        icon: '/icon.png'
+      });
+    }
+  }());
+});
+
+console.log("[SW-PUSH] 📦 Módulo push carregado (com store unificada e JWT helpers, DEBUG=" + DEBUG + ")");
 ```
 
 ---
@@ -1728,6 +1305,171 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
 
 ---
 
+## Arquivo: `src/utils/jwt-helpers.ts`
+
+```ts
+// src/utils/jwt-helpers.ts
+
+// ============================================================
+// UTILITÁRIOS BASE64URL
+// ============================================================
+
+export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
+  let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// ============================================================
+// FUNÇÃO GENÉRICA: CRIAR JWT
+// ============================================================
+
+/**
+ * Cria um JWT assinado com ES256 (ECDSA P-256 + SHA-256).
+ * @param payload - Objeto com os dados do payload (será convertido para JSON).
+ * @param privateKeyJwk - Chave privada VAPID em formato JWK.
+ * @param headerExtra - Campos extras para o header (ex: { kid: ... }).
+ * @returns JWT completo (string) no formato header.payload.signature.
+ */
+export async function criarJWT(
+  payload: Record<string, any>,
+  privateKeyJwk: JsonWebKey,
+  headerExtra: Record<string, any> = {}
+): Promise<string> {
+  const header = { alg: "ES256", ...headerExtra };
+  const encoder = new TextEncoder();
+
+  const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
+  const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
+  const toSign = `${headerB64}.${payloadB64}`;
+
+  const privateKey = await crypto.subtle.importKey(
+    "jwk",
+    privateKeyJwk,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    privateKey,
+    encoder.encode(toSign)
+  );
+  const sigB64 = arrayBufferToBase64Url(signature);
+
+  return `${toSign}.${sigB64}`;
+}
+
+// ============================================================
+// FUNÇÃO GENÉRICA: VERIFICAR JWT
+// ============================================================
+
+/**
+ * Verifica um JWT assinado com ES256.
+ * Se publicKeyJwk for fornecido, usa-o; senão, extrai a chave do campo 'kid' do header.
+ * Retorna { header, payload, signature, valid }.
+ */
+export async function verificarJWT(
+  jwt: string,
+  publicKeyJwk?: JsonWebKey
+): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error("JWT inválido: deve ter 3 partes separadas por '.'");
+  }
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  const decoder = new TextDecoder();
+
+  const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+  const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+  const header = JSON.parse(headerJson);
+  const payload = JSON.parse(payloadJson);
+
+  let publicKeyJwkFinal = publicKeyJwk;
+  if (!publicKeyJwkFinal) {
+    if (!header.kid) {
+      throw new Error("Header JWT não contém 'kid' e nenhuma chave pública foi fornecida.");
+    }
+    publicKeyJwkFinal = header.kid;
+  }
+
+  const publicKey = await crypto.subtle.importKey(
+    "jwk",
+    publicKeyJwkFinal,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["verify"]
+  );
+
+  const toSign = `${headerB64}.${payloadB64}`;
+  const signatureBytes = base64UrlToArrayBuffer(signatureB64);
+
+  const encoder = new TextEncoder();
+  const valid = await crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    publicKey,
+    signatureBytes,
+    encoder.encode(toSign)
+  );
+
+  return { header, payload, signature: signatureB64, valid };
+}
+
+// ============================================================
+// FUNÇÃO GENÉRICA: DECODIFICAR JWT (sem verificar assinatura)
+// ============================================================
+
+/**
+ * Decodifica um JWT sem verificar a assinatura (apenas para leitura).
+ * Retorna { header, payload, signature }.
+ */
+export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error("JWT inválido: deve ter 3 partes separadas por '.'");
+  }
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  const decoder = new TextDecoder();
+
+  const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+  const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+
+  return {
+    header: JSON.parse(headerJson),
+    payload: JSON.parse(payloadJson),
+    signature: signatureB64
+  };
+}
+```
+
+---
+
 ## Arquivo: `src/index.html`
 
 ```html
@@ -1765,19 +1507,23 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
           <input type="text" id="profileEmailB" value="alice@example.com" />
         </div>
       </div>
-      <button id="btnGerarProfile" style="width: 100%;">📦 Gerar e Compartilhar Meu Perfil</button>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button id="btnGerarProfile" style="flex: 1; min-width: 150px;">📦 Gerar/Atualizar Perfil</button>
+        <button id="btnCompartilharProfile" style="flex: 1; min-width: 150px; background-color: #002b3d;">🔗 Compartilhar Perfil (JWT)</button>
+      </div>
       <button id="btnLimparSubscription" class="btn-sm danger" style="margin-top: 10px;">🗑️ Limpar Subscription</button>
       
       <div class="row mt-10">
         <div class="col">
           <label for="myProfileDisplay">📋 Meu Perfil (copie e cole para quem quiser te enviar mensagens):</label>
           <div id="myProfileDisplay" class="profile-field" style="background: #e8f5e9; border-color: #006c4f;">
-            Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.
+            Clique em "Gerar/Atualizar Perfil" para criar seu perfil, depois em "Compartilhar Perfil" para gerar o JWT.
           </div>
           <button id="btnCopyProfile" class="btn-sm">📋 Copiar Perfil</button>
         </div>
       </div>
     </div>
+
 
     <!-- ============================================================ -->
     <!-- CONTATOS                                                     -->
@@ -1787,7 +1533,7 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
       <div class="row">
         <div class="col">
           <label for="profileInput">Cole aqui o perfil de outra pessoa para adicionar como contato:</label>
-          <textarea id="profileInput" rows="4" placeholder='{"iss":"...","kid":{...},"nm":"...","s":{...},"p":{...},"k":"..."}'></textarea>
+          <textarea id="profileInput" rows="4" placeholder="Cole aqui o JWT gerado pela outra pessoa..."></textarea>
           <button id="btnAdicionarContato">➕ Adicionar Contato</button>
         </div>
       </div>
@@ -2118,6 +1864,14 @@ import type {
   Contato,
 } from "./constants/db.ts";
 
+import {
+  criarJWT,
+  verificarJWT,
+  decodificarJWT,
+  arrayBufferToBase64Url,
+  arrayBufferToBase64,
+} from "./utils/jwt-helpers.ts";
+
 console.log("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
 
 // ============================================================
@@ -2148,18 +1902,6 @@ function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): vo
     toast.style.transition = 'opacity 0.3s ease';
     setTimeout(() => toast.remove(), 300);
   }, 3000);
-}
-
-function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  const binary = String.fromCharCode(...new Uint8Array(buffer));
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
 }
 
 function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
@@ -2261,10 +2003,10 @@ async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
 }
 
 // ============================================================
-// GERAR PERFIL (profile) – unificado
+// GERAR PERFIL (profile) – unificado (NÃO GERA JWT)
 // ============================================================
-async function gerarProfile(): Promise<any> {
-  console.log("📦 Gerando perfil unificado...");
+async function gerarProfile(): Promise<ProfileConfig> {
+  console.log("📦 Gerando/Atualizando perfil unificado...");
   const nome = (document.getElementById('profileNameB') as HTMLInputElement).value;
   const email = (document.getElementById('profileEmailB') as HTMLInputElement).value;
 
@@ -2405,7 +2147,7 @@ async function gerarProfile(): Promise<any> {
       email: email,
       vapidPublicKey: publicKeyJwk,
       vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, // <-- novo campo
+      vapidPrivateKeyEnvelope: privateKeyEncrypted,
       e2ePublicKey: e2ePublicKey,
       e2ePrivateKeyJwk: e2ePrivateKeyJwk,
       subscription: subscription,
@@ -2413,7 +2155,6 @@ async function gerarProfile(): Promise<any> {
       updatedAt: Date.now()
     };
 
-    // Salvar perfil unificado
     await salvarProfile(profile);
 
     // Salvar identidade (para compatibilidade)
@@ -2424,17 +2165,7 @@ async function gerarProfile(): Promise<any> {
     };
     await salvarIdentidadeA(identidadeTemporaria);
 
-    // Construir o objeto de perfil para compartilhamento
-    const profilePublic = {
-      iss: email,
-      nm: nome,
-      kid: publicKeyJwk,
-      s: subscription,
-      p: e2ePublicKey,
-      k: privateKeyEncrypted // chave VAPID cifrada
-    };
-
-    return profilePublic;
+    return profile;
   } catch (err) {
     console.error("❌ Erro ao gerar perfil:", err);
     throw err;
@@ -2442,42 +2173,130 @@ async function gerarProfile(): Promise<any> {
 }
 
 // ============================================================
-// ADICIONAR CONTATO
+// COMPARTILHAR PERFIL via JWT (sub: "contact") COM VALIDAÇÕES
+// ============================================================
+async function compartilharProfile(): Promise<void> {
+  console.log("🔄 Gerando JWT de compartilhamento de perfil...");
+  try {
+    const profile = await buscarProfile();
+    if (!profile) {
+      throw new Error("Perfil não encontrado. Clique em 'Gerar/Atualizar Perfil' primeiro.");
+    }
+
+    // 🔥 VALIDAÇÕES ESSENCIAIS
+    if (!profile.vapidPublicKey) {
+      throw new Error("Chave pública VAPID ausente. Atualize seu perfil.");
+    }
+    if (!profile.vapidPrivateKeyJwk) {
+      throw new Error("Chave privada VAPID ausente. Atualize seu perfil.");
+    }
+    if (!profile.e2ePublicKey) {
+      throw new Error("Chave pública RSA ausente. Atualize seu perfil.");
+    }
+    if (!profile.subscription) {
+      throw new Error("Subscription ausente. Atualize seu perfil.");
+    }
+    if (!profile.subscription.endpoint) {
+      throw new Error("Endpoint da subscription ausente. Atualize seu perfil.");
+    }
+    if (!profile.subscription.keys || !profile.subscription.keys.p256dh || !profile.subscription.keys.auth) {
+      throw new Error("Chaves da subscription incompletas. Atualize seu perfil.");
+    }
+    // 🔥 VALIDAÇÃO ESPECÍFICA PARA s.k (ENVELOPE)
+    if (!profile.vapidPrivateKeyEnvelope) {
+      throw new Error("Envelope da chave VAPID (k) ausente. Clique em 'Gerar/Atualizar Perfil' para recriar.");
+    }
+
+    const payload = {
+      iss: profile.email,
+      sub: "contact",
+      nm: profile.name,
+      p: profile.e2ePublicKey,
+      s: {
+        endpoint: profile.subscription.endpoint,
+        keys: {
+          p256dh: profile.subscription.keys.p256dh,
+          auth: profile.subscription.keys.auth
+        },
+        k: profile.vapidPrivateKeyEnvelope // 🔥 ESSENCIAL
+      },
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    const jwt = await criarJWT(payload, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+
+    const display = document.getElementById('myProfileDisplay');
+    if (display) {
+      display.textContent = jwt;
+      display.style.background = '#e8f5e9';
+    }
+    await copyToClipboard(jwt);
+    showToast("✅ JWT de perfil copiado para a área de transferência!", "success");
+  } catch (err: any) {
+    console.error("Erro ao gerar JWT:", err);
+    showToast("❌ Erro ao gerar JWT: " + err.message, "error");
+  }
+}
+
+// ============================================================
+// ADICIONAR CONTATO a partir de JWT (sub: "contact")
 // ============================================================
 async function adicionarContato(): Promise<void> {
-  const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value;
+  const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value.trim();
   if (!profileRaw) {
-    showToast("Cole o perfil da pessoa que deseja adicionar.", "error");
+    showToast("Cole o perfil (JWT) da pessoa que deseja adicionar.", "error");
     return;
   }
-  try {
-    const profile = JSON.parse(profileRaw);
-    const required = ['iss', 'kid', 's', 'p', 'k'];
-    for (const field of required) {
-      if (!profile[field]) throw new Error(`Campo obrigatório ausente: ${field}`);
-    }
-    if (!profile.s.endpoint || !profile.s.keys || !profile.s.keys.p256dh || !profile.s.keys.auth) {
-      throw new Error('Subscription inválida: falta endpoint ou keys.');
-    }
-    await crypto.subtle.importKey(
-      "jwk", profile.kid,
-      { name: "ECDSA", namedCurve: "P-256" },
-      true, ["verify"]
-    );
 
-    const contato: Contato = {
-      publicKeyVapid: profile.kid,
-      email: profile.iss,
-      nome: profile.nm || profile.iss,
-      publicKeyRSA: profile.p,
-      subscription: profile.s,
-      vapidPrivateKey: profile.k,
-      homologado: false,
-      createdAt: Date.now(),
+  try {
+    if (profileRaw.split('.').length !== 3) {
+      throw new Error("Formato inválido. Cole o JWT gerado pelo outro navegador.");
+    }
+
+    const { header, payload, valid } = await verificarJWT(profileRaw);
+    if (!valid) {
+      throw new Error("Assinatura do JWT inválida. O perfil pode ter sido adulterado.");
+    }
+
+    // 🔥 VALIDAÇÃO DE CAMPOS OBRIGATÓRIOS
+    if (!header.kid) {
+      throw new Error("JWT incompleto: falta 'kid' no header (chave pública VAPID).");
+    }
+    if (!payload.p) {
+      throw new Error("JWT incompleto: falta 'p' (chave pública RSA).");
+    }
+    if (!payload.s) {
+      throw new Error("JWT incompleto: falta 's' (subscription).");
+    }
+    if (!payload.s.k) {
+      throw new Error("JWT incompleto: falta 's.k' (chave privada VAPID cifrada).");
+    }
+    if (payload.sub !== "contact") {
+      throw new Error("Este JWT não é um perfil de contato (sub deve ser 'contact').");
+    }
+
+    let contatoExistente = await buscarContatoPorPublicKey(header.kid);
+
+    const novoContato: Contato = {
+      publicKeyVapid: header.kid,
+      email: payload.iss,
+      nome: payload.nm || payload.iss,
+      publicKeyRSA: payload.p,
+      subscription: {
+        endpoint: payload.s.endpoint,
+        keys: {
+          p256dh: payload.s.keys.p256dh,
+          auth: payload.s.keys.auth
+        }
+      },
+      vapidPrivateKey: payload.s.k,
+      homologado: true,
+      createdAt: contatoExistente?.createdAt || Date.now(),
       updatedAt: Date.now()
     };
-    await salvarContato(contato);
-    showToast(`✅ Contato "${contato.nome}" adicionado!`, "success");
+    await salvarContato(novoContato);
+
+    showToast(`✅ Contato "${novoContato.nome}" adicionado com sucesso!`, "success");
     (document.getElementById('profileInput') as HTMLTextAreaElement).value = '';
     await carregarContatos();
     await carregarSelectContatos();
@@ -2487,26 +2306,48 @@ async function adicionarContato(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR LISTA DE CONTATOS
+// CARREGAR LISTA DE CONTATOS (COM BOTÕES DE HOMOLOGAR)
 // ============================================================
 async function carregarContatos(): Promise<void> {
   const container = document.getElementById('listaContatos');
   if (!container) return;
   const contatos = await listarContatos();
   if (contatos.length === 0) {
-    container.innerHTML = '<p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>';
+    container.innerHTML = `
+      <p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>
+      <button id="btnHomologarTodosContatos" class="btn-sm homologar-btn" style="margin-top: 8px;">🔄 Homologar Todos</button>
+    `;
+    const btnHomologarTodos = document.getElementById('btnHomologarTodosContatos');
+    if (btnHomologarTodos) {
+      btnHomologarTodos.addEventListener('click', homologarTodosContatos);
+    }
     return;
   }
+
   let html = '';
   for (const c of contatos) {
     const homol = c.homologado ? '✅' : '🔄';
+    const botaoHomologar = !c.homologado ?
+      `<button class="btn-homologar-contato btn-sm homologar-btn" data-publickey='${JSON.stringify(c.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; color: white; border: none; border-radius: 3px; cursor: pointer;">🔄 Homologar</button>` :
+      '';
+
     html += `
       <div class="contato-item">
         <span><strong>${c.nome}</strong> &lt;${c.email}&gt; ${homol}</span>
-        <button class="btn-remover-contato btn-sm danger" data-publickey='${JSON.stringify(c.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>
+        <div style="display: flex; gap: 4px;">
+          ${botaoHomologar}
+          <button class="btn-remover-contato btn-sm danger" data-publickey='${JSON.stringify(c.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>
+        </div>
       </div>
     `;
   }
+
+  html += `
+    <div style="margin-top: 10px; text-align: right;">
+      <button id="btnHomologarTodosContatos" class="btn-sm homologar-btn">🔄 Homologar Todos</button>
+    </div>
+  `;
+
   container.innerHTML = html;
 
   container.querySelectorAll('.btn-remover-contato').forEach((btn) => {
@@ -2526,6 +2367,52 @@ async function carregarContatos(): Promise<void> {
       }
     });
   });
+
+  container.querySelectorAll('.btn-homologar-contato').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const publicKeyStr = target.dataset.publickey || '';
+      try {
+        const publicKeyVapid = JSON.parse(publicKeyStr);
+        await homologarContato(publicKeyVapid);
+        showToast("✅ Contato homologado!", "success");
+        await carregarContatos();
+        await carregarSelectContatos();
+      } catch (err) {
+        showToast(`❌ Erro: ${err.message}`, "error");
+      }
+    });
+  });
+
+  const btnHomologarTodos = document.getElementById('btnHomologarTodosContatos');
+  if (btnHomologarTodos) {
+    btnHomologarTodos.addEventListener('click', homologarTodosContatos);
+  }
+}
+
+// ============================================================
+// HOMOLOGAR TODOS OS CONTATOS
+// ============================================================
+async function homologarTodosContatos(): Promise<void> {
+  const contatos = await listarContatos();
+  const naoHomologados = contatos.filter(c => !c.homologado);
+  if (naoHomologados.length === 0) {
+    showToast("ℹ️ Nenhum contato não homologado.", "info");
+    return;
+  }
+  if (!confirm(`Homologar ${naoHomologados.length} contatos?`)) return;
+  let sucesso = 0;
+  for (const c of naoHomologados) {
+    try {
+      await homologarContato(c.publicKeyVapid);
+      sucesso++;
+    } catch (err) {
+      console.warn(`Falha ao homologar ${c.email}:`, err);
+    }
+  }
+  showToast(`✅ ${sucesso} contatos homologados.`, "success");
+  await carregarContatos();
+  await carregarSelectContatos();
 }
 
 // ============================================================
@@ -2560,14 +2447,12 @@ async function enviarMensagemB(): Promise<void> {
   }
 
   try {
-    // Validar contato
     const contato = await buscarContatoPorChave(selectedKey);
     if (!contato) {
       showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
       return;
     }
 
-    // Salvar mensagem na fila
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const mensagem: MensagemEnviada = {
       id: msgId,
@@ -2580,7 +2465,6 @@ async function enviarMensagemB(): Promise<void> {
     };
     await salvarMensagemEnviada(mensagem);
 
-    // Notificar Service Worker
     const reg = await navigator.serviceWorker.ready;
     reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
 
@@ -2595,27 +2479,7 @@ async function enviarMensagemB(): Promise<void> {
 }
 
 // ============================================================
-// COMPARTILHAR PERFIL
-// ============================================================
-async function compartilharProfile(): Promise<void> {
-  console.log("🔄 Gerando e compartilhando perfil...");
-  try {
-    const profile = await gerarProfile();
-    const profileJson = JSON.stringify(profile, null, 2);
-    const display = document.getElementById('myProfileDisplay');
-    if (display) {
-      display.textContent = profileJson;
-      display.style.background = '#e8f5e9';
-    }
-    await copyToClipboard(profileJson);
-    showToast("✅ Perfil copiado para a área de transferência!", "success");
-  } catch (err: any) {
-    showToast("❌ Erro ao gerar perfil: " + err.message, "error");
-  }
-}
-
-// ============================================================
-// CARREGAR MENSAGENS RECEBIDAS (implementação completa)
+// CARREGAR MENSAGENS RECEBIDAS
 // ============================================================
 async function carregarMensagensRecebidas(): Promise<void> {
   console.log("📬 Carregando mensagens recebidas...");
@@ -2674,10 +2538,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
     const homolTexto = homologado ? 'Homologado' : 'Não homologado';
     const homolClass = homologado ? 'msg-item-homologado' : 'msg-item-nao-homologado';
 
-    const botaoHomologar = (!homologado && contato) ?
-      `<button class="btn-homologar-msg btn-sm homologar-btn" data-publickey='${JSON.stringify(contato.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; color: white; border: none; border-radius: 3px; cursor: pointer;">🔄 Homologar</button>` :
-      '';
-
     const botaoResponder = (podeResponder) ?
       `<button class="btn-responder-msg btn-sm" data-publickey='${JSON.stringify(contato.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #002b3d; color: white; border: none; border-radius: 3px; cursor: pointer;">💬 Responder</button>` :
       '';
@@ -2697,7 +2557,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
             </span>
           </div>
           <div style="display: flex; gap: 4px; flex-wrap: wrap;">
-            ${botaoHomologar}
             ${botaoResponder}
             ${msg.status === 'nao_lida' || msg.status === 'notificada' ?
               `<button class="btn-marcar-lida" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #006c4f; color: white; border: none; border-radius: 3px; cursor: pointer;">📖 Marcar lida</button>` :
@@ -2728,22 +2587,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
       if (id && confirm('Remover esta mensagem?')) {
         await removerMensagemRecebida(id);
         await carregarMensagensRecebidas();
-      }
-    });
-  });
-
-  container.querySelectorAll('.btn-homologar-msg').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      const target = e.currentTarget as HTMLButtonElement;
-      const publicKeyStr = target.dataset.publickey || '';
-      try {
-        const publicKeyVapid = JSON.parse(publicKeyStr);
-        await homologarContato(publicKeyVapid);
-        showToast("✅ Emissor homologado!", "success");
-        await carregarMensagensRecebidas();
-        await carregarContatos();
-      } catch (err) {
-        showToast(`❌ Erro: ${err.message}`, "error");
       }
     });
   });
@@ -2839,31 +2682,6 @@ async function carregarMensagensEnviadas(): Promise<void> {
 }
 
 // ============================================================
-// HOMOLOGAR TODOS OS CONTATOS
-// ============================================================
-async function homologarTodasMensagens(): Promise<void> {
-  const contatos = await listarContatos();
-  const naoHomologados = contatos.filter(c => !c.homologado);
-  if (naoHomologados.length === 0) {
-    showToast("ℹ️ Nenhum contato não homologado.", "info");
-    return;
-  }
-  if (!confirm(`Homologar ${naoHomologados.length} contatos?`)) return;
-  let sucesso = 0;
-  for (const c of naoHomologados) {
-    try {
-      await homologarContato(c.publicKeyVapid);
-      sucesso++;
-    } catch (err) {
-      console.warn(`Falha ao homologar ${c.email}:`, err);
-    }
-  }
-  showToast(`✅ ${sucesso} contatos homologados.`, "success");
-  await carregarMensagensRecebidas();
-  await carregarContatos();
-}
-
-// ============================================================
 // REMOVER MENSAGENS LIDAS
 // ============================================================
 async function removerMensagensLidas(): Promise<void> {
@@ -2910,6 +2728,11 @@ async function carregarDadosIniciais(): Promise<void> {
       (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
       (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
       console.log("✅ Perfil carregado:", profile.name);
+      // 🔥 Verifica se o envelope existe, senão avisa
+      if (!profile.vapidPrivateKeyEnvelope) {
+        console.warn("⚠️ Perfil antigo sem envelope VAPID. Clique em 'Gerar/Atualizar Perfil' para corrigir.");
+        showToast("⚠️ Perfil desatualizado. Clique em 'Gerar/Atualizar Perfil' para corrigir.", "info");
+      }
     } else {
       console.log("ℹ️ Nenhum perfil encontrado. Gere um novo perfil.");
     }
@@ -2931,20 +2754,40 @@ window.addEventListener("DOMContentLoaded", async () => {
   initTabs();
   await carregarDadosIniciais();
 
-  document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
+  // 🔥 Botão "Gerar/Atualizar Perfil" – cria ou atualiza o perfil
+  document.getElementById('btnGerarProfile')?.addEventListener('click', async () => {
+    try {
+      const profile = await gerarProfile();
+      showToast(`✅ Perfil de "${profile.name}" gerado/atualizado com sucesso!`, "success");
+      // Atualiza interface com nome/email
+      (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
+      (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
+    } catch (err: any) {
+      showToast("❌ Erro ao gerar perfil: " + err.message, "error");
+    }
+  });
+
+  // 🔥 Botão "Compartilhar Perfil (JWT)" – gera o JWT a partir do perfil existente
+  const btnCompartilhar = document.getElementById('btnCompartilharProfile');
+  if (btnCompartilhar) {
+    btnCompartilhar.addEventListener('click', compartilharProfile);
+  }
+
+  // 🔥 Botão "Copiar Perfil" – copia o conteúdo do display (JWT)
   document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
     const display = document.getElementById('myProfileDisplay');
     if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
       await copyToClipboard(display.textContent);
+      showToast("✅ JWT copiado!", "success");
     } else {
       showToast("Primeiro gere seu perfil.", "info");
     }
   });
+
   document.getElementById('btnAdicionarContato')?.addEventListener('click', adicionarContato);
   document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);
   document.getElementById('btnCarregarMensagens')?.addEventListener('click', carregarMensagensRecebidas);
   document.getElementById('btnLimparLidas')?.addEventListener('click', removerMensagensLidas);
-  document.getElementById('btnHomologarTodas')?.addEventListener('click', homologarTodasMensagens);
 
   document.getElementById('btnLimparSubscription')?.addEventListener('click', async () => {
     try {
@@ -2974,10 +2817,6 @@ window.addEventListener("DOMContentLoaded", async () => {
         carregarMensagensRecebidas();
         carregarContatos();
       }, 1000);
-    }
-    if (event.data?.type === 'MENSAGEM_ENVIADA') {
-      console.log('📤 Mensagem enviada, atualizando lista...');
-      setTimeout(carregarMensagensEnviadas, 500);
     }
   });
 });
@@ -3588,7 +3427,483 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 - **Seção 4.5**: Atualizada a estrutura do objeto decifrado no push para `{ c, e }` e o campo `vapidPrivateKey` agora em `e.s.v`.
 - **Seção 6**: Atualizada a tabela de arquivos para refletir as novas responsabilidades.
 - **Seção 8**: Atualizado o estado atual com as novas características (perfil unificado, persistência de chaves, fila simplificada).
+
+
+# Anotações para Ajuste
+
+Vamos melhorar o codigo do "bundle" gerado ao clicar em "Gerar e Compartilhar Meu Perfil" .
+Usado para compartilhar os dados do perfil para poder ser importado como contato em outro browser, que agora será um JWT
+Segue sugestão de código para gerar token (JWT) de compartilhamento de perfil
+
+```js
+// 1. Montar header e payload
+const header = { alg: "ES256", kid: profile.vapidPublicKey };
+const payloadJwt = {
+  iss: profile.email,
+  sub: "contact"
+  nm: profile.name,
+  "p": profile.e2ePublicKey,         // Chave pública RSA (RSA-OAEP-256) em JWK
+  "s": {                             // Subscription do Web Push
+    "endpoint": profile.subscription.endpoint,
+    "keys": {
+      "p256dh": profile.subscription.p256dh,
+      "auth": profile.subscription.auth
+    },
+    "k": profile.vapidPrivateKeyEnvelope,   // Chave privada VAPID cifrada (envelope RSA-AES)
+    "iat": Date.now()
+  }
+};
+
+// 2. Codificar em Base64Url
+const encoder = new TextEncoder();
+const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
+const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payloadJwt)));
+const toSign = `${headerB64}.${payloadB64}`;
+
+// 3. Assinar com a chave privada VAPID do emissor
+const privateKey = await crypto.subtle.importKey(
+  "jwk",
+  profile.vapidPrivateKeyJwk,
+  { name: "ECDSA", namedCurve: "P-256" },
+  false,
+  ["sign"]
+);
+const signature = await crypto.subtle.sign(
+  { name: "ECDSA", hash: "SHA-256" },
+  privateKey,
+  encoder.encode(toSign)
+);
+const sigB64 = arrayBufferToBase64Url(signature);
+
+// 4. JWT final
+const jwt = `${toSign}.${sigB64}`;
+```
+
+O outro navegador vai importar este token como um contato, se o jwt for válido e devidamente assinado    
+
+validar o sigB64 com o toSign do jwt recebido
+dados obrigatórios :
+* header.kid 
+* payloadJwt.p 
+* payloadJwt.s // completo
+
+Contatos importados manualmente devem ser já considerados homologados desde o inicio
+
+```js
+  let contatoExistente = await buscarContatoPorPublicKey(payloadJwt.kid);
+  const novoContato = {
+    publicKeyVapid: header.kid,
+    email: payloadJwt.iss,
+    nome: payloadJwt.nm
+    publicKeyRSA: payloadJwt.p,
+    subscription: {
+      endpoint: payloadJwt.s.endpoint,           
+      keys: {
+        p256dh: payloadJwt.s.keys.p256dh,
+        auth: payloadJwt.s.keys.auth     
+      };
+    }
+    vapidPrivateKey: payloadJwt.s.k,
+    homologado: true,
+    createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(novoContato);
+```
 ````
+
+---
+
+## Arquivo: `main.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { serveDir } from "@std/http/file-server";
+import * as webpush from "@negrel/webpush";
+import { deleteCookie } from "@std/http/cookie";
+
+const PORT = 8000;
+
+// 🔥 Lê diretamente do Deno.env (carregado via --env)
+function carregarChavesDoServidor() {
+  const publicKeyStr = Deno.env.get('SERVER_PUBLIC_KEY');
+  const privateKeyStr = Deno.env.get('SERVER_PRIVATE_KEY');
+  
+  if (!publicKeyStr || !privateKeyStr) {
+    console.error("❌ Chaves do servidor não encontradas!");
+    console.error("   Execute 'deno task build' primeiro para gerar as chaves.");
+    console.error("   Ou defina as variáveis de ambiente SERVER_PUBLIC_KEY e SERVER_PRIVATE_KEY");
+    Deno.exit(1);
+  }
+  
+  try {
+    const publicKeyJwk = JSON.parse(publicKeyStr);
+    const privateKeyJwk = JSON.parse(privateKeyStr);
+    return { publicKeyJwk, privateKeyJwk };
+  } catch (err) {
+    console.error("❌ Erro ao parsear as chaves do servidor:", err);
+    Deno.exit(1);
+  }
+}
+
+// Chaves globais de infraestrutura do Servidor
+let serverPrivateKey: CryptoKey;
+let serverPublicKeyJwk: JsonWebKey;
+
+async function inicializarChavesDoServidor() {
+  const chaves = carregarChavesDoServidor();
+  serverPublicKeyJwk = chaves.publicKeyJwk;
+  
+  serverPrivateKey = await crypto.subtle.importKey(
+    "jwk",
+    chaves.privateKeyJwk,
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    true,
+    ["decrypt"]
+  );
+  
+  console.log("🔒 Chaves RSA de Infraestrutura do Servidor carregadas do Deno.env!");
+}
+
+// Inicializa as chaves antes de o Deno abrir a escuta HTTP
+await inicializarChavesDoServidor();
+
+// Função auxiliar para descriptografar dados Hex usando a chave RSA exclusiva do servidor
+async function decryptWithServerKey(base64Envelope: string): Promise<any> {
+  try {
+    // 1. Desempacota o envelope Base64 enviado pelo navegador
+    const envelopeText = atob(base64Envelope);
+    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+
+    // Helper para converter strings Hex textuais de volta para arrays de bytes inteiros
+    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+
+    const ivBytes = fromHex(iv);
+    const dadosBytes = fromHex(dadosCifrados);
+    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+
+    // 2. Descriptografa a chave AES usando a chave privada RSA-OAEP exclusiva da RAM do servidor
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+      { name: "RSA-OAEP" },
+      serverPrivateKey,
+      chaveAesCifradaBytes
+    );
+
+    // 3. Importa a chave simétrica AES recuperada de volta para o runtime do Deno
+    const chaveSimetricaAes = await crypto.subtle.importKey(
+      "raw",
+      aesChaveCruaBuffer,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+
+    // 4. Descriptografa o conteúdo longo da chave privada VAPID original usando a chave AES aberta
+    const vapidOriginalBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ivBytes },
+      chaveSimetricaAes,
+      dadosBytes
+    );
+
+    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
+    return JSON.parse(jsonText);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
+    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
+  }
+}
+
+// Transforma as strings textuais de chave pública/privada VAPID em JSON estruturado
+function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
+  try {
+    return {
+      publicKey: typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey,
+      privateKey: typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
+  }
+}
+
+// Auditoria Cega: Lê as Claims do JWT sem precisar de chaves e sem descriptografar a mensagem
+function lerMetadadosJJWT(jwtString: string) {
+  try {
+    const parts = jwtString.split(".");
+    if (parts.length !== 3) return null;
+
+    let base64Url = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (base64Url.length % 4) base64Url += "=";
+
+    const jsonString = new TextDecoder().decode(
+      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
+    );
+    
+    return JSON.parse(jsonString);
+  } catch {
+    return null;
+  }
+}
+
+Deno.serve({ port: PORT }, async (req) => {
+  const url = new URL(req.url);
+  
+  // 1. Captura o Origin enviado pelo navegador
+  let origin = req.headers.get("origin") || "";
+
+  // CORREÇÃO CRUCIAL: Se o Origin vier vazio (comum em fetches relativos do mesmo domínio),
+  // nós reconstrói ele dinamicamente usando o protocolo (http/https) e o Host atual do servidor
+  if (origin === "") {
+    const host = req.headers.get("host") || `localhost:${PORT}`;
+    // Verifica se o seu servidor roda em ambiente seguro (HTTPS) na nuvem ou HTTP local
+    const protocolo = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+    origin = `${protocolo}://${host}`;
+  }
+
+  // 2. VALIDAÇÃO DE CORS ATUALIZADA
+  // Permite localhost (qualquer porta) ou qualquer subdomínio de .vanaware.com
+  const isAllowedOrigin = 
+    /^https?:\/\/localhost(:\d+)?$/.test(origin) || 
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/.test(origin);
+
+  // 3. Define os cabeçalhos de resposta baseados na validação acima
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "https://vanaware.com",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
+    "Access-Control-Allow-Credentials": "true"
+  };
+
+  // Trata requisições de preflight imediatamente
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  // Trava de segurança de API: Se a origem final gerada NÃO for permitida, bloqueia com 403
+  if (!isAllowedOrigin && url.pathname.startsWith("/api/")) {
+    console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
+    return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+
+  // ROTA DE INFRAESTRUTURA: Compartilha a chave pública para cifragem da chave VAPID
+  if (req.method === "GET" && url.pathname === "/api/server-public-key") {
+    return new Response(JSON.stringify(serverPublicKeyJwk), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+
+  // ROTA DE LOGOUT (mantida)
+  if (url.pathname === "/api/logout" && req.method === "POST") {
+    const headers = new Headers();
+    deleteCookie(headers, "session_token", { path: "/" });
+    headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
+    return new Response(JSON.stringify({ disconnected: true }), {
+      status: 200,
+      headers: {
+        ...Object.fromEntries(headers.entries()),
+        "content-type": "application/json",
+      },
+    });
+  }
+
+  // ROTA DE DISPARO: Processa o envelope VAPID e encaminha o JWT criptografado
+  // 🔥 CORREÇÃO: o caminho agora é "/api/proxy-push" (com barra)
+  if (req.method === "POST" && url.pathname === "/api/proxy-push") {
+    console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida!`);
+    
+    try {
+      const body = await req.json();
+      const { subscription, payloadText, vapid } = body;
+
+      console.log(`   - Endpoint destino: ${subscription.endpoint.substring(0, 45)}...`);
+      console.log(`   - Tamanho do payloadText: ${payloadText?.length || 0} bytes`);
+
+      // Executa a auditoria cega das claims do token JWT
+      const jwtClaims = lerMetadadosJJWT(payloadText);
+      if (jwtClaims) {
+        console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+        console.log(`   - [AUDITORIA JWT] Destinado a: <${jwtClaims.sub || "Sem e-mail"}>`);
+        console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (Hex): ${jwtClaims.cipherText?.substring(0, 20) || "N/A"}...`);
+      } else {
+        console.log(`   - [AUDITORIA JWT] ⚠️ Não foi possível ler as claims do JWT`);
+      }
+
+      let privateKeyFinal = vapid.privateKey;
+
+      // 🔥 DESCRIPTOGRAFIA DA CHAVE PRIVADA VAPID NA RAM
+      if (typeof privateKeyFinal === "string") {
+        console.log("   - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
+        console.log(`   - [SEGURANÇA] Tamanho do envelope: ${privateKeyFinal.length} bytes`);
+        try {
+          const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal);
+          privateKeyFinal = decryptedPrivateKeyObj;
+          console.log("   - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+        } catch (decryptErr) {
+          console.error("   - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
+          return new Response(
+            JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } else {
+        console.log("   - Chave VAPID não é string, usando como está.");
+      }
+
+      // 1. Processa e normatiza as chaves do request
+      let jwkKeys;
+      try {
+        jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
+        console.log("   - ✅ Chaves VAPID parseadas com sucesso");
+      } catch (parseErr) {
+        console.error("   - ❌ Erro ao parsear chaves VAPID:", parseErr);
+        return new Response(
+          JSON.stringify({ success: false, error: "Chaves VAPID inválidas." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // 2. Importa a assinatura do cabeçalho de rede do push
+      let vapidKeys;
+      try {
+        vapidKeys = await webpush.importVapidKeys(jwkKeys);
+        console.log("   - ✅ Chaves VAPID importadas com sucesso");
+      } catch (importErr) {
+        console.error("   - ❌ Erro ao importar chaves VAPID:", importErr);
+        return new Response(
+          JSON.stringify({ success: false, error: "Falha ao importar chaves VAPID." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Cria o servidor de aplicação
+      let appServer;
+      try {
+        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+        console.log(`   - Contact: ${contact}`);
+        appServer = await webpush.ApplicationServer.new({
+          contactInformation: contact,
+          vapidKeys: vapidKeys,
+        });
+        console.log("   - ✅ ApplicationServer criado com sucesso");
+      } catch (serverErr) {
+        console.error("   - ❌ Erro ao criar ApplicationServer:", serverErr);
+        return new Response(
+          JSON.stringify({ success: false, error: "Falha ao criar servidor de push." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // 3. Encaminha o token JWT fechado diretamente sem descriptografar o conteúdo
+      try {
+        console.log("   - 📤 Enviando push para:", subscription.endpoint.substring(0, 60) + "...");
+        console.log(`   - 📤 Tamanho do payload: ${payloadText.length} bytes`);
+        
+        const subscriber = appServer.subscribe(subscription);
+        await subscriber.pushTextMessage(payloadText, {});
+        
+        console.log("   ✅ [SUCESSO] Push despachado! Chave Privada VAPID descartada com segurança da RAM.");
+      } catch (pushErr) {
+        console.error("   - ❌ Erro ao enviar push:", pushErr);
+        
+        // 🔥 Tenta ler o corpo da resposta do FCM para diagnóstico
+        let responseBody = '';
+        let statusCode = 500;
+        
+        try {
+          if (pushErr instanceof webpush.PushMessageError && pushErr.response) {
+            statusCode = pushErr.response.status;
+            responseBody = await pushErr.response.text();
+            console.error(`   - 📄 Resposta do FCM (status ${statusCode}): ${responseBody}`);
+          }
+        } catch (e) {
+          console.error(`   - ❌ Não foi possível ler a resposta do FCM:`, e);
+        }
+        
+        // Se for erro de subscription inválida (410) ou 404
+        if (pushErr instanceof webpush.PushMessageError && (pushErr.response?.status === 410 || pushErr.response?.status === 404)) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Inscrição expirada ou revogada.", statusCode: pushErr.response.status }),
+            { status: pushErr.response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Se o status for 400, pode ser problema no payload ou na chave
+        if (pushErr instanceof webpush.PushMessageError && pushErr.response?.status === 400) {
+          let msg = "Requisição inválida. Verifique a subscription e o payload.";
+          if (responseBody.includes("Invalid")) {
+            msg = "Chave VAPID inválida ou malformada.";
+          } else if (responseBody.includes("payload")) {
+            msg = "Payload malformado ou muito grande.";
+          }
+          return new Response(
+            JSON.stringify({ success: false, error: msg, statusCode: 400 }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Re-lança o erro para ser tratado pelo catch externo se não for tratado acima
+        throw pushErr;
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+
+    } catch (error) {
+      console.error(`\n❌ [ERRO NO SERVIDOR PUSH] [${new Date().toLocaleTimeString()}]:`);
+
+      const isPushError = error && typeof error === 'object' && 'response' in error;
+      
+      if (isPushError) {
+        const statusCode = (error as any).response?.status || 400;
+        console.error(`   -> Servidor Remoto retornou Status HTTP: ${statusCode}`);
+        console.error(`   -> Detalhe do Erro: ${error.toString()}`);
+
+        let clienteMensagem = "Erro desconhecido no servidor de push.";
+        switch (statusCode) {
+          case 410: clienteMensagem = "Inscrição expirada ou revogada (Usuário desativou as notificações)."; break;
+          case 404: clienteMensagem = "Endpoint não encontrado ou expirado no servidor de push."; break;
+          case 401: clienteMensagem = "Chaves VAPID inválidas ou assinatura rejeitada pelo servidor."; break;
+          case 413: clienteMensagem = "Payload muito grande. O limite máximo permitido é 4096 bytes (4KB)."; break;
+          case 429: clienteMensagem = "Limite de requisições excedido para este dispositivo (Rate Limit)."; break;
+          default: clienteMensagem = `Servidor de push rejeitou com status ${statusCode}.`;
+        }
+
+        return new Response(
+          JSON.stringify({ success: false, error: clienteMensagem, statusCode }),
+          { status: statusCode, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
+      console.error(`   -> Erro Interno/Local: ${errorMessage}`);
+      if (errorStack) console.error(errorStack);
+
+      return new Response(
+        JSON.stringify({ success: false, error: errorMessage, type: "InternalError" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  // 4. FALLBACK: Serve os arquivos compilados da pasta dist/
+  return serveDir(req, {
+    fsRoot: "./dist",
+    showDirListing: false,
+    quiet: true,
+  });
+});
+
+console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
+```
 
 ---
 

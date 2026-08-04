@@ -352,3 +352,86 @@ Ele roda na porta 8000 e serve os arquivos estáticos da pasta `dist/`. Também 
 - **Seção 4.5**: Atualizada a estrutura do objeto decifrado no push para `{ c, e }` e o campo `vapidPrivateKey` agora em `e.s.v`.
 - **Seção 6**: Atualizada a tabela de arquivos para refletir as novas responsabilidades.
 - **Seção 8**: Atualizado o estado atual com as novas características (perfil unificado, persistência de chaves, fila simplificada).
+
+
+# Anotações para Ajuste
+
+Vamos melhorar o codigo do "bundle" gerado ao clicar em "Gerar e Compartilhar Meu Perfil" .
+Usado para compartilhar os dados do perfil para poder ser importado como contato em outro browser, que agora será um JWT
+Segue sugestão de código para gerar token (JWT) de compartilhamento de perfil
+
+```js
+// 1. Montar header e payload
+const header = { alg: "ES256", kid: profile.vapidPublicKey };
+const payloadJwt = {
+  iss: profile.email,
+  sub: "contact"
+  nm: profile.name,
+  "p": profile.e2ePublicKey,         // Chave pública RSA (RSA-OAEP-256) em JWK
+  "s": {                             // Subscription do Web Push
+    "endpoint": profile.subscription.endpoint,
+    "keys": {
+      "p256dh": profile.subscription.p256dh,
+      "auth": profile.subscription.auth
+    },
+    "k": profile.vapidPrivateKeyEnvelope,   // Chave privada VAPID cifrada (envelope RSA-AES)
+    "iat": Date.now()
+  }
+};
+
+// 2. Codificar em Base64Url
+const encoder = new TextEncoder();
+const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
+const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payloadJwt)));
+const toSign = `${headerB64}.${payloadB64}`;
+
+// 3. Assinar com a chave privada VAPID do emissor
+const privateKey = await crypto.subtle.importKey(
+  "jwk",
+  profile.vapidPrivateKeyJwk,
+  { name: "ECDSA", namedCurve: "P-256" },
+  false,
+  ["sign"]
+);
+const signature = await crypto.subtle.sign(
+  { name: "ECDSA", hash: "SHA-256" },
+  privateKey,
+  encoder.encode(toSign)
+);
+const sigB64 = arrayBufferToBase64Url(signature);
+
+// 4. JWT final
+const jwt = `${toSign}.${sigB64}`;
+```
+
+O outro navegador vai importar este token como um contato, se o jwt for válido e devidamente assinado    
+
+validar o sigB64 com o toSign do jwt recebido
+dados obrigatórios :
+* header.kid 
+* payloadJwt.p 
+* payloadJwt.s // completo
+
+Contatos importados manualmente devem ser já considerados homologados desde o inicio
+
+```js
+  let contatoExistente = await buscarContatoPorPublicKey(payloadJwt.kid);
+  const novoContato = {
+    publicKeyVapid: header.kid,
+    email: payloadJwt.iss,
+    nome: payloadJwt.nm
+    publicKeyRSA: payloadJwt.p,
+    subscription: {
+      endpoint: payloadJwt.s.endpoint,           
+      keys: {
+        p256dh: payloadJwt.s.keys.p256dh,
+        auth: payloadJwt.s.keys.auth     
+      };
+    }
+    vapidPrivateKey: payloadJwt.s.k,
+    homologado: true,
+    createdAt: contatoExistente ? contatoExistente.createdAt : Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(novoContato);
+```

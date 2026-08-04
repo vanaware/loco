@@ -35,6 +35,14 @@ import type {
   Contato,
 } from "./constants/db.ts";
 
+import {
+  criarJWT,
+  verificarJWT,
+  decodificarJWT,
+  arrayBufferToBase64Url,
+  arrayBufferToBase64,
+} from "./utils/jwt-helpers.ts";
+
 console.log("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
 
 // ============================================================
@@ -65,18 +73,6 @@ function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): vo
     toast.style.transition = 'opacity 0.3s ease';
     setTimeout(() => toast.remove(), 300);
   }, 3000);
-}
-
-function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  const binary = String.fromCharCode(...new Uint8Array(buffer));
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
 }
 
 function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
@@ -178,10 +174,10 @@ async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
 }
 
 // ============================================================
-// GERAR PERFIL (profile) – unificado
+// GERAR PERFIL (profile) – unificado (NÃO GERA JWT)
 // ============================================================
-async function gerarProfile(): Promise<any> {
-  console.log("📦 Gerando perfil unificado...");
+async function gerarProfile(): Promise<ProfileConfig> {
+  console.log("📦 Gerando/Atualizando perfil unificado...");
   const nome = (document.getElementById('profileNameB') as HTMLInputElement).value;
   const email = (document.getElementById('profileEmailB') as HTMLInputElement).value;
 
@@ -322,7 +318,7 @@ async function gerarProfile(): Promise<any> {
       email: email,
       vapidPublicKey: publicKeyJwk,
       vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, // <-- novo campo
+      vapidPrivateKeyEnvelope: privateKeyEncrypted,
       e2ePublicKey: e2ePublicKey,
       e2ePrivateKeyJwk: e2ePrivateKeyJwk,
       subscription: subscription,
@@ -330,7 +326,6 @@ async function gerarProfile(): Promise<any> {
       updatedAt: Date.now()
     };
 
-    // Salvar perfil unificado
     await salvarProfile(profile);
 
     // Salvar identidade (para compatibilidade)
@@ -341,17 +336,7 @@ async function gerarProfile(): Promise<any> {
     };
     await salvarIdentidadeA(identidadeTemporaria);
 
-    // Construir o objeto de perfil para compartilhamento
-    const profilePublic = {
-      iss: email,
-      nm: nome,
-      kid: publicKeyJwk,
-      s: subscription,
-      p: e2ePublicKey,
-      k: privateKeyEncrypted // chave VAPID cifrada
-    };
-
-    return profilePublic;
+    return profile;
   } catch (err) {
     console.error("❌ Erro ao gerar perfil:", err);
     throw err;
@@ -359,42 +344,130 @@ async function gerarProfile(): Promise<any> {
 }
 
 // ============================================================
-// ADICIONAR CONTATO
+// COMPARTILHAR PERFIL via JWT (sub: "contact") COM VALIDAÇÕES
+// ============================================================
+async function compartilharProfile(): Promise<void> {
+  console.log("🔄 Gerando JWT de compartilhamento de perfil...");
+  try {
+    const profile = await buscarProfile();
+    if (!profile) {
+      throw new Error("Perfil não encontrado. Clique em 'Gerar/Atualizar Perfil' primeiro.");
+    }
+
+    // 🔥 VALIDAÇÕES ESSENCIAIS
+    if (!profile.vapidPublicKey) {
+      throw new Error("Chave pública VAPID ausente. Atualize seu perfil.");
+    }
+    if (!profile.vapidPrivateKeyJwk) {
+      throw new Error("Chave privada VAPID ausente. Atualize seu perfil.");
+    }
+    if (!profile.e2ePublicKey) {
+      throw new Error("Chave pública RSA ausente. Atualize seu perfil.");
+    }
+    if (!profile.subscription) {
+      throw new Error("Subscription ausente. Atualize seu perfil.");
+    }
+    if (!profile.subscription.endpoint) {
+      throw new Error("Endpoint da subscription ausente. Atualize seu perfil.");
+    }
+    if (!profile.subscription.keys || !profile.subscription.keys.p256dh || !profile.subscription.keys.auth) {
+      throw new Error("Chaves da subscription incompletas. Atualize seu perfil.");
+    }
+    // 🔥 VALIDAÇÃO ESPECÍFICA PARA s.k (ENVELOPE)
+    if (!profile.vapidPrivateKeyEnvelope) {
+      throw new Error("Envelope da chave VAPID (k) ausente. Clique em 'Gerar/Atualizar Perfil' para recriar.");
+    }
+
+    const payload = {
+      iss: profile.email,
+      sub: "contact",
+      nm: profile.name,
+      p: profile.e2ePublicKey,
+      s: {
+        endpoint: profile.subscription.endpoint,
+        keys: {
+          p256dh: profile.subscription.keys.p256dh,
+          auth: profile.subscription.keys.auth
+        },
+        k: profile.vapidPrivateKeyEnvelope // 🔥 ESSENCIAL
+      },
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    const jwt = await criarJWT(payload, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+
+    const display = document.getElementById('myProfileDisplay');
+    if (display) {
+      display.textContent = jwt;
+      display.style.background = '#e8f5e9';
+    }
+    await copyToClipboard(jwt);
+    showToast("✅ JWT de perfil copiado para a área de transferência!", "success");
+  } catch (err: any) {
+    console.error("Erro ao gerar JWT:", err);
+    showToast("❌ Erro ao gerar JWT: " + err.message, "error");
+  }
+}
+
+// ============================================================
+// ADICIONAR CONTATO a partir de JWT (sub: "contact")
 // ============================================================
 async function adicionarContato(): Promise<void> {
-  const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value;
+  const profileRaw = (document.getElementById('profileInput') as HTMLTextAreaElement).value.trim();
   if (!profileRaw) {
-    showToast("Cole o perfil da pessoa que deseja adicionar.", "error");
+    showToast("Cole o perfil (JWT) da pessoa que deseja adicionar.", "error");
     return;
   }
-  try {
-    const profile = JSON.parse(profileRaw);
-    const required = ['iss', 'kid', 's', 'p', 'k'];
-    for (const field of required) {
-      if (!profile[field]) throw new Error(`Campo obrigatório ausente: ${field}`);
-    }
-    if (!profile.s.endpoint || !profile.s.keys || !profile.s.keys.p256dh || !profile.s.keys.auth) {
-      throw new Error('Subscription inválida: falta endpoint ou keys.');
-    }
-    await crypto.subtle.importKey(
-      "jwk", profile.kid,
-      { name: "ECDSA", namedCurve: "P-256" },
-      true, ["verify"]
-    );
 
-    const contato: Contato = {
-      publicKeyVapid: profile.kid,
-      email: profile.iss,
-      nome: profile.nm || profile.iss,
-      publicKeyRSA: profile.p,
-      subscription: profile.s,
-      vapidPrivateKey: profile.k,
-      homologado: false,
-      createdAt: Date.now(),
+  try {
+    if (profileRaw.split('.').length !== 3) {
+      throw new Error("Formato inválido. Cole o JWT gerado pelo outro navegador.");
+    }
+
+    const { header, payload, valid } = await verificarJWT(profileRaw);
+    if (!valid) {
+      throw new Error("Assinatura do JWT inválida. O perfil pode ter sido adulterado.");
+    }
+
+    // 🔥 VALIDAÇÃO DE CAMPOS OBRIGATÓRIOS
+    if (!header.kid) {
+      throw new Error("JWT incompleto: falta 'kid' no header (chave pública VAPID).");
+    }
+    if (!payload.p) {
+      throw new Error("JWT incompleto: falta 'p' (chave pública RSA).");
+    }
+    if (!payload.s) {
+      throw new Error("JWT incompleto: falta 's' (subscription).");
+    }
+    if (!payload.s.k) {
+      throw new Error("JWT incompleto: falta 's.k' (chave privada VAPID cifrada).");
+    }
+    if (payload.sub !== "contact") {
+      throw new Error("Este JWT não é um perfil de contato (sub deve ser 'contact').");
+    }
+
+    let contatoExistente = await buscarContatoPorPublicKey(header.kid);
+
+    const novoContato: Contato = {
+      publicKeyVapid: header.kid,
+      email: payload.iss,
+      nome: payload.nm || payload.iss,
+      publicKeyRSA: payload.p,
+      subscription: {
+        endpoint: payload.s.endpoint,
+        keys: {
+          p256dh: payload.s.keys.p256dh,
+          auth: payload.s.keys.auth
+        }
+      },
+      vapidPrivateKey: payload.s.k,
+      homologado: true,
+      createdAt: contatoExistente?.createdAt || Date.now(),
       updatedAt: Date.now()
     };
-    await salvarContato(contato);
-    showToast(`✅ Contato "${contato.nome}" adicionado!`, "success");
+    await salvarContato(novoContato);
+
+    showToast(`✅ Contato "${novoContato.nome}" adicionado com sucesso!`, "success");
     (document.getElementById('profileInput') as HTMLTextAreaElement).value = '';
     await carregarContatos();
     await carregarSelectContatos();
@@ -404,26 +477,48 @@ async function adicionarContato(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR LISTA DE CONTATOS
+// CARREGAR LISTA DE CONTATOS (COM BOTÕES DE HOMOLOGAR)
 // ============================================================
 async function carregarContatos(): Promise<void> {
   const container = document.getElementById('listaContatos');
   if (!container) return;
   const contatos = await listarContatos();
   if (contatos.length === 0) {
-    container.innerHTML = '<p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>';
+    container.innerHTML = `
+      <p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>
+      <button id="btnHomologarTodosContatos" class="btn-sm homologar-btn" style="margin-top: 8px;">🔄 Homologar Todos</button>
+    `;
+    const btnHomologarTodos = document.getElementById('btnHomologarTodosContatos');
+    if (btnHomologarTodos) {
+      btnHomologarTodos.addEventListener('click', homologarTodosContatos);
+    }
     return;
   }
+
   let html = '';
   for (const c of contatos) {
     const homol = c.homologado ? '✅' : '🔄';
+    const botaoHomologar = !c.homologado ?
+      `<button class="btn-homologar-contato btn-sm homologar-btn" data-publickey='${JSON.stringify(c.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; color: white; border: none; border-radius: 3px; cursor: pointer;">🔄 Homologar</button>` :
+      '';
+
     html += `
       <div class="contato-item">
         <span><strong>${c.nome}</strong> &lt;${c.email}&gt; ${homol}</span>
-        <button class="btn-remover-contato btn-sm danger" data-publickey='${JSON.stringify(c.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>
+        <div style="display: flex; gap: 4px;">
+          ${botaoHomologar}
+          <button class="btn-remover-contato btn-sm danger" data-publickey='${JSON.stringify(c.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #cc0000; color: white; border: none; border-radius: 3px; cursor: pointer;">🗑️</button>
+        </div>
       </div>
     `;
   }
+
+  html += `
+    <div style="margin-top: 10px; text-align: right;">
+      <button id="btnHomologarTodosContatos" class="btn-sm homologar-btn">🔄 Homologar Todos</button>
+    </div>
+  `;
+
   container.innerHTML = html;
 
   container.querySelectorAll('.btn-remover-contato').forEach((btn) => {
@@ -443,6 +538,52 @@ async function carregarContatos(): Promise<void> {
       }
     });
   });
+
+  container.querySelectorAll('.btn-homologar-contato').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const publicKeyStr = target.dataset.publickey || '';
+      try {
+        const publicKeyVapid = JSON.parse(publicKeyStr);
+        await homologarContato(publicKeyVapid);
+        showToast("✅ Contato homologado!", "success");
+        await carregarContatos();
+        await carregarSelectContatos();
+      } catch (err) {
+        showToast(`❌ Erro: ${err.message}`, "error");
+      }
+    });
+  });
+
+  const btnHomologarTodos = document.getElementById('btnHomologarTodosContatos');
+  if (btnHomologarTodos) {
+    btnHomologarTodos.addEventListener('click', homologarTodosContatos);
+  }
+}
+
+// ============================================================
+// HOMOLOGAR TODOS OS CONTATOS
+// ============================================================
+async function homologarTodosContatos(): Promise<void> {
+  const contatos = await listarContatos();
+  const naoHomologados = contatos.filter(c => !c.homologado);
+  if (naoHomologados.length === 0) {
+    showToast("ℹ️ Nenhum contato não homologado.", "info");
+    return;
+  }
+  if (!confirm(`Homologar ${naoHomologados.length} contatos?`)) return;
+  let sucesso = 0;
+  for (const c of naoHomologados) {
+    try {
+      await homologarContato(c.publicKeyVapid);
+      sucesso++;
+    } catch (err) {
+      console.warn(`Falha ao homologar ${c.email}:`, err);
+    }
+  }
+  showToast(`✅ ${sucesso} contatos homologados.`, "success");
+  await carregarContatos();
+  await carregarSelectContatos();
 }
 
 // ============================================================
@@ -477,14 +618,12 @@ async function enviarMensagemB(): Promise<void> {
   }
 
   try {
-    // Validar contato
     const contato = await buscarContatoPorChave(selectedKey);
     if (!contato) {
       showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
       return;
     }
 
-    // Salvar mensagem na fila
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const mensagem: MensagemEnviada = {
       id: msgId,
@@ -497,7 +636,6 @@ async function enviarMensagemB(): Promise<void> {
     };
     await salvarMensagemEnviada(mensagem);
 
-    // Notificar Service Worker
     const reg = await navigator.serviceWorker.ready;
     reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
 
@@ -512,27 +650,7 @@ async function enviarMensagemB(): Promise<void> {
 }
 
 // ============================================================
-// COMPARTILHAR PERFIL
-// ============================================================
-async function compartilharProfile(): Promise<void> {
-  console.log("🔄 Gerando e compartilhando perfil...");
-  try {
-    const profile = await gerarProfile();
-    const profileJson = JSON.stringify(profile, null, 2);
-    const display = document.getElementById('myProfileDisplay');
-    if (display) {
-      display.textContent = profileJson;
-      display.style.background = '#e8f5e9';
-    }
-    await copyToClipboard(profileJson);
-    showToast("✅ Perfil copiado para a área de transferência!", "success");
-  } catch (err: any) {
-    showToast("❌ Erro ao gerar perfil: " + err.message, "error");
-  }
-}
-
-// ============================================================
-// CARREGAR MENSAGENS RECEBIDAS (implementação completa)
+// CARREGAR MENSAGENS RECEBIDAS
 // ============================================================
 async function carregarMensagensRecebidas(): Promise<void> {
   console.log("📬 Carregando mensagens recebidas...");
@@ -591,10 +709,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
     const homolTexto = homologado ? 'Homologado' : 'Não homologado';
     const homolClass = homologado ? 'msg-item-homologado' : 'msg-item-nao-homologado';
 
-    const botaoHomologar = (!homologado && contato) ?
-      `<button class="btn-homologar-msg btn-sm homologar-btn" data-publickey='${JSON.stringify(contato.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; color: white; border: none; border-radius: 3px; cursor: pointer;">🔄 Homologar</button>` :
-      '';
-
     const botaoResponder = (podeResponder) ?
       `<button class="btn-responder-msg btn-sm" data-publickey='${JSON.stringify(contato.publicKeyVapid).replace(/'/g, "&#39;")}' style="font-size: 11px; padding: 2px 8px; background: #002b3d; color: white; border: none; border-radius: 3px; cursor: pointer;">💬 Responder</button>` :
       '';
@@ -614,7 +728,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
             </span>
           </div>
           <div style="display: flex; gap: 4px; flex-wrap: wrap;">
-            ${botaoHomologar}
             ${botaoResponder}
             ${msg.status === 'nao_lida' || msg.status === 'notificada' ?
               `<button class="btn-marcar-lida" data-id="${msg.id}" style="font-size: 12px; padding: 2px 8px; background: #006c4f; color: white; border: none; border-radius: 3px; cursor: pointer;">📖 Marcar lida</button>` :
@@ -645,22 +758,6 @@ async function carregarMensagensRecebidas(): Promise<void> {
       if (id && confirm('Remover esta mensagem?')) {
         await removerMensagemRecebida(id);
         await carregarMensagensRecebidas();
-      }
-    });
-  });
-
-  container.querySelectorAll('.btn-homologar-msg').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      const target = e.currentTarget as HTMLButtonElement;
-      const publicKeyStr = target.dataset.publickey || '';
-      try {
-        const publicKeyVapid = JSON.parse(publicKeyStr);
-        await homologarContato(publicKeyVapid);
-        showToast("✅ Emissor homologado!", "success");
-        await carregarMensagensRecebidas();
-        await carregarContatos();
-      } catch (err) {
-        showToast(`❌ Erro: ${err.message}`, "error");
       }
     });
   });
@@ -756,31 +853,6 @@ async function carregarMensagensEnviadas(): Promise<void> {
 }
 
 // ============================================================
-// HOMOLOGAR TODOS OS CONTATOS
-// ============================================================
-async function homologarTodasMensagens(): Promise<void> {
-  const contatos = await listarContatos();
-  const naoHomologados = contatos.filter(c => !c.homologado);
-  if (naoHomologados.length === 0) {
-    showToast("ℹ️ Nenhum contato não homologado.", "info");
-    return;
-  }
-  if (!confirm(`Homologar ${naoHomologados.length} contatos?`)) return;
-  let sucesso = 0;
-  for (const c of naoHomologados) {
-    try {
-      await homologarContato(c.publicKeyVapid);
-      sucesso++;
-    } catch (err) {
-      console.warn(`Falha ao homologar ${c.email}:`, err);
-    }
-  }
-  showToast(`✅ ${sucesso} contatos homologados.`, "success");
-  await carregarMensagensRecebidas();
-  await carregarContatos();
-}
-
-// ============================================================
 // REMOVER MENSAGENS LIDAS
 // ============================================================
 async function removerMensagensLidas(): Promise<void> {
@@ -827,6 +899,11 @@ async function carregarDadosIniciais(): Promise<void> {
       (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
       (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
       console.log("✅ Perfil carregado:", profile.name);
+      // 🔥 Verifica se o envelope existe, senão avisa
+      if (!profile.vapidPrivateKeyEnvelope) {
+        console.warn("⚠️ Perfil antigo sem envelope VAPID. Clique em 'Gerar/Atualizar Perfil' para corrigir.");
+        showToast("⚠️ Perfil desatualizado. Clique em 'Gerar/Atualizar Perfil' para corrigir.", "info");
+      }
     } else {
       console.log("ℹ️ Nenhum perfil encontrado. Gere um novo perfil.");
     }
@@ -848,20 +925,40 @@ window.addEventListener("DOMContentLoaded", async () => {
   initTabs();
   await carregarDadosIniciais();
 
-  document.getElementById('btnGerarProfile')?.addEventListener('click', compartilharProfile);
+  // 🔥 Botão "Gerar/Atualizar Perfil" – cria ou atualiza o perfil
+  document.getElementById('btnGerarProfile')?.addEventListener('click', async () => {
+    try {
+      const profile = await gerarProfile();
+      showToast(`✅ Perfil de "${profile.name}" gerado/atualizado com sucesso!`, "success");
+      // Atualiza interface com nome/email
+      (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
+      (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
+    } catch (err: any) {
+      showToast("❌ Erro ao gerar perfil: " + err.message, "error");
+    }
+  });
+
+  // 🔥 Botão "Compartilhar Perfil (JWT)" – gera o JWT a partir do perfil existente
+  const btnCompartilhar = document.getElementById('btnCompartilharProfile');
+  if (btnCompartilhar) {
+    btnCompartilhar.addEventListener('click', compartilharProfile);
+  }
+
+  // 🔥 Botão "Copiar Perfil" – copia o conteúdo do display (JWT)
   document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
     const display = document.getElementById('myProfileDisplay');
     if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
       await copyToClipboard(display.textContent);
+      showToast("✅ JWT copiado!", "success");
     } else {
       showToast("Primeiro gere seu perfil.", "info");
     }
   });
+
   document.getElementById('btnAdicionarContato')?.addEventListener('click', adicionarContato);
   document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);
   document.getElementById('btnCarregarMensagens')?.addEventListener('click', carregarMensagensRecebidas);
   document.getElementById('btnLimparLidas')?.addEventListener('click', removerMensagensLidas);
-  document.getElementById('btnHomologarTodas')?.addEventListener('click', homologarTodasMensagens);
 
   document.getElementById('btnLimparSubscription')?.addEventListener('click', async () => {
     try {
@@ -891,10 +988,6 @@ window.addEventListener("DOMContentLoaded", async () => {
         carregarMensagensRecebidas();
         carregarContatos();
       }, 1000);
-    }
-    if (event.data?.type === 'MENSAGEM_ENVIADA') {
-      console.log('📤 Mensagem enviada, atualizando lista...');
-      setTimeout(carregarMensagensEnviadas, 500);
     }
   });
 });

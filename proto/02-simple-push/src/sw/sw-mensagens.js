@@ -2,6 +2,7 @@
 import { get, set, createStore, del, entries } from "idb-keyval";
 import { gunzipSync, gzipSync } from "fflate";
 import { MAX_TENTATIVAS } from "../constants/db.ts";
+import { arrayBufferToBase64Url, criarJWT } from "../utils/jwt-helpers.ts";
 
 // 🔥 Constantes
 const DB_NAMES = {
@@ -150,12 +151,7 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-function arrayBufferToBase64Url(buffer) {
-  const binary = String.fromCharCode(...new Uint8Array(buffer));
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-// Função para cifrar a chave VAPID (mesma lógica do app)
+// Função para cifrar a chave VAPID (usada apenas se o envelope não existir)
 async function cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk) {
   const serverKey = await crypto.subtle.importKey(
     "jwk",
@@ -285,13 +281,11 @@ async function processarFilaEnvio() {
         // Se o envelope não existir (perfil antigo), cifrar a chave e salvar no perfil
         if (!vapidPrivateKeyEnvelope) {
           console.warn("[SW-MSG] ⚠️ Envelope da chave VAPID não encontrado no perfil. Cifrando e salvando...");
-          // Buscar chave pública do servidor
           const res = await fetch("/api/server-public-key");
           if (!res.ok) throw new Error("Não foi possível obter a chave pública do servidor.");
           const serverPublicKeyJwk = await res.json();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
           
-          // Salvar o envelope no perfil para uso futuro
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
           await salvarProfile(profile);
           console.log("[SW-MSG] ✅ Envelope da chave VAPID salvo no perfil.");
@@ -314,35 +308,18 @@ async function processarFilaEnvio() {
         const envelope = await cifrarPayloadObj(payloadObj, contato.publicKeyRSA);
         const envelopeJson = JSON.stringify(envelope);
 
-        // 6. Construir JWT
-        const header = { alg: "ES256" };
+        // 6. Construir JWT usando função genérica
+        // 🔥 ALTERAÇÃO: sub="msg", aud=email do contato
         const payloadJwt = {
           iss: profile.email,
-          sub: contato.email,
+          sub: "msg",                // tipo de token: mensagem
+          aud: contato.email,        // destinatário
           ct: envelopeJson,
-          p: profile.vapidPublicKey,
           nm: profile.name
         };
 
-        const encoder = new TextEncoder();
-        const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
-        const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payloadJwt)));
-        const toSign = `${headerB64}.${payloadB64}`;
-
-        const privateKey = await crypto.subtle.importKey(
-          "jwk",
-          profile.vapidPrivateKeyJwk,
-          { name: "ECDSA", namedCurve: "P-256" },
-          false,
-          ["sign"]
-        );
-        const signature = await crypto.subtle.sign(
-          { name: "ECDSA", hash: "SHA-256" },
-          privateKey,
-          encoder.encode(toSign)
-        );
-        const sigB64 = arrayBufferToBase64Url(signature);
-        const jwt = `${toSign}.${sigB64}`;
+        // Header com kid = chave pública VAPID
+        const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
 
         console.log(`[SW-MSG] 📊 JWT tamanho: ${jwt.length} bytes`);
 

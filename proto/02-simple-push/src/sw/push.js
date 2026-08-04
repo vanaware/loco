@@ -2,6 +2,7 @@
 import { get, set, createStore } from "idb-keyval";
 import { gunzipSync } from "fflate";
 import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
+import { verificarJWT, base64UrlToArrayBuffer } from "../utils/jwt-helpers.ts";
 
 // ============================================================
 // CONFIGURAÇÃO
@@ -133,6 +134,7 @@ self.addEventListener('push', function(event) {
   const rawText = event.data.text();
   console.log("[SW-PUSH] 📩 Push recebido, tamanho:", rawText.length);
 
+  // Se não parecer JWT, exibe como notificação simples
   if (rawText.split('.').length !== 3) {
     event.waitUntil(
       self.registration.showNotification("Notificação", { body: rawText })
@@ -142,28 +144,51 @@ self.addEventListener('push', function(event) {
 
   event.waitUntil(async function() {
     try {
-      const parts = rawText.split('.');
-      const headerB64Url = parts[0];
-      const payloadB64Url = parts[1];
-      const signatureB64Url = parts[2];
-      const encoder = new TextEncoder();
-      const decoder = new TextDecoder();
+      // Verificar assinatura usando a chave pública do header (kid)
+      const { header, payload, valid } = await verificarJWT(rawText);
+      if (!valid) {
+        await self.registration.showNotification("⚠️ Assinatura inválida", {
+          body: `Mensagem rejeitada.`,
+          icon: '/icon.png'
+        });
+        return;
+      }
 
-      const base64UrlDecode = (str) => {
-        let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-        while (base64.length % 4) base64 += '=';
-        return decoder.decode(new Uint8Array([...atob(base64)].map(c => c.charCodeAt(0))));
-      };
+      // 🔥 VALIDAÇÃO: sub deve ser "msg"
+      if (payload.sub !== "msg") {
+        await self.registration.showNotification("⚠️ Tipo de mensagem inválido", {
+          body: `Esperado 'msg', recebido '${payload.sub}'`,
+          icon: '/icon.png'
+        });
+        console.warn(`[SW-PUSH] ⚠️ JWT com sub inválido: ${payload.sub}`);
+        return;
+      }
 
-      const jwtPayload = JSON.parse(base64UrlDecode(payloadB64Url));
-      const emailRemetente = jwtPayload.iss || "remetente@desconhecido";
-      const nomeRemetente = jwtPayload.nm || jwtPayload.name || emailRemetente.split('@')[0] || "Remetente";
+      // Buscar o perfil do receptor (para validação do aud e para descriptografia)
+      const profile = await buscarProfile();
+      if (!profile) {
+        throw new Error("Perfil do receptor não encontrado.");
+      }
 
+      // 🔥 VALIDAÇÃO: aud (destinatário) deve corresponder ao email do perfil
+      const aud = payload.aud || payload.sub; // fallback para sub se aud não existir
+      if (aud !== profile.email) {
+        console.warn(`[SW-PUSH] ⚠️ 'aud' não corresponde ao email do perfil. Esperado: ${profile.email}, Recebido: ${aud}`);
+        // Não bloqueia o processamento – apenas avisa
+      }
+
+      // Extrair chave pública VAPID do header (kid)
+      const publicKeyVapid = header.kid;
+      if (!publicKeyVapid) {
+        throw new Error("Header JWT não contém 'kid' (chave pública VAPID).");
+      }
+
+      // Extrair dados do payload
+      const emailRemetente = payload.iss || "remetente@desconhecido";
+      const nomeRemetente = payload.nm || payload.name || emailRemetente.split('@')[0] || "Remetente";
       console.log(`[SW-PUSH] 🔐 Mensagem de ${nomeRemetente} <${emailRemetente}>`);
 
-      let publicKeyVapid = jwtPayload.p || jwtPayload.publicKey || null;
-      console.log(`[SW-PUSH] Chave pública VAPID: ${publicKeyVapid ? 'encontrada' : 'não encontrada'}`);
-
+      // Buscar contato existente pela chave pública (header.kid)
       let contato = null;
       if (publicKeyVapid) {
         contato = await buscarContatoPorPublicKey(publicKeyVapid);
@@ -172,51 +197,16 @@ self.addEventListener('push', function(event) {
         }
       }
 
-      let assinaturaValida = false;
+      // Verificar se o contato é homologado (apenas para interface)
       let homologado = contato ? contato.homologado : false;
 
-      try {
-        if (publicKeyVapid) {
-          const keyVerify = await crypto.subtle.importKey(
-            "jwk", publicKeyVapid,
-            { name: "ECDSA", namedCurve: "P-256" },
-            true, ["verify"]
-          );
-
-          let b64Sig = signatureB64Url.replace(/-/g, '+').replace(/_/g, '/');
-          while (b64Sig.length % 4) b64Sig += '=';
-          const signatureBytes = new Uint8Array([...atob(b64Sig)].map(c => c.charCodeAt(0)));
-          const tokenStringWithoutSignature = `${headerB64Url}.${payloadB64Url}`;
-
-          assinaturaValida = await crypto.subtle.verify(
-            { name: "ECDSA", hash: "SHA-256" },
-            keyVerify,
-            signatureBytes,
-            encoder.encode(tokenStringWithoutSignature)
-          );
-        } else {
-          console.warn("[SW-PUSH] ⚠️ Chave pública VAPID não encontrada.");
-        }
-      } catch (err) {
-        console.error("[SW-PUSH] ❌ Erro na verificação:", err);
-      }
-
-      if (!assinaturaValida) {
-        await self.registration.showNotification("⚠️ Assinatura inválida", {
-          body: `Mensagem de ${nomeRemetente} rejeitada.`,
-          icon: '/icon.png'
-        });
-        return;
-      }
-
-      console.log("[SW-PUSH] 🛡️ Assinatura validada com sucesso!");
-
-      const privateDecryptKey = await buscarChaveDecript();
+      // Descriptografar envelope
+      const privateDecryptKey = await buscarChaveDecript(); // usa o perfil internamente
       if (!privateDecryptKey) {
         throw new Error("Chave privada RSA de decodificação não encontrada.");
       }
 
-      const envelopeJson = jwtPayload.ct || jwtPayload.cipherText;
+      const envelopeJson = payload.ct || payload.cipherText;
       if (!envelopeJson) throw new Error("Envelope não encontrado.");
 
       const envelope = JSON.parse(envelopeJson);
@@ -249,8 +239,9 @@ self.addEventListener('push', function(event) {
       const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
       const textoDecifrado = new TextDecoder().decode(decompressed);
 
+      // Parse do objeto de mensagem (agora { c, e })
       let mensagemObj = JSON.parse(textoDecifrado);
-      const conteudo = mensagemObj.c || textoDecifrado; // agora é 'c' (antes era m.c)
+      const conteudo = mensagemObj.c || textoDecifrado;
 
       const e = mensagemObj.e || {};
       const subscription = e.s ? {
@@ -258,8 +249,9 @@ self.addEventListener('push', function(event) {
         keys: e.s.k || e.s.keys
       } : null;
       const publicKeyRSA = e.p || null;
-      const vapidPrivateKey = (e.s && e.s.v) ? e.s.v : null; // agora a chave privada VAPID cifrada está em e.s.v
+      const vapidPrivateKey = (e.s && e.s.v) ? e.s.v : null;
 
+      // Salva/atualiza contato (o emissor é o remetente)
       if (publicKeyVapid && publicKeyRSA && subscription) {
         let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
         const novoContato = {
@@ -279,6 +271,7 @@ self.addEventListener('push', function(event) {
         console.warn("[SW-PUSH] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
       }
 
+      // Salva mensagem recebida
       const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
       const mensagemRecebida = {
@@ -289,16 +282,23 @@ self.addEventListener('push', function(event) {
         recebidoEm: Date.now()
       };
       if (DEBUG) {
-        mensagemRecebida.dadosJwt = jwtPayload;
+        mensagemRecebida.dadosJwt = payload;
       }
       await salvarMensagemRecebida(mensagemRecebida);
 
+      // Exibe notificação
       const podeResponder = !!(contato && contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
       const statusEmoji = homologado ? '✅' : '🔄';
       const statusTexto = homologado ? 'Homologado' : 'Não homologado';
 
+      // 🔥 Adiciona indicação se o aud não corresponde
+      let bodyNotificacao = `${conteudo}\n\n${statusEmoji} De: ${nomeRemetente} - ${statusTexto}`;
+      if (aud !== profile.email) {
+        bodyNotificacao += `\n⚠️ Esta mensagem foi enviada para outro destinatário (${aud})`;
+      }
+
       await self.registration.showNotification(`📥 Nova mensagem`, {
-        body: `${conteudo}\n\n${statusEmoji} De: ${nomeRemetente} - ${statusTexto}`,
+        body: bodyNotificacao,
         icon: '/icon.png',
         data: {
           mensagemId: msgId,
@@ -312,6 +312,7 @@ self.addEventListener('push', function(event) {
         vibrate: [200, 100, 200]
       });
 
+      // Notifica clientes abertos
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach(client => {
         client.postMessage({
@@ -322,7 +323,8 @@ self.addEventListener('push', function(event) {
             remetente: nomeRemetente,
             homologado: homologado,
             podeResponder: podeResponder,
-            status: 'nao_lida'
+            status: 'nao_lida',
+            audMismatch: aud !== profile.email // informa à UI se houve divergência
           }
         });
       });
@@ -337,4 +339,4 @@ self.addEventListener('push', function(event) {
   }());
 });
 
-console.log("[SW-PUSH] 📦 Módulo push carregado (com store unificada, DEBUG=" + DEBUG + ")");
+console.log("[SW-PUSH] 📦 Módulo push carregado (com store unificada e JWT helpers, DEBUG=" + DEBUG + ")");

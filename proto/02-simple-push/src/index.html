@@ -32,19 +32,23 @@
           <input type="text" id="profileEmailB" value="alice@example.com" />
         </div>
       </div>
-      <button id="btnGerarProfile" style="width: 100%;">📦 Gerar e Compartilhar Meu Perfil</button>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button id="btnGerarProfile" style="flex: 1; min-width: 150px;">📦 Gerar/Atualizar Perfil</button>
+        <button id="btnCompartilharProfile" style="flex: 1; min-width: 150px; background-color: #002b3d;">🔗 Compartilhar Perfil (JWT)</button>
+      </div>
       <button id="btnLimparSubscription" class="btn-sm danger" style="margin-top: 10px;">🗑️ Limpar Subscription</button>
       
       <div class="row mt-10">
         <div class="col">
           <label for="myProfileDisplay">📋 Meu Perfil (copie e cole para quem quiser te enviar mensagens):</label>
           <div id="myProfileDisplay" class="profile-field" style="background: #e8f5e9; border-color: #006c4f;">
-            Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.
+            Clique em "Gerar/Atualizar Perfil" para criar seu perfil, depois em "Compartilhar Perfil" para gerar o JWT.
           </div>
           <button id="btnCopyProfile" class="btn-sm">📋 Copiar Perfil</button>
         </div>
       </div>
     </div>
+
 
     <!-- ============================================================ -->
     <!-- CONTATOS                                                     -->
@@ -54,7 +58,7 @@
       <div class="row">
         <div class="col">
           <label for="profileInput">Cole aqui o perfil de outra pessoa para adicionar como contato:</label>
-          <textarea id="profileInput" rows="4" placeholder='{"iss":"...","kid":{...},"nm":"...","s":{...},"p":{...},"k":"..."}'></textarea>
+          <textarea id="profileInput" rows="4" placeholder="Cole aqui o JWT gerado pela outra pessoa..."></textarea>
           <button id="btnAdicionarContato">➕ Adicionar Contato</button>
         </div>
       </div>
