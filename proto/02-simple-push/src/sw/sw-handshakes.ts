@@ -2,33 +2,99 @@
 declare const self: ServiceWorkerGlobalScope;
 
 import { get, createStore } from "idb-keyval";
-import { DB_NAMES, STORE_NAMES, MAX_TENTATIVAS } from "../constants/db.ts";
-import {
-  buscarProfile,
-  buscarContatoPorChave,
-  salvarProfile,
-  listarHandshakesPendentesPorTipo,
-  atualizarStatusHandshake,
-  salvarHandshake,
-} from "../utils/db-helpers.ts";
-import { criarJWT } from "../utils/jwt-helpers.ts";
-import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
+import { gunzipSync } from "fflate";
+import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
+import { base64UrlToArrayBuffer } from "../utils/jwt-helpers.ts";
+import { salvarHandshake } from "../utils/db-helpers.ts";
+
+// Importa funções comuns
+import { buscarProfile, buscarChaveDecript } from "./push-common.ts";
 
 // ============================================================
-// STORE CONFIG (para acesso direto, se necessário)
+// FUNÇÃO PRINCIPAL: PROCESSAR HANDSHAKE RECEBIDO (sub: "hand")
 // ============================================================
-const storeConfig = createStore(DB_NAMES.CONFIG, STORE_NAMES.KEYVAL);
+async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
+  console.log("[SW-HANDSHAKE] 🤝 Processando handshake recebido...");
+
+  try {
+    // Campos obrigatórios do JWT (agora sem htype/mid)
+    if (!payload.jti) throw new Error("Handshake sem jti");
+    if (!payload.aud) throw new Error("Handshake sem aud (mensagemId esperada)");
+    if (!payload.ct) throw new Error("Handshake sem ct (envelope cifrado)");
+
+    // Decifrar envelope
+    const privateDecryptKey = await buscarChaveDecript();
+    if (!privateDecryptKey) {
+      throw new Error("Chave privada RSA não disponível para decifrar handshake.");
+    }
+
+    const envelopeJson = payload.ct;
+    const envelope = JSON.parse(envelopeJson);
+    const iv = envelope.i || envelope.iv;
+    const dados = envelope.d || envelope.dadosCifrados;
+    const chaveAesCifrada = envelope.k || envelope.chaveAesCifrada;
+    if (!iv || !dados || !chaveAesCifrada) throw new Error("Envelope incompleto.");
+
+    const ivBytes = new Uint8Array(base64UrlToArrayBuffer(iv));
+    const dadosBytes = new Uint8Array(base64UrlToArrayBuffer(dados));
+    const chaveAesCifradaBytes = new Uint8Array(base64UrlToArrayBuffer(chaveAesCifrada));
+
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+      { name: "RSA-OAEP" },
+      privateDecryptKey,
+      chaveAesCifradaBytes
+    );
+    const chaveSimetricaAes = await crypto.subtle.importKey(
+      "raw",
+      aesChaveCruaBuffer,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+    const textoDecifradoBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ivBytes },
+      chaveSimetricaAes,
+      dadosBytes
+    );
+    const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
+    const textoDecifrado = new TextDecoder().decode(decompressed);
+    const payloadObj = JSON.parse(textoDecifrado);
+
+    // Validar conteúdo do envelope (deve conter htype)
+    if (!payloadObj.htype) throw new Error("Handshake sem htype no envelope");
+
+    // 🔥 O mid (mensagemId) vem do aud do JWT
+    const mensagemId = payload.aud;
+
+    // Salvar handshake recebido
+    const handshake = {
+      id: payload.jti, // ID do handshake (do JWT)
+      mensagemId: mensagemId, // ID da mensagem (do aud do JWT)
+      tipo: payloadObj.htype, // tipo (do envelope)
+      direcao: 'in',
+      status: 'entregue',
+      tentativas: 0,
+      payload: payloadObj, // armazena { htype } (e outros campos futuros)
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await salvarHandshake(handshake);
+
+    console.log(`[SW-HANDSHAKE] ✅ Handshake ${handshake.id} (tipo: ${handshake.tipo}) recebido para mensagem ${handshake.mensagemId}.`);
+  } catch (err) {
+    console.error("[SW-HANDSHAKE] ❌ Erro ao processar handshake:", err);
+    throw err; // para o router tratar
+  }
+}
 
 // ============================================================
-// FUNÇÃO PRINCIPAL: PROCESSAR FILA DE HANDSHAKES
+// FUNÇÃO PARA PROCESSAR FILA DE HANDSHAKES (envio)
 // ============================================================
 export async function processarFilaHandshake() {
   console.log("[SW-HANDSHAKE] 🔄 Processando fila de handshakes...");
 
   try {
-    // Busca handshakes pendentes do tipo 'confirmacao_entrega'
     const pendentes = await listarHandshakesPendentesPorTipo('confirmacao_entrega');
-    // Também busca handshakes 'enviando' travados (mais de 30 segundos)
     const todos = await listarHandshakesPendentesPorTipo('confirmacao_entrega');
     const travados = todos.filter(h => h.status === 'enviando' && (Date.now() - h.updatedAt) > 30000);
     const paraProcessar = [...pendentes, ...travados];
@@ -89,8 +155,7 @@ export async function processarFilaHandshake() {
 
         // 5. Montar payloadObj do handshake (apenas htype)
         const payloadObj = {
-          htype: handshake.tipo, // ex: "confirmacao_entrega"
-          // mid NÃO está aqui – será o aud do JWT
+          htype: handshake.tipo,
         };
 
         // 6. Cifrar payloadObj
@@ -101,9 +166,9 @@ export async function processarFilaHandshake() {
         const payloadJwt = {
           iss: profile.email,
           sub: "hand",
-          aud: handshake.mensagemId, // 🔥 ID da mensagem original (para confirmação de entrega)
-          jti: handshake.id,         // ID do handshake
-          ct: envelopeJson,          // envelope cifrado com { htype }
+          aud: handshake.mensagemId,
+          jti: handshake.id,
+          ct: envelopeJson,
         };
 
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
@@ -147,12 +212,13 @@ export async function processarFilaHandshake() {
 }
 
 // ============================================================
-// EXPORTA FUNÇÃO PARA USO EXTERNO (APP)
+// EXPORTA FUNÇÃO PARA O ROUTER E PARA O SW
 // ============================================================
+self.processarHandshakeRecebido = processarHandshakeRecebido;
 self.processarFilaHandshake = processarFilaHandshake;
 
 // ============================================================
-// LISTENERS DE EVENTOS PARA DISPARAR PROCESSAMENTO
+// LISTENERS DE EVENTOS PARA DISPARAR PROCESSAMENTO DA FILA
 // ============================================================
 self.addEventListener('message', async (event) => {
   const data = event.data;

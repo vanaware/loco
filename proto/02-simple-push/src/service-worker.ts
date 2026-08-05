@@ -5,8 +5,9 @@ import "./sw/click.ts";
 import "./sw/sw-mensagens.ts";
 import "./sw/sw-handshakes.ts";
 
-console.log("[SW] 🌌 Orquestrador Modular do Service Worker carregado com sucesso!");
+console.log("[SW] 🌌 Service Worker orquestrador carregado.");
 
+// Ativação: processar filas pendentes
 self.addEventListener('activate', (event) => {
   console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
   event.waitUntil(
