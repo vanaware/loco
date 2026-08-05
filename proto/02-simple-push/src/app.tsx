@@ -301,58 +301,58 @@ async function gerarProfile(): Promise<ProfileConfig> {
     // Subscription
     addDebugLog("Step 4: Obtendo subscription...");
     addDebugLog("registration type:: " + JSON.stringify(typeof registration));
-    addDebugLog("registration constructor:: " + JSON.stringify(registration?.constructor?.name));
     addDebugLog("registration.pushManager exists?: " + JSON.stringify(!!registration?.pushManager));
-    addDebugLog("registration.scope:: " + JSON.stringify(registration?.scope));
-    addDebugLog("registration.active:: " + JSON.stringify(registration?.active));
-    addDebugLog("registration.installing:: " + JSON.stringify(registration?.installing));
-    addDebugLog("registration.waiting:: " + JSON.stringify(registration?.waiting));
-    addDebugLog("Object.keys(registration):: " + JSON.stringify(Object.keys(registration || {})));
     
     if (!registration) {
       throw new Error("Service Worker registration é null/undefined");
     }
     
-    if (!registration.pushManager) {
-      addDebugLog("⚠️ ⚠️ AVISO: pushManager não está disponível no registration object");
-      addDebugLog("⚠️ Isso pode significar: navegador não suporta Web Push API, ou escopo está incorreto");
-      throw new Error("Web Push API (pushManager) não disponível. Navegador suportado? " + navigator.userAgent.substring(0, 50));
-    }
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
+    let existingSubscription: PushSubscription | null = null;
     let subscriptionValida = false;
+    
+    // Web Push é OPCIONAL para testes - continua sem ele se não disponível
+    if (!registration.pushManager) {
+      addDebugLog("⚠️ Web Push API não disponível neste navegador/ambiente");
+      addDebugLog("⚠️ Continuando sem Web Push (apenas testes locais)...");
+      // Criar um perfil sem subscription
+      existingSubscription = null;
+    } else {
+      try {
+        existingSubscription = await registration.pushManager.getSubscription();
+        subscriptionValida = false;
 
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        await removerSubscriptionB();
+        if (existingSubscription) {
+          const profileSub = existingProfile?.subscription;
+          if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
+            subscriptionValida = true;
+          } else {
+            await existingSubscription.unsubscribe();
+            await removerSubscriptionB();
+            existingSubscription = null;
+          }
+        }
+        if (!existingSubscription || !subscriptionValida) {
+          addDebugLog("📝 Criando nova subscription...");
+          const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+          existingSubscription = await registration.pushManager.subscribe({
+            applicationServerKey: new Uint8Array(rawPublicKey),
+            userVisibleOnly: true
+          });
+        }
+      } catch (pushErr: any) {
+        addDebugLog("⚠️ Erro ao obter/criar subscription: " + (pushErr?.message || String(pushErr)));
+        addDebugLog("⚠️ Continuando sem Web Push...");
         existingSubscription = null;
       }
     }
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
 
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    const subscription = {
+    const subscription = existingSubscription ? {
       endpoint: existingSubscription.endpoint,
       keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
+        p256dh: rawBufferToBase64Url(existingSubscription.getKey('p256dh')),
+        auth: rawBufferToBase64Url(existingSubscription.getKey('auth'))
       }
-    };
+    } : undefined;
 
     // E2E keys
     let e2ePublicKey: JsonWebKey;
