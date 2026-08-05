@@ -1,23 +1,17 @@
-// src/service-worker.js
-
-// Importa os módulos fatiados
-import "./sw/cache.js";
-import "./sw/push.js";
-import "./sw/click.js";
-import "./sw/sw-mensagens.js";
+// src/service-worker.ts
+import "./sw/cache.ts";
+import "./sw/push.ts";
+import "./sw/click.ts";
+import "./sw/sw-mensagens.ts";
+import "./sw/sw-handshakes.ts";
 
 console.log("[SW] 🌌 Orquestrador Modular do Service Worker carregado com sucesso!");
 
-// 🔥 PROCESSADOR DE FILAS EM BACKGROUND
-// Tenta processar filas quando o SW é ativado
 self.addEventListener('activate', (event) => {
   console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
   event.waitUntil(
     (async () => {
-      // Aguarda um pouco para garantir que tudo está pronto
       await new Promise(r => setTimeout(r, 1000));
-      
-      // Dispara o processamento em segundo plano, sem bloquear a ativação
       setTimeout(async () => {
         try {
           if (self.processarFilaEnvio) {
@@ -27,11 +21,11 @@ self.addEventListener('activate', (event) => {
           console.error("[SW] Erro ao processar fila de envio:", e);
         }
         try {
-          if (self.processarFilaNotificacao) {
-            await self.processarFilaNotificacao();
+          if (self.processarFilaHandshake) {
+            await self.processarFilaHandshake();
           }
         } catch (e) {
-          console.error("[SW] Erro ao processar fila de notificações:", e);
+          console.error("[SW] Erro ao processar fila de handshakes:", e);
         }
       }, 100);
     })()

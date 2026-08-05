@@ -1,5 +1,8 @@
 // src/sw/click.js
 
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
 self.addEventListener('notificationclick', function(event) {
   console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
   event.notification.close();

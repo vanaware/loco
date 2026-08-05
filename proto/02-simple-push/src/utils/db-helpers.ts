@@ -6,6 +6,7 @@ import type {
   MensagemEnviada,
   MensagemRecebida,
   Contato,
+  Handshake, // NOVO
 } from "../constants/db.ts";
 
 // ============================================================
@@ -20,6 +21,7 @@ const storeConfig = criarStore(DB_NAMES.CONFIG);
 export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
 export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES); // NOVO
 
 // ============================================================
 // Funções Genéricas
@@ -275,4 +277,54 @@ export async function homologarContato(publicKeyVapid: JsonWebKey): Promise<void
 export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> {
   const key = await serializarPublicKeyVapid(publicKeyVapid);
   await removerChave(storeContatos, key);
+}
+
+// ============================================================
+// NOVAS FUNÇÕES: HANDSHAKES
+// ============================================================
+
+export async function salvarHandshake(handshake: Handshake): Promise<void> {
+  handshake.updatedAt = Date.now();
+  if (!handshake.createdAt) {
+    handshake.createdAt = Date.now();
+  }
+  await salvarChave(storeHandshakes, handshake.id, handshake);
+}
+
+export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
+  return buscarChave<Handshake>(storeHandshakes, id);
+}
+
+export async function listarHandshakes(): Promise<Handshake[]> {
+  const entries = await listarChaves<Handshake>(storeHandshakes);
+  return entries.map(([_, h]) => h);
+}
+
+export async function listarHandshakesPorStatus(status: Handshake['status']): Promise<Handshake[]> {
+  const todos = await listarHandshakes();
+  return todos.filter(h => h.status === status);
+}
+
+export async function listarHandshakesPendentesPorTipo(tipo: Handshake['tipo']): Promise<Handshake[]> {
+  const todos = await listarHandshakes();
+  return todos.filter(h => h.status === 'pendente' && h.tipo === tipo && h.direcao === 'out');
+}
+
+export async function atualizarStatusHandshake(id: string, status: Handshake['status'], erro?: string): Promise<void> {
+  const handshake = await buscarHandshake(id);
+  if (handshake) {
+    handshake.status = status;
+    handshake.updatedAt = Date.now();
+    if (erro) handshake.erro = erro;
+    await salvarHandshake(handshake);
+  }
+}
+
+export async function removerHandshake(id: string): Promise<void> {
+  await removerChave(storeHandshakes, id);
+}
+
+export async function listarHandshakesPorMensagemId(mensagemId: string): Promise<Handshake[]> {
+  const todos = await listarHandshakes();
+  return todos.filter(h => h.mensagemId === mensagemId);
 }

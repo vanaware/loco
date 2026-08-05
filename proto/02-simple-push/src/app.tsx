@@ -148,7 +148,6 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
     }
     
     addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    // Use navigator.serviceWorker.ready para obter registro totalmente pronto
     const readyReg = await navigator.serviceWorker.ready;
     addDebugLog("✅ Service Worker ativo e pronto.");
     addDebugLog("Usando registration do ready (com pushManager)...");
@@ -231,7 +230,7 @@ async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
 }
 
 // ============================================================
-// GERAR PERFIL (profile) – unificado (NÃO GERA JWT)
+// GERAR PERFIL (profile) – unificado
 // ============================================================
 async function gerarProfile(): Promise<ProfileConfig> {
   addDebugLog("📦 Gerando/Atualizando perfil unificado...");
@@ -270,7 +269,7 @@ async function gerarProfile(): Promise<ProfileConfig> {
       throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
     }
     const serverPublicKeyJwk = await resServerKey.json();
-    addDebugLog("Step 3.5: Chave do servidor recebida:: " + JSON.stringify(serverPublicKeyJwk));
+    addDebugLog("Step 3.5: Chave do servidor recebida");
 
     // Gerar ou obter chaves VAPID
     let vapidKeyPair: CryptoKeyPair;
@@ -311,22 +310,11 @@ async function gerarProfile(): Promise<ProfileConfig> {
 
     // Subscription
     addDebugLog("Step 4: Obtendo subscription...");
-    addDebugLog("registration type:: " + JSON.stringify(typeof registration));
-    addDebugLog("registration constructor:: " + JSON.stringify(registration?.constructor?.name));
-    addDebugLog("registration.pushManager exists?: " + JSON.stringify(!!registration?.pushManager));
-    addDebugLog("registration.scope:: " + JSON.stringify(registration?.scope));
-    addDebugLog("registration.active:: " + JSON.stringify(registration?.active));
-    addDebugLog("registration.installing:: " + JSON.stringify(registration?.installing));
-    addDebugLog("registration.waiting:: " + JSON.stringify(registration?.waiting));
-    addDebugLog("Object.keys(registration):: " + JSON.stringify(Object.keys(registration || {})));
-    
     if (!registration) {
       throw new Error("Service Worker registration é null/undefined");
     }
-    
     if (!registration.pushManager) {
       addDebugLog("⚠️ ⚠️ AVISO: pushManager não está disponível no registration object");
-      addDebugLog("⚠️ Isso pode significar: navegador não suporta Web Push API, ou escopo está incorreto");
       throw new Error("Web Push API (pushManager) não disponível. Navegador suportado? " + navigator.userAgent.substring(0, 50));
     }
     
@@ -397,7 +385,7 @@ async function gerarProfile(): Promise<ProfileConfig> {
       e2ePrivateKeyCrypto = newKeys.privateDecrypt;
     }
 
-    // Cifrar a chave privada VAPID para o servidor (envelope)
+    // Cifrar a chave privada VAPID para o servidor (envelope) com a chave pública atual
     const privateKeyEncrypted = await criptografarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
     // Montar o perfil unificado
@@ -432,7 +420,7 @@ async function gerarProfile(): Promise<ProfileConfig> {
 }
 
 // ============================================================
-// COMPARTILHAR PERFIL via JWT (sub: "contact") COM VALIDAÇÕES
+// COMPARTILHAR PERFIL via JWT (sub: "contact") – COM RECRIAÇÃO DO ENVELOPE
 // ============================================================
 async function compartilharProfile(): Promise<void> {
   addDebugLog("🔄 Gerando JWT de compartilhamento de perfil...");
@@ -461,11 +449,25 @@ async function compartilharProfile(): Promise<void> {
     if (!profile.subscription.keys || !profile.subscription.keys.p256dh || !profile.subscription.keys.auth) {
       throw new Error("Chaves da subscription incompletas. Atualize seu perfil.");
     }
-    // 🔥 VALIDAÇÃO ESPECÍFICA PARA s.k (ENVELOPE)
-    if (!profile.vapidPrivateKeyEnvelope) {
-      throw new Error("Envelope da chave VAPID (k) ausente. Clique em 'Gerar/Atualizar Perfil' para recriar.");
-    }
 
+    // 🔥 RECRIAR O ENVELOPE COM A CHAVE PÚBLICA MAIS RECENTE DO SERVIDOR
+    addDebugLog("📡 Buscando chave pública atual do servidor para recriar envelope...");
+    const resServerKey = await fetch("/api/server-public-key");
+    if (!resServerKey.ok) {
+      throw new Error(`Erro ao buscar chave pública do servidor: ${resServerKey.status}`);
+    }
+    const serverPublicKeyJwk = await resServerKey.json();
+
+    addDebugLog("🔐 Recriando envelope da chave VAPID com chave pública atual...");
+    const novoEnvelope = await criptografarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
+
+    // Atualizar o perfil com o novo envelope e salvar
+    profile.vapidPrivateKeyEnvelope = novoEnvelope;
+    profile.updatedAt = Date.now();
+    await salvarProfile(profile);
+    addDebugLog("✅ Envelope atualizado e perfil salvo.");
+
+    // Agora montar o payload do JWT com o envelope fresco
     const payload = {
       iss: profile.email,
       sub: "contact",
@@ -477,7 +479,7 @@ async function compartilharProfile(): Promise<void> {
           p256dh: profile.subscription.keys.p256dh,
           auth: profile.subscription.keys.auth
         },
-        k: profile.vapidPrivateKeyEnvelope // 🔥 ESSENCIAL
+        k: profile.vapidPrivateKeyEnvelope // envelope recém-criado
       },
       iat: Math.floor(Date.now() / 1000)
     };
@@ -990,7 +992,6 @@ async function carregarDadosIniciais(): Promise<void> {
       (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
       (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
       addDebugLog("✅ Perfil carregado:: " + JSON.stringify(profile.name));
-      // 🔥 Verifica se o envelope existe, senão avisa
       if (!profile.vapidPrivateKeyEnvelope) {
         addDebugLog("⚠️ ⚠️ Perfil antigo sem envelope VAPID. Clique em 'Gerar/Atualizar Perfil' para corrigir.");
         showToast("⚠️ Perfil desatualizado. Clique em 'Gerar/Atualizar Perfil' para corrigir.", "info");
@@ -1016,30 +1017,27 @@ window.addEventListener("DOMContentLoaded", async () => {
   initTabs();
   await carregarDadosIniciais();
 
-  // 🔥 Botão "Gerar/Atualizar Perfil" – cria ou atualiza o perfil
+  // Botão "Gerar/Atualizar Perfil"
   document.getElementById('btnGerarProfile')?.addEventListener('click', async () => {
     try {
       const profile = await gerarProfile();
       showToast(`✅ Perfil de "${profile.name}" gerado/atualizado com sucesso!`, "success");
-      // Atualiza interface com nome/email
       (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
       (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
     } catch (err: any) {
       console.error("❌ Erro catch no botão - Erro ao gerar perfil:", err);
-      console.error("err.message:", err?.message);
-      console.error("typeof err:", typeof err);
       const mensagemErro = err?.message || (typeof err === 'string' ? err : JSON.stringify(err));
       showToast("❌ Erro ao gerar perfil: " + mensagemErro, "error");
     }
   });
 
-  // 🔥 Botão "Compartilhar Perfil (JWT)" – gera o JWT a partir do perfil existente
+  // Botão "Compartilhar Perfil (JWT)"
   const btnCompartilhar = document.getElementById('btnCompartilharProfile');
   if (btnCompartilhar) {
     btnCompartilhar.addEventListener('click', compartilharProfile);
   }
 
-  // 🔥 Botão "Copiar Perfil" – copia o conteúdo do display (JWT)
+  // Botão "Copiar Perfil"
   document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
     const display = document.getElementById('myProfileDisplay');
     if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
@@ -1054,7 +1052,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById('btnEnviarB')?.addEventListener('click', enviarMensagemB);
   document.getElementById('btnCarregarMensagens')?.addEventListener('click', carregarMensagensRecebidas);
   document.getElementById('btnLimparLidas')?.addEventListener('click', removerMensagensLidas);
-
   document.getElementById('btnClearDebugLogs')?.addEventListener('click', clearDebugLogs);
 
   document.getElementById('btnLimparSubscription')?.addEventListener('click', async () => {
@@ -1077,10 +1074,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Listener de mensagens do Service Worker (apenas para atualizar a UI)
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data?.type === 'PUSH_RECEIVED') {
       console.log('📬 Push recebido, recarregando mensagens...');
-      showToast(`📩 Nova mensagem de ${event.data.payload?.remetente || 'alguém'}!`, "info");
+      const payload = event.data.payload;
+      showToast(`📩 Nova mensagem de ${payload?.remetente || 'alguém'}!`, "info");
       setTimeout(() => {
         carregarMensagensRecebidas();
         carregarContatos();

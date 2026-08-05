@@ -1,5 +1,8 @@
 // src/sw/cache.js
 
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
 const CACHE_VERSION = "VERSION_HASH";
 const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
 

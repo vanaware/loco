@@ -5,6 +5,7 @@ export const DB_NAMES = {
   MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
   CONTATOS: "BrowserB_Contatos_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
+  HANDSHAKES: "Handshake_DB", // NOVO
 } as const;
 
 export const STORE_NAMES = {
@@ -98,4 +99,21 @@ export interface Contato {
   homologado: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+// ============================================================
+// NOVA INTERFACE: HANDSHAKE
+// ============================================================
+
+export interface Handshake {
+  id: string;                     // NanoID (12 caracteres)
+  mensagemId: string;            // ID da mensagem original (para confirmação de entrega)
+  tipo: 'confirmacao_entrega';   // (futuramente: 'recebimento', 'leitura', etc.)
+  direcao: 'out' | 'in';         // enviado ou recebido
+  status: 'pendente' | 'enviado' | 'falha' | 'entregue'; // 'entregue' para recebidos processados
+  tentativas: number;
+  payload: any;                  // dados adicionais específicos do tipo
+  createdAt: number;
+  updatedAt: number;
+  erro?: string;
 }

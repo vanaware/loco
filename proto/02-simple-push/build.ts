@@ -176,7 +176,7 @@ async function build() {
 
   console.log("📦 Compilando Service Worker em memória...");
   const swResult = await runBundle("ServiceWorker", {
-    entrypoints: [join(SRC_DIR, "service-worker.js")],
+    entrypoints: [join(SRC_DIR, "service-worker.ts")],
     platform: "browser",
     format: "iife",
     bundle: true,

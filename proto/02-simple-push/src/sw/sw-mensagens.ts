@@ -1,10 +1,17 @@
 // src/sw/sw-mensagens.js
+
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
 import { get, set, createStore, del, entries } from "idb-keyval";
 import { gunzipSync, gzipSync } from "fflate";
 import { MAX_TENTATIVAS } from "../constants/db.ts";
 import { arrayBufferToBase64Url, criarJWT } from "../utils/jwt-helpers.ts";
+import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 
-// 🔥 Constantes
+// ============================================================
+// CONSTANTES E STORES
+// ============================================================
 const DB_NAMES = {
   MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
   MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
@@ -20,7 +27,6 @@ const KEY_NAMES = {
   PROFILE: "profile",
 };
 
-// 🔥 Cria as stores
 const storeMensagensEnviadas = createStore(DB_NAMES.MENSAGENS_ENVIADAS, STORE_NAMES.KEYVAL);
 const storeMensagensRecebidasB = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
 const storeContatos = createStore(DB_NAMES.CONTATOS, STORE_NAMES.KEYVAL);
@@ -142,96 +148,7 @@ async function removerMensagemEnviada(id) {
 }
 
 // ============================================================
-// UTILITÁRIOS DE CRIPTOGRAFIA
-// ============================================================
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-// Função para cifrar a chave VAPID (usada apenas se o envelope não existir)
-async function cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk) {
-  const serverKey = await crypto.subtle.importKey(
-    "jwk",
-    serverPublicKeyJwk,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    true,
-    ["encrypt"]
-  );
-  const aesKey = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt"]
-  );
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoder = new TextEncoder();
-  const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
-  const vapidCifrado = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    aesKey,
-    vapidBytes
-  );
-  const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-  const aesKeyCifrado = await crypto.subtle.encrypt(
-    { name: "RSA-OAEP" },
-    serverKey,
-    aesKeyRaw
-  );
-  const toHex = (buf) =>
-    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  const envelope = {
-    iv: toHex(iv.buffer),
-    dadosCifrados: toHex(vapidCifrado),
-    chaveAesCifrada: toHex(aesKeyCifrado)
-  };
-  return btoa(JSON.stringify(envelope));
-}
-
-async function cifrarPayloadObj(payloadObj, publicKeyRSA) {
-  const encoder = new TextEncoder();
-  const jsonString = JSON.stringify(payloadObj);
-  const bytes = encoder.encode(jsonString);
-  const compressed = gzipSync(bytes);
-  console.log(`[SW-MSG] 📦 Comprimido: ${compressed.length} bytes (original: ${bytes.length})`);
-
-  const aesKey = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt"]
-  );
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    aesKey,
-    compressed
-  );
-
-  const cryptoKeyDestino = await crypto.subtle.importKey(
-    "jwk",
-    publicKeyRSA,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    true,
-    ["encrypt"]
-  );
-  const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-  const aesKeyEncrypted = await crypto.subtle.encrypt(
-    { name: "RSA-OAEP" },
-    cryptoKeyDestino,
-    aesKeyRaw
-  );
-
-  return {
-    i: arrayBufferToBase64(iv.buffer),
-    d: arrayBufferToBase64(encryptedBuffer),
-    k: arrayBufferToBase64(aesKeyEncrypted)
-  };
-}
-
-// ============================================================
-// FUNÇÃO PRINCIPAL: PROCESSAR FILA DE ENVIO
+// FUNÇÃO PRINCIPAL: PROCESSAR FILA DE ENVIO (refatorada)
 // ============================================================
 async function processarFilaEnvio() {
   console.log("[SW-MSG] 🔄 Processando fila de envio...");
@@ -254,14 +171,12 @@ async function processarFilaEnvio() {
       await atualizarStatusMensagemEnviada(msg.id, 'enviando');
 
       try {
-        // 1. Buscar contato e perfil
         const contato = await buscarContatoPorChave(msg.contatoHash);
         let profile = await buscarProfile();
 
         if (!contato) throw new Error("Contato não encontrado");
         if (!profile) throw new Error("Perfil não encontrado");
 
-        // 2. Validações
         if (!profile.e2ePublicKey || !profile.vapidPublicKey || !profile.vapidPrivateKeyJwk) {
           throw new Error("Usuário não logado (sem Chaves)");
         }
@@ -275,23 +190,17 @@ async function processarFilaEnvio() {
           throw new Error("Contato sem Subscription");
         }
 
-        // 3. Obter o envelope da chave VAPID do emissor
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
-
-        // Se o envelope não existir (perfil antigo), cifrar a chave e salvar no perfil
         if (!vapidPrivateKeyEnvelope) {
-          console.warn("[SW-MSG] ⚠️ Envelope da chave VAPID não encontrado no perfil. Cifrando e salvando...");
+          console.warn("[SW-MSG] ⚠️ Envelope da chave VAPID não encontrado. Cifrando...");
           const res = await fetch("/api/server-public-key");
           if (!res.ok) throw new Error("Não foi possível obter a chave pública do servidor.");
           const serverPublicKeyJwk = await res.json();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
-          
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
           await salvarProfile(profile);
-          console.log("[SW-MSG] ✅ Envelope da chave VAPID salvo no perfil.");
         }
 
-        // 4. Montar payloadObj
         const payloadObj = {
           c: msg.conteudo,
           e: {
@@ -304,60 +213,41 @@ async function processarFilaEnvio() {
           }
         };
 
-        // 5. Cifrar payloadObj
         const envelope = await cifrarPayloadObj(payloadObj, contato.publicKeyRSA);
         const envelopeJson = JSON.stringify(envelope);
 
-        // 6. Construir JWT usando função genérica
-        // 🔥 ALTERAÇÃO: sub="msg", aud=email do contato, jti=msg.id
         const payloadJwt = {
           iss: profile.email,
           sub: "msg",
           aud: contato.email,
-          jti: msg.id,               // 🔥 JWT ID = ID da mensagem
+          jti: msg.id,
           ct: envelopeJson,
           nm: profile.name
         };
 
-        // Header com kid = chave pública VAPID
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
 
-        console.log(`[SW-MSG] 📊 JWT tamanho: ${jwt.length} bytes`);
+        await enviarParaProxy(
+          contato.subscription,
+          jwt,
+          {
+            subject: `mailto:${contato.email}`,
+            publicKey: contato.publicKeyVapid,
+            privateKey: contato.vapidPrivateKey
+          }
+        );
 
-        // 7. Enviar para o servidor proxy
-        const response = await fetch("/api/proxy-push", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            subscription: contato.subscription,
-            payloadText: jwt,
-            vapid: {
-              subject: `mailto:${contato.email}`,
-              publicKey: contato.publicKeyVapid,
-              privateKey: contato.vapidPrivateKey
-            }
-          })
-        });
-
-        if (response.ok) {
-          await atualizarStatusMensagemEnviada(msg.id, 'enviada');
-          console.log(`[SW-MSG] ✅ Mensagem ${msg.id} enviada com sucesso!`);
-        } else {
-          const errorText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
+        await atualizarStatusMensagemEnviada(msg.id, 'enviada');
+        console.log(`[SW-MSG] ✅ Mensagem ${msg.id} enviada com sucesso!`);
 
       } catch (err) {
         console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${msg.id}:`, err);
-
         const mensagemAtual = await buscarMensagemEnviada(msg.id);
         if (mensagemAtual) {
           mensagemAtual.tentativas++;
           mensagemAtual.erro = err.message;
-
           if (mensagemAtual.tentativas >= MAX_TENTATIVAS) {
             mensagemAtual.status = 'falha';
-            console.log(`[SW-MSG] ⛔ Mensagem ${msg.id} excedeu tentativas máximas.`);
           } else {
             mensagemAtual.status = 'pendente';
           }
