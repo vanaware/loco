@@ -137,9 +137,11 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
     }
     
     addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    await navigator.serviceWorker.ready;
+    // Use navigator.serviceWorker.ready para obter registro totalmente pronto
+    const readyReg = await navigator.serviceWorker.ready;
     addDebugLog("✅ Service Worker ativo e pronto.");
-    return registration;
+    addDebugLog("Usando registration do ready (com pushManager)...");
+    return readyReg;
   } catch (err: any) {
     addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
     throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
