@@ -46,8 +46,6 @@ import {
 // 🔥 Importar função centralizada de ID
 import { gerarIdMensagem } from "./utils/id-utils.ts";
 
-addDebugLog("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
-
 // ============================================================
 // DEBUG LOGGER (captura logs para exibir na página)
 // ============================================================
@@ -57,15 +55,20 @@ function addDebugLog(msg: string): void {
   const timestamp = new Date().toLocaleTimeString();
   const logEntry = `[${timestamp}] ${msg}`;
   debugLogs.push(logEntry);
-  console.log(msg); // Também loga no console
+  console.log(msg);
   updateDebugPanel();
 }
 
 function updateDebugPanel(): void {
   const panel = document.getElementById('debugPanel');
   if (panel) {
-    panel.innerHTML = debugLogs.map(log => `<div class="debug-log-entry">${log}</div>`).join('');
-    panel.scrollTop = panel.scrollHeight; // Auto-scroll para o final
+    const html = debugLogs.map(log => `<div>${log}</div>`).join('\n');
+    panel.textContent = html;
+    try {
+      panel.scrollTop = panel.scrollHeight;
+    } catch (e) {
+      // Ignore scroll errors
+    }
   }
 }
 
@@ -73,6 +76,8 @@ function clearDebugLogs(): void {
   debugLogs.length = 0;
   updateDebugPanel();
 }
+
+addDebugLog("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
 
 // ============================================================
 // UTILITÁRIOS
