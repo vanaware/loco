@@ -62,14 +62,25 @@ function addDebugLog(msg: string): void {
 function updateDebugPanel(): void {
   const panel = document.getElementById('debugPanel');
   if (panel) {
-    const html = debugLogs.map(log => `<div>${log}</div>`).join('\n');
-    panel.textContent = html;
+    const html = debugLogs.map(log => `<div>${escapeHtml(log)}</div>`).join('\n');
+    panel.innerHTML = html;
     try {
       panel.scrollTop = panel.scrollHeight;
     } catch (e) {
       // Ignore scroll errors
     }
   }
+}
+
+function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return text.replace(/[&<>"']/g, m => map[m]);
 }
 
 function clearDebugLogs(): void {
