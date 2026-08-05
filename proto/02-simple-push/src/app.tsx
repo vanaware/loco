@@ -189,6 +189,7 @@ async function gerarProfile(): Promise<ProfileConfig> {
   }
 
   try {
+    console.log("Step 1: Verificando permissão de notificação...");
     if (Notification.permission === "denied") {
       throw new Error("Permissão de notificação negada.");
     }
@@ -199,13 +200,16 @@ async function gerarProfile(): Promise<ProfileConfig> {
       }
     }
 
+    console.log("Step 2: Registrando Service Worker...");
     const registration = await registrarServiceWorker();
 
+    console.log("Step 3: Buscando chave pública do servidor...");
     const resServerKey = await fetch("/api/server-public-key");
     if (!resServerKey.ok) {
       throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
     }
     const serverPublicKeyJwk = await resServerKey.json();
+    console.log("Step 3.5: Chave do servidor recebida:", serverPublicKeyJwk);
 
     // Gerar ou obter chaves VAPID
     let vapidKeyPair: CryptoKeyPair;
@@ -940,7 +944,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
       (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
     } catch (err: any) {
-      showToast("❌ Erro ao gerar perfil: " + err.message, "error");
+      console.error("❌ Erro catch no botão - Erro ao gerar perfil:", err);
+      console.error("err.message:", err?.message);
+      console.error("typeof err:", typeof err);
+      const mensagemErro = err?.message || (typeof err === 'string' ? err : JSON.stringify(err));
+      showToast("❌ Erro ao gerar perfil: " + mensagemErro, "error");
     }
   });
 
