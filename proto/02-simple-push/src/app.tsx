@@ -190,14 +190,21 @@ async function gerarProfile(): Promise<ProfileConfig> {
 
   try {
     console.log("Step 1: Verificando permissão de notificação...");
-    if (Notification.permission === "denied") {
-      throw new Error("Permissão de notificação negada.");
-    }
-    if (Notification.permission === "default") {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        throw new Error("Permissão de notificação não concedida.");
+    try {
+      if (Notification.permission === "denied") {
+        console.warn("⚠️ Permissão de notificação foi negada pelo usuário. Continuando sem notificações...");
+      } else if (Notification.permission === "default") {
+        try {
+          const permission = await Notification.requestPermission();
+          if (permission !== "granted") {
+            console.warn("⚠️ Permissão de notificação não concedida. Continuando sem notificações...");
+          }
+        } catch (permErr: any) {
+          console.warn("⚠️ Não foi possível solicitar permissão de notificação (ambiente não suportado):", permErr?.message);
+        }
       }
+    } catch (notifErr: any) {
+      console.warn("⚠️ Erro ao verificar notificações:", notifErr?.message);
     }
 
     console.log("Step 2: Registrando Service Worker...");
