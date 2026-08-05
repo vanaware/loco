@@ -78,9 +78,9 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
     const chaveAesCifrada = envelope.k || envelope.chaveAesCifrada;
     if (!iv || !dados || !chaveAesCifrada) throw new Error("Envelope incompleto.");
 
-    const ivBytes = new Uint8Array(base64ToArrayBuffer(iv));
-    const dadosBytes = new Uint8Array(base64ToArrayBuffer(dados));
-    const chaveAesCifradaBytes = new Uint8Array(base64ToArrayBuffer(chaveAesCifrada));
+    const ivBytes = new Uint8Array(base64UrlToArrayBuffer(iv));
+    const dadosBytes = new Uint8Array(base64UrlToArrayBuffer(dados));
+    const chaveAesCifradaBytes = new Uint8Array(base64UrlToArrayBuffer(chaveAesCifrada));
 
     const aesChaveCruaBuffer = await crypto.subtle.decrypt(
       { name: "RSA-OAEP" },
@@ -236,16 +236,26 @@ async function criarHandshakeConfirmacaoEntrega(mensagemId: string, contatoPubli
     await salvarHandshake(handshake);
     console.log(`[SW-MSG] ✅ Handshake ${handshakeId} salvo com status 'pendente'.`);
 
-    // Disparar processamento da fila de handshakes
+    // 🔥 DISPARA PROCESSAMENTO IMEDIATO DA FILA DE HANDSHAKES
+    // Chama diretamente a função exportada pelo módulo sw-handshakes
+    if (typeof self.processarFilaHandshake === 'function') {
+      await self.processarFilaHandshake();
+      console.log(`[SW-MSG] ✅ Processamento da fila de handshakes iniciado.`);
+    } else {
+      console.warn(`[SW-MSG] ⚠️ self.processarFilaHandshake não está disponível. Enviando postMessage para janelas...`);
+      // Fallback: notifica janelas abertas (caso a função não esteja disponível)
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      clients.forEach(client => {
+        client.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+      });
+    }
+
+    // Também notifica janelas abertas para atualizar a UI, se necessário
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     clients.forEach(client => {
-      client.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+      client.postMessage({ type: 'HANDSHAKE_CRIADO', payload: { handshakeId, mensagemId } });
     });
-    if (self.processarFilaHandshake) {
-      // Se a função de processamento estiver disponível, chamamos
-      // Mas ela já estará registrada pelo sw-handshakes
-      // Para evitar duplicidade, apenas postamos a mensagem
-    }
+
   } catch (err) {
     console.error("[SW-MSG] ❌ Erro ao criar handshake:", err);
   }
