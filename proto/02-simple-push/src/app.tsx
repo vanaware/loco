@@ -46,7 +46,33 @@ import {
 // 🔥 Importar função centralizada de ID
 import { gerarIdMensagem } from "./utils/id-utils.ts";
 
-console.log("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
+addDebugLog("🟢 [APP] Web Push Descentralizado - Perfis e Contatos (unificado)");
+
+// ============================================================
+// DEBUG LOGGER (captura logs para exibir na página)
+// ============================================================
+const debugLogs: string[] = [];
+
+function addDebugLog(msg: string): void {
+  const timestamp = new Date().toLocaleTimeString();
+  const logEntry = `[${timestamp}] ${msg}`;
+  debugLogs.push(logEntry);
+  console.log(msg); // Também loga no console
+  updateDebugPanel();
+}
+
+function updateDebugPanel(): void {
+  const panel = document.getElementById('debugPanel');
+  if (panel) {
+    panel.innerHTML = debugLogs.map(log => `<div class="debug-log-entry">${log}</div>`).join('');
+    panel.scrollTop = panel.scrollHeight; // Auto-scroll para o final
+  }
+}
+
+function clearDebugLogs(): void {
+  debugLogs.length = 0;
+  updateDebugPanel();
+}
 
 // ============================================================
 // UTILITÁRIOS
@@ -87,13 +113,13 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
 // FUNÇÃO PARA REGISTRAR O SERVICE WORKER
 // ============================================================
 async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  console.log("📡 Verificando suporte ao Service Worker...");
+  addDebugLog("📡 Verificando suporte ao Service Worker...");
   if (!("serviceWorker" in navigator)) {
     throw new Error("Service Worker não é suportado neste navegador.");
   }
 
   const cacheBuster = Date.now();
-  console.log("⏳ Registrando/Atualizando Service Worker...");
+  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
 
   try {
     const registration = await navigator.serviceWorker.register(
@@ -105,13 +131,12 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
       throw new Error("Service Worker registration retornou null/undefined");
     }
     
-    console.log("✅ Service Worker registrado, aguardando ready...");
+    addDebugLog("✅ Service Worker registrado, aguardando ready...");
     await navigator.serviceWorker.ready;
-    console.log("✅ Service Worker ativo e pronto.");
+    addDebugLog("✅ Service Worker ativo e pronto.");
     return registration;
   } catch (err: any) {
-    console.error("❌ Erro ao registrar Service Worker:", err);
-    console.error("Erro message:", err?.message);
+    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
     throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
   }
 }
@@ -160,7 +185,7 @@ async function criptografarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKey
 // GERAÇÃO DE CHAVES E2E (RSA) - extractable: true
 // ============================================================
 async function generateE2EEKeys() {
-  console.log("🔑 Gerando chaves E2E (RSA-2048)...");
+  addDebugLog("🔑 Gerando chaves E2E (RSA-2048)...");
   const encryptionKeyPair = await window.crypto.subtle.generateKey(
     { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: "SHA-256" },
     true,
@@ -179,7 +204,7 @@ async function generateE2EEKeys() {
 // GERAÇÃO DE CHAVES VAPID (ECDSA) - extractable: true
 // ============================================================
 async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
-  console.log("🔑 Gerando chaves VAPID (ECDSA P-256)...");
+  addDebugLog("🔑 Gerando chaves VAPID (ECDSA P-256)...");
   return await window.crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
@@ -191,7 +216,7 @@ async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
 // GERAR PERFIL (profile) – unificado (NÃO GERA JWT)
 // ============================================================
 async function gerarProfile(): Promise<ProfileConfig> {
-  console.log("📦 Gerando/Atualizando perfil unificado...");
+  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
   const nome = (document.getElementById('profileNameB') as HTMLInputElement).value;
   const email = (document.getElementById('profileEmailB') as HTMLInputElement).value;
 
@@ -200,15 +225,15 @@ async function gerarProfile(): Promise<ProfileConfig> {
   }
 
   try {
-    console.log("Step 1: Verificando permissão de notificação...");
+    addDebugLog("Step 1: Verificando permissão de notificação...");
     try {
       if (Notification.permission === "denied") {
-        console.warn("⚠️ Permissão de notificação foi negada pelo usuário. Continuando sem notificações...");
+        addDebugLog("⚠️ ⚠️ Permissão de notificação foi negada pelo usuário. Continuando sem notificações...");
       } else if (Notification.permission === "default") {
         try {
           const permission = await Notification.requestPermission();
           if (permission !== "granted") {
-            console.warn("⚠️ Permissão de notificação não concedida. Continuando sem notificações...");
+            addDebugLog("⚠️ ⚠️ Permissão de notificação não concedida. Continuando sem notificações...");
           }
         } catch (permErr: any) {
           console.warn("⚠️ Não foi possível solicitar permissão de notificação (ambiente não suportado):", permErr?.message);
@@ -218,16 +243,16 @@ async function gerarProfile(): Promise<ProfileConfig> {
       console.warn("⚠️ Erro ao verificar notificações:", notifErr?.message);
     }
 
-    console.log("Step 2: Registrando Service Worker...");
+    addDebugLog("Step 2: Registrando Service Worker...");
     const registration = await registrarServiceWorker();
 
-    console.log("Step 3: Buscando chave pública do servidor...");
+    addDebugLog("Step 3: Buscando chave pública do servidor...");
     const resServerKey = await fetch("/api/server-public-key");
     if (!resServerKey.ok) {
       throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
     }
     const serverPublicKeyJwk = await resServerKey.json();
-    console.log("Step 3.5: Chave do servidor recebida:", serverPublicKeyJwk);
+    addDebugLog("Step 3.5: Chave do servidor recebida:: " + JSON.stringify(serverPublicKeyJwk));
 
     // Gerar ou obter chaves VAPID
     let vapidKeyPair: CryptoKeyPair;
@@ -236,7 +261,7 @@ async function gerarProfile(): Promise<ProfileConfig> {
 
     let existingProfile = await buscarProfile();
     if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      console.log("📂 Chaves VAPID encontradas no perfil.");
+      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
       publicKeyJwk = existingProfile.vapidPublicKey;
       privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
       try {
@@ -255,35 +280,35 @@ async function gerarProfile(): Promise<ProfileConfig> {
           )
         } as CryptoKeyPair;
       } catch {
-        console.log("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
+        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
         existingProfile = undefined;
       }
     }
     if (!existingProfile || !vapidKeyPair) {
-      console.log("🔑 Gerando novas chaves VAPID...");
+      addDebugLog("🔑 Gerando novas chaves VAPID...");
       vapidKeyPair = await generateVAPIDKeys();
       publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
       privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
     }
 
     // Subscription
-    console.log("Step 4: Obtendo subscription...");
-    console.log("registration type:", typeof registration);
-    console.log("registration constructor:", registration?.constructor?.name);
-    console.log("registration.pushManager exists?", !!registration?.pushManager);
-    console.log("registration.scope:", registration?.scope);
-    console.log("registration.active:", registration?.active);
-    console.log("registration.installing:", registration?.installing);
-    console.log("registration.waiting:", registration?.waiting);
-    console.log("Object.keys(registration):", Object.keys(registration || {}));
+    addDebugLog("Step 4: Obtendo subscription...");
+    addDebugLog("registration type:: " + JSON.stringify(typeof registration));
+    addDebugLog("registration constructor:: " + JSON.stringify(registration?.constructor?.name));
+    addDebugLog("registration.pushManager exists?: " + JSON.stringify(!!registration?.pushManager));
+    addDebugLog("registration.scope:: " + JSON.stringify(registration?.scope));
+    addDebugLog("registration.active:: " + JSON.stringify(registration?.active));
+    addDebugLog("registration.installing:: " + JSON.stringify(registration?.installing));
+    addDebugLog("registration.waiting:: " + JSON.stringify(registration?.waiting));
+    addDebugLog("Object.keys(registration):: " + JSON.stringify(Object.keys(registration || {})));
     
     if (!registration) {
       throw new Error("Service Worker registration é null/undefined");
     }
     
     if (!registration.pushManager) {
-      console.warn("⚠️ AVISO: pushManager não está disponível no registration object");
-      console.warn("Isso pode significar: navegador não suporta Web Push API, ou escopo está incorreto");
+      addDebugLog("⚠️ ⚠️ AVISO: pushManager não está disponível no registration object");
+      addDebugLog("⚠️ Isso pode significar: navegador não suporta Web Push API, ou escopo está incorreto");
       throw new Error("Web Push API (pushManager) não disponível. Navegador suportado? " + navigator.userAgent.substring(0, 50));
     }
     
@@ -301,7 +326,7 @@ async function gerarProfile(): Promise<ProfileConfig> {
       }
     }
     if (!existingSubscription || !subscriptionValida) {
-      console.log("📝 Criando nova subscription...");
+      addDebugLog("📝 Criando nova subscription...");
       const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
       existingSubscription = await registration.pushManager.subscribe({
         applicationServerKey: new Uint8Array(rawPublicKey),
@@ -328,7 +353,7 @@ async function gerarProfile(): Promise<ProfileConfig> {
     let e2ePrivateKeyCrypto: CryptoKey;
 
     if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      console.log("📂 Chaves E2E encontradas no perfil.");
+      addDebugLog("📂 Chaves E2E encontradas no perfil.");
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
       try {
@@ -340,14 +365,14 @@ async function gerarProfile(): Promise<ProfileConfig> {
           ["decrypt"]
         );
       } catch {
-        console.log("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
+        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
         const newKeys = await generateE2EEKeys();
         e2ePublicKey = newKeys.publicEncrypt;
         e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
         e2ePrivateKeyCrypto = newKeys.privateDecrypt;
       }
     } else {
-      console.log("🔑 Gerando novas chaves E2E...");
+      addDebugLog("🔑 Gerando novas chaves E2E...");
       const newKeys = await generateE2EEKeys();
       e2ePublicKey = newKeys.publicEncrypt;
       e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
@@ -392,7 +417,7 @@ async function gerarProfile(): Promise<ProfileConfig> {
 // COMPARTILHAR PERFIL via JWT (sub: "contact") COM VALIDAÇÕES
 // ============================================================
 async function compartilharProfile(): Promise<void> {
-  console.log("🔄 Gerando JWT de compartilhamento de perfil...");
+  addDebugLog("🔄 Gerando JWT de compartilhamento de perfil...");
   try {
     const profile = await buscarProfile();
     if (!profile) {
@@ -649,7 +674,7 @@ async function carregarSelectContatos(): Promise<void> {
 // ENVIAR MENSAGEM (com ID centralizado)
 // ============================================================
 async function enviarMensagemB(): Promise<void> {
-  console.log("🚀 Enviando mensagem...");
+  addDebugLog("🚀 Enviando mensagem...");
   const select = document.getElementById('contatoSelect') as HTMLSelectElement;
   const selectedKey = select.value;
   if (!selectedKey) {
@@ -701,7 +726,7 @@ async function enviarMensagemB(): Promise<void> {
 // CARREGAR MENSAGENS RECEBIDAS
 // ============================================================
 async function carregarMensagensRecebidas(): Promise<void> {
-  console.log("📬 Carregando mensagens recebidas...");
+  addDebugLog("📬 Carregando mensagens recebidas...");
   const mensagens = await listarMensagensRecebidas();
   const container = document.getElementById('mensagensRecebidas');
   if (!container) return;
@@ -841,7 +866,7 @@ async function carregarMensagensRecebidas(): Promise<void> {
 // CARREGAR MENSAGENS ENVIADAS
 // ============================================================
 async function carregarMensagensEnviadas(): Promise<void> {
-  console.log("📤 Carregando mensagens enviadas...");
+  addDebugLog("📤 Carregando mensagens enviadas...");
   const mensagens = await listarMensagensEnviadas();
   const container = document.getElementById('mensagensEnviadasB');
   if (!container) return;
@@ -940,26 +965,26 @@ function initTabs(): void {
 // CARREGAMENTO INICIAL
 // ============================================================
 async function carregarDadosIniciais(): Promise<void> {
-  console.log("📂 Carregando dados iniciais (unificado)...");
+  addDebugLog("📂 Carregando dados iniciais (unificado)...");
   try {
     const profile = await buscarProfile();
     if (profile) {
       (document.getElementById('profileNameB') as HTMLInputElement).value = profile.name;
       (document.getElementById('profileEmailB') as HTMLInputElement).value = profile.email;
-      console.log("✅ Perfil carregado:", profile.name);
+      addDebugLog("✅ Perfil carregado:: " + JSON.stringify(profile.name));
       // 🔥 Verifica se o envelope existe, senão avisa
       if (!profile.vapidPrivateKeyEnvelope) {
-        console.warn("⚠️ Perfil antigo sem envelope VAPID. Clique em 'Gerar/Atualizar Perfil' para corrigir.");
+        addDebugLog("⚠️ ⚠️ Perfil antigo sem envelope VAPID. Clique em 'Gerar/Atualizar Perfil' para corrigir.");
         showToast("⚠️ Perfil desatualizado. Clique em 'Gerar/Atualizar Perfil' para corrigir.", "info");
       }
     } else {
-      console.log("ℹ️ Nenhum perfil encontrado. Gere um novo perfil.");
+      addDebugLog("ℹ️ Nenhum perfil encontrado. Gere um novo perfil.");
     }
     await carregarContatos();
     await carregarSelectContatos();
     await carregarMensagensRecebidas();
     await carregarMensagensEnviadas();
-    console.log("✅ Dados iniciais carregados!");
+    addDebugLog("✅ Dados iniciais carregados!");
   } catch (err) {
     console.warn("⚠️ Erro ao carregar dados iniciais:", err);
   }
@@ -969,7 +994,7 @@ async function carregarDadosIniciais(): Promise<void> {
 // EVENT LISTENERS
 // ============================================================
 window.addEventListener("DOMContentLoaded", async () => {
-  console.log("📄 DOM carregado, inicializando aplicação...");
+  addDebugLog("📄 DOM carregado, inicializando aplicação...");
   initTabs();
   await carregarDadosIniciais();
 
@@ -1012,13 +1037,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById('btnCarregarMensagens')?.addEventListener('click', carregarMensagensRecebidas);
   document.getElementById('btnLimparLidas')?.addEventListener('click', removerMensagensLidas);
 
+  document.getElementById('btnClearDebugLogs')?.addEventListener('click', clearDebugLogs);
+
   document.getElementById('btnLimparSubscription')?.addEventListener('click', async () => {
     try {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
       if (subscription) {
         await subscription.unsubscribe();
-        console.log("Subscription desinscrita.");
+        addDebugLog("Subscription desinscrita.");
       }
       const profile = await buscarProfile();
       if (profile) {
