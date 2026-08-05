@@ -1,5 +1,4 @@
 // src/utils/id-utils.ts
-import { nanoid } from "https://esm.sh/nanoid@5.0.7";
 
 /**
  * Tamanho padrão do ID para mensagens.
@@ -8,12 +7,26 @@ import { nanoid } from "https://esm.sh/nanoid@5.0.7";
 const ID_LENGTH = 12;
 
 /**
- * Gera um ID único para mensagens usando NanoID.
+ * Caracteres seguros para URL usados em IDs (como NanoID).
+ * Remove: +, /, = (caracteres perigosos para URLs)
+ */
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+
+/**
+ * Gera um ID único para mensagens usando Web Crypto API.
+ * Substitui nanoid (que usa node:crypto no esm.sh) com implementação pura browser-safe.
  * @param length - Tamanho do ID (padrão: 12)
  * @returns ID único (ex: "V1StGXR8_Z5jd")
  */
 export function gerarIdMensagem(length: number = ID_LENGTH): string {
-  return nanoid(length);
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  
+  let id = "";
+  for (let i = 0; i < length; i++) {
+    id += ALPHABET[bytes[i] % ALPHABET.length];
+  }
+  return id;
 }
 
 /**
