@@ -268,11 +268,23 @@ async function gerarProfile(): Promise<ProfileConfig> {
 
     // Subscription
     console.log("Step 4: Obtendo subscription...");
-    console.log("registration:", registration);
-    console.log("typeof registration:", typeof registration);
+    console.log("registration type:", typeof registration);
+    console.log("registration constructor:", registration?.constructor?.name);
+    console.log("registration.pushManager exists?", !!registration?.pushManager);
+    console.log("registration.scope:", registration?.scope);
+    console.log("registration.active:", registration?.active);
+    console.log("registration.installing:", registration?.installing);
+    console.log("registration.waiting:", registration?.waiting);
+    console.log("Object.keys(registration):", Object.keys(registration || {}));
     
-    if (!registration || !registration.pushManager) {
-      throw new Error("Registro do Service Worker ou pushManager não disponível. Registration: " + JSON.stringify(registration));
+    if (!registration) {
+      throw new Error("Service Worker registration é null/undefined");
+    }
+    
+    if (!registration.pushManager) {
+      console.warn("⚠️ AVISO: pushManager não está disponível no registration object");
+      console.warn("Isso pode significar: navegador não suporta Web Push API, ou escopo está incorreto");
+      throw new Error("Web Push API (pushManager) não disponível. Navegador suportado? " + navigator.userAgent.substring(0, 50));
     }
     
     let existingSubscription = await registration.pushManager.getSubscription();
