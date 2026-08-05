@@ -95,14 +95,25 @@ async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   const cacheBuster = Date.now();
   console.log("⏳ Registrando/Atualizando Service Worker...");
 
-  const registration = await navigator.serviceWorker.register(
-    `./service-worker.js?cacheBuster=${cacheBuster}`,
-    { scope: "/" }
-  );
-
-  await navigator.serviceWorker.ready;
-  console.log("✅ Service Worker ativo e pronto.");
-  return registration;
+  try {
+    const registration = await navigator.serviceWorker.register(
+      `./service-worker.js?cacheBuster=${cacheBuster}`,
+      { scope: "/" }
+    );
+    
+    if (!registration) {
+      throw new Error("Service Worker registration retornou null/undefined");
+    }
+    
+    console.log("✅ Service Worker registrado, aguardando ready...");
+    await navigator.serviceWorker.ready;
+    console.log("✅ Service Worker ativo e pronto.");
+    return registration;
+  } catch (err: any) {
+    console.error("❌ Erro ao registrar Service Worker:", err);
+    console.error("Erro message:", err?.message);
+    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
+  }
 }
 
 // ============================================================
@@ -256,6 +267,14 @@ async function gerarProfile(): Promise<ProfileConfig> {
     }
 
     // Subscription
+    console.log("Step 4: Obtendo subscription...");
+    console.log("registration:", registration);
+    console.log("typeof registration:", typeof registration);
+    
+    if (!registration || !registration.pushManager) {
+      throw new Error("Registro do Service Worker ou pushManager não disponível. Registration: " + JSON.stringify(registration));
+    }
+    
     let existingSubscription = await registration.pushManager.getSubscription();
     let subscriptionValida = false;
 
