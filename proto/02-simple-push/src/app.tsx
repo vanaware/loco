@@ -43,11 +43,10 @@ import {
   arrayBufferToBase64,
 } from "./utils/jwt-helpers.ts";
 
-// 🔥 Importar função centralizada de ID
 import { gerarIdMensagem } from "./utils/id-utils.ts";
 
 // ============================================================
-// DEBUG LOGGER (captura logs para exibir na página)
+// DEBUG LOGGER
 // ============================================================
 const debugLogs: string[] = [];
 
@@ -67,7 +66,7 @@ function updateDebugPanel(): void {
     try {
       panel.scrollTop = panel.scrollHeight;
     } catch (e) {
-      // Ignore scroll errors
+      // ignore
     }
   }
 }
@@ -126,7 +125,7 @@ function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
 }
 
 // ============================================================
-// FUNÇÃO PARA REGISTRAR O SERVICE WORKER
+// SERVICE WORKER REGISTRATION
 // ============================================================
 async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   addDebugLog("📡 Verificando suporte ao Service Worker...");
@@ -199,7 +198,7 @@ async function criptografarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKey
 }
 
 // ============================================================
-// GERAÇÃO DE CHAVES E2E (RSA) - extractable: true
+// GERAÇÃO DE CHAVES E2E (RSA)
 // ============================================================
 async function generateE2EEKeys() {
   addDebugLog("🔑 Gerando chaves E2E (RSA-2048)...");
@@ -218,7 +217,7 @@ async function generateE2EEKeys() {
 }
 
 // ============================================================
-// GERAÇÃO DE CHAVES VAPID (ECDSA) - extractable: true
+// GERAÇÃO DE CHAVES VAPID (ECDSA)
 // ============================================================
 async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   addDebugLog("🔑 Gerando chaves VAPID (ECDSA P-256)...");
@@ -271,7 +270,6 @@ async function gerarProfile(): Promise<ProfileConfig> {
     const serverPublicKeyJwk = await resServerKey.json();
     addDebugLog("Step 3.5: Chave do servidor recebida");
 
-    // Gerar ou obter chaves VAPID
     let vapidKeyPair: CryptoKeyPair;
     let publicKeyJwk: JsonWebKey;
     let privateKeyJwk: JsonWebKey;
@@ -308,7 +306,6 @@ async function gerarProfile(): Promise<ProfileConfig> {
       privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
     }
 
-    // Subscription
     addDebugLog("Step 4: Obtendo subscription...");
     if (!registration) {
       throw new Error("Service Worker registration é null/undefined");
@@ -353,7 +350,6 @@ async function gerarProfile(): Promise<ProfileConfig> {
       }
     };
 
-    // E2E keys
     let e2ePublicKey: JsonWebKey;
     let e2ePrivateKeyJwk: JsonWebKey;
     let e2ePrivateKeyCrypto: CryptoKey;
@@ -385,10 +381,8 @@ async function gerarProfile(): Promise<ProfileConfig> {
       e2ePrivateKeyCrypto = newKeys.privateDecrypt;
     }
 
-    // Cifrar a chave privada VAPID para o servidor (envelope) com a chave pública atual
     const privateKeyEncrypted = await criptografarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
-    // Montar o perfil unificado
     const profile: ProfileConfig = {
       name: nome,
       email: email,
@@ -404,7 +398,6 @@ async function gerarProfile(): Promise<ProfileConfig> {
 
     await salvarProfile(profile);
 
-    // Salvar identidade (para compatibilidade)
     const identidadeTemporaria = {
       name: nome,
       email: email,
@@ -430,7 +423,6 @@ async function compartilharProfile(): Promise<void> {
       throw new Error("Perfil não encontrado. Clique em 'Gerar/Atualizar Perfil' primeiro.");
     }
 
-    // 🔥 VALIDAÇÕES ESSENCIAIS
     if (!profile.vapidPublicKey) {
       throw new Error("Chave pública VAPID ausente. Atualize seu perfil.");
     }
@@ -450,7 +442,6 @@ async function compartilharProfile(): Promise<void> {
       throw new Error("Chaves da subscription incompletas. Atualize seu perfil.");
     }
 
-    // 🔥 RECRIAR O ENVELOPE COM A CHAVE PÚBLICA MAIS RECENTE DO SERVIDOR
     addDebugLog("📡 Buscando chave pública atual do servidor para recriar envelope...");
     const resServerKey = await fetch("/api/server-public-key");
     if (!resServerKey.ok) {
@@ -461,13 +452,11 @@ async function compartilharProfile(): Promise<void> {
     addDebugLog("🔐 Recriando envelope da chave VAPID com chave pública atual...");
     const novoEnvelope = await criptografarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
 
-    // Atualizar o perfil com o novo envelope e salvar
     profile.vapidPrivateKeyEnvelope = novoEnvelope;
     profile.updatedAt = Date.now();
     await salvarProfile(profile);
     addDebugLog("✅ Envelope atualizado e perfil salvo.");
 
-    // Agora montar o payload do JWT com o envelope fresco
     const payload = {
       iss: profile.email,
       sub: "contact",
@@ -479,7 +468,7 @@ async function compartilharProfile(): Promise<void> {
           p256dh: profile.subscription.keys.p256dh,
           auth: profile.subscription.keys.auth
         },
-        k: profile.vapidPrivateKeyEnvelope // envelope recém-criado
+        k: profile.vapidPrivateKeyEnvelope
       },
       iat: Math.floor(Date.now() / 1000)
     };
@@ -519,7 +508,6 @@ async function adicionarContato(): Promise<void> {
       throw new Error("Assinatura do JWT inválida. O perfil pode ter sido adulterado.");
     }
 
-    // 🔥 VALIDAÇÃO DE CAMPOS OBRIGATÓRIOS
     if (!header.kid) {
       throw new Error("JWT incompleto: falta 'kid' no header (chave pública VAPID).");
     }
@@ -567,7 +555,7 @@ async function adicionarContato(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR LISTA DE CONTATOS (COM BOTÕES DE HOMOLOGAR)
+// CARREGAR LISTA DE CONTATOS
 // ============================================================
 async function carregarContatos(): Promise<void> {
   const container = document.getElementById('listaContatos');
@@ -714,7 +702,6 @@ async function enviarMensagemB(): Promise<void> {
       return;
     }
 
-    // 🔥 Usar função centralizada para gerar ID (12 caracteres)
     const msgId = gerarIdMensagem();
     console.log(`[APP] 📝 ID da mensagem: ${msgId} (${msgId.length} caracteres)`);
 
@@ -883,7 +870,7 @@ async function carregarMensagensRecebidas(): Promise<void> {
 }
 
 // ============================================================
-// CARREGAR MENSAGENS ENVIADAS
+// CARREGAR MENSAGENS ENVIADAS (com status 'entregue')
 // ============================================================
 async function carregarMensagensEnviadas(): Promise<void> {
   addDebugLog("📤 Carregando mensagens enviadas...");
@@ -901,6 +888,7 @@ async function carregarMensagensEnviadas(): Promise<void> {
       'pendente': { emoji: '⏳', label: 'Pendente', classe: 'msg-item-pendente' },
       'enviando': { emoji: '🔄', label: 'Enviando...', classe: 'msg-item-pendente' },
       'enviada': { emoji: '✅', label: 'Enviada', classe: 'msg-item-enviada' },
+      'entregue': { emoji: '📬', label: 'Entregue', classe: 'msg-item-entregue' },
       'falha': { emoji: '❌', label: 'Falha', classe: 'msg-item-falha' },
     };
     const status = statusMap[msg.status] || { emoji: '❓', label: msg.status, classe: '' };
@@ -912,7 +900,7 @@ async function carregarMensagensEnviadas(): Promise<void> {
     } catch {}
 
     html += `
-      <div class="msg-item ${status.classe}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'enviada' ? '#e8f5e9' : msg.status === 'falha' ? '#ffebee' : '#fff8e1'};">
+      <div class="msg-item ${status.classe}" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-bottom: 8px; background: ${msg.status === 'entregue' ? '#c8e6c9' : msg.status === 'enviada' ? '#e8f5e9' : msg.status === 'falha' ? '#ffebee' : '#fff8e1'};">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
           <strong>${status.emoji} Para: ${nomeContato}</strong>
           <small style="color: #888;">${data}</small>
@@ -1017,7 +1005,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   initTabs();
   await carregarDadosIniciais();
 
-  // Botão "Gerar/Atualizar Perfil"
   document.getElementById('btnGerarProfile')?.addEventListener('click', async () => {
     try {
       const profile = await gerarProfile();
@@ -1031,13 +1018,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Botão "Compartilhar Perfil (JWT)"
   const btnCompartilhar = document.getElementById('btnCompartilharProfile');
   if (btnCompartilhar) {
     btnCompartilhar.addEventListener('click', compartilharProfile);
   }
 
-  // Botão "Copiar Perfil"
   document.getElementById('btnCopyProfile')?.addEventListener('click', async () => {
     const display = document.getElementById('myProfileDisplay');
     if (display && display.textContent && display.textContent !== 'Clique em "Gerar e Compartilhar Meu Perfil" para criar seu perfil.') {
@@ -1074,7 +1059,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Listener de mensagens do Service Worker (apenas para atualizar a UI)
+  // Listener para mensagens do Service Worker
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data?.type === 'PUSH_RECEIVED') {
       console.log('📬 Push recebido, recarregando mensagens...');
@@ -1084,6 +1069,12 @@ window.addEventListener("DOMContentLoaded", async () => {
         carregarMensagensRecebidas();
         carregarContatos();
       }, 1000);
+    }
+    // 🔥 NOVO: atualizar UI quando uma mensagem for entregue
+    if (event.data?.type === 'MENSAGEM_ENTREGUE') {
+      console.log('📨 Mensagem entregue:', event.data.payload);
+      showToast(`✅ Mensagem ${event.data.payload.mensagemId} entregue!`, "success");
+      carregarMensagensEnviadas(); // recarrega a lista
     }
   });
 });

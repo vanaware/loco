@@ -3,26 +3,36 @@ declare const self: ServiceWorkerGlobalScope;
 
 import { get, createStore } from "idb-keyval";
 import { gunzipSync } from "fflate";
-import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
+import { DB_NAMES, STORE_NAMES, KEY_NAMES, MAX_TENTATIVAS } from "../constants/db.ts";
 import { base64UrlToArrayBuffer } from "../utils/jwt-helpers.ts";
-import { salvarHandshake } from "../utils/db-helpers.ts";
-
-// Importa funções comuns
+import {
+  salvarHandshake,
+  listarHandshakesPendentesPorTipo,
+  atualizarStatusHandshake,
+  buscarMensagemEnviada,
+  atualizarStatusMensagemEnviada,
+  salvarProfile, // 🔥 agora importado de db-helpers
+} from "../utils/db-helpers.ts";
 import { buscarProfile, buscarChaveDecript } from "./push-common.ts";
+import { criarJWT } from "../utils/jwt-helpers.ts";
+import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 
 // ============================================================
-// FUNÇÃO PRINCIPAL: PROCESSAR HANDSHAKE RECEBIDO (sub: "hand")
+// STORE CONFIG (para acesso direto)
+// ============================================================
+const storeConfig = createStore(DB_NAMES.CONFIG, STORE_NAMES.KEYVAL);
+
+// ============================================================
+// FUNÇÃO PARA PROCESSAR HANDSHAKE RECEBIDO (sub: "hand")
 // ============================================================
 async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
   console.log("[SW-HANDSHAKE] 🤝 Processando handshake recebido...");
 
   try {
-    // Campos obrigatórios do JWT (agora sem htype/mid)
     if (!payload.jti) throw new Error("Handshake sem jti");
     if (!payload.aud) throw new Error("Handshake sem aud (mensagemId esperada)");
     if (!payload.ct) throw new Error("Handshake sem ct (envelope cifrado)");
 
-    // Decifrar envelope
     const privateDecryptKey = await buscarChaveDecript();
     if (!privateDecryptKey) {
       throw new Error("Chave privada RSA não disponível para decifrar handshake.");
@@ -60,30 +70,53 @@ async function processarHandshakeRecebido(payload: any, header: any, jwt: string
     const textoDecifrado = new TextDecoder().decode(decompressed);
     const payloadObj = JSON.parse(textoDecifrado);
 
-    // Validar conteúdo do envelope (deve conter htype)
     if (!payloadObj.htype) throw new Error("Handshake sem htype no envelope");
 
-    // 🔥 O mid (mensagemId) vem do aud do JWT
     const mensagemId = payload.aud;
 
-    // Salvar handshake recebido
     const handshake = {
-      id: payload.jti, // ID do handshake (do JWT)
-      mensagemId: mensagemId, // ID da mensagem (do aud do JWT)
-      tipo: payloadObj.htype, // tipo (do envelope)
+      id: payload.jti,
+      mensagemId: mensagemId,
+      tipo: payloadObj.htype,
       direcao: 'in',
       status: 'entregue',
       tentativas: 0,
-      payload: payloadObj, // armazena { htype } (e outros campos futuros)
+      payload: payloadObj,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     await salvarHandshake(handshake);
+    console.log(`[SW-HANDSHAKE] ✅ Handshake ${handshake.id} (tipo: ${handshake.tipo}) recebido para mensagem ${mensagemId}.`);
 
-    console.log(`[SW-HANDSHAKE] ✅ Handshake ${handshake.id} (tipo: ${handshake.tipo}) recebido para mensagem ${handshake.mensagemId}.`);
+    // 🔥 ATUALIZAR MENSAGEM ENVIADA COMO ENTREGUE
+    if (payloadObj.htype === 'confirmacao_entrega') {
+      try {
+        const mensagemEnviada = await buscarMensagemEnviada(mensagemId);
+        if (mensagemEnviada) {
+          await atualizarStatusMensagemEnviada(mensagemId, 'entregue');
+          console.log(`[SW-HANDSHAKE] ✅ Mensagem enviada ${mensagemId} marcada como entregue.`);
+
+          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          clients.forEach(client => {
+            client.postMessage({
+              type: 'MENSAGEM_ENTREGUE',
+              payload: {
+                mensagemId: mensagemId,
+                entregueEm: Date.now(),
+              }
+            });
+          });
+        } else {
+          console.warn(`[SW-HANDSHAKE] ⚠️ Mensagem enviada ${mensagemId} não encontrada.`);
+        }
+      } catch (err) {
+        console.error(`[SW-HANDSHAKE] ❌ Erro ao marcar mensagem enviada ${mensagemId} como entregue:`, err);
+      }
+    }
+
   } catch (err) {
     console.error("[SW-HANDSHAKE] ❌ Erro ao processar handshake:", err);
-    throw err; // para o router tratar
+    throw err;
   }
 }
 
@@ -110,24 +143,20 @@ export async function processarFilaHandshake() {
       await atualizarStatusHandshake(handshake.id, 'enviando');
 
       try {
-        // 1. Buscar contato a partir do mensagemId (precisamos recuperar a mensagem recebida para saber o emissor)
         const storeMensagensRecebidas = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
         const mensagemRecebida = await get(handshake.mensagemId, storeMensagensRecebidas);
         if (!mensagemRecebida) {
           throw new Error(`Mensagem ${handshake.mensagemId} não encontrada no banco.`);
         }
 
-        // Obter contato pelo hash armazenado na mensagem
         const contato = await buscarContatoPorChave(mensagemRecebida.contatoPublicKeyVapid);
         if (!contato) {
           throw new Error(`Contato para a mensagem ${handshake.mensagemId} não encontrado.`);
         }
 
-        // 2. Buscar perfil do emissor do handshake (nós)
         let profile = await buscarProfile();
         if (!profile) throw new Error("Perfil não encontrado");
 
-        // 3. Validações
         if (!profile.e2ePublicKey || !profile.vapidPublicKey || !profile.vapidPrivateKeyJwk) {
           throw new Error("Usuário não logado (sem Chaves)");
         }
@@ -141,7 +170,6 @@ export async function processarFilaHandshake() {
           throw new Error("Contato sem Subscription");
         }
 
-        // 4. Obter envelope da chave VAPID do emissor (nós)
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
           console.warn("[SW-HANDSHAKE] ⚠️ Envelope VAPID não encontrado. Cifrando...");
@@ -153,16 +181,13 @@ export async function processarFilaHandshake() {
           await salvarProfile(profile);
         }
 
-        // 5. Montar payloadObj do handshake (apenas htype)
         const payloadObj = {
           htype: handshake.tipo,
         };
 
-        // 6. Cifrar payloadObj
         const envelope = await cifrarPayloadObj(payloadObj, contato.publicKeyRSA);
         const envelopeJson = JSON.stringify(envelope);
 
-        // 7. Construir JWT com sub: "hand", aud = mensagemId
         const payloadJwt = {
           iss: profile.email,
           sub: "hand",
@@ -175,7 +200,6 @@ export async function processarFilaHandshake() {
 
         console.log(`[SW-HANDSHAKE] 📤 Enviando handshake ${handshake.id} para ${contato.email}`);
 
-        // 8. Enviar para proxy
         await enviarParaProxy(
           contato.subscription,
           jwt,
@@ -186,7 +210,6 @@ export async function processarFilaHandshake() {
           }
         );
 
-        // 9. Atualizar status para 'enviado'
         await atualizarStatusHandshake(handshake.id, 'enviado');
         console.log(`[SW-HANDSHAKE] ✅ Handshake ${handshake.id} enviado com sucesso!`);
       } catch (err) {
