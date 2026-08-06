@@ -1,15 +1,17 @@
 // src/components/ProfileSection.tsx
-import { profile, profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { profile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { atualizarProfile } from '../stores/profileStore.ts';
 import { gerarProfileCompleto } from '../utils/profile-utils.ts';
 import { criarJWT } from '../utils/jwt-helpers.ts';
 import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
 
 export function ProfileSection() {
   const handleGerar = async () => {
     try {
       const p = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      profile.value = p;
+      await atualizarProfile(p);
       showToast(`✅ Perfil de "${p.name}" gerado/atualizado!`, "success");
       addDebugLog(`✅ Perfil de "${p.name}" gerado/atualizado.`);
     } catch (err: any) {
@@ -20,20 +22,17 @@ export function ProfileSection() {
 
   const handleCompartilhar = async () => {
     try {
-      // Verifica se o perfil está carregado no signal
       let p = profile.value;
       if (!p) {
-        // Tenta buscar do banco
-        p = await buscarProfile();
+        const { carregarProfile } = await import('../stores/profileStore.ts');
+        await carregarProfile();
+        p = profile.value;
         if (!p) {
           showToast("❌ Perfil não encontrado. Gere um perfil primeiro.", "error");
-          addDebugLog("❌ Perfil não encontrado ao tentar compartilhar.");
           return;
         }
-        profile.value = p;
       }
 
-      // Recria envelope com chave pública atual do servidor
       const resServerKey = await fetch("/api/server-public-key");
       if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
       const serverPublicKeyJwk = await resServerKey.json();
@@ -41,7 +40,7 @@ export function ProfileSection() {
       p.vapidPrivateKeyEnvelope = novoEnvelope;
       p.updatedAt = Date.now();
       await salvarProfile(p);
-      profile.value = { ...p };
+      await atualizarProfile(p);
 
       const payload = {
         iss: p.email,

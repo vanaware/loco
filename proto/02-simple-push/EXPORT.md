@@ -8,7 +8,7 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/5/2026, 11:36:22 PM
+Gerado automaticamente em: 8/6/2026, 12:08:10 AM
 
 ---
 
@@ -2312,10 +2312,10 @@ export function DebugPanel() {
 ```tsx
 // src/components/ContatosSection.tsx
 import { useEffect } from 'preact/hooks';
-import { contatos, contatosComHash, profileInput, addDebugLog, showToast } from '../signals/state.ts';
-import { salvarContato, buscarContatoPorPublicKey, listarContatos, homologarContato, removerContato, serializarPublicKeyVapid } from '../utils/db-helpers.ts';
+import { contatos, contatosComHash, profileInput, addContato, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
 import { verificarJWT } from '../utils/jwt-helpers.ts';
 import type { Contato } from '../constants/db.ts';
+import { showToast, addDebugLog } from '../signals/state.ts';
 
 export function ContatosSection() {
   const handleAdicionar = async () => {
@@ -2328,11 +2328,7 @@ export function ContatosSection() {
       const { header, payload, valid } = await verificarJWT(raw);
       if (!valid) throw new Error("Assinatura inválida.");
       if (payload.sub !== "contact") throw new Error("JWT não é de contato.");
-      const existente = await buscarContatoPorPublicKey(header.kid);
-      if (existente) {
-        showToast("Contato já existe.", "info");
-        return;
-      }
+      
       const novoContato: Contato = {
         publicKeyVapid: header.kid,
         email: payload.iss,
@@ -2347,8 +2343,7 @@ export function ContatosSection() {
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
-      await salvarContato(novoContato);
-      await carregarContatos();
+      await addContato(novoContato);
       profileInput.value = '';
       showToast(`✅ Contato "${novoContato.nome}" adicionado.`, "success");
       addDebugLog(`✅ Contato "${novoContato.nome}" adicionado.`);
@@ -2357,21 +2352,6 @@ export function ContatosSection() {
       addDebugLog(`❌ Erro ao adicionar contato: ${err.message}`);
     }
   };
-
-  const carregarContatos = async () => {
-    const lista = await listarContatos();
-    contatos.value = lista;
-    // Atualizar contatosComHash
-    const comHash = await Promise.all(lista.map(async (c) => {
-      const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-      return { contato: c, hash };
-    }));
-    contatosComHash.value = comHash;
-  };
-
-  useEffect(() => {
-    carregarContatos();
-  }, []);
 
   return (
     <div class="container container-contatos">
@@ -2403,15 +2383,13 @@ export function ContatosSection() {
                   <div slot="end" style="display: flex; gap: 8px;">
                     {!c.homologado && (
                       <md-outlined-button onClick={async () => {
-                        await homologarContato(c.publicKeyVapid);
-                        await carregarContatos();
+                        await homologarContatoPorPublicKey(c.publicKeyVapid);
                         showToast("Contato homologado!", "success");
                       }}>Homologar</md-outlined-button>
                     )}
                     <md-icon-button onClick={async () => {
                       if (confirm('Remover este contato?')) {
-                        await removerContato(c.publicKeyVapid);
-                        await carregarContatos();
+                        await removerContatoPorPublicKey(c.publicKeyVapid);
                       }
                     }}>delete</md-icon-button>
                   </div>
@@ -2428,21 +2406,259 @@ export function ContatosSection() {
 
 ---
 
+## Arquivo: `src/components/EnviarMensagemSection.tsx`
+
+```tsx
+// src/components/EnviarMensagemSection.tsx
+import { contatoSelecionado, mensagemEnvio, addDebugLog, showToast } from '../signals/state.ts';
+import { contatosComHash, mensagensEnviadas, adicionarMensagemEnviada, removerMensagemEnviadaPorId } from '../stores/index.ts';
+import { buscarContatoPorHash } from '../stores/contatosStore.ts';
+import { gerarIdMensagem } from '../utils/id-utils.ts';
+import { useEffect } from 'preact/hooks';
+
+export function EnviarMensagemSection() {
+  const handleEnviar = async () => {
+    const selectedHash = contatoSelecionado.value;
+    if (!selectedHash) {
+      showToast("Selecione um contato.", "error");
+      return;
+    }
+    const conteudo = mensagemEnvio.value;
+    if (!conteudo) {
+      showToast("Digite uma mensagem.", "error");
+      return;
+    }
+    try {
+      const contato = await buscarContatoPorHash(selectedHash);
+      if (!contato) {
+        showToast("Contato não encontrado.", "error");
+        return;
+      }
+      const msgId = gerarIdMensagem();
+      await adicionarMensagemEnviada({
+        id: msgId,
+        contatoHash: selectedHash,
+        conteudo,
+        status: 'pendente',
+        tentativas: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      // Dispara o processamento no SW
+      const reg = await navigator.serviceWorker.ready;
+      reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
+      mensagemEnvio.value = '';
+      showToast(`✅ Mensagem adicionada à fila para ${contato.nome}.`, "success");
+      addDebugLog(`✅ Mensagem ${msgId} adicionada à fila.`);
+    } catch (err: any) {
+      showToast(`❌ ${err.message}`, "error");
+      addDebugLog(`❌ Erro ao enviar: ${err.message}`);
+    }
+  };
+
+  useEffect(() => {
+    // Os stores já carregam os dados, mas podemos recarregar quando chegar notificação
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'MENSAGEM_ENTREGUE') {
+        // O store já tem o signal, mas precisamos recarregar
+        // Podemos chamar a função do store novamente, mas o signal já está no store
+        // Vamos importar a função de recarga do store
+        import('../stores/mensagensStore.ts').then(({ carregarMensagensEnviadas }) => {
+          carregarMensagensEnviadas();
+        });
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, []);
+
+  return (
+    <div class="container container-emissor">
+      <h2>📤 Enviar Mensagem</h2>
+      <div class="row">
+        <div class="col">
+          <md-outlined-select
+            label="Selecione o contato destino"
+            value={contatoSelecionado.value}
+            onInput={(e: any) => contatoSelecionado.value = e.target.value}
+          >
+            <md-select-option value="">-- Selecione --</md-select-option>
+            {contatosComHash.value.map(({ contato, hash }) => (
+              <md-select-option key={contato.email} value={hash}>
+                {contato.nome} ({contato.email})
+              </md-select-option>
+            ))}
+          </md-outlined-select>
+        </div>
+      </div>
+      <md-outlined-text-field
+        label="Mensagem"
+        value={mensagemEnvio.value}
+        onInput={(e: any) => mensagemEnvio.value = e.target.value}
+        rows="3"
+        multiline
+      ></md-outlined-text-field>
+      <md-filled-button onClick={handleEnviar} style="width: 100%; margin-top: 10px;">
+        🚀 Enviar Mensagem
+      </md-filled-button>
+
+      <div class="mt-10">
+        <label>📤 Mensagens Enviadas:</label>
+        <div style="max-height: 250px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
+          {mensagensEnviadas.value.length === 0 ? (
+            <p style="color: #666;">Nenhuma mensagem enviada.</p>
+          ) : (
+            <md-list>
+              {mensagensEnviadas.value.map(msg => {
+                const contatoComHash = contatosComHash.value.find(c => c.hash === msg.contatoHash);
+                const nomeDestino = contatoComHash?.contato.nome || msg.contatoHash.substring(0,16)+'...';
+                return (
+                  <md-list-item key={msg.id}>
+                    <span slot="headline">
+                      {msg.status === 'pendente' && '⏳'}
+                      {msg.status === 'enviando' && '🔄'}
+                      {msg.status === 'enviada' && '✅'}
+                      {msg.status === 'entregue' && '📬'}
+                      {msg.status === 'falha' && '❌'}
+                      {' '}
+                      Para: {nomeDestino}
+                    </span>
+                    <span slot="supporting-text">
+                      {msg.conteudo} <br />
+                      Status: {msg.status} {msg.tentativas > 0 && `(tentativas: ${msg.tentativas})`}
+                    </span>
+                    {msg.status !== 'pendente' && msg.status !== 'enviando' && (
+                      <md-icon-button slot="end" onClick={async () => {
+                        if (confirm('Remover esta mensagem?')) {
+                          await removerMensagemEnviadaPorId(msg.id);
+                        }
+                      }}>delete</md-icon-button>
+                    )}
+                  </md-list-item>
+                );
+              })}
+            </md-list>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/MensagensRecebidasSection.tsx`
+
+```tsx
+// src/components/MensagensRecebidasSection.tsx
+import { mensagensRecebidas, marcarMensagemRecebidaComoLida, removerMensagemRecebidaPorId } from '../stores/mensagensStore.ts';
+import { contatosComHash } from '../stores/contatosStore.ts';
+import { useEffect } from 'preact/hooks';
+import { showToast, addDebugLog } from '../signals/state.ts';
+
+export function MensagensRecebidasSection() {
+  useEffect(() => {
+    // Os stores já carregam, mas escutamos novos pushes
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'PUSH_RECEIVED') {
+        // Recarregar do store
+        import('../stores/mensagensStore.ts').then(({ carregarMensagensRecebidas }) => {
+          carregarMensagensRecebidas();
+        });
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, []);
+
+  const removerLidas = async () => {
+    if (!confirm('Remover todas as mensagens lidas?')) return;
+    const lidas = mensagensRecebidas.value.filter(m => m.status === 'lida');
+    for (const m of lidas) {
+      await removerMensagemRecebidaPorId(m.id);
+    }
+    showToast(`✅ ${lidas.length} mensagens removidas.`, "success");
+  };
+
+  const getNome = (hash: string): string => {
+    const item = contatosComHash.value.find(c => c.hash === hash);
+    return item?.contato.nome || hash.substring(0, 16) + '...';
+  };
+
+  return (
+    <div class="container container-receptor">
+      <h2>📬 Mensagens Recebidas</h2>
+      <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+        <md-outlined-button onClick={() => import('../stores/mensagensStore.ts').then(({ carregarMensagensRecebidas }) => carregarMensagensRecebidas())}>
+          🔄 Atualizar
+        </md-outlined-button>
+        <md-outlined-button onClick={removerLidas}>🗑️ Remover Lidas</md-outlined-button>
+      </div>
+      <div>
+        {mensagensRecebidas.value.length === 0 ? (
+          <p style="color: #666;">Nenhuma mensagem recebida.</p>
+        ) : (
+          <md-list>
+            {mensagensRecebidas.value.map(msg => {
+              const nomeRemetente = getNome(msg.contatoPublicKeyVapid);
+              return (
+                <md-list-item key={msg.id}>
+                  <span slot="headline">
+                    {msg.status === 'nao_lida' && '🟡'}
+                    {msg.status === 'notificada' && '🔔'}
+                    {msg.status === 'lida' && '✅'}
+                    {' '}
+                    De: {nomeRemetente}
+                  </span>
+                  <span slot="supporting-text">
+                    {msg.conteudo}
+                    <br />
+                    Recebido: {new Date(msg.recebidoEm).toLocaleString()}
+                    <br />
+                    Status: {msg.status}
+                  </span>
+                  <div slot="end" style="display: flex; gap: 8px;">
+                    {(msg.status === 'nao_lida' || msg.status === 'notificada') && (
+                      <md-outlined-button onClick={async () => {
+                        await marcarMensagemRecebidaComoLida(msg.id);
+                      }}>Marcar lida</md-outlined-button>
+                    )}
+                    <md-icon-button onClick={async () => {
+                      if (confirm('Remover esta mensagem?')) {
+                        await removerMensagemRecebidaPorId(msg.id);
+                      }
+                    }}>delete</md-icon-button>
+                  </div>
+                </md-list-item>
+              );
+            })}
+          </md-list>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/components/ProfileSection.tsx`
 
 ```tsx
 // src/components/ProfileSection.tsx
 import { profile, profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { atualizarProfile } from '../stores/profileStore.ts';
 import { gerarProfileCompleto } from '../utils/profile-utils.ts';
 import { criarJWT } from '../utils/jwt-helpers.ts';
 import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
 
 export function ProfileSection() {
   const handleGerar = async () => {
     try {
       const p = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      profile.value = p;
+      await atualizarProfile(p);
       showToast(`✅ Perfil de "${p.name}" gerado/atualizado!`, "success");
       addDebugLog(`✅ Perfil de "${p.name}" gerado/atualizado.`);
     } catch (err: any) {
@@ -2453,20 +2669,18 @@ export function ProfileSection() {
 
   const handleCompartilhar = async () => {
     try {
-      // Verifica se o perfil está carregado no signal
       let p = profile.value;
       if (!p) {
-        // Tenta buscar do banco
-        p = await buscarProfile();
+        // Tenta buscar novamente
+        const { carregarProfile } = await import('../stores/profileStore.ts');
+        await carregarProfile();
+        p = profile.value;
         if (!p) {
           showToast("❌ Perfil não encontrado. Gere um perfil primeiro.", "error");
-          addDebugLog("❌ Perfil não encontrado ao tentar compartilhar.");
           return;
         }
-        profile.value = p;
       }
 
-      // Recria envelope com chave pública atual do servidor
       const resServerKey = await fetch("/api/server-public-key");
       if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
       const serverPublicKeyJwk = await resServerKey.json();
@@ -2474,7 +2688,7 @@ export function ProfileSection() {
       p.vapidPrivateKeyEnvelope = novoEnvelope;
       p.updatedAt = Date.now();
       await salvarProfile(p);
-      profile.value = { ...p };
+      await atualizarProfile(p); // atualiza o signal
 
       const payload = {
         iss: p.email,
@@ -2526,296 +2740,6 @@ export function ProfileSection() {
         <div class="profile-field" style="background: #e8f5e9; border-color: #006c4f; white-space: pre-wrap; word-break: break-all;">
           {profile.value ? JSON.stringify(profile.value, null, 2) : 'Clique em "Gerar/Atualizar Perfil"'}
         </div>
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/EnviarMensagemSection.tsx`
-
-```tsx
-// src/components/EnviarMensagemSection.tsx
-import { contatoSelecionado, mensagemEnvio, contatos, mensagensEnviadas, addDebugLog, showToast } from '../signals/state.ts';
-import { salvarMensagemEnviada, listarMensagensEnviadas, removerMensagemEnviada, buscarContatoPorChave, serializarPublicKeyVapid, listarContatos } from '../utils/db-helpers.ts';
-import { gerarIdMensagem } from '../utils/id-utils.ts';
-import { useEffect, useState } from 'preact/hooks';
-
-export function EnviarMensagemSection() {
-  const [nomesMap, setNomesMap] = useState<Map<string, string>>(new Map());
-
-  const carregarContatosMap = async () => {
-    const contatosList = await listarContatos();
-    const map = new Map<string, string>();
-    for (const c of contatosList) {
-      const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-      map.set(hash, c.nome);
-    }
-    setNomesMap(map);
-    // Atualiza o signal contatos também
-    contatos.value = contatosList;
-  };
-
-  const carregarEnviadas = async () => {
-    const lista = await listarMensagensEnviadas();
-    lista.sort((a, b) => b.createdAt - a.createdAt);
-    mensagensEnviadas.value = lista;
-  };
-
-  const handleEnviar = async () => {
-    const selectedKey = contatoSelecionado.value;
-    if (!selectedKey) {
-      showToast("Selecione um contato.", "error");
-      return;
-    }
-    const conteudo = mensagemEnvio.value;
-    if (!conteudo) {
-      showToast("Digite uma mensagem.", "error");
-      return;
-    }
-    try {
-      const contato = await buscarContatoPorChave(selectedKey);
-      if (!contato) {
-        addDebugLog(`❌ Contato não encontrado para a chave: ${selectedKey}`);
-        showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
-        return;
-      }
-      const msgId = gerarIdMensagem();
-      const mensagem = {
-        id: msgId,
-        contatoHash: selectedKey,
-        conteudo,
-        status: 'pendente' as const,
-        tentativas: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-      await salvarMensagemEnviada(mensagem);
-      const reg = await navigator.serviceWorker.ready;
-      reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
-      await carregarEnviadas();
-      mensagemEnvio.value = '';
-      showToast(`✅ Mensagem adicionada à fila para ${contato.nome}.`, "success");
-      addDebugLog(`✅ Mensagem ${msgId} adicionada à fila.`);
-    } catch (err: any) {
-      showToast(`❌ ${err.message}`, "error");
-      addDebugLog(`❌ Erro ao enviar: ${err.message}`);
-    }
-  };
-
-  useEffect(() => {
-    carregarContatosMap();
-    carregarEnviadas();
-
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'MENSAGEM_ENTREGUE') {
-        carregarEnviadas();
-        carregarContatosMap(); // atualiza nomes caso tenha mudado
-      }
-    };
-    navigator.serviceWorker.addEventListener('message', handler);
-    return () => navigator.serviceWorker.removeEventListener('message', handler);
-  }, []);
-
-  // Função para obter nome a partir do hash
-  const getNome = (hash: string): string => {
-    const nome = nomesMap.get(hash);
-    if (nome) return nome;
-    return hash.substring(0, 16) + '...';
-  };
-
-  return (
-    <div class="container container-emissor">
-      <h2>📤 Enviar Mensagem</h2>
-      <div class="row">
-        <div class="col">
-          <md-outlined-select
-            label="Selecione o contato destino"
-            value={contatoSelecionado.value}
-            onInput={(e: any) => contatoSelecionado.value = e.target.value}
-          >
-            <md-select-option value="">-- Selecione --</md-select-option>
-            {contatos.value.map(c => {
-              // Gera o hash da chave pública para usar como valor
-              const hash = serializarPublicKeyVapid(c.publicKeyVapid);
-              return (
-                <md-select-option key={c.email} value={hash}>
-                  {c.nome} ({c.email})
-                </md-select-option>
-              );
-            })}
-          </md-outlined-select>
-        </div>
-      </div>
-      <md-outlined-text-field
-        label="Mensagem"
-        value={mensagemEnvio.value}
-        onInput={(e: any) => mensagemEnvio.value = e.target.value}
-        rows="3"
-        multiline
-      ></md-outlined-text-field>
-      <md-filled-button onClick={handleEnviar} style="width: 100%; margin-top: 10px;">
-        🚀 Enviar Mensagem
-      </md-filled-button>
-
-      <div class="mt-10">
-        <label>📤 Mensagens Enviadas:</label>
-        <div style="max-height: 250px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
-          {mensagensEnviadas.value.length === 0 ? (
-            <p style="color: #666;">Nenhuma mensagem enviada.</p>
-          ) : (
-            <md-list>
-              {mensagensEnviadas.value.map(msg => {
-                const nomeDestino = getNome(msg.contatoHash);
-                return (
-                  <md-list-item key={msg.id}>
-                    <span slot="headline">
-                      {msg.status === 'pendente' && '⏳'}
-                      {msg.status === 'enviando' && '🔄'}
-                      {msg.status === 'enviada' && '✅'}
-                      {msg.status === 'entregue' && '📬'}
-                      {msg.status === 'falha' && '❌'}
-                      {' '}
-                      Para: {nomeDestino}
-                    </span>
-                    <span slot="supporting-text">
-                      {msg.conteudo} <br />
-                      Status: {msg.status} {msg.tentativas > 0 && `(tentativas: ${msg.tentativas})`}
-                    </span>
-                    {msg.status !== 'pendente' && msg.status !== 'enviando' && (
-                      <md-icon-button slot="end" onClick={async () => {
-                        if (confirm('Remover esta mensagem?')) {
-                          await removerMensagemEnviada(msg.id);
-                          await carregarEnviadas();
-                        }
-                      }}>delete</md-icon-button>
-                    )}
-                  </md-list-item>
-                );
-              })}
-            </md-list>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/MensagensRecebidasSection.tsx`
-
-```tsx
-// src/components/MensagensRecebidasSection.tsx
-import { mensagensRecebidas, addDebugLog, showToast } from '../signals/state.ts';
-import { listarMensagensRecebidas, atualizarStatusMensagemRecebida, removerMensagemRecebida, serializarPublicKeyVapid, listarContatos } from '../utils/db-helpers.ts';
-import { useEffect, useState } from 'preact/hooks';
-
-export function MensagensRecebidasSection() {
-  const [nomesMap, setNomesMap] = useState<Map<string, string>>(new Map());
-
-  const carregar = async () => {
-    // Carrega mapa de contatos
-    const contatosList = await listarContatos();
-    const map = new Map<string, string>();
-    for (const c of contatosList) {
-      const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-      map.set(hash, c.nome);
-    }
-    setNomesMap(map);
-
-    // Carrega mensagens
-    const lista = await listarMensagensRecebidas();
-    lista.sort((a, b) => b.recebidoEm - a.recebidoEm);
-    mensagensRecebidas.value = lista;
-  };
-
-  useEffect(() => {
-    carregar();
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'PUSH_RECEIVED') {
-        carregar();
-      }
-    };
-    navigator.serviceWorker.addEventListener('message', handler);
-    return () => navigator.serviceWorker.removeEventListener('message', handler);
-  }, []);
-
-  const removerLidas = async () => {
-    if (!confirm('Remover todas as mensagens lidas?')) return;
-    const lidas = mensagensRecebidas.value.filter(m => m.status === 'lida');
-    for (const m of lidas) {
-      await removerMensagemRecebida(m.id);
-    }
-    await carregar();
-    showToast(`✅ ${lidas.length} mensagens removidas.`, "success");
-  };
-
-  const getNome = (hash: string): string => {
-    const nome = nomesMap.get(hash);
-    if (nome) return nome;
-    // Tenta tratar como JWK stringificado
-    try {
-      const jwk = JSON.parse(hash);
-      // Não temos como buscar por JWK diretamente, então retorna hash encurtado
-      return hash.substring(0, 16) + '...';
-    } catch {
-      return hash.substring(0, 16) + '...';
-    }
-  };
-
-  return (
-    <div class="container container-receptor">
-      <h2>📬 Mensagens Recebidas</h2>
-      <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-        <md-outlined-button onClick={carregar}>🔄 Atualizar</md-outlined-button>
-        <md-outlined-button onClick={removerLidas}>🗑️ Remover Lidas</md-outlined-button>
-      </div>
-      <div>
-        {mensagensRecebidas.value.length === 0 ? (
-          <p style="color: #666;">Nenhuma mensagem recebida.</p>
-        ) : (
-          <md-list>
-            {mensagensRecebidas.value.map(msg => {
-              const nomeRemetente = getNome(msg.contatoPublicKeyVapid);
-              return (
-                <md-list-item key={msg.id}>
-                  <span slot="headline">
-                    {msg.status === 'nao_lida' && '🟡'}
-                    {msg.status === 'notificada' && '🔔'}
-                    {msg.status === 'lida' && '✅'}
-                    {' '}
-                    De: {nomeRemetente}
-                  </span>
-                  <span slot="supporting-text">
-                    {msg.conteudo}
-                    <br />
-                    Recebido: {new Date(msg.recebidoEm).toLocaleString()}
-                    <br />
-                    Status: {msg.status}
-                  </span>
-                  <div slot="end" style="display: flex; gap: 8px;">
-                    {(msg.status === 'nao_lida' || msg.status === 'notificada') && (
-                      <md-outlined-button onClick={async () => {
-                        await atualizarStatusMensagemRecebida(msg.id, 'lida');
-                        await carregar();
-                      }}>Marcar lida</md-outlined-button>
-                    )}
-                    <md-icon-button onClick={async () => {
-                      if (confirm('Remover esta mensagem?')) {
-                        await removerMensagemRecebida(msg.id);
-                        await carregar();
-                      }
-                    }}>delete</md-icon-button>
-                  </div>
-                </md-list-item>
-              );
-            })}
-          </md-list>
-        )}
       </div>
     </div>
   );
@@ -3243,6 +3167,180 @@ label {
 
 ---
 
+## Arquivo: `src/stores/contatosStore.ts`
+
+```ts
+// src/stores/contatosStore.ts
+import { signal } from '@preact/signals';
+import { 
+  listarContatos, 
+  salvarContato, 
+  removerContato, 
+  homologarContato, 
+  buscarContatoPorChave,
+  serializarPublicKeyVapid,
+  buscarContatoPorPublicKey
+} from '../utils/db-helpers.ts';
+import type { Contato } from '../constants/db.ts';
+
+// Signals públicos
+export const contatos = signal<Contato[]>([]);
+export const contatosComHash = signal<Array<{ contato: Contato; hash: string }>>([]);
+export const contatosMap = signal<Map<string, string>>(new Map()); // hash -> nome
+
+// Carrega todos os contatos e atualiza os signals
+export async function carregarContatos() {
+  const lista = await listarContatos();
+  contatos.value = lista;
+
+  const map = new Map<string, string>();
+  const comHash = await Promise.all(lista.map(async (c) => {
+    const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
+    map.set(hash, c.nome);
+    return { contato: c, hash };
+  }));
+  contatosComHash.value = comHash;
+  contatosMap.value = map;
+}
+
+// Adiciona um contato (salva e recarrega)
+export async function adicionarContato(contato: Contato) {
+  await salvarContato(contato);
+  await carregarContatos(); // recarrega tudo
+}
+
+// Remove um contato
+export async function removerContatoPorPublicKey(publicKeyVapid: JsonWebKey) {
+  await removerContato(publicKeyVapid);
+  await carregarContatos();
+}
+
+// Homologa um contato
+export async function homologarContatoPorPublicKey(publicKeyVapid: JsonWebKey) {
+  await homologarContato(publicKeyVapid);
+  await carregarContatos();
+}
+
+// Busca um contato pelo hash (usa o map ou fallback)
+export async function buscarContatoPorHash(hash: string): Promise<Contato | undefined> {
+  // Tenta usar o map para encontrar o contato correspondente
+  const item = contatosComHash.value.find(item => item.hash === hash);
+  if (item) return item.contato;
+  // Se não encontrou, busca diretamente no DB
+  return await buscarContatoPorChave(hash);
+}
+
+// Inicialização (chamar uma vez no app)
+export async function initContatosStore() {
+  await carregarContatos();
+}
+```
+
+---
+
+## Arquivo: `src/stores/mensagensStore.ts`
+
+```ts
+// src/stores/mensagensStore.ts
+import { signal } from '@preact/signals';
+import {
+  listarMensagensRecebidas,
+  listarMensagensEnviadas,
+  salvarMensagemRecebida,
+  salvarMensagemEnviada,
+  atualizarStatusMensagemRecebida,
+  atualizarStatusMensagemEnviada,
+  removerMensagemRecebida,
+  removerMensagemEnviada,
+} from '../utils/db-helpers.ts';
+import type { MensagemRecebida, MensagemEnviada } from '../constants/db.ts';
+
+export const mensagensRecebidas = signal<MensagemRecebida[]>([]);
+export const mensagensEnviadas = signal<MensagemEnviada[]>([]);
+
+export async function carregarMensagensRecebidas() {
+  const lista = await listarMensagensRecebidas();
+  lista.sort((a, b) => b.recebidoEm - a.recebidoEm);
+  mensagensRecebidas.value = lista;
+}
+
+export async function carregarMensagensEnviadas() {
+  const lista = await listarMensagensEnviadas();
+  lista.sort((a, b) => b.createdAt - a.createdAt);
+  mensagensEnviadas.value = lista;
+}
+
+export async function adicionarMensagemRecebida(mensagem: MensagemRecebida) {
+  await salvarMensagemRecebida(mensagem);
+  await carregarMensagensRecebidas();
+}
+
+export async function adicionarMensagemEnviada(mensagem: MensagemEnviada) {
+  await salvarMensagemEnviada(mensagem);
+  await carregarMensagensEnviadas();
+}
+
+export async function marcarMensagemRecebidaComoLida(id: string) {
+  await atualizarStatusMensagemRecebida(id, 'lida');
+  await carregarMensagensRecebidas();
+}
+
+export async function removerMensagemRecebidaPorId(id: string) {
+  await removerMensagemRecebida(id);
+  await carregarMensagensRecebidas();
+}
+
+export async function removerMensagemEnviadaPorId(id: string) {
+  await removerMensagemEnviada(id);
+  await carregarMensagensEnviadas();
+}
+
+export async function initMensagensStore() {
+  await carregarMensagensRecebidas();
+  await carregarMensagensEnviadas();
+}
+```
+
+---
+
+## Arquivo: `src/stores/profileStore.ts`
+
+```ts
+// src/stores/profileStore.ts
+import { signal } from '@preact/signals';
+import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+
+export const profile = signal<ProfileConfig | null>(null);
+
+export async function carregarProfile() {
+  const p = await buscarProfile();
+  profile.value = p || null;
+}
+
+export async function atualizarProfile(p: ProfileConfig) {
+  await salvarProfile(p);
+  profile.value = p;
+}
+
+export async function initProfileStore() {
+  await carregarProfile();
+}
+```
+
+---
+
+## Arquivo: `src/stores/index.ts`
+
+```ts
+// src/stores/index.ts
+export * from './contatosStore.ts';
+export * from './mensagensStore.ts';
+export * from './profileStore.ts';
+```
+
+---
+
 ## Arquivo: `src/app.tsx`
 
 ```tsx
@@ -3256,12 +3354,23 @@ import { MensagensRecebidasSection } from './components/MensagensRecebidasSectio
 import { DebugPanel } from './components/DebugPanel.tsx';
 import { profile, addDebugLog } from './signals/state.ts';
 import { buscarProfile } from './utils/db-helpers.ts';
+import { initProfileStore, initContatosStore, initMensagensStore } from './stores/index.ts';
 
 import "@material/web/all.js";
 import './styles.css';
 
+
 function App() {
+  const init = async () => {
+    await initProfileStore();
+    await initContatosStore();
+    await initMensagensStore();
+    addDebugLog("✅ Stores inicializados");
+  };
+  init();
+
   useEffect(() => {
+    // Carrega o perfil
     const carregarPerfil = async () => {
       try {
         const p = await buscarProfile();
@@ -3281,7 +3390,7 @@ function App() {
   return (
     <div id="app-root">
       <h1>📬 Web Push Descentralizado</h1>
-      <p style="color: #666; margin-bottom: 20px;">Compartilhe seu perfil e receba mensagens de forma descentralizada.</p>
+      <p style={{ color: '#666', marginBottom: '20px' }}>Compartilhe seu perfil e receba mensagens de forma descentralizada.</p>
       <ProfileSection />
       <ContatosSection />
       <EnviarMensagemSection />

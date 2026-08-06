@@ -1,17 +1,7 @@
 // src/signals/state.ts
-import { signal, computed } from '@preact/signals';
-import type { ProfileConfig, MensagemEnviada, MensagemRecebida, Contato } from '../constants/db.ts';
+import { signal } from '@preact/signals';
 
-export const profile = signal<ProfileConfig | null>(null);
-export const contatos = signal<Contato[]>([]);
-export const mensagensRecebidas = signal<MensagemRecebida[]>([]);
-export const mensagensEnviadas = signal<MensagemEnviada[]>([]);
-
-// Novo signal: contatos com hash pré-calculado
-export const contatosComHash = signal<Array<{ contato: Contato; hash: string }>>([]);
-
-// UI state
-export const contatoSelecionado = signal<string>(''); // agora será o email
+export const contatoSelecionado = signal<string>('');
 export const mensagemEnvio = signal<string>('');
 export const profileInput = signal<string>('');
 export const profileName = signal<string>('Alice');

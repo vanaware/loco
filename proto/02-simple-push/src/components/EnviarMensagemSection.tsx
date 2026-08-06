@@ -1,33 +1,14 @@
 // src/components/EnviarMensagemSection.tsx
-import { contatoSelecionado, mensagemEnvio, contatos, mensagensEnviadas, addDebugLog, showToast } from '../signals/state.ts';
-import { salvarMensagemEnviada, listarMensagensEnviadas, removerMensagemEnviada, buscarContatoPorChave, serializarPublicKeyVapid, listarContatos } from '../utils/db-helpers.ts';
+import { contatoSelecionado, mensagemEnvio, addDebugLog, showToast } from '../signals/state.ts';
+import { contatosComHash, mensagensEnviadas, adicionarMensagemEnviada, removerMensagemEnviadaPorId, carregarMensagensEnviadas } from '../stores/index.ts';
+import { buscarContatoPorHash } from '../stores/contatosStore.ts';
 import { gerarIdMensagem } from '../utils/id-utils.ts';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect } from 'preact/hooks';
 
 export function EnviarMensagemSection() {
-  const [nomesMap, setNomesMap] = useState<Map<string, string>>(new Map());
-
-  const carregarContatosMap = async () => {
-    const contatosList = await listarContatos();
-    const map = new Map<string, string>();
-    for (const c of contatosList) {
-      const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-      map.set(hash, c.nome);
-    }
-    setNomesMap(map);
-    // Atualiza o signal contatos também
-    contatos.value = contatosList;
-  };
-
-  const carregarEnviadas = async () => {
-    const lista = await listarMensagensEnviadas();
-    lista.sort((a, b) => b.createdAt - a.createdAt);
-    mensagensEnviadas.value = lista;
-  };
-
   const handleEnviar = async () => {
-    const selectedKey = contatoSelecionado.value;
-    if (!selectedKey) {
+    const selectedHash = contatoSelecionado.value;
+    if (!selectedHash) {
       showToast("Selecione um contato.", "error");
       return;
     }
@@ -37,26 +18,23 @@ export function EnviarMensagemSection() {
       return;
     }
     try {
-      const contato = await buscarContatoPorChave(selectedKey);
+      const contato = await buscarContatoPorHash(selectedHash);
       if (!contato) {
-        addDebugLog(`❌ Contato não encontrado para a chave: ${selectedKey}`);
-        showToast("Contato não encontrado. Tente adicioná-lo novamente.", "error");
+        showToast("Contato não encontrado.", "error");
         return;
       }
       const msgId = gerarIdMensagem();
-      const mensagem = {
+      await adicionarMensagemEnviada({
         id: msgId,
-        contatoHash: selectedKey,
+        contatoHash: selectedHash,
         conteudo,
-        status: 'pendente' as const,
+        status: 'pendente',
         tentativas: 0,
         createdAt: Date.now(),
         updatedAt: Date.now()
-      };
-      await salvarMensagemEnviada(mensagem);
+      });
       const reg = await navigator.serviceWorker.ready;
       reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
-      await carregarEnviadas();
       mensagemEnvio.value = '';
       showToast(`✅ Mensagem adicionada à fila para ${contato.nome}.`, "success");
       addDebugLog(`✅ Mensagem ${msgId} adicionada à fila.`);
@@ -67,25 +45,14 @@ export function EnviarMensagemSection() {
   };
 
   useEffect(() => {
-    carregarContatosMap();
-    carregarEnviadas();
-
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'MENSAGEM_ENTREGUE') {
-        carregarEnviadas();
-        carregarContatosMap(); // atualiza nomes caso tenha mudado
+        carregarMensagensEnviadas();
       }
     };
     navigator.serviceWorker.addEventListener('message', handler);
     return () => navigator.serviceWorker.removeEventListener('message', handler);
   }, []);
-
-  // Função para obter nome a partir do hash
-  const getNome = (hash: string): string => {
-    const nome = nomesMap.get(hash);
-    if (nome) return nome;
-    return hash.substring(0, 16) + '...';
-  };
 
   return (
     <div class="container container-emissor">
@@ -98,15 +65,11 @@ export function EnviarMensagemSection() {
             onInput={(e: any) => contatoSelecionado.value = e.target.value}
           >
             <md-select-option value="">-- Selecione --</md-select-option>
-            {contatos.value.map(c => {
-              // Gera o hash da chave pública para usar como valor
-              const hash = serializarPublicKeyVapid(c.publicKeyVapid);
-              return (
-                <md-select-option key={c.email} value={hash}>
-                  {c.nome} ({c.email})
-                </md-select-option>
-              );
-            })}
+            {contatosComHash.value.map(({ contato, hash }) => (
+              <md-select-option key={contato.email} value={hash}>
+                {contato.nome} ({contato.email})
+              </md-select-option>
+            ))}
           </md-outlined-select>
         </div>
       </div>
@@ -129,7 +92,8 @@ export function EnviarMensagemSection() {
           ) : (
             <md-list>
               {mensagensEnviadas.value.map(msg => {
-                const nomeDestino = getNome(msg.contatoHash);
+                const contatoComHash = contatosComHash.value.find(c => c.hash === msg.contatoHash);
+                const nomeDestino = contatoComHash?.contato.nome || msg.contatoHash.substring(0,16)+'...';
                 return (
                   <md-list-item key={msg.id}>
                     <span slot="headline">
@@ -148,8 +112,7 @@ export function EnviarMensagemSection() {
                     {msg.status !== 'pendente' && msg.status !== 'enviando' && (
                       <md-icon-button slot="end" onClick={async () => {
                         if (confirm('Remover esta mensagem?')) {
-                          await removerMensagemEnviada(msg.id);
-                          await carregarEnviadas();
+                          await removerMensagemEnviadaPorId(msg.id);
                         }
                       }}>delete</md-icon-button>
                     )}

@@ -2,7 +2,6 @@
 import { debugLogs, clearDebugLogs } from '../signals/state.ts';
 
 export function DebugPanel() {
-  // Acessa o valor atual do signal para reatividade
   const logs = debugLogs.value;
 
   return (

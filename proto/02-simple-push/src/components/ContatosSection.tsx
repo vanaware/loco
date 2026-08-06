@@ -1,11 +1,16 @@
 // src/components/ContatosSection.tsx
 import { useEffect } from 'preact/hooks';
-import { contatos, contatosComHash, profileInput, addDebugLog, showToast } from '../signals/state.ts';
-import { salvarContato, buscarContatoPorPublicKey, listarContatos, homologarContato, removerContato, serializarPublicKeyVapid } from '../utils/db-helpers.ts';
+import { contatos, contatosComHash, adicionarContato, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { profileInput, showToast, addDebugLog } from '../signals/state.ts';
 import { verificarJWT } from '../utils/jwt-helpers.ts';
 import type { Contato } from '../constants/db.ts';
 
 export function ContatosSection() {
+  // Os stores já carregam os dados, mas podemos garantir
+  useEffect(() => {
+    // Não precisa chamar nada, os stores já foram inicializados no App
+  }, []);
+
   const handleAdicionar = async () => {
     const raw = profileInput.value.trim();
     if (!raw) {
@@ -16,11 +21,7 @@ export function ContatosSection() {
       const { header, payload, valid } = await verificarJWT(raw);
       if (!valid) throw new Error("Assinatura inválida.");
       if (payload.sub !== "contact") throw new Error("JWT não é de contato.");
-      const existente = await buscarContatoPorPublicKey(header.kid);
-      if (existente) {
-        showToast("Contato já existe.", "info");
-        return;
-      }
+      
       const novoContato: Contato = {
         publicKeyVapid: header.kid,
         email: payload.iss,
@@ -35,8 +36,7 @@ export function ContatosSection() {
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
-      await salvarContato(novoContato);
-      await carregarContatos();
+      await adicionarContato(novoContato);
       profileInput.value = '';
       showToast(`✅ Contato "${novoContato.nome}" adicionado.`, "success");
       addDebugLog(`✅ Contato "${novoContato.nome}" adicionado.`);
@@ -45,21 +45,6 @@ export function ContatosSection() {
       addDebugLog(`❌ Erro ao adicionar contato: ${err.message}`);
     }
   };
-
-  const carregarContatos = async () => {
-    const lista = await listarContatos();
-    contatos.value = lista;
-    // Atualizar contatosComHash
-    const comHash = await Promise.all(lista.map(async (c) => {
-      const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-      return { contato: c, hash };
-    }));
-    contatosComHash.value = comHash;
-  };
-
-  useEffect(() => {
-    carregarContatos();
-  }, []);
 
   return (
     <div class="container container-contatos">
@@ -91,15 +76,13 @@ export function ContatosSection() {
                   <div slot="end" style="display: flex; gap: 8px;">
                     {!c.homologado && (
                       <md-outlined-button onClick={async () => {
-                        await homologarContato(c.publicKeyVapid);
-                        await carregarContatos();
+                        await homologarContatoPorPublicKey(c.publicKeyVapid);
                         showToast("Contato homologado!", "success");
                       }}>Homologar</md-outlined-button>
                     )}
                     <md-icon-button onClick={async () => {
                       if (confirm('Remover este contato?')) {
-                        await removerContato(c.publicKeyVapid);
-                        await carregarContatos();
+                        await removerContatoPorPublicKey(c.publicKeyVapid);
                       }
                     }}>delete</md-icon-button>
                   </div>
