@@ -8,7 +8,7 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/6/2026, 12:08:10 AM
+Gerado automaticamente em: 8/6/2026, 12:14:41 AM
 
 ---
 
@@ -2240,19 +2240,9 @@ self.addEventListener('activate', (event) => {
 
 ```ts
 // src/signals/state.ts
-import { signal, computed } from '@preact/signals';
-import type { ProfileConfig, MensagemEnviada, MensagemRecebida, Contato } from '../constants/db.ts';
+import { signal } from '@preact/signals';
 
-export const profile = signal<ProfileConfig | null>(null);
-export const contatos = signal<Contato[]>([]);
-export const mensagensRecebidas = signal<MensagemRecebida[]>([]);
-export const mensagensEnviadas = signal<MensagemEnviada[]>([]);
-
-// Novo signal: contatos com hash pré-calculado
-export const contatosComHash = signal<Array<{ contato: Contato; hash: string }>>([]);
-
-// UI state
-export const contatoSelecionado = signal<string>(''); // agora será o email
+export const contatoSelecionado = signal<string>('');
 export const mensagemEnvio = signal<string>('');
 export const profileInput = signal<string>('');
 export const profileName = signal<string>('Alice');
@@ -2277,28 +2267,103 @@ export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'inf
 
 ---
 
-## Arquivo: `src/components/DebugPanel.tsx`
+## Arquivo: `src/components/ProfileSection.tsx`
 
 ```tsx
-// src/components/DebugPanel.tsx
-import { debugLogs, clearDebugLogs } from '../signals/state.ts';
+// src/components/ProfileSection.tsx
+import { profile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { atualizarProfile } from '../stores/profileStore.ts';
+import { gerarProfileCompleto } from '../utils/profile-utils.ts';
+import { criarJWT } from '../utils/jwt-helpers.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
 
-export function DebugPanel() {
-  // Acessa o valor atual do signal para reatividade
-  const logs = debugLogs.value;
+export function ProfileSection() {
+  const handleGerar = async () => {
+    try {
+      const p = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(p);
+      showToast(`✅ Perfil de "${p.name}" gerado/atualizado!`, "success");
+      addDebugLog(`✅ Perfil de "${p.name}" gerado/atualizado.`);
+    } catch (err: any) {
+      addDebugLog(`❌ Erro ao gerar perfil: ${err.message}`);
+      showToast(`❌ Erro: ${err.message}`, "error");
+    }
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      let p = profile.value;
+      if (!p) {
+        const { carregarProfile } = await import('../stores/profileStore.ts');
+        await carregarProfile();
+        p = profile.value;
+        if (!p) {
+          showToast("❌ Perfil não encontrado. Gere um perfil primeiro.", "error");
+          return;
+        }
+      }
+
+      const resServerKey = await fetch("/api/server-public-key");
+      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
+      const serverPublicKeyJwk = await resServerKey.json();
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const payload = {
+        iss: p.email,
+        sub: "contact",
+        nm: p.name,
+        p: p.e2ePublicKey,
+        s: {
+          endpoint: p.subscription.endpoint,
+          keys: p.subscription.keys,
+          k: p.vapidPrivateKeyEnvelope
+        },
+        iat: Math.floor(Date.now() / 1000)
+      };
+      const jwt = await criarJWT(payload, p.vapidPrivateKeyJwk, { kid: p.vapidPublicKey });
+      await navigator.clipboard.writeText(jwt);
+      showToast("✅ JWT copiado para a área de transferência!", "success");
+      addDebugLog("✅ JWT gerado e copiado.");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
 
   return (
-    <div class="container" style="background: #f5f5f5; border: 2px dashed #999; margin-top: 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h2 style="margin: 0;">🔍 Debug Logs</h2>
-        <md-outlined-button onClick={clearDebugLogs}>🗑️ Limpar Logs</md-outlined-button>
+    <div class="container" style="background: #f0f8f4;">
+      <h2>👤 Meu Perfil</h2>
+      <div class="row">
+        <div class="col">
+          <md-outlined-text-field
+            label="Meu Nome"
+            value={profileName.value}
+            onInput={(e: any) => profileName.value = e.target.value}
+          ></md-outlined-text-field>
+        </div>
+        <div class="col">
+          <md-outlined-text-field
+            label="Meu E-mail"
+            value={profileEmail.value}
+            onInput={(e: any) => profileEmail.value = e.target.value}
+          ></md-outlined-text-field>
+        </div>
       </div>
-      <div id="debugPanel" style="background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-        {logs.length === 0 ? (
-          <div>Aguardando logs...</div>
-        ) : (
-          logs.map((log, index) => <div key={index}>{log}</div>)
-        )}
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <md-filled-button onClick={handleGerar}>📦 Gerar/Atualizar Perfil</md-filled-button>
+        <md-outlined-button onClick={handleCompartilhar}>🔗 Compartilhar Perfil (JWT)</md-outlined-button>
+      </div>
+      <div class="mt-10">
+        <label>📋 Meu Perfil (JSON):</label>
+        <div class="profile-field" style="background: #e8f5e9; border-color: #006c4f; white-space: pre-wrap; word-break: break-all;">
+          {profile.value ? JSON.stringify(profile.value, null, 2) : 'Clique em "Gerar/Atualizar Perfil"'}
+        </div>
       </div>
     </div>
   );
@@ -2312,12 +2377,17 @@ export function DebugPanel() {
 ```tsx
 // src/components/ContatosSection.tsx
 import { useEffect } from 'preact/hooks';
-import { contatos, contatosComHash, profileInput, addContato, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { contatos, contatosComHash, adicionarContato, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { profileInput, showToast, addDebugLog } from '../signals/state.ts';
 import { verificarJWT } from '../utils/jwt-helpers.ts';
 import type { Contato } from '../constants/db.ts';
-import { showToast, addDebugLog } from '../signals/state.ts';
 
 export function ContatosSection() {
+  // Os stores já carregam os dados, mas podemos garantir
+  useEffect(() => {
+    // Não precisa chamar nada, os stores já foram inicializados no App
+  }, []);
+
   const handleAdicionar = async () => {
     const raw = profileInput.value.trim();
     if (!raw) {
@@ -2343,7 +2413,7 @@ export function ContatosSection() {
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
-      await addContato(novoContato);
+      await adicionarContato(novoContato);
       profileInput.value = '';
       showToast(`✅ Contato "${novoContato.nome}" adicionado.`, "success");
       addDebugLog(`✅ Contato "${novoContato.nome}" adicionado.`);
@@ -2411,7 +2481,7 @@ export function ContatosSection() {
 ```tsx
 // src/components/EnviarMensagemSection.tsx
 import { contatoSelecionado, mensagemEnvio, addDebugLog, showToast } from '../signals/state.ts';
-import { contatosComHash, mensagensEnviadas, adicionarMensagemEnviada, removerMensagemEnviadaPorId } from '../stores/index.ts';
+import { contatosComHash, mensagensEnviadas, adicionarMensagemEnviada, removerMensagemEnviadaPorId, carregarMensagensEnviadas } from '../stores/index.ts';
 import { buscarContatoPorHash } from '../stores/contatosStore.ts';
 import { gerarIdMensagem } from '../utils/id-utils.ts';
 import { useEffect } from 'preact/hooks';
@@ -2444,7 +2514,6 @@ export function EnviarMensagemSection() {
         createdAt: Date.now(),
         updatedAt: Date.now()
       });
-      // Dispara o processamento no SW
       const reg = await navigator.serviceWorker.ready;
       reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
       mensagemEnvio.value = '';
@@ -2457,15 +2526,9 @@ export function EnviarMensagemSection() {
   };
 
   useEffect(() => {
-    // Os stores já carregam os dados, mas podemos recarregar quando chegar notificação
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'MENSAGEM_ENTREGUE') {
-        // O store já tem o signal, mas precisamos recarregar
-        // Podemos chamar a função do store novamente, mas o signal já está no store
-        // Vamos importar a função de recarga do store
-        import('../stores/mensagensStore.ts').then(({ carregarMensagensEnviadas }) => {
-          carregarMensagensEnviadas();
-        });
+        carregarMensagensEnviadas();
       }
     };
     navigator.serviceWorker.addEventListener('message', handler);
@@ -2552,20 +2615,16 @@ export function EnviarMensagemSection() {
 
 ```tsx
 // src/components/MensagensRecebidasSection.tsx
-import { mensagensRecebidas, marcarMensagemRecebidaComoLida, removerMensagemRecebidaPorId } from '../stores/mensagensStore.ts';
+import { mensagensRecebidas, marcarMensagemRecebidaComoLida, removerMensagemRecebidaPorId, carregarMensagensRecebidas } from '../stores/mensagensStore.ts';
 import { contatosComHash } from '../stores/contatosStore.ts';
 import { useEffect } from 'preact/hooks';
 import { showToast, addDebugLog } from '../signals/state.ts';
 
 export function MensagensRecebidasSection() {
   useEffect(() => {
-    // Os stores já carregam, mas escutamos novos pushes
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'PUSH_RECEIVED') {
-        // Recarregar do store
-        import('../stores/mensagensStore.ts').then(({ carregarMensagensRecebidas }) => {
-          carregarMensagensRecebidas();
-        });
+        carregarMensagensRecebidas();
       }
     };
     navigator.serviceWorker.addEventListener('message', handler);
@@ -2590,9 +2649,7 @@ export function MensagensRecebidasSection() {
     <div class="container container-receptor">
       <h2>📬 Mensagens Recebidas</h2>
       <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-        <md-outlined-button onClick={() => import('../stores/mensagensStore.ts').then(({ carregarMensagensRecebidas }) => carregarMensagensRecebidas())}>
-          🔄 Atualizar
-        </md-outlined-button>
+        <md-outlined-button onClick={carregarMensagensRecebidas}>🔄 Atualizar</md-outlined-button>
         <md-outlined-button onClick={removerLidas}>🗑️ Remover Lidas</md-outlined-button>
       </div>
       <div>
@@ -2643,103 +2700,27 @@ export function MensagensRecebidasSection() {
 
 ---
 
-## Arquivo: `src/components/ProfileSection.tsx`
+## Arquivo: `src/components/DebugPanel.tsx`
 
 ```tsx
-// src/components/ProfileSection.tsx
-import { profile, profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { atualizarProfile } from '../stores/profileStore.ts';
-import { gerarProfileCompleto } from '../utils/profile-utils.ts';
-import { criarJWT } from '../utils/jwt-helpers.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
+// src/components/DebugPanel.tsx
+import { debugLogs, clearDebugLogs } from '../signals/state.ts';
 
-export function ProfileSection() {
-  const handleGerar = async () => {
-    try {
-      const p = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(p);
-      showToast(`✅ Perfil de "${p.name}" gerado/atualizado!`, "success");
-      addDebugLog(`✅ Perfil de "${p.name}" gerado/atualizado.`);
-    } catch (err: any) {
-      addDebugLog(`❌ Erro ao gerar perfil: ${err.message}`);
-      showToast(`❌ Erro: ${err.message}`, "error");
-    }
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      let p = profile.value;
-      if (!p) {
-        // Tenta buscar novamente
-        const { carregarProfile } = await import('../stores/profileStore.ts');
-        await carregarProfile();
-        p = profile.value;
-        if (!p) {
-          showToast("❌ Perfil não encontrado. Gere um perfil primeiro.", "error");
-          return;
-        }
-      }
-
-      const resServerKey = await fetch("/api/server-public-key");
-      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
-      const serverPublicKeyJwk = await resServerKey.json();
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p); // atualiza o signal
-
-      const payload = {
-        iss: p.email,
-        sub: "contact",
-        nm: p.name,
-        p: p.e2ePublicKey,
-        s: {
-          endpoint: p.subscription.endpoint,
-          keys: p.subscription.keys,
-          k: p.vapidPrivateKeyEnvelope
-        },
-        iat: Math.floor(Date.now() / 1000)
-      };
-      const jwt = await criarJWT(payload, p.vapidPrivateKeyJwk, { kid: p.vapidPublicKey });
-      await navigator.clipboard.writeText(jwt);
-      showToast("✅ JWT copiado para a área de transferência!", "success");
-      addDebugLog("✅ JWT gerado e copiado.");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
+export function DebugPanel() {
+  const logs = debugLogs.value;
 
   return (
-    <div class="container" style="background: #f0f8f4;">
-      <h2>👤 Meu Perfil</h2>
-      <div class="row">
-        <div class="col">
-          <md-outlined-text-field
-            label="Meu Nome"
-            value={profileName.value}
-            onInput={(e: any) => profileName.value = e.target.value}
-          ></md-outlined-text-field>
-        </div>
-        <div class="col">
-          <md-outlined-text-field
-            label="Meu E-mail"
-            value={profileEmail.value}
-            onInput={(e: any) => profileEmail.value = e.target.value}
-          ></md-outlined-text-field>
-        </div>
+    <div class="container" style="background: #f5f5f5; border: 2px dashed #999; margin-top: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h2 style="margin: 0;">🔍 Debug Logs</h2>
+        <md-outlined-button onClick={clearDebugLogs}>🗑️ Limpar Logs</md-outlined-button>
       </div>
-      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <md-filled-button onClick={handleGerar}>📦 Gerar/Atualizar Perfil</md-filled-button>
-        <md-outlined-button onClick={handleCompartilhar}>🔗 Compartilhar Perfil (JWT)</md-outlined-button>
-      </div>
-      <div class="mt-10">
-        <label>📋 Meu Perfil (JSON):</label>
-        <div class="profile-field" style="background: #e8f5e9; border-color: #006c4f; white-space: pre-wrap; word-break: break-all;">
-          {profile.value ? JSON.stringify(profile.value, null, 2) : 'Clique em "Gerar/Atualizar Perfil"'}
-        </div>
+      <div id="debugPanel" style="background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+        {logs.length === 0 ? (
+          <div>Aguardando logs...</div>
+        ) : (
+          logs.map((log, index) => <div key={index}>{log}</div>)
+        )}
       </div>
     </div>
   );
@@ -3167,6 +3148,17 @@ label {
 
 ---
 
+## Arquivo: `src/stores/index.ts`
+
+```ts
+// src/stores/index.ts
+export * from './contatosStore.ts';
+export * from './mensagensStore.ts';
+export * from './profileStore.ts';
+```
+
+---
+
 ## Arquivo: `src/stores/contatosStore.ts`
 
 ```ts
@@ -3179,58 +3171,43 @@ import {
   homologarContato, 
   buscarContatoPorChave,
   serializarPublicKeyVapid,
-  buscarContatoPorPublicKey
 } from '../utils/db-helpers.ts';
 import type { Contato } from '../constants/db.ts';
 
-// Signals públicos
 export const contatos = signal<Contato[]>([]);
 export const contatosComHash = signal<Array<{ contato: Contato; hash: string }>>([]);
-export const contatosMap = signal<Map<string, string>>(new Map()); // hash -> nome
 
-// Carrega todos os contatos e atualiza os signals
 export async function carregarContatos() {
   const lista = await listarContatos();
   contatos.value = lista;
-
-  const map = new Map<string, string>();
   const comHash = await Promise.all(lista.map(async (c) => {
     const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-    map.set(hash, c.nome);
     return { contato: c, hash };
   }));
   contatosComHash.value = comHash;
-  contatosMap.value = map;
 }
 
-// Adiciona um contato (salva e recarrega)
 export async function adicionarContato(contato: Contato) {
   await salvarContato(contato);
-  await carregarContatos(); // recarrega tudo
+  await carregarContatos();
 }
 
-// Remove um contato
 export async function removerContatoPorPublicKey(publicKeyVapid: JsonWebKey) {
   await removerContato(publicKeyVapid);
   await carregarContatos();
 }
 
-// Homologa um contato
 export async function homologarContatoPorPublicKey(publicKeyVapid: JsonWebKey) {
   await homologarContato(publicKeyVapid);
   await carregarContatos();
 }
 
-// Busca um contato pelo hash (usa o map ou fallback)
 export async function buscarContatoPorHash(hash: string): Promise<Contato | undefined> {
-  // Tenta usar o map para encontrar o contato correspondente
   const item = contatosComHash.value.find(item => item.hash === hash);
   if (item) return item.contato;
-  // Se não encontrou, busca diretamente no DB
   return await buscarContatoPorChave(hash);
 }
 
-// Inicialização (chamar uma vez no app)
 export async function initContatosStore() {
   await carregarContatos();
 }
@@ -3330,17 +3307,6 @@ export async function initProfileStore() {
 
 ---
 
-## Arquivo: `src/stores/index.ts`
-
-```ts
-// src/stores/index.ts
-export * from './contatosStore.ts';
-export * from './mensagensStore.ts';
-export * from './profileStore.ts';
-```
-
----
-
 ## Arquivo: `src/app.tsx`
 
 ```tsx
@@ -3352,39 +3318,21 @@ import { ContatosSection } from './components/ContatosSection.tsx';
 import { EnviarMensagemSection } from './components/EnviarMensagemSection.tsx';
 import { MensagensRecebidasSection } from './components/MensagensRecebidasSection.tsx';
 import { DebugPanel } from './components/DebugPanel.tsx';
-import { profile, addDebugLog } from './signals/state.ts';
-import { buscarProfile } from './utils/db-helpers.ts';
+import { addDebugLog } from './signals/state.ts';
 import { initProfileStore, initContatosStore, initMensagensStore } from './stores/index.ts';
 
 import "@material/web/all.js";
 import './styles.css';
 
-
 function App() {
-  const init = async () => {
-    await initProfileStore();
-    await initContatosStore();
-    await initMensagensStore();
-    addDebugLog("✅ Stores inicializados");
-  };
-  init();
-
   useEffect(() => {
-    // Carrega o perfil
-    const carregarPerfil = async () => {
-      try {
-        const p = await buscarProfile();
-        if (p) {
-          profile.value = p;
-          addDebugLog(`✅ Perfil carregado: ${p.name}`);
-        } else {
-          addDebugLog("ℹ️ Nenhum perfil encontrado. Gere um novo.");
-        }
-      } catch (err) {
-        addDebugLog(`❌ Erro ao carregar perfil: ${err}`);
-      }
+    const init = async () => {
+      await initProfileStore();
+      await initContatosStore();
+      await initMensagensStore();
+      addDebugLog("✅ Stores inicializados");
     };
-    carregarPerfil();
+    init();
   }, []);
 
   return (
