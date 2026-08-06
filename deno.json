@@ -25,11 +25,13 @@
     "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
   },
   "tasks": {
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --unstable-bundle build.ts",
-    "start": "deno task build && deno run --allow-read --allow-net main.ts",
-    "dev": "deno task build && deno run --allow-read --allow-net --watch main.ts",
     "test": "deno test --allow-env --allow-net tests/",
-    "typecheck": "deno check main.ts build.ts src/**/*.ts src/**/*.tsx"
+    "typecheck": "deno check main.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "rm -rf dist && mkdir -p dist",
+    "export": "deno run --allow-read --allow-write export.ts"
   },
   "exclude": ["dist/", "public/"]
 }
