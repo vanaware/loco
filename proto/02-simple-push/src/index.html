@@ -1,134 +1,18 @@
-<!-- src/index.html -->
 <!DOCTYPE html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <title>loco</title>
-    <link rel="manifest" href="./manifest.json">
-<link rel="icon" href="./favicon.ico" sizes="any" />
-<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
-<link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
-<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
-<meta name="application-name" content="loco" />
-<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    
-  </head>
-  <body>
-    <h1>📬 Web Push Descentralizado</h1>
-    <p style="color: #666; margin-bottom: 20px;">Compartilhe seu perfil e receba mensagens de forma descentralizada.</p>
-
-    <!-- ============================================================ -->
-    <!-- MEU PERFIL                                                   -->
-    <!-- ============================================================ -->
-    <div class="container" style="background: #f0f8f4;">
-      <h2>👤 Meu Perfil</h2>
-      <div class="row">
-        <div class="col">
-          <label for="profileNameB">Meu Nome:</label>
-          <input type="text" id="profileNameB" value="Alice" />
-        </div>
-        <div class="col">
-          <label for="profileEmailB">Meu E-mail:</label>
-          <input type="text" id="profileEmailB" value="alice@example.com" />
-        </div>
-      </div>
-      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button id="btnGerarProfile" style="flex: 1; min-width: 150px;">📦 Gerar/Atualizar Perfil</button>
-        <button id="btnCompartilharProfile" style="flex: 1; min-width: 150px; background-color: #002b3d;">🔗 Compartilhar Perfil (JWT)</button>
-      </div>
-      <button id="btnLimparSubscription" class="btn-sm danger" style="margin-top: 10px;">🗑️ Limpar Subscription</button>
-      
-      <div class="row mt-10">
-        <div class="col">
-          <label for="myProfileDisplay">📋 Meu Perfil (copie e cole para quem quiser te enviar mensagens):</label>
-          <div id="myProfileDisplay" class="profile-field" style="background: #e8f5e9; border-color: #006c4f;">
-            Clique em "Gerar/Atualizar Perfil" para criar seu perfil, depois em "Compartilhar Perfil" para gerar o JWT.
-          </div>
-          <button id="btnCopyProfile" class="btn-sm">📋 Copiar Perfil</button>
-        </div>
-      </div>
-    </div>
-
-
-    <!-- ============================================================ -->
-    <!-- CONTATOS                                                     -->
-    <!-- ============================================================ -->
-    <div class="container container-contatos">
-      <h2>📇 Contatos</h2>
-      <div class="row">
-        <div class="col">
-          <label for="profileInput">Cole aqui o perfil de outra pessoa para adicionar como contato:</label>
-          <textarea id="profileInput" rows="4" placeholder="Cole aqui o JWT gerado pela outra pessoa..."></textarea>
-          <button id="btnAdicionarContato">➕ Adicionar Contato</button>
-        </div>
-      </div>
-      <div class="mt-10">
-        <label>📋 Meus Contatos:</label>
-        <div id="listaContatos" style="max-height: 200px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
-          <p style="color: #666; font-size: 14px;">Nenhum contato adicionado ainda.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- ENVIAR MENSAGENS                                             -->
-    <!-- ============================================================ -->
-    <div class="container container-emissor">
-      <h2>📤 Enviar Mensagem</h2>
-      <div class="row">
-        <div class="col">
-          <label for="contatoSelect">Selecione o contato destino:</label>
-          <select id="contatoSelect" class="contato-select">
-            <option value="">-- Selecione um contato --</option>
-          </select>
-        </div>
-      </div>
-      <label for="mensagemEnvioB">Mensagem:</label>
-      <textarea id="mensagemEnvioB" rows="3" placeholder="Escreva sua mensagem aqui..."></textarea>
-      <button id="btnEnviarB" class="send-btn">🚀 Enviar Mensagem</button>
-      
-      <!-- ============================================================ -->
-      <!-- 🔥 CONTAINER PARA MENSAGENS ENVIADAS (adicionado)             -->
-      <!-- ============================================================ -->
-      <div class="mt-10">
-        <label>📤 Mensagens Enviadas:</label>
-        <div id="mensagensEnviadasB" style="max-height: 250px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd; margin-top: 5px;">
-          <p style="color: #666; font-size: 14px;">Nenhuma mensagem enviada.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- MENSAGENS RECEBIDAS                                          -->
-    <!-- ============================================================ -->
-    <div class="container container-receptor">
-      <h2>📬 Mensagens Recebidas</h2>
-      <div class="flex mb-10">
-        <span></span>
-        <div class="flex-end">
-          <button id="btnCarregarMensagens" class="btn-sm">🔄 Atualizar</button>
-          <button id="btnLimparLidas" class="btn-sm danger">🗑️ Remover Lidas</button>
-        </div>
-      </div>
-      <div id="mensagensRecebidas">
-        <p style="color: #666;">Nenhuma mensagem recebida ainda.</p>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- DEBUG PANEL (visible logs on the page)                        -->
-    <!-- ============================================================ -->
-    <div class="container" style="background: #f5f5f5; border: 2px dashed #999; margin-top: 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h2 style="margin: 0;">🔍 Debug Logs</h2>
-        <button id="btnClearDebugLogs" class="btn-sm" style="background-color: #ff6b6b;">🗑️ Limpar Logs</button>
-      </div>
-      <div id="debugPanel" style="background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-        Aguardando logs...
-      </div>
-    </div>
-
-    <!-- Ponto de entrada -->
-    <script src="./app.tsx" type="module"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <title>loco</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+  <meta name="application-name" content="loco" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="./app.tsx" type="module"></script>
+</body>
 </html>

@@ -1,5 +1,9 @@
 {
   "extends": "../../deno.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  },
   "imports": {
     "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
     "preact": "https://esm.sh/preact@10.29.7",
@@ -9,7 +13,7 @@
     "@material/web": "https://esm.sh/@material/web@1.5.1?bundle"
   },
   "tasks": {
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --unstable-bundle --env-file build.ts",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
     "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
     "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
     "clean": "rm -rf dist && mkdir -p dist",

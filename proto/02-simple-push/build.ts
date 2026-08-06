@@ -173,7 +173,7 @@ async function build() {
     jsxFactory: "h",
     jsxFragment: "Fragment",
   });
-
+ 
   console.log("📦 Compilando Service Worker em memória...");
   const swResult = await runBundle("ServiceWorker", {
     entrypoints: [join(SRC_DIR, "service-worker.ts")],
