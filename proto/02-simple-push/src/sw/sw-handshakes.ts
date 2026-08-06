@@ -11,21 +11,20 @@ import {
   atualizarStatusHandshake,
   buscarMensagemEnviada,
   atualizarStatusMensagemEnviada,
-  salvarProfile, // 🔥 agora importado de db-helpers
+  salvarProfile,
+  buscarContatoPorChave,
+  buscarHandshake,
+  buscarProfile,
+  buscarChaveDecript,
+  listarHandshakes,
 } from "../utils/db-helpers.ts";
-import { buscarProfile, buscarChaveDecript } from "./push-common.ts";
 import { criarJWT } from "../utils/jwt-helpers.ts";
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 
 // ============================================================
-// STORE CONFIG (para acesso direto)
-// ============================================================
-const storeConfig = createStore(DB_NAMES.CONFIG, STORE_NAMES.KEYVAL);
-
-// ============================================================
 // FUNÇÃO PARA PROCESSAR HANDSHAKE RECEBIDO (sub: "hand")
 // ============================================================
-async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
+export async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
   console.log("[SW-HANDSHAKE] 🤝 Processando handshake recebido...");
 
   try {
@@ -88,7 +87,6 @@ async function processarHandshakeRecebido(payload: any, header: any, jwt: string
     await salvarHandshake(handshake);
     console.log(`[SW-HANDSHAKE] ✅ Handshake ${handshake.id} (tipo: ${handshake.tipo}) recebido para mensagem ${mensagemId}.`);
 
-    // 🔥 ATUALIZAR MENSAGEM ENVIADA COMO ENTREGUE
     if (payloadObj.htype === 'confirmacao_entrega') {
       try {
         const mensagemEnviada = await buscarMensagemEnviada(mensagemId);
@@ -128,16 +126,22 @@ export async function processarFilaHandshake() {
 
   try {
     const pendentes = await listarHandshakesPendentesPorTipo('confirmacao_entrega');
-    const todos = await listarHandshakesPendentesPorTipo('confirmacao_entrega');
-    const travados = todos.filter(h => h.status === 'enviando' && (Date.now() - h.updatedAt) > 30000);
-    const paraProcessar = [...pendentes, ...travados];
+    const todos = await listarHandshakes();
+    const enviandoAntigos = todos.filter(
+      h => h.tipo === 'confirmacao_entrega' &&
+           h.direcao === 'out' &&
+           h.status === 'enviando' &&
+           (Date.now() - h.updatedAt) > 30000
+    );
+
+    const paraProcessar = [...pendentes, ...enviandoAntigos];
 
     if (paraProcessar.length === 0) {
       console.log("[SW-HANDSHAKE] ℹ️ Nenhum handshake pendente.");
       return;
     }
 
-    console.log(`[SW-HANDSHAKE] 📦 ${paraProcessar.length} handshakes para processar`);
+    console.log(`[SW-HANDSHAKE] 📦 ${paraProcessar.length} handshakes para processar (${pendentes.length} pendentes, ${enviandoAntigos.length} reenfileirados)`);
 
     for (const handshake of paraProcessar) {
       await atualizarStatusHandshake(handshake.id, 'enviando');
@@ -199,7 +203,10 @@ export async function processarFilaHandshake() {
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
 
         console.log(`[SW-HANDSHAKE] 📤 Enviando handshake ${handshake.id} para ${contato.email}`);
-
+const MAX_PAYLOAD_SIZE = 4096;
+if (jwt.length > MAX_PAYLOAD_SIZE) {
+  throw new Error(`Payload excede limite de ${MAX_PAYLOAD_SIZE} bytes (tamanho atual: ${jwt.length})`);
+}
         await enviarParaProxy(
           contato.subscription,
           jwt,
@@ -214,7 +221,7 @@ export async function processarFilaHandshake() {
         console.log(`[SW-HANDSHAKE] ✅ Handshake ${handshake.id} enviado com sucesso!`);
       } catch (err) {
         console.error(`[SW-HANDSHAKE] ❌ Erro ao enviar handshake ${handshake.id}:`, err);
-        const handshakeAtual = await get(handshake.id, createStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL));
+        const handshakeAtual = await buscarHandshake(handshake.id);
         if (handshakeAtual) {
           handshakeAtual.tentativas++;
           handshakeAtual.erro = err.message;
@@ -235,13 +242,7 @@ export async function processarFilaHandshake() {
 }
 
 // ============================================================
-// EXPORTA FUNÇÃO PARA O ROUTER E PARA O SW
-// ============================================================
-self.processarHandshakeRecebido = processarHandshakeRecebido;
-self.processarFilaHandshake = processarFilaHandshake;
-
-// ============================================================
-// LISTENERS DE EVENTOS PARA DISPARAR PROCESSAMENTO DA FILA
+// LISTENERS DE EVENTOS
 // ============================================================
 self.addEventListener('message', async (event) => {
   const data = event.data;

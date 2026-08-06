@@ -1,57 +1,59 @@
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-import { get, set, createStore } from "idb-keyval";
+import { get, set, createStore, del, entries } from "idb-keyval";
 import { gunzipSync } from "fflate";
-import { DB_NAMES, STORE_NAMES, KEY_NAMES } from "../constants/db.ts";
-import { base64UrlToArrayBuffer } from "../utils/jwt-helpers.ts";
+import { DB_NAMES, STORE_NAMES, KEY_NAMES, MAX_TENTATIVAS } from "../constants/db.ts";
+import { base64UrlToArrayBuffer, criarJWT } from "../utils/jwt-helpers.ts";
 import { gerarIdMensagem } from "../utils/id-utils.ts";
 import {
   buscarContatoPorChave,
   serializarPublicKeyVapid,
   listarHandshakesPorMensagemId,
   salvarHandshake,
+  listarMensagensEnviadasPorStatus,
+  atualizarStatusMensagemEnviada,
+  salvarMensagemEnviada,
+  buscarMensagemEnviada,
+  salvarProfile,
+  buscarProfile,
+  buscarChaveDecript,
+  salvarContato,
+  buscarContatoPorPublicKey,
+  salvarMensagemRecebida,
 } from "../utils/db-helpers.ts";
-
-// Importamos também funções comuns que serão usadas
-import { buscarProfile, buscarChaveDecript, salvarContato, buscarContatoPorPublicKey, salvarMensagemRecebida } from "./push-common.ts";
+import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
+import { processarFilaHandshake } from "./sw-handshakes.ts";
 
 // ============================================================
 // FUNÇÃO PRINCIPAL: PROCESSAR MENSAGEM RECEBIDA (sub: "msg")
 // ============================================================
-async function processarMensagemRecebida(payload: any, header: any, jwt: string) {
+export async function processarMensagemRecebida(payload: any, header: any, jwt: string) {
   console.log("[SW-MSG] 📩 Processando mensagem recebida...");
 
   try {
-    // Buscar o perfil do receptor (para validação do aud e para descriptografia)
     const profile = await buscarProfile();
     if (!profile) {
       throw new Error("Perfil do receptor não encontrado.");
     }
 
-    // 🔥 VALIDAÇÃO: aud (destinatário) deve corresponder ao email do perfil
-    const aud = payload.aud || payload.sub; // fallback para sub se aud não existir
+    const aud = payload.aud || payload.sub;
     if (aud !== profile.email) {
       console.warn(`[SW-MSG] ⚠️ 'aud' não corresponde ao email do perfil. Esperado: ${profile.email}, Recebido: ${aud}`);
-      // Não bloqueia o processamento – apenas avisa
     }
 
-    // 🔥 Extrair jti (JWT ID) – será usado como ID da mensagem recebida
     const jti = payload.jti || gerarIdMensagem();
     console.log(`[SW-MSG] 📋 jti: ${jti}`);
 
-    // Extrair chave pública VAPID do header (kid)
     const publicKeyVapid = header.kid;
     if (!publicKeyVapid) {
       throw new Error("Header JWT não contém 'kid' (chave pública VAPID).");
     }
 
-    // Extrair dados do payload
     const emailRemetente = payload.iss || "remetente@desconhecido";
     const nomeRemetente = payload.nm || payload.name || emailRemetente.split('@')[0] || "Remetente";
     console.log(`[SW-MSG] 🔐 Mensagem de ${nomeRemetente} <${emailRemetente}>`);
 
-    // Buscar contato existente pela chave pública (header.kid)
     let contato = null;
     if (publicKeyVapid) {
       contato = await buscarContatoPorPublicKey(publicKeyVapid);
@@ -60,11 +62,7 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
       }
     }
 
-    // Verificar se o contato é homologado (apenas para interface)
-    let homologado = contato ? contato.homologado : false;
-
-    // Descriptografar envelope
-    const privateDecryptKey = await buscarChaveDecript(); // usa o perfil internamente
+    const privateDecryptKey = await buscarChaveDecript();
     if (!privateDecryptKey) {
       throw new Error("Chave privada RSA de decodificação não encontrada.");
     }
@@ -102,7 +100,6 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
     const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
     const textoDecifrado = new TextDecoder().decode(decompressed);
 
-    // Parse do objeto de mensagem (agora { c, e })
     let mensagemObj = JSON.parse(textoDecifrado);
     const conteudo = mensagemObj.c || textoDecifrado;
 
@@ -114,7 +111,6 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
     const publicKeyRSA = e.p || null;
     const vapidPrivateKey = (e.s && e.s.v) ? e.s.v : null;
 
-    // Salva/atualiza contato (o emissor é o remetente)
     if (publicKeyVapid && publicKeyRSA && subscription) {
       let contatoExistente = await buscarContatoPorPublicKey(publicKeyVapid);
       const novoContato = {
@@ -131,10 +127,9 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
       await salvarContato(novoContato);
       contato = novoContato;
     } else {
-      console.warn("[SW-MSG] ⚠️ Dados insuficientes para salvar contato. publicKeyVapid:", !!publicKeyVapid, "publicKeyRSA:", !!publicKeyRSA, "subscription:", !!subscription);
+      console.warn("[SW-MSG] ⚠️ Dados insuficientes para salvar contato.");
     }
 
-    // 🔥 SALVA MENSAGEM RECEBIDA usando jti como ID
     const msgId = jti;
     const contatoKey = publicKeyVapid ? await serializarPublicKeyVapid(publicKeyVapid) : '';
     const mensagemRecebida = {
@@ -146,19 +141,16 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
     };
     await salvarMensagemRecebida(mensagemRecebida);
 
-    // ============================================================
-    // 🔥 DISPARAR HANDSHAKE DE CONFIRMAÇÃO DE ENTREGA
-    // ============================================================
     if (contatoKey) {
       await criarHandshakeConfirmacaoEntrega(msgId, contatoKey);
     } else {
       console.warn("[SW-MSG] ⚠️ Não foi possível criar handshake: contatoKey vazio.");
     }
 
-    // Exibe notificação
+    const homologadoFinal = contato ? contato.homologado : false;
     const podeResponder = !!(contato && contato.subscription && contato.publicKeyRSA && contato.vapidPrivateKey);
-    const statusEmoji = homologado ? '✅' : '🔄';
-    const statusTexto = homologado ? 'Homologado' : 'Não homologado';
+    const statusEmoji = homologadoFinal ? '✅' : '🔄';
+    const statusTexto = homologadoFinal ? 'Homologado' : 'Não homologado';
 
     let bodyNotificacao = `${conteudo}\n\n${statusEmoji} De: ${nomeRemetente} - ${statusTexto}`;
     if (aud !== profile.email) {
@@ -171,16 +163,15 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
       data: {
         mensagemId: msgId,
         publicKeyVapid: publicKeyVapid,
-        homologado: homologado,
+        homologado: homologadoFinal,
         podeResponder: podeResponder,
-        acao: homologado ? 'ver_mensagem' : 'homologar_emissor'
+        acao: homologadoFinal ? 'ver_mensagem' : 'homologar_emissor'
       },
       tag: msgId,
-      requireInteraction: !homologado,
+      requireInteraction: !homologadoFinal,
       vibrate: [200, 100, 200]
     });
 
-    // Notifica clientes abertos
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     clients.forEach(client => {
       client.postMessage({
@@ -189,7 +180,7 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
           id: msgId,
           body: conteudo,
           remetente: nomeRemetente,
-          homologado: homologado,
+          homologado: homologadoFinal,
           podeResponder: podeResponder,
           status: 'nao_lida',
           audMismatch: aud !== profile.email
@@ -199,7 +190,7 @@ async function processarMensagemRecebida(payload: any, header: any, jwt: string)
 
   } catch (err) {
     console.error("[SW-MSG] ❌ Erro ao processar mensagem:", err);
-    throw err; // para o router tratar
+    throw err;
   }
 }
 
@@ -236,21 +227,11 @@ async function criarHandshakeConfirmacaoEntrega(mensagemId: string, contatoPubli
     await salvarHandshake(handshake);
     console.log(`[SW-MSG] ✅ Handshake ${handshakeId} salvo com status 'pendente'.`);
 
-    // 🔥 DISPARA PROCESSAMENTO IMEDIATO DA FILA DE HANDSHAKES
-    // Chama diretamente a função exportada pelo módulo sw-handshakes
-    if (typeof self.processarFilaHandshake === 'function') {
-      await self.processarFilaHandshake();
-      console.log(`[SW-MSG] ✅ Processamento da fila de handshakes iniciado.`);
-    } else {
-      console.warn(`[SW-MSG] ⚠️ self.processarFilaHandshake não está disponível. Enviando postMessage para janelas...`);
-      // Fallback: notifica janelas abertas (caso a função não esteja disponível)
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => {
-        client.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
-      });
-    }
+    // Disparar processamento imediato da fila de handshakes (agora com importação direta)
+    await processarFilaHandshake();
+    console.log(`[SW-MSG] ✅ Processamento da fila de handshakes iniciado.`);
 
-    // Também notifica janelas abertas para atualizar a UI, se necessário
+    // Notifica janelas abertas (opcional)
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     clients.forEach(client => {
       client.postMessage({ type: 'HANDSHAKE_CRIADO', payload: { handshakeId, mensagemId } });
@@ -262,8 +243,143 @@ async function criarHandshakeConfirmacaoEntrega(mensagemId: string, contatoPubli
 }
 
 // ============================================================
-// EXPORTA FUNÇÃO PARA O ROUTER
+// FUNÇÃO DE PROCESSAMENTO DA FILA DE ENVIO
 // ============================================================
-self.processarMensagemRecebida = processarMensagemRecebida;
+export async function processarFilaEnvio() {
+  console.log("[SW-MSG] 🔄 Processando fila de envio...");
+
+  try {
+    const pendentes = await listarMensagensEnviadasPorStatus('pendente');
+    const enviandoAntigos = (await listarMensagensEnviadasPorStatus('enviando'))
+      .filter(m => (Date.now() - m.updatedAt) > 30000);
+
+    const paraProcessar = [...pendentes, ...enviandoAntigos];
+
+    if (paraProcessar.length === 0) {
+      console.log("[SW-MSG] ℹ️ Nenhuma mensagem pendente para enviar.");
+      return;
+    }
+
+    console.log(`[SW-MSG] 📦 ${paraProcessar.length} mensagens para processar`);
+
+    for (const msg of paraProcessar) {
+      await atualizarStatusMensagemEnviada(msg.id, 'enviando');
+
+      try {
+        const contato = await buscarContatoPorChave(msg.contatoHash);
+        let profile = await buscarProfile();
+
+        if (!contato) throw new Error("Contato não encontrado");
+        if (!profile) throw new Error("Perfil não encontrado");
+
+        if (!profile.e2ePublicKey || !profile.vapidPublicKey || !profile.vapidPrivateKeyJwk) {
+          throw new Error("Usuário não logado (sem Chaves)");
+        }
+        if (!profile.subscription) {
+          throw new Error("Mensagens Web Push não configurada (sem Subscription)");
+        }
+        if (!contato.publicKeyRSA || !contato.publicKeyVapid || !contato.vapidPrivateKey) {
+          throw new Error("Contato sem Chaves");
+        }
+        if (!contato.subscription) {
+          throw new Error("Contato sem Subscription");
+        }
+
+        let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
+        if (!vapidPrivateKeyEnvelope) {
+          console.warn("[SW-MSG] ⚠️ Envelope da chave VAPID não encontrado. Cifrando...");
+          const res = await fetch("/api/server-public-key");
+          if (!res.ok) throw new Error("Não foi possível obter a chave pública do servidor.");
+          const serverPublicKeyJwk = await res.json();
+          vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
+          profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
+          await salvarProfile(profile);
+        }
+
+        const payloadObj = {
+          c: msg.conteudo,
+          e: {
+            s: {
+              e: profile.subscription.endpoint,
+              k: profile.subscription.keys,
+              v: vapidPrivateKeyEnvelope
+            },
+            p: profile.e2ePublicKey
+          }
+        };
+
+        const envelope = await cifrarPayloadObj(payloadObj, contato.publicKeyRSA);
+        const envelopeJson = JSON.stringify(envelope);
+
+        const payloadJwt = {
+          iss: profile.email,
+          sub: "msg",
+          aud: contato.email,
+          jti: msg.id,
+          ct: envelopeJson,
+          nm: profile.name
+        };
+
+        const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+const MAX_PAYLOAD_SIZE = 4096;
+if (jwt.length > MAX_PAYLOAD_SIZE) {
+  throw new Error(`Payload excede limite de ${MAX_PAYLOAD_SIZE} bytes (tamanho atual: ${jwt.length})`);
+}
+        await enviarParaProxy(
+          contato.subscription,
+          jwt,
+          {
+            subject: `mailto:${contato.email}`,
+            publicKey: contato.publicKeyVapid,
+            privateKey: contato.vapidPrivateKey
+          }
+        );
+
+        await atualizarStatusMensagemEnviada(msg.id, 'enviada');
+        console.log(`[SW-MSG] ✅ Mensagem ${msg.id} enviada com sucesso!`);
+
+      } catch (err) {
+        console.error(`[SW-MSG] ❌ Erro ao enviar mensagem ${msg.id}:`, err);
+        const mensagemAtual = await buscarMensagemEnviada(msg.id);
+        if (mensagemAtual) {
+          mensagemAtual.tentativas++;
+          mensagemAtual.erro = err.message;
+          if (mensagemAtual.tentativas >= MAX_TENTATIVAS) {
+            mensagemAtual.status = 'falha';
+            console.log(`[SW-MSG] ⛔ Mensagem ${msg.id} excedeu tentativas máximas.`);
+          } else {
+            mensagemAtual.status = 'pendente';
+          }
+          mensagemAtual.updatedAt = Date.now();
+          await salvarMensagemEnviada(mensagemAtual);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[SW-MSG] ❌ Erro ao processar fila de envio:", err);
+  }
+}
+
+// ============================================================
+// LISTENERS DE EVENTOS (permanecem usando self para os eventos)
+// ============================================================
+self.addEventListener('message', async (event) => {
+  const data = event.data;
+  if (data.type === 'PROCESSAR_FILA_ENVIO') {
+    console.log("[SW-MSG] 📩 Recebido comando para processar fila de envio.");
+    await processarFilaEnvio();
+  }
+});
+
+self.addEventListener('sync', async function(event) {
+  if (event.tag === 'sync-envio-mensagens') {
+    event.waitUntil(processarFilaEnvio());
+  }
+});
+
+self.addEventListener('online', async function() {
+  console.log("[SW-MSG] 🌐 Conexão restaurada, processando filas...");
+  await processarFilaEnvio();
+});
 
 console.log("[SW-MSG] 📦 Módulo de mensagens carregado.");

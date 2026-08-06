@@ -6,7 +6,7 @@ import type {
   MensagemEnviada,
   MensagemRecebida,
   Contato,
-  Handshake, // NOVO
+  Handshake,
 } from "../constants/db.ts";
 
 // ============================================================
@@ -21,7 +21,7 @@ const storeConfig = criarStore(DB_NAMES.CONFIG);
 export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
 export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
-export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES); // NOVO
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES);
 
 // ============================================================
 // Funções Genéricas
@@ -61,6 +61,36 @@ export async function buscarProfile(): Promise<ProfileConfig | undefined> {
 
 export async function removerProfile(): Promise<void> {
   await removerChave(storeConfig, KEY_NAMES.PROFILE);
+}
+
+// ============================================================
+// 🔥 Função para buscar e importar a chave privada RSA (decodificação)
+// ============================================================
+export async function buscarChaveDecript(): Promise<CryptoKey | null> {
+  try {
+    const profile = await buscarProfile();
+    if (!profile) {
+      console.warn("[DB-HELPERS] ⚠️ Perfil não encontrado.");
+      return null;
+    }
+    if (!profile.e2ePrivateKeyJwk) {
+      console.warn("[DB-HELPERS] ⚠️ Chave privada RSA não encontrada no perfil.");
+      return null;
+    }
+
+    const privateDecrypt = await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+    console.log("[DB-HELPERS] 🔑 Chave de decodificação RSA encontrada e importada.");
+    return privateDecrypt;
+  } catch (err) {
+    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
+    return null;
+  }
 }
 
 // ============================================================
@@ -175,6 +205,11 @@ export async function listarMensagensEnviadas(): Promise<MensagemEnviada[]> {
   return entries.map(([_, msg]) => msg);
 }
 
+export async function listarMensagensEnviadasPorStatus(status: MensagemEnviada['status']): Promise<MensagemEnviada[]> {
+  const todas = await listarMensagensEnviadas();
+  return todas.filter(m => m.status === status);
+}
+
 export async function atualizarStatusMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string): Promise<void> {
   const mensagem = await buscarMensagemEnviada(id);
   if (mensagem) {
@@ -190,7 +225,7 @@ export async function removerMensagemEnviada(id: string): Promise<void> {
 }
 
 // ============================================================
-// Mensagens Recebidas (não alteradas)
+// Mensagens Recebidas
 // ============================================================
 
 export async function salvarMensagemRecebida(mensagem: MensagemRecebida): Promise<void> {
@@ -221,7 +256,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos (não alterados)
+// Contatos
 // ============================================================
 
 async function sha256(message: string): Promise<string> {
@@ -280,7 +315,7 @@ export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> 
 }
 
 // ============================================================
-// NOVAS FUNÇÕES: HANDSHAKES
+// Handshakes
 // ============================================================
 
 export async function salvarHandshake(handshake: Handshake): Promise<void> {

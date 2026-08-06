@@ -1,4 +1,4 @@
-/// <reference lib="webworker" />
+
 import { gzipSync } from "fflate";
 
 // ============================================================

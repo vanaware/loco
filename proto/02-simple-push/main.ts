@@ -209,7 +209,7 @@ Deno.serve({ port: PORT }, async (req) => {
       if (jwtClaims) {
         console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         console.log(`   - [AUDITORIA JWT] Destinado a: <${jwtClaims.sub || "Sem e-mail"}>`);
-        console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (Hex): ${jwtClaims.cipherText?.substring(0, 20) || "N/A"}...`);
+        //console.log(`   - [AUDITORIA JWT] Texto E2EE Criptografado (ct): ${(jwtClaims.ct || jwtClaims.cipherText || "N/A").substring(0, 20)}...`);
       } else {
         console.log(`   - [AUDITORIA JWT] ⚠️ Não foi possível ler as claims do JWT`);
       }

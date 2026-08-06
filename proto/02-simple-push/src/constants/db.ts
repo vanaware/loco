@@ -23,6 +23,7 @@ export const KEY_NAMES = {
 // Constantes
 // ============================================================
 export const MAX_TENTATIVAS = 3;
+export const MAX_PAYLOAD_SIZE = 4096;
 
 // ============================================================
 // INTERFACES PRINCIPAIS (UNIFICADAS)
@@ -55,7 +56,6 @@ export interface MensagemEnviada {
   id: string;
   contatoHash: string;
   conteudo: string;
-  // 🔥 NOVO STATUS 'entregue'
   status: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue';
   tentativas: number;
   createdAt: number;
@@ -99,4 +99,64 @@ export interface Handshake {
   createdAt: number;
   updatedAt: number;
   erro?: string;
+}
+
+// ============================================================
+// 🔥 PAYLOADS DE JWT (CORREÇÃO)
+// ============================================================
+
+export interface PayloadMensagem {
+  iss: string;
+  sub: "msg";
+  aud: string;
+  jti: string;
+  ct: string;          // envelope JSON
+  nm: string;
+  iat?: number;
+}
+
+export interface PayloadHandshake {
+  iss: string;
+  sub: "hand";
+  aud: string;         // mensagemId
+  jti: string;
+  ct: string;          // envelope JSON
+}
+
+export interface PayloadContato {
+  iss: string;
+  sub: "contact";
+  nm: string;
+  p: JsonWebKey;
+  s: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    k: string;         // envelope VAPID privada
+  };
+  iat: number;
+}
+
+export interface EnvelopeCifrado {
+  i: string;  // iv base64
+  d: string;  // dados cifrados base64
+  k: string;  // chave AES cifrada base64
+}
+
+export interface ConteudoMensagem {
+  c: string;  // texto
+  e: {
+    s?: {
+      e?: string;  // endpoint (alternativo)
+      endpoint?: string;
+      k?: { p256dh: string; auth: string };
+      keys?: { p256dh: string; auth: string };
+      v?: string;  // envelope VAPID privada
+    };
+    p?: JsonWebKey;
+  };
+}
+
+export interface ConteudoHandshake {
+  htype: 'confirmacao_entrega';
+  // outros campos opcionais
 }
