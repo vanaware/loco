@@ -1,96 +1,63 @@
 // src/components/ContatosSection.tsx
 import { useEffect } from 'preact/hooks';
-import { contatos, contatosComHash, adicionarContato, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { profileInput, showToast, addDebugLog } from '../signals/state.ts';
-import { verificarJWT } from '../utils/jwt-helpers.ts';
-import type { Contato } from '../constants/db.ts';
+import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { showToast, contatoSelecionado, currentMobileView } from '../signals/state.ts';
 
 export function ContatosSection() {
-  // Os stores já carregam os dados, mas podemos garantir
   useEffect(() => {
-    // Não precisa chamar nada, os stores já foram inicializados no App
+    // Stores já inicializados no App.tsx
   }, []);
 
-  const handleAdicionar = async () => {
-    const raw = profileInput.value.trim();
-    if (!raw) {
-      showToast("Cole o JWT do contato.", "error");
-      return;
-    }
-    try {
-      const { header, payload, valid } = await verificarJWT(raw);
-      if (!valid) throw new Error("Assinatura inválida.");
-      if (payload.sub !== "contact") throw new Error("JWT não é de contato.");
-      
-      const novoContato: Contato = {
-        publicKeyVapid: header.kid,
-        email: payload.iss,
-        nome: payload.nm || payload.iss,
-        publicKeyRSA: payload.p,
-        subscription: {
-          endpoint: payload.s.endpoint,
-          keys: payload.s.keys
-        },
-        vapidPrivateKey: payload.s.k,
-        homologado: true,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-      await adicionarContato(novoContato);
-      profileInput.value = '';
-      showToast(`✅ Contato "${novoContato.nome}" adicionado.`, "success");
-      addDebugLog(`✅ Contato "${novoContato.nome}" adicionado.`);
-    } catch (err: any) {
-      showToast(`❌ ${err.message}`, "error");
-      addDebugLog(`❌ Erro ao adicionar contato: ${err.message}`);
-    }
+  const abrirChat = (hash: string) => {
+    contatoSelecionado.value = hash;
+    currentMobileView.value = 'chat';
   };
 
   return (
-    <div class="container container-contatos">
-      <h2>📇 Contatos</h2>
-      <div class="row">
-        <div class="col">
-          <label>Cole aqui o perfil de outra pessoa (JWT):</label>
-          <md-outlined-text-field
-            label="JWT do contato"
-            value={profileInput.value}
-            onInput={(e: any) => profileInput.value = e.target.value}
-            rows="4"
-            multiline
-          ></md-outlined-text-field>
-          <md-filled-button onClick={handleAdicionar}>➕ Adicionar Contato</md-filled-button>
-        </div>
+    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
+        <md-icon-button onClick={() => window.location.href = '/share.html'}>
+          <md-icon>person_add</md-icon>
+        </md-icon-button>
       </div>
-      <div class="mt-10">
-        <label>📋 Meus Contatos:</label>
-        <div style="max-height: 200px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
-          {contatos.value.length === 0 ? (
-            <p style="color: #666;">Nenhum contato adicionado ainda.</p>
-          ) : (
-            <md-list>
-              {contatos.value.map(c => (
-                <md-list-item key={c.email}>
-                  <span slot="headline"><strong>{c.nome}</strong> &lt;{c.email}&gt;</span>
-                  <span slot="supporting-text">{c.homologado ? '✅ Homologado' : '🔄 Não homologado'}</span>
-                  <div slot="end" style="display: flex; gap: 8px;">
-                    {!c.homologado && (
-                      <md-outlined-button onClick={async () => {
-                        await homologarContatoPorPublicKey(c.publicKeyVapid);
-                        showToast("Contato homologado!", "success");
-                      }}>Homologar</md-outlined-button>
-                    )}
-                    <md-icon-button onClick={async () => {
-                      if (confirm('Remover este contato?')) {
-                        await removerContatoPorPublicKey(c.publicKeyVapid);
-                      }
-                    }}>delete</md-icon-button>
-                  </div>
-                </md-list-item>
-              ))}
-            </md-list>
-          )}
-        </div>
+      
+      {/* 🔥 Eliminamos a trava de tamanho fixo e permitimos rolagem flexível */}
+      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+        {contatosComHash.value.length === 0 ? (
+          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
+        ) : (
+          <md-list>
+            {contatosComHash.value.map(({ contato, hash }) => (
+              <md-list-item 
+                key={contato.email} 
+                onClick={() => abrirChat(hash)}
+                style="cursor: pointer;"
+              >
+                <md-icon slot="start">person</md-icon>
+                <span slot="headline"><strong>{contato.nome}</strong></span>
+                <span slot="supporting-text">{contato.homologado ? '✅ Homologado' : '🔄 Não homologado'}</span>
+                
+                <div slot="end" style="display: flex; gap: 8px;">
+                  {!contato.homologado && (
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      await homologarContatoPorPublicKey(contato.publicKeyVapid);
+                      showToast("Contato homologado!", "success");
+                    }}><md-icon>verified</md-icon></md-icon-button>
+                  )}
+                  <md-icon-button onClick={async (e) => {
+                    e.stopPropagation();
+                    if (confirm('Remover este contato?')) {
+                      await removerContatoPorPublicKey(contato.publicKeyVapid);
+                    }
+                  }}><md-icon>delete</md-icon></md-icon-button>
+                </div>
+              </md-list-item>
+            ))}
+          </md-list>
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,107 @@
+// src/logout.tsx
+import { render } from 'preact';
+import { useSignal } from '@preact/signals';
+
+import "@material/web/all.js";
+import './styles.css';
+
+function LogoutApp() {
+  const status = useSignal('Aguardando confirmação...');
+  const executando = useSignal(false);
+
+  const handleLogout = async () => {
+    executando.value = true;
+    try {
+      status.value = "1/5 Limpando Web Storage...";
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+
+      status.value = "2/5 Apagando Cookies...";
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const parts = cookies[i].split("=");
+        const name = parts[0].trim();
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
+      }
+
+      status.value = "3/5 Apagando bancos IndexedDB...";
+      if (window.indexedDB?.databases) {
+        const dbs = await window.indexedDB.databases();
+        for (const db of dbs) if (db.name) window.indexedDB.deleteDatabase(db.name);
+      }
+
+      status.value = "4/5 Cancelando Push e Service Workers...";
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          if (registration.pushManager) {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) await subscription.unsubscribe();
+          }
+          await registration.unregister();
+        }
+      }
+
+      status.value = "5/5 Limpando disco virtual (OPFS) e Cache...";
+      if (window.caches) {
+        const cacheNames = await window.caches.keys();
+        for (const name of cacheNames) await window.caches.delete(name);
+      }
+      if (navigator.storage?.getDirectory) {
+        const root = await navigator.storage.getDirectory();
+        for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+      }
+
+      status.value = "Concluindo no servidor...";
+      const resposta = await fetch('./api/logout', { method: 'POST' });
+
+      if (resposta.ok) {
+        status.value = "✅ Logout e Destruição de Chaves Concluídos!";
+        setTimeout(() => {
+          window.location.href = '/'; 
+        }, 1500);
+      } else {
+        throw new Error("Falha no servidor ao deslogar.");
+      }
+    } catch (erro: any) {
+      status.value = `❌ Erro: ${erro.message}`;
+      executando.value = false;
+    }
+  };
+
+  return (
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px;">
+      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
+        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
+        <h2 style="justify-content: center;">Sair do Sistema</h2>
+        
+        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
+          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
+        </p>
+
+        {executando.value ? (
+          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
+            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
+            <br />
+            {status.value}
+          </div>
+        ) : (
+          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
+            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
+              ⚠️ Sim, Apagar Meus Dados e Sair
+            </md-filled-button>
+            <md-outlined-button onClick={() => window.location.href = '/'} style="width: 100%;">
+              Cancelar e Voltar
+            </md-outlined-button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const root = document.getElementById('app-logout');
+if (root) {
+  render(<LogoutApp />, root);
+}

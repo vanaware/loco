@@ -1,5 +1,5 @@
 {
-  "workspace": ["src/main", "src/worker", "src/sw", "proto/_template", "proto/01-push-messaging", "proto/02-simple-push"],
+  "workspace": ["proto/_template", "proto/01-push-messaging"],
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
     "jsx": "react-jsx",
@@ -17,7 +17,7 @@
     "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
     "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
     "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "qrcode": "https://esm.sh/qrcode@1.5.3",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
     "fflate": "https://esm.sh/fflate@0.8.2",
     "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
     "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
@@ -29,7 +29,7 @@
     "typecheck": "deno check main.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
     "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
     "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "dev": "deno task build && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
     "clean": "rm -rf dist && mkdir -p dist",
     "export": "deno run --allow-read --allow-write export.ts"
   },

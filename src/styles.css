@@ -1,4 +1,8 @@
 /* src/styles.css */
+
+/* ==========================================================================
+   1. VARIÁVEIS DE TEMA (Material Design 3)
+   ========================================================================== */
 :root {
   --md-sys-color-primary: #006c4f;
   --md-sys-color-on-primary: #ffffff;
@@ -30,20 +34,30 @@
   --md-sys-color-surface-tint: #006c4f;
 }
 
+/* ==========================================================================
+   2. RESET E TIPOGRAFIA BASE (Rolagem e Viewport Ajustados)
+   ========================================================================== */
 * {
   box-sizing: border-box;
 }
 
-body {
+html, body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   margin: 0;
-  padding: 24px;
+  padding: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100vw;
   background-color: var(--md-sys-color-background);
   color: var(--md-sys-color-on-background);
-  max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
   line-height: 1.6;
+}
+
+/* Habilita rolagem vertical natural quando a página ultrapassa a viewport */
+@media (max-width: 768px) {
+  body {
+    overflow-y: auto;
+  }
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -70,19 +84,147 @@ p {
   margin-top: 0;
 }
 
-/* Containers */
+/* ==========================================================================
+   3. ESTRUTURA DE LAYOUT APP (Estilo WhatsApp sem cortes na base)
+   ========================================================================== */
+#app-root {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* --- Painel Lateral (Sidebar) --- */
+.app-sidebar {
+  width: 30%;
+  min-width: 320px;
+  max-width: 450px;
+  border-right: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface);
+  height: 100%;
+  z-index: 10;
+}
+
+.sidebar-header {
+  padding: 16px;
+  background: var(--md-sys-color-surface-variant);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  flex-shrink: 0;
+}
+
+.sidebar-content {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background-color: var(--md-sys-color-background);
+  box-sizing: border-box;
+}
+
+/* --- Painel Principal (Área de Chat) --- */
+.app-main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--md-sys-color-surface-container-lowest, #f0f2f5);
+  overflow: hidden;
+}
+
+.chat-header {
+  padding: 16px;
+  background: var(--md-sys-color-surface-variant);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 73px;
+  flex-shrink: 0;
+}
+
+.chat-messages {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-input-area {
+  padding: 16px;
+  background: var(--md-sys-color-surface);
+  border-top: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  flex-shrink: 0;
+}
+
+/* Botão de voltar (escondido no desktop) */
+.back-button {
+  display: none;
+}
+
+/* --- Responsividade Mobile (Deslizamento e Viewport Dinâmica) --- */
+@media (max-width: 768px) {
+  #app-root {
+    height: 100dvh;
+  }
+
+  .app-sidebar, .app-main {
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  /* Quando a view ativa for a lista de conversas */
+  .view-mode-list .app-main {
+    transform: translateX(100%);
+  }
+  .view-mode-list .app-sidebar {
+    transform: translateX(0);
+  }
+
+  /* Quando a view ativa for o chat aberto */
+  .view-mode-chat .app-sidebar {
+    transform: translateX(-30%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .view-mode-chat .app-main {
+    transform: translateX(0);
+  }
+
+  .back-button {
+    display: inline-flex;
+  }
+}
+
+/* ==========================================================================
+   4. ESTILOS DE COMPONENTES INTERNOS (Cards, inputs, blocos)
+   ========================================================================== */
+
+/* Containers (cards padrão) */
 .container {
   background: var(--md-sys-color-surface);
-  padding: 24px;
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  margin-bottom: 24px;
-  border-left: 6px solid var(--md-sys-color-primary);
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  margin-bottom: 20px;
+  border-left: 4px solid var(--md-sys-color-primary);
   transition: box-shadow 0.2s ease;
 }
 
 .container:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
 }
 
 .container-emissor {
@@ -110,7 +252,7 @@ p {
   min-width: 200px;
 }
 
-/* MD3 components customização */
+/* Material Design Components Espaçamentos */
 md-filled-button,
 md-outlined-button,
 md-text-button {
@@ -118,11 +260,7 @@ md-text-button {
 }
 
 md-outlined-text-field,
-md-filled-text-field {
-  width: 100%;
-  margin-bottom: 8px;
-}
-
+md-filled-text-field,
 md-outlined-select {
   width: 100%;
   margin-bottom: 8px;
@@ -138,7 +276,6 @@ md-list-item {
   background: var(--md-sys-color-surface);
 }
 
-/* Labels e textos auxiliares */
 label {
   display: block;
   font-weight: 500;
@@ -147,7 +284,7 @@ label {
   font-size: 0.875rem;
 }
 
-/* Área de perfil */
+/* Campo de Perfil e JSON Viewer */
 .profile-field {
   background: var(--md-sys-color-surface-variant);
   padding: 12px;
@@ -162,13 +299,15 @@ label {
   color: var(--md-sys-color-on-surface);
 }
 
-/* Mensagens */
+/* ==========================================================================
+   5. BALÕES DE CHAT E STATUS
+   ========================================================================== */
 .msg-item {
   border-radius: 8px;
   padding: 12px 16px;
   margin-bottom: 8px;
   background: var(--md-sys-color-surface);
-  border: 1px solid var(--md-sys-color-outline);
+  border: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
   transition: background 0.15s ease;
 }
 
@@ -214,6 +353,7 @@ label {
   border-left: 4px solid #d32f2f;
 }
 
+/* Badges de Status (Pílulas) */
 .status-badge {
   display: inline-block;
   padding: 2px 12px;
@@ -224,133 +364,87 @@ label {
   letter-spacing: 0.03em;
 }
 
-.status-badge-homologado {
-  background: #d4edda;
-  color: #155724;
-}
+.status-badge-homologado { background: #d4edda; color: #155724; }
+.status-badge-nao-homologado { background: #fff3cd; color: #856404; }
+.status-badge-lida { background: #d1ecf1; color: #0c5460; }
+.status-badge-notificada { background: #d1ecf1; color: #0c5460; }
+.status-badge-enviada { background: #d4edda; color: #155724; }
+.status-badge-entregue { background: #c3e6cb; color: #155724; }
+.status-badge-falha { background: #f8d7da; color: #721c24; }
+.status-badge-pendente { background: #fff3cd; color: #856404; }
 
-.status-badge-nao-homologado {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.status-badge-lida {
-  background: #d1ecf1;
-  color: #0c5460;
-}
-
-.status-badge-notificada {
-  background: #d1ecf1;
-  color: #0c5460;
-}
-
-.status-badge-enviada {
-  background: #d4edda;
-  color: #155724;
-}
-
-.status-badge-entregue {
-  background: #c3e6cb;
-  color: #155724;
-}
-
-.status-badge-falha {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.status-badge-pendente {
-  background: #fff3cd;
-  color: #856404;
-}
-
-/* Contato item */
-.contato-item {
+/* Wrapper da Linha */
+.chat-bubble-wrapper {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.chat-bubble-wrapper.in {
+  justify-content: flex-start;
+}
+.chat-bubble-wrapper.out {
+  justify-content: flex-end;
+}
+
+/* O Balão de Fala */
+.chat-bubble {
+  max-width: 80%;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--md-sys-color-outline);
+  border-radius: 12px;
+  position: relative;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  word-wrap: break-word;
+  user-select: none;
 }
 
-.contato-item:last-child {
-  border-bottom: none;
+/* Balão Recebido (Esquerda) */
+.chat-bubble.in {
+  background-color: var(--md-sys-color-surface);
+  border-top-left-radius: 2px;
 }
 
-.contato-item:hover {
-  background: var(--md-sys-color-surface-variant);
-  border-radius: 4px;
+/* Balão Enviado (Direita - Estilo Mensageiros) */
+.chat-bubble.out {
+  background-color: #d9fdd3;
+  color: #111;
+  border-top-right-radius: 2px;
 }
 
-/* Tabs (legado) */
-.tabs {
+.chat-bubble-text {
+  font-size: 0.95rem;
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+.chat-bubble-meta {
   display: flex;
+  justify-content: flex-end;
+  align-items: center;
   gap: 4px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+  font-size: 0.65rem;
+  color: rgba(0,0,0,0.45);
+  margin-top: 4px;
+  margin-bottom: -4px;
 }
 
-.tab {
-  padding: 8px 16px;
-  background: var(--md-sys-color-surface-variant);
-  border: none;
-  border-radius: 4px 4px 0 0;
-  cursor: pointer;
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface);
+.chat-bubble.out .chat-bubble-meta {
+  color: rgba(0,0,0,0.55);
 }
 
-.tab.active {
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
+.status-icon {
+  font-size: 0.7rem;
+  letter-spacing: -2px;
 }
 
-.tab-content {
-  display: none;
+/* Fundo da Área de Mensagens */
+.chat-messages {
+  background-image: url('data:image/svg+xml,%3Csvg width="20" height="20" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M0 0h20v20H0z" fill="%23f0f2f5"/%3E%3Ccircle cx="2" cy="2" r="1" fill="%23d0d4d8"/%3E%3C/svg%3E');
 }
 
-.tab-content.active {
-  display: block;
-}
-
-/* Toast (substituído por alert por enquanto) */
-.toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  padding: 12px 24px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  z-index: 9999;
-  max-width: 400px;
-  font-family: system-ui, sans-serif;
-  animation: fadeInUp 0.3s ease;
-}
-
-.toast-success {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
-}
-
-.toast-error {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
-
-.toast-info {
-  background: #d1ecf1;
-  color: #0c5460;
-  border: 1px solid #bee5eb;
-}
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Debug panel */
+/* ==========================================================================
+   6. PAINEL DE DEBUG E ANIMAÇÕES
+   ========================================================================== */
 #debugPanel {
   background: #1e1e1e;
   color: #d4d4d4;
@@ -365,7 +459,23 @@ label {
   border: 1px solid #333;
 }
 
-/* Utility */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Utilitários Gerais */
 .mt-10 { margin-top: 10px; }
 .mb-10 { margin-bottom: 10px; }
 .mt-20 { margin-top: 20px; }
@@ -377,11 +487,3 @@ label {
 .w-full { width: 100%; }
 .text-center { text-align: center; }
 .text-muted { color: var(--md-sys-color-on-surface-variant); }
-
-/* Responsividade */
-@media (max-width: 640px) {
-  body { padding: 16px; }
-  .row { flex-direction: column; }
-  .container { padding: 16px; }
-  h1 { font-size: 1.75rem; }
-}

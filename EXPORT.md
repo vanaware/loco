@@ -8,34 +8,905 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/6/2026, 7:39:47 PM
+Gerado automaticamente em: 8/6/2026, 11:05:19 PM
 
 ---
 
-## Arquivo: `public/manifest.json`
+## Arquivo: `src/components/DebugPanel.tsx`
 
-```json
-{
-  "start_url": "/index.html",
-  "scope": "/",
-  "name": "loco",
-  "short_name": "loco",
-  "lang": "pt-BR",
-  "icons": [
-    {
-      "src": "/android-chrome-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/android-chrome-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+```tsx
+// src/components/DebugPanel.tsx
+import { debugLogs, clearDebugLogs } from '../signals/state.ts';
+
+export function DebugPanel() {
+  const logs = debugLogs.value;
+
+  return (
+    <div class="container" style="background: #f5f5f5; border: 2px dashed #999; margin-top: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h2 style="margin: 0;">🔍 Debug Logs</h2>
+        <md-outlined-button onClick={clearDebugLogs}>🗑️ Limpar Logs</md-outlined-button>
+      </div>
+      <div id="debugPanel" style="background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+        {logs.length === 0 ? (
+          <div>Aguardando logs...</div>
+        ) : (
+          logs.map((log, index) => <div key={index}>{log}</div>)
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ContatosSection.tsx`
+
+```tsx
+// src/components/ContatosSection.tsx
+import { useEffect } from 'preact/hooks';
+import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { showToast, contatoSelecionado, currentMobileView } from '../signals/state.ts';
+
+export function ContatosSection() {
+  useEffect(() => {
+    // Stores já inicializados no App.tsx
+  }, []);
+
+  const abrirChat = (hash: string) => {
+    contatoSelecionado.value = hash;
+    currentMobileView.value = 'chat';
+  };
+
+  return (
+    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
+        <md-icon-button onClick={() => window.location.href = '/share.html'}>
+          <md-icon>person_add</md-icon>
+        </md-icon-button>
+      </div>
+      
+      {/* 🔥 Eliminamos a trava de tamanho fixo e permitimos rolagem flexível */}
+      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+        {contatosComHash.value.length === 0 ? (
+          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
+        ) : (
+          <md-list>
+            {contatosComHash.value.map(({ contato, hash }) => (
+              <md-list-item 
+                key={contato.email} 
+                onClick={() => abrirChat(hash)}
+                style="cursor: pointer;"
+              >
+                <md-icon slot="start">person</md-icon>
+                <span slot="headline"><strong>{contato.nome}</strong></span>
+                <span slot="supporting-text">{contato.homologado ? '✅ Homologado' : '🔄 Não homologado'}</span>
+                
+                <div slot="end" style="display: flex; gap: 8px;">
+                  {!contato.homologado && (
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      await homologarContatoPorPublicKey(contato.publicKeyVapid);
+                      showToast("Contato homologado!", "success");
+                    }}><md-icon>verified</md-icon></md-icon-button>
+                  )}
+                  <md-icon-button onClick={async (e) => {
+                    e.stopPropagation();
+                    if (confirm('Remover este contato?')) {
+                      await removerContatoPorPublicKey(contato.publicKeyVapid);
+                    }
+                  }}><md-icon>delete</md-icon></md-icon-button>
+                </div>
+              </md-list-item>
+            ))}
+          </md-list>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ChatSection.tsx`
+
+```tsx
+// src/components/ChatSection.tsx
+import { useEffect, useRef } from 'preact/hooks';
+import { contatoSelecionado, mensagemEnvio, showToast } from '../signals/state.ts';
+import { 
+  mensagensEnviadas, adicionarMensagemEnviada, removerMensagemEnviadaPorId, carregarMensagensEnviadas,
+  mensagensRecebidas, marcarMensagemRecebidaComoLida, removerMensagemRecebidaPorId, carregarMensagensRecebidas
+} from '../stores/index.ts';
+import { gerarIdMensagem } from '../utils/id-utils.ts';
+
+// Helper para formatar a data e hora de forma legível
+function formatarDataHora(timestamp: number): string {
+  const data = new Date(timestamp);
+  const hoje = new Date();
+  
+  const mesmoDia = data.getDate() === hoje.getDate() &&
+    data.getMonth() === hoje.getMonth() &&
+    data.getFullYear() === hoje.getFullYear();
+
+  const ontem = new Date(hoje);
+  ontem.setDate(hoje.getDate() - 1);
+  const mesmoOntem = data.getDate() === ontem.getDate() &&
+    data.getMonth() === ontem.getMonth() &&
+    data.getFullYear() === ontem.getFullYear();
+
+  const horaStr = data.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (mesmoDia) return horaStr;
+  if (mesmoOntem) return `Ontem ${horaStr}`;
+  
+  // Se for mais antigo que ontem, exibe ex: "05/08 14:30"
+  const diaStr = String(data.getDate()).padStart(2, '0');
+  const mesStr = String(data.getMonth() + 1).padStart(2, '0');
+  return `${diaStr}/${mesStr} ${horaStr}`;
+}
+
+export function ChatSection() {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Escuta os eventos do Service Worker para atualizar as listas
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'MENSAGEM_ENTREGUE') carregarMensagensEnviadas();
+      if (e.data?.type === 'PUSH_RECEIVED') carregarMensagensRecebidas();
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, []);
+
+  // 1. Prepara e Filtra Mensagens Recebidas
+  const inMsgs = mensagensRecebidas.value
+    .filter(m => m.contatoPublicKeyVapid === contatoSelecionado.value)
+    .map(m => ({ ...m, type: 'in', timestamp: m.recebidoEm }));
+
+  // 2. Prepara e Filtra Mensagens Enviadas
+  const outMsgs = mensagensEnviadas.value
+    .filter(m => m.contatoHash === contatoSelecionado.value)
+    .map(m => ({ ...m, type: 'out', timestamp: m.createdAt }));
+
+  // 3. Junta tudo e ordena cronologicamente
+  const timeline = [...inMsgs, ...outMsgs].sort((a, b) => a.timestamp - b.timestamp);
+
+  // Auto-scroll para o final quando a timeline muda
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  ],
-  "theme_color": "#3b82f6",
-  "background_color": "#60a5fa",
-  "display": "standalone"
+  }, [timeline.length]);
+
+  // Marca as mensagens recebidas como lidas automaticamente se o chat estiver aberto
+  useEffect(() => {
+    const naoLidas = inMsgs.filter(m => m.status === 'nao_lida' || m.status === 'notificada');
+    naoLidas.forEach(m => marcarMensagemRecebidaComoLida(m.id));
+  }, [inMsgs.length]);
+
+  const handleEnviar = async () => {
+    const selectedHash = contatoSelecionado.value;
+    const conteudo = mensagemEnvio.value.trim();
+    if (!selectedHash || !conteudo) return;
+
+    try {
+      const msgId = gerarIdMensagem();
+      await adicionarMensagemEnviada({
+        id: msgId,
+        contatoHash: selectedHash,
+        conteudo,
+        status: 'pendente',
+        tentativas: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      
+      const reg = await navigator.serviceWorker.ready;
+      reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
+      
+      mensagemEnvio.value = ''; // Limpa o input
+    } catch (err: any) {
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  const deletarMensagem = async (id: string, type: string) => {
+    if (confirm('Apagar esta mensagem para você?')) {
+      if (type === 'in') await removerMensagemRecebidaPorId(id);
+      else await removerMensagemEnviadaPorId(id);
+    }
+  };
+
+  return (
+    <>
+      {/* AREA DA TIMELINE (Mensagens) */}
+      <div class="chat-messages" ref={scrollRef}>
+        {timeline.length === 0 ? (
+          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888;">
+            <div style="text-align: center; background: rgba(0,0,0,0.05); padding: 8px 16px; border-radius: 16px; font-size: 0.85rem;">
+              As mensagens são protegidas com criptografia.
+            </div>
+          </div>
+        ) : (
+          timeline.map(msg => (
+            <div key={msg.id} class={`chat-bubble-wrapper ${msg.type}`}>
+              <div class={`chat-bubble ${msg.type}`} onDblClick={() => deletarMensagem(msg.id, msg.type)} title="Duplo clique para apagar">
+                
+                <div class="chat-bubble-text">{msg.conteudo}</div>
+                
+                <div class="chat-bubble-meta">
+                  {/* 🔥 FORMATADOR DE DATA E HORA ATUALIZADO 🔥 */}
+                  <span>{formatarDataHora(msg.timestamp)}</span>
+                  
+                  {/* Status (Apenas para enviadas) */}
+                  {msg.type === 'out' && (
+                    <span class="status-icon">
+                      {msg.status === 'pendente' && '⏳'}
+                      {msg.status === 'enviando' && '🔄'}
+                      {msg.status === 'enviada' && '✓'}
+                      {msg.status === 'entregue' && '✓✓'}
+                      {msg.status === 'falha' && '❌'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* AREA DE INPUT (Enviar) */}
+      <div class="chat-input-area">
+        <div style="display: flex; gap: 8px; align-items: flex-end;">
+          <md-outlined-text-field
+            value={mensagemEnvio.value}
+            onInput={(e: any) => mensagemEnvio.value = e.target.value}
+            placeholder="Mensagem"
+            style="flex-grow: 1; margin-bottom: 0;"
+            onKeyDown={(e: KeyboardEvent) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleEnviar();
+              }
+            }}
+          ></md-outlined-text-field>
+          <md-filled-icon-button onClick={handleEnviar} style="margin-bottom: 0; width: 48px; height: 48px; flex-shrink: 0;">
+            <md-icon>send</md-icon>
+          </md-filled-icon-button>
+        </div>
+      </div>
+    </>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
+// src/components/ProfileSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { gerarProfileCompleto } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+
+export function ProfileSection() {
+  const diagnostic = useSignal({
+    identificacao: false,
+    criptografia: false,
+    blindagemServidor: false,
+    permissoes: false,
+    inscricaoRegistrada: false,
+    inscricaoValida: false,
+    isOnline: navigator.onLine,
+    loading: true,
+  });
+
+  const qrCodeDataUrl = useSignal<string | null>(null);
+
+  useEffect(() => {
+    const updateOnlineStatus = () => {
+      diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine };
+    };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, []);
+
+  const runDiagnostics = async () => {
+    const p = profile.value;
+    
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch (e) {
+        console.warn("Envelope VAPID corrompido ou malformado.", e);
+        envelopeOK = false;
+      }
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoes: false,
+      inscricaoRegistrada: !!p?.subscription,
+      inscricaoValida: false,
+      isOnline: navigator.onLine,
+    };
+
+    if ('Notification' in window && Notification.permission === 'granted' && 'serviceWorker' in navigator) {
+      diag.permissoes = true;
+    }
+
+    if (diag.permissoes && p?.subscription) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) {
+            diag.inscricaoValida = true;
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao checar inscrição:", e);
+      }
+    }
+
+    diagnostic.value = { ...diag, loading: false };
+  };
+
+  useEffect(() => {
+    runDiagnostics();
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+  const hasErrors = !diag.loading && (
+    !diag.identificacao || 
+    !diag.criptografia || 
+    !diag.blindagemServidor || 
+    !diag.permissoes || 
+    !diag.inscricaoRegistrada || 
+    !diag.inscricaoValida
+  );
+
+  useEffect(() => {
+    const renderQrCode = () => {
+      const p = profile.value;
+      if (!p) return;
+      try {
+        const payloadBinario = gerarPayloadQrCodeCompacto(p);
+
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (!hasErrors && profile.value) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [diagnostic.value, profile.value, hasErrors]);
+
+  const handleGerarOuCorrigir = async () => {
+    try {
+      const p = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(p);
+      await runDiagnostics();
+      
+      if (hasErrors) {
+        showToast(`✅ Problemas corrigidos com sucesso!`, "success");
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+      await runDiagnostics();
+    }
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      let p = profile.value;
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+
+      const resServerKey = await fetch("/api/server-public-key");
+      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
+      const serverPublicKeyJwk = await resServerKey.json();
+      
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, serverPublicKeyJwk);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      
+      <div class="container" style="background: #f0f8f4; margin-bottom: 0;">
+        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Meus Dados</h2>
+        
+        <md-outlined-text-field
+          label="Seu Nome"
+          value={profileName.value}
+          onInput={(e: any) => profileName.value = e.target.value}
+          style="margin-bottom: 12px;"
+        ></md-outlined-text-field>
+        
+        <md-outlined-text-field
+          label="Seu E-mail"
+          value={profileEmail.value}
+          onInput={(e: any) => profileEmail.value = e.target.value}
+          style="margin-bottom: 16px;"
+        ></md-outlined-text-field>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+          {hasErrors ? (
+            <md-filled-button onClick={handleGerarOuCorrigir} style="width: 100%; --md-sys-color-primary: #ba1a1a;">
+              🔧 Corrigir Problemas
+            </md-filled-button>
+          ) : (
+            <md-filled-button onClick={handleGerarOuCorrigir} style="width: 100%;">
+              💾 Salvar Perfil
+            </md-filled-button>
+          )}
+          
+          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={hasErrors ? true : undefined}>
+            🔗 Copiar Link de Convite
+          </md-outlined-button>
+        </div>
+      </div>
+
+      {qrCodeDataUrl.value && !hasErrors && (
+        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 0.95rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+            Seu QR Code de Convite
+          </h3>
+          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
+            Aponte a câmera (pelo app Loco) para este código para se conectar.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 100%; border-radius: 8px; border: 1px solid #eee;" />
+        </div>
+      )}
+
+      <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: #555;">
+        <h3 style="font-size: 0.95rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+          <md-icon style="font-size: 1.2rem;">health_and_safety</md-icon>
+          Diagnóstico do Sistema
+        </h3>
+        
+        {diag.loading ? (
+          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando...</p>
+        ) : (
+          <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+            <li>{diag.isOnline ? '✅' : '❌'} Conexão com a Internet</li>
+            <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+            <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+            <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+            <li>{diag.permissoes ? '✅' : '❌'} Permissões do Navegador</li>
+            <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+            <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+          </ul>
+        )}
+      </div>
+
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/constants/db.ts`
+
+```ts
+// src/constants/db.ts
+
+export const DB_NAMES = {
+  CONFIG: "AppConfig_DB",
+  MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
+  CONTATOS: "BrowserB_Contatos_DB",
+  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
+  HANDSHAKES: "Handshake_DB",
+} as const;
+
+export const STORE_NAMES = {
+  KEYVAL: "keyval",
+} as const;
+
+export const KEY_NAMES = {
+  PROFILE: "profile",
+  MENSAGENS_ENVIADAS: "mensagens_enviadas",
+  CONTATO: "contato_",
+  MENSAGENS_RECEBIDAS: "mensagens_recebidas",
+} as const;
+
+// ============================================================
+// Constantes
+// ============================================================
+export const MAX_TENTATIVAS = 3;
+export const MAX_PAYLOAD_SIZE = 4096;
+
+// ============================================================
+// INTERFACES PRINCIPAIS (UNIFICADAS)
+// ============================================================
+
+export interface ProfileConfig {
+  name: string;
+  email: string;
+  vapidPublicKey: JsonWebKey;
+  vapidPrivateKeyJwk: JsonWebKey;
+  vapidPrivateKeyEnvelope: string;
+  e2ePublicKey: JsonWebKey;
+  e2ePrivateKeyJwk: JsonWebKey;
+  subscription: {
+    endpoint: string;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+  };
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ============================================================
+// INTERFACES DE DADOS
+// ============================================================
+
+export interface MensagemEnviada {
+  id: string;
+  contatoHash: string;
+  conteudo: string;
+  status: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue';
+  tentativas: number;
+  createdAt: number;
+  updatedAt: number;
+  erro?: string;
+}
+
+export interface MensagemRecebida {
+  id: string;
+  contatoPublicKeyVapid: string;
+  conteudo: string;
+  status: 'nao_lida' | 'lida' | 'notificada';
+  recebidoEm: number;
+  lidaEm?: number;
+  notificadaEm?: number;
+}
+
+export interface Contato {
+  publicKeyVapid: JsonWebKey;
+  email: string;
+  nome: string;
+  publicKeyRSA: JsonWebKey;
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  };
+  vapidPrivateKey: string;
+  homologado: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface Handshake {
+  id: string;
+  mensagemId: string;
+  tipo: 'confirmacao_entrega';
+  direcao: 'out' | 'in';
+  status: 'pendente' | 'enviado' | 'falha' | 'entregue';
+  tentativas: number;
+  payload: any;
+  createdAt: number;
+  updatedAt: number;
+  erro?: string;
+}
+
+// ============================================================
+// 🔥 PAYLOADS DE JWT (CORREÇÃO)
+// ============================================================
+
+export interface PayloadMensagem {
+  iss: string;
+  sub: "msg";
+  aud: string;
+  jti: string;
+  ct: string;          // envelope JSON
+  nm: string;
+  iat?: number;
+}
+
+export interface PayloadHandshake {
+  iss: string;
+  sub: "hand";
+  aud: string;         // mensagemId
+  jti: string;
+  ct: string;          // envelope JSON
+}
+
+export interface PayloadContato {
+  iss: string;
+  sub: "contact";
+  nm: string;
+  p: JsonWebKey;
+  s: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    k: string;         // envelope VAPID privada
+  };
+  iat: number;
+}
+
+export interface EnvelopeCifrado {
+  i: string;  // iv base64
+  d: string;  // dados cifrados base64
+  k: string;  // chave AES cifrada base64
+}
+
+export interface ConteudoMensagem {
+  c: string;  // texto
+  e: {
+    s?: {
+      e?: string;  // endpoint (alternativo)
+      endpoint?: string;
+      k?: { p256dh: string; auth: string };
+      keys?: { p256dh: string; auth: string };
+      v?: string;  // envelope VAPID privada
+    };
+    p?: JsonWebKey;
+  };
+}
+
+export interface ConteudoHandshake {
+  htype: 'confirmacao_entrega';
+  // outros campos opcionais
+}
+```
+
+---
+
+## Arquivo: `src/signals/state.ts`
+
+```ts
+// src/signals/state.ts
+import { signal } from '@preact/signals';
+
+// Define qual visualização está ativa no layout mobile
+// 'list' = mostra a sidebar (contatos), 'chat' = mostra a área de mensagens, 'profile' = mostra configurações
+export const currentMobileView = signal<'list' | 'chat' | 'profile'>('list');
+
+export const contatoSelecionado = signal<string>('');
+export const mensagemEnvio = signal<string>('');
+
+// 🔥 Inicializamos vazios em vez de "Alice" para evitar o piscar na tela
+export const profileInput = signal<string>('');
+export const profileName = signal<string>('');
+export const profileEmail = signal<string>('');
+export const debugLogs = signal<string[]>([]);
+
+export function addDebugLog(msg: string): void {
+  const timestamp = new Date().toLocaleTimeString();
+  const logEntry = `[${timestamp}] ${msg}`;
+  debugLogs.value = [...debugLogs.value, logEntry];
+  console.log(msg);
+}
+
+export function clearDebugLogs(): void {
+  debugLogs.value = [];
+}
+
+export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
+  alert(`${type.toUpperCase()}: ${msg}`);
+}
+```
+
+---
+
+## Arquivo: `src/stores/index.ts`
+
+```ts
+// src/stores/index.ts
+export * from './contatosStore.ts';
+export * from './mensagensStore.ts';
+export * from './profileStore.ts';
+```
+
+---
+
+## Arquivo: `src/stores/contatosStore.ts`
+
+```ts
+// src/stores/contatosStore.ts
+import { signal } from '@preact/signals';
+import { 
+  listarContatos, 
+  salvarContato, 
+  removerContato, 
+  homologarContato, 
+  buscarContatoPorChave,
+  serializarPublicKeyVapid,
+} from '../utils/db-helpers.ts';
+import type { Contato } from '../constants/db.ts';
+
+export const contatos = signal<Contato[]>([]);
+export const contatosComHash = signal<Array<{ contato: Contato; hash: string }>>([]);
+
+export async function carregarContatos() {
+  const lista = await listarContatos();
+  contatos.value = lista;
+  const comHash = await Promise.all(lista.map(async (c) => {
+    const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
+    return { contato: c, hash };
+  }));
+  contatosComHash.value = comHash;
+}
+
+export async function adicionarContato(contato: Contato) {
+  await salvarContato(contato);
+  await carregarContatos();
+}
+
+export async function removerContatoPorPublicKey(publicKeyVapid: JsonWebKey) {
+  await removerContato(publicKeyVapid);
+  await carregarContatos();
+}
+
+export async function homologarContatoPorPublicKey(publicKeyVapid: JsonWebKey) {
+  await homologarContato(publicKeyVapid);
+  await carregarContatos();
+}
+
+export async function buscarContatoPorHash(hash: string): Promise<Contato | undefined> {
+  const item = contatosComHash.value.find(item => item.hash === hash);
+  if (item) return item.contato;
+  return await buscarContatoPorChave(hash);
+}
+
+export async function initContatosStore() {
+  await carregarContatos();
+}
+```
+
+---
+
+## Arquivo: `src/stores/mensagensStore.ts`
+
+```ts
+// src/stores/mensagensStore.ts
+import { signal } from '@preact/signals';
+import {
+  listarMensagensRecebidas,
+  listarMensagensEnviadas,
+  salvarMensagemRecebida,
+  salvarMensagemEnviada,
+  atualizarStatusMensagemRecebida,
+  atualizarStatusMensagemEnviada,
+  removerMensagemRecebida,
+  removerMensagemEnviada,
+} from '../utils/db-helpers.ts';
+import type { MensagemRecebida, MensagemEnviada } from '../constants/db.ts';
+
+export const mensagensRecebidas = signal<MensagemRecebida[]>([]);
+export const mensagensEnviadas = signal<MensagemEnviada[]>([]);
+
+export async function carregarMensagensRecebidas() {
+  const lista = await listarMensagensRecebidas();
+  lista.sort((a, b) => b.recebidoEm - a.recebidoEm);
+  mensagensRecebidas.value = lista;
+}
+
+export async function carregarMensagensEnviadas() {
+  const lista = await listarMensagensEnviadas();
+  lista.sort((a, b) => b.createdAt - a.createdAt);
+  mensagensEnviadas.value = lista;
+}
+
+export async function adicionarMensagemRecebida(mensagem: MensagemRecebida) {
+  await salvarMensagemRecebida(mensagem);
+  await carregarMensagensRecebidas();
+}
+
+export async function adicionarMensagemEnviada(mensagem: MensagemEnviada) {
+  await salvarMensagemEnviada(mensagem);
+  await carregarMensagensEnviadas();
+}
+
+export async function marcarMensagemRecebidaComoLida(id: string) {
+  await atualizarStatusMensagemRecebida(id, 'lida');
+  await carregarMensagensRecebidas();
+}
+
+export async function removerMensagemRecebidaPorId(id: string) {
+  await removerMensagemRecebida(id);
+  await carregarMensagensRecebidas();
+}
+
+export async function removerMensagemEnviadaPorId(id: string) {
+  await removerMensagemEnviada(id);
+  await carregarMensagensEnviadas();
+}
+
+export async function initMensagensStore() {
+  await carregarMensagensRecebidas();
+  await carregarMensagensEnviadas();
+}
+```
+
+---
+
+## Arquivo: `src/stores/profileStore.ts`
+
+```ts
+// src/stores/profileStore.ts
+import { signal } from '@preact/signals';
+import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { profileName, profileEmail } from '../signals/state.ts';
+
+export const profile = signal<ProfileConfig | null>(null);
+
+export async function carregarProfile() {
+  const p = await buscarProfile();
+  profile.value = p || null;
+  
+  // 🔥 Preenche a UI automaticamente com os dados salvos no banco de dados
+  if (p) {
+    profileName.value = p.name;
+    profileEmail.value = p.email;
+  }
+}
+
+export async function atualizarProfile(p: ProfileConfig) {
+  await salvarProfile(p);
+  profile.value = p;
+  
+  // 🔥 Atualiza a UI quando salvamos um novo perfil
+  profileName.value = p.name;
+  profileEmail.value = p.email;
+}
+
+export async function initProfileStore() {
+  await carregarProfile();
 }
 ```
 
@@ -895,175 +1766,6 @@ self.addEventListener('push', function (event) {
 });
 
 console.log("[SW-PUSH-ROUTER] ✅ Router configurado.");
-```
-
----
-
-## Arquivo: `src/constants/db.ts`
-
-```ts
-// src/constants/db.ts
-
-export const DB_NAMES = {
-  CONFIG: "AppConfig_DB",
-  MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
-  CONTATOS: "BrowserB_Contatos_DB",
-  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
-  HANDSHAKES: "Handshake_DB",
-} as const;
-
-export const STORE_NAMES = {
-  KEYVAL: "keyval",
-} as const;
-
-export const KEY_NAMES = {
-  PROFILE: "profile",
-  MENSAGENS_ENVIADAS: "mensagens_enviadas",
-  CONTATO: "contato_",
-  MENSAGENS_RECEBIDAS: "mensagens_recebidas",
-} as const;
-
-// ============================================================
-// Constantes
-// ============================================================
-export const MAX_TENTATIVAS = 3;
-export const MAX_PAYLOAD_SIZE = 4096;
-
-// ============================================================
-// INTERFACES PRINCIPAIS (UNIFICADAS)
-// ============================================================
-
-export interface ProfileConfig {
-  name: string;
-  email: string;
-  vapidPublicKey: JsonWebKey;
-  vapidPrivateKeyJwk: JsonWebKey;
-  vapidPrivateKeyEnvelope: string;
-  e2ePublicKey: JsonWebKey;
-  e2ePrivateKeyJwk: JsonWebKey;
-  subscription: {
-    endpoint: string;
-    keys: {
-      p256dh: string;
-      auth: string;
-    };
-  };
-  createdAt: number;
-  updatedAt: number;
-}
-
-// ============================================================
-// INTERFACES DE DADOS
-// ============================================================
-
-export interface MensagemEnviada {
-  id: string;
-  contatoHash: string;
-  conteudo: string;
-  status: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue';
-  tentativas: number;
-  createdAt: number;
-  updatedAt: number;
-  erro?: string;
-}
-
-export interface MensagemRecebida {
-  id: string;
-  contatoPublicKeyVapid: string;
-  conteudo: string;
-  status: 'nao_lida' | 'lida' | 'notificada';
-  recebidoEm: number;
-  lidaEm?: number;
-  notificadaEm?: number;
-}
-
-export interface Contato {
-  publicKeyVapid: JsonWebKey;
-  email: string;
-  nome: string;
-  publicKeyRSA: JsonWebKey;
-  subscription: {
-    endpoint: string;
-    keys: { p256dh: string; auth: string };
-  };
-  vapidPrivateKey: string;
-  homologado: boolean;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface Handshake {
-  id: string;
-  mensagemId: string;
-  tipo: 'confirmacao_entrega';
-  direcao: 'out' | 'in';
-  status: 'pendente' | 'enviado' | 'falha' | 'entregue';
-  tentativas: number;
-  payload: any;
-  createdAt: number;
-  updatedAt: number;
-  erro?: string;
-}
-
-// ============================================================
-// 🔥 PAYLOADS DE JWT (CORREÇÃO)
-// ============================================================
-
-export interface PayloadMensagem {
-  iss: string;
-  sub: "msg";
-  aud: string;
-  jti: string;
-  ct: string;          // envelope JSON
-  nm: string;
-  iat?: number;
-}
-
-export interface PayloadHandshake {
-  iss: string;
-  sub: "hand";
-  aud: string;         // mensagemId
-  jti: string;
-  ct: string;          // envelope JSON
-}
-
-export interface PayloadContato {
-  iss: string;
-  sub: "contact";
-  nm: string;
-  p: JsonWebKey;
-  s: {
-    endpoint: string;
-    keys: { p256dh: string; auth: string };
-    k: string;         // envelope VAPID privada
-  };
-  iat: number;
-}
-
-export interface EnvelopeCifrado {
-  i: string;  // iv base64
-  d: string;  // dados cifrados base64
-  k: string;  // chave AES cifrada base64
-}
-
-export interface ConteudoMensagem {
-  c: string;  // texto
-  e: {
-    s?: {
-      e?: string;  // endpoint (alternativo)
-      endpoint?: string;
-      k?: { p256dh: string; auth: string };
-      keys?: { p256dh: string; auth: string };
-      v?: string;  // envelope VAPID privada
-    };
-    p?: JsonWebKey;
-  };
-}
-
-export interface ConteudoHandshake {
-  htype: 'confirmacao_entrega';
-  // outros campos opcionais
-}
 ```
 
 ---
@@ -2067,133 +2769,191 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
 
 ---
 
-## Arquivo: `src/styles.d.ts`
+## Arquivo: `src/utils/share-utils.ts`
 
 ```ts
-// src/styles.d.ts
-declare module "*.css" {
-  const content: string;
-  export default content;
+// src/utils/share-utils.ts
+import { gzipSync, gunzipSync } from 'fflate';
+import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+
+const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
+
+/**
+ * Converte uma string Base64 / Base64Url para Uint8Array direto
+ */
+function base64ToBytes(b64: string): Uint8Array {
+  return new Uint8Array(base64UrlToArrayBuffer(b64));
 }
-```
 
----
+/**
+ * Converte Uint8Array diretamente para Base64Url sem inflar a memória
+ */
+function bytesToBase64Url(bytes: Uint8Array): string {
+  return arrayBufferToBase64Url(bytes.buffer);
+}
 
-## Arquivo: `src/logout.html`
+/**
+ * 1. GERADOR DE QR CODE BINÁRIO (De-para direto de ArrayBuffer - Extremamente leve)
+ */
+export function gerarPayloadQrCodeCompacto(p: ProfileConfig): string {
+  const envelopeObj = JSON.parse(atob(p.vapidPrivateKeyEnvelope));
 
-```html
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <title>Minha Área Restrita</title>
-  <style>
-    body { font-family: sans-serif; padding: 50px; text-align: center; }
-    .btn-logout {
-      background-color: #dc3545;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      font-size: 16px;
-      cursor: pointer;
-      border-radius: 4px;
+  // Otimiza o endpoint tirando o prefixo repetitivo da Google
+  let ep = p.subscription.endpoint;
+  if (ep.startsWith(FCM_PREFIX)) {
+    ep = "1:" + ep.replace(FCM_PREFIX, "");
+  }
+
+  // Decodifica strings Hex/Base64 para Uint8Arrays brutos
+  const hexToBytes = (hex: string) => 
+    new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+
+  const ivBytes = hexToBytes(envelopeObj.iv);
+  const dadosBytes = hexToBytes(envelopeObj.dadosCifrados);
+  const chaveBytes = hexToBytes(envelopeObj.chaveAesCifrada);
+  const rsaNBytes = base64ToBytes(p.e2ePublicKey.n!);
+
+  // Estrutura ultra-compacta contendo valores convertidos/compactados
+  const compactPayload = [
+    p.email,
+    p.name,
+    p.vapidPublicKey.x,
+    p.vapidPublicKey.y,
+    bytesToBase64Url(rsaNBytes), // RSA Módulo em bytes limpos
+    ep,
+    p.subscription.keys.p256dh,
+    p.subscription.keys.auth,
+    bytesToBase64Url(ivBytes),
+    bytesToBase64Url(dadosBytes),
+    bytesToBase64Url(chaveBytes)
+  ];
+
+  // Comprime o JSON minimalista
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(compactPayload));
+  const compressed = gzipSync(jsonBytes);
+
+  return bytesToBase64Url(compressed);
+}
+
+/**
+ * 2. GERADOR DE LINK DE CONVITE (JWT Assinado Comprimido para Web/WhatsApp)
+ */
+export async function gerarLinkConviteWeb(p: ProfileConfig, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  const payload = {
+    iss: p.email,
+    sub: "contact",
+    nm: p.name,
+    p: p.e2ePublicKey,
+    s: {
+      endpoint: p.subscription.endpoint,
+      keys: p.subscription.keys,
+      k: p.vapidPrivateKeyEnvelope
+    },
+    iat: Math.floor(Date.now() / 1000)
+  };
+
+  const jwt = await criarJWT(payload, p.vapidPrivateKeyJwk, { kid: p.vapidPublicKey });
+  
+  const jwtBytes = new TextEncoder().encode(jwt);
+  const compressed = gzipSync(jwtBytes);
+  const cjwt = bytesToBase64Url(compressed);
+
+  return `${window.location.origin}/share.html?cjwt=${cjwt}`;
+}
+
+/**
+ * 3. PARSER UNIFICADO (Lê tanto QR Codes binários quanto Links cjwt/jwt)
+ */
+export async function processarQualquerConvite(input: string): Promise<{ header: any; payload: any }> {
+  let cqr = null;
+  let cjwt = null;
+  let jwt = null;
+
+  try {
+    const url = new URL(input);
+    cqr = url.searchParams.get('cqr');
+    cjwt = url.searchParams.get('cjwt');
+    jwt = url.searchParams.get('jwt');
+  } catch {
+    // Se colou código bruto no campo de texto
+    if (!input.includes('.')) {
+      cqr = input; // Tenta como payload binário
+    } else {
+      jwt = input;
     }
-    .btn-logout:hover { background-color: #c82333; }
-  </style>
-</head>
-<body>
+  }
 
-  <h1>Exclusão de Sessão</h1>
+  // CASO A: Payload Binário de QR Code
+  if (cqr) {
+    try {
+      const compressed = base64ToBytes(cqr);
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      const data = JSON.parse(jsonText);
 
-  <!-- Botão que vai disparar o evento de Logout -->
-  <button id="logoutBtn" class="btn-logout">Sair do Sistema</button>
+      if (Array.isArray(data) && data.length === 11) {
+        let [email, name, vapidX, vapidY, rsaN, endpoint, p256dh, auth, b64Iv, b64Dados, b64Chave] = data;
 
-  <script>
-    document.getElementById('logoutBtn').addEventListener('click', async () => {
-      try {
-        console.log("Processando logout local completo...");
-        // 1. Limpa Web Storage
-        window.localStorage.clear();
-        window.sessionStorage.clear();
-        // 2. Apaga rigorosamente todos os Cookies
-        const cookies = document.cookie.split(";");
-        for (let i = 0; i < cookies.length; i++) {
-            const parts = cookies[i].split("=");
-            const name = parts[0].trim();
-            // Tenta apagar no path atual, na raiz e no domínio limpo (sem www)
-            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
-            document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname.replace(/^www\./, '')}`;
+        // Reconstitui o endpoint FCM se tiver sido tokenizado
+        if (endpoint.startsWith("1:")) {
+          endpoint = FCM_PREFIX + endpoint.substring(2);
         }
-        // 3. Limpa IndexedDB
-        if (window.indexedDB?.databases) {
-            const dbs = await window.indexedDB.databases();
-            for (const db of dbs) window.indexedDB.deleteDatabase(db.name);
-        }
-        // 4. Cancela Push Subscriptions e Desregistra Service Workers
-        if ('serviceWorker' in navigator) {
-          try {
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            for (const registration of registrations) {
-              // Cancela a inscrição de Push Notification se ela existir
-              if (registration.pushManager) {
-                const subscription = await registration.pushManager.getSubscription();
-                if (subscription) {
-                  await subscription.unsubscribe();
-                  console.log("Inscrição de Push Notification cancelada.");
-                }
-              }
-              // Desregistra o Service Worker
-              await registration.unregister();
-              console.log("Service Worker desregistrado.");
+
+        // Reconstitui o Envelope Hexadecimal a partir do Base64
+        const b64ToHex = (b64: string) => {
+          const bytes = base64ToBytes(b64);
+          return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+        };
+
+        const envelope = {
+          iv: b64ToHex(b64Iv),
+          dadosCifrados: b64ToHex(b64Dados),
+          chaveAesCifrada: b64ToHex(b64Chave)
+        };
+
+        return {
+          header: {
+            kid: { kty: "EC", crv: "P-256", x: vapidX, y: vapidY }
+          },
+          payload: {
+            iss: email,
+            nm: name,
+            p: { kty: "RSA", e: "AQAB", n: rsaN, alg: "RSA-OAEP-256", ext: true },
+            s: {
+              endpoint: endpoint,
+              keys: { p256dh, auth },
+              k: btoa(JSON.stringify(envelope))
             }
-          } catch (error) {
-            console.error("Erro ao limpar Service Workers/Push:", error);
           }
-        }
-        // 5. Limpa Cache Storage (Caso tenha sobrado resíduos do Service Worker)
-        if (window.caches) {
-          try {
-            const cacheNames = await window.caches.keys();
-            for (const name of cacheNames) {
-              await window.caches.delete(name);
-            }
-          } catch (cacheError) {
-            console.error("Erro ao limpar Cache Storage:", cacheError);
-          }
-        }
-        // 6. Origin Private File System
-        if (navigator.storage?.getDirectory) {
-          const root = await navigator.storage.getDirectory();
-          for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
-        }
-
-        // Envia a requisição POST exatamente para a rota do Deno
-        const resposta = await fetch('./api/logout', {
-          method: 'POST'
-        });
-
-        if (resposta.ok) {
-          const dados = await resposta.json();
-          
-          if (dados.disconnected) {
-            alert('Você foi desconectado do servidor! O navegador também limpou seus dados locais via Clear-Site-Data.');
-            
-            // Redireciona o usuário para a página de login após o sucesso
-            window.location.href = './'; 
-          }
-        } else {
-          console.error('Falha no servidor ao tentar deslogar.');
-        }
-      } catch (erro) {
-        console.error('Erro de rede ao chamar a API de logout:', erro);
+        };
       }
-    });
-  </script>
+    } catch (e) {
+      // Se falhar o parse do binário, cai pro CJWT
+    }
+  }
 
-</body>
-</html>
+  // CASO B: JWT Comprimido (Link Web / WhatsApp)
+  const targetCjwt = cjwt || cqr;
+  if (targetCjwt) {
+    const compressed = base64ToBytes(targetCjwt);
+    const decompressed = gunzipSync(compressed);
+    const jsonText = new TextDecoder().decode(decompressed);
 
+    const { header, payload, valid } = await verificarJWT(jsonText);
+    if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
+    return { header, payload };
+  }
+
+  // CASO C: JWT Legado (Não comprimido)
+  if (jwt) {
+    const { header, payload, valid } = await verificarJWT(jwt);
+    if (!valid) throw new Error("Assinatura do convite inválida.");
+    return { header, payload };
+  }
+
+  throw new Error("Formato de convite ou QR Code inválido.");
+}
 ```
 
 ---
@@ -2236,169 +2996,406 @@ self.addEventListener('activate', (event) => {
 
 ---
 
-## Arquivo: `src/signals/state.ts`
+## Arquivo: `src/styles.d.ts`
 
 ```ts
-// src/signals/state.ts
-import { signal } from '@preact/signals';
-
-export const contatoSelecionado = signal<string>('');
-export const mensagemEnvio = signal<string>('');
-export const profileInput = signal<string>('');
-export const profileName = signal<string>('Alice');
-export const profileEmail = signal<string>('alice@example.com');
-export const debugLogs = signal<string[]>([]);
-
-export function addDebugLog(msg: string): void {
-  const timestamp = new Date().toLocaleTimeString();
-  const logEntry = `[${timestamp}] ${msg}`;
-  debugLogs.value = [...debugLogs.value, logEntry];
-  console.log(msg);
-}
-
-export function clearDebugLogs(): void {
-  debugLogs.value = [];
-}
-
-export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
-  alert(`${type.toUpperCase()}: ${msg}`);
+// src/styles.d.ts
+declare module "*.css" {
+  const content: string;
+  export default content;
 }
 ```
 
 ---
 
-## Arquivo: `src/components/ProfileSection.tsx`
+## Arquivo: `src/types/material-web.d.ts`
+
+```ts
+import { JSX as _JSX } from "preact";
+
+declare module "preact" {
+  namespace JSX {
+    interface IntrinsicElements {
+      // Buttons
+      "md-filled-button": unknown;
+      "md-outlined-button": unknown;
+      "md-text-button": unknown;
+      "md-filled-tonal-button": unknown;
+      "md-icon-button": unknown;
+      "md-fab": unknown;
+      "md-extended-fab": unknown;
+
+      // Cards
+      "md-elevated-card": unknown;
+      "md-filled-card": unknown;
+      "md-outlined-card": unknown;
+
+      // Text Fields
+      "md-filled-text-field": unknown;
+      "md-outlined-text-field": unknown;
+
+      // Selection Controls
+      "md-checkbox": unknown;
+      "md-radio": unknown;
+      "md-switch": unknown;
+
+      // Lists
+      "md-list": unknown;
+      "md-list-item": unknown;
+      "md-divider": unknown;
+
+      // Menus
+      "md-menu": unknown;
+      "md-menu-item": unknown;
+
+      // Dialogs
+      "md-dialog": unknown;
+
+      // Chips
+      "md-assist-chip": unknown;
+      "md-filter-chip": unknown;
+      "md-input-chip": unknown;
+      "md-suggestion-chip": unknown;
+
+      // Progress
+      "md-circular-progress": unknown;
+      "md-linear-progress": unknown;
+
+      // Icons
+      "md-icon": unknown;
+
+      // Tabs
+      "md-tabs": unknown;
+      "md-primary-tab": unknown;
+      "md-secondary-tab": unknown;
+
+      // Select
+      "md-filled-select": unknown;
+      "md-outlined-select": unknown;
+      "md-select-option": unknown;
+    }
+  }
+}
+
+```
+
+---
+
+## Arquivo: `src/logout.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Sair - Loco</title>
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+  <style>
+    body { margin: 0; background-color: #fbfcf9; color: #191c1a; font-family: system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="app-logout"></div>
+  <script src="./logout.tsx" type="module"></script>
+</body>
+</html>
+```
+
+---
+
+## Arquivo: `src/logout.tsx`
 
 ```tsx
-// src/components/ProfileSection.tsx
-import { profile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { atualizarProfile } from '../stores/profileStore.ts';
-import { gerarProfileCompleto } from '../utils/profile-utils.ts';
-import { criarJWT } from '../utils/jwt-helpers.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
+// src/logout.tsx
+import { render } from 'preact';
+import { useSignal } from '@preact/signals';
 
-export function ProfileSection() {
-  const handleGerar = async () => {
-    try {
-      const p = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(p);
-      showToast(`✅ Perfil de "${p.name}" gerado/atualizado!`, "success");
-      addDebugLog(`✅ Perfil de "${p.name}" gerado/atualizado.`);
-    } catch (err: any) {
-      addDebugLog(`❌ Erro ao gerar perfil: ${err.message}`);
-      showToast(`❌ Erro: ${err.message}`, "error");
-    }
-  };
+import "@material/web/all.js";
+import './styles.css';
 
-  const handleCompartilhar = async () => {
+function LogoutApp() {
+  const status = useSignal('Aguardando confirmação...');
+  const executando = useSignal(false);
+
+  const handleLogout = async () => {
+    executando.value = true;
     try {
-      let p = profile.value;
-      if (!p) {
-        const { carregarProfile } = await import('../stores/profileStore.ts');
-        await carregarProfile();
-        p = profile.value;
-        if (!p) {
-          showToast("❌ Perfil não encontrado. Gere um perfil primeiro.", "error");
-          return;
+      status.value = "1/5 Limpando Web Storage...";
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+
+      status.value = "2/5 Apagando Cookies...";
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const parts = cookies[i].split("=");
+        const name = parts[0].trim();
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
+      }
+
+      status.value = "3/5 Apagando bancos IndexedDB...";
+      if (window.indexedDB?.databases) {
+        const dbs = await window.indexedDB.databases();
+        for (const db of dbs) if (db.name) window.indexedDB.deleteDatabase(db.name);
+      }
+
+      status.value = "4/5 Cancelando Push e Service Workers...";
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          if (registration.pushManager) {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) await subscription.unsubscribe();
+          }
+          await registration.unregister();
         }
       }
 
-      const resServerKey = await fetch("/api/server-public-key");
-      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
-      const serverPublicKeyJwk = await resServerKey.json();
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
+      status.value = "5/5 Limpando disco virtual (OPFS) e Cache...";
+      if (window.caches) {
+        const cacheNames = await window.caches.keys();
+        for (const name of cacheNames) await window.caches.delete(name);
+      }
+      if (navigator.storage?.getDirectory) {
+        const root = await navigator.storage.getDirectory();
+        for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+      }
 
-      const payload = {
-        iss: p.email,
-        sub: "contact",
-        nm: p.name,
-        p: p.e2ePublicKey,
-        s: {
-          endpoint: p.subscription.endpoint,
-          keys: p.subscription.keys,
-          k: p.vapidPrivateKeyEnvelope
-        },
-        iat: Math.floor(Date.now() / 1000)
-      };
-      const jwt = await criarJWT(payload, p.vapidPrivateKeyJwk, { kid: p.vapidPublicKey });
-      await navigator.clipboard.writeText(jwt);
-      showToast("✅ JWT copiado para a área de transferência!", "success");
-      addDebugLog("✅ JWT gerado e copiado.");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
+      status.value = "Concluindo no servidor...";
+      const resposta = await fetch('./api/logout', { method: 'POST' });
+
+      if (resposta.ok) {
+        status.value = "✅ Logout e Destruição de Chaves Concluídos!";
+        setTimeout(() => {
+          window.location.href = '/'; 
+        }, 1500);
+      } else {
+        throw new Error("Falha no servidor ao deslogar.");
+      }
+    } catch (erro: any) {
+      status.value = `❌ Erro: ${erro.message}`;
+      executando.value = false;
     }
   };
 
   return (
-    <div class="container" style="background: #f0f8f4;">
-      <h2>👤 Meu Perfil</h2>
-      <div class="row">
-        <div class="col">
-          <md-outlined-text-field
-            label="Meu Nome"
-            value={profileName.value}
-            onInput={(e: any) => profileName.value = e.target.value}
-          ></md-outlined-text-field>
-        </div>
-        <div class="col">
-          <md-outlined-text-field
-            label="Meu E-mail"
-            value={profileEmail.value}
-            onInput={(e: any) => profileEmail.value = e.target.value}
-          ></md-outlined-text-field>
-        </div>
-      </div>
-      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <md-filled-button onClick={handleGerar}>📦 Gerar/Atualizar Perfil</md-filled-button>
-        <md-outlined-button onClick={handleCompartilhar}>🔗 Compartilhar Perfil (JWT)</md-outlined-button>
-      </div>
-      <div class="mt-10">
-        <label>📋 Meu Perfil (JSON):</label>
-        <div class="profile-field" style="background: #e8f5e9; border-color: #006c4f; white-space: pre-wrap; word-break: break-all;">
-          {profile.value ? JSON.stringify(profile.value, null, 2) : 'Clique em "Gerar/Atualizar Perfil"'}
-        </div>
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px;">
+      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
+        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
+        <h2 style="justify-content: center;">Sair do Sistema</h2>
+        
+        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
+          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
+        </p>
+
+        {executando.value ? (
+          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
+            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
+            <br />
+            {status.value}
+          </div>
+        ) : (
+          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
+            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
+              ⚠️ Sim, Apagar Meus Dados e Sair
+            </md-filled-button>
+            <md-outlined-button onClick={() => window.location.href = '/'} style="width: 100%;">
+              Cancelar e Voltar
+            </md-outlined-button>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+const root = document.getElementById('app-logout');
+if (root) {
+  render(<LogoutApp />, root);
 }
 ```
 
 ---
 
-## Arquivo: `src/components/ContatosSection.tsx`
+## Arquivo: `src/profile.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Perfil - Loco</title>
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100vh;
+      overflow-y: auto !important; /* 🔥 Libera a rolagem vertical */
+      background-color: #f0f2f5;
+      color: #191c1a;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="app-profile"></div>
+  <script src="./profile.tsx" type="module"></script>
+</body>
+</html>
+```
+
+---
+
+## Arquivo: `src/share.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Adicionar Contato - Loco</title>
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100vh;
+      overflow-y: auto !important;
+      background-color: #fbfcf9;
+      color: #191c1a;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="app-share"></div>
+  <script src="./share.tsx" type="module"></script>
+</body>
+</html>
+```
+
+---
+
+## Arquivo: `src/share.tsx`
 
 ```tsx
-// src/components/ContatosSection.tsx
-import { useEffect } from 'preact/hooks';
-import { contatos, contatosComHash, adicionarContato, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { profileInput, showToast, addDebugLog } from '../signals/state.ts';
-import { verificarJWT } from '../utils/jwt-helpers.ts';
-import type { Contato } from '../constants/db.ts';
+// src/share.tsx
+import { render } from 'preact';
+import { useEffect, useRef } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { processarQualquerConvite } from './utils/share-utils.ts';
+import { adicionarContato, initContatosStore } from './stores/contatosStore.ts';
+import type { Contato } from './constants/db.ts';
 
-export function ContatosSection() {
-  // Os stores já carregam os dados, mas podemos garantir
+import "@material/web/all.js";
+import './styles.css';
+
+declare global {
+  class BarcodeDetector {
+    constructor(options?: { formats: string[] });
+    detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
+    static getSupportedFormats(): Promise<string[]>;
+  }
+}
+
+function ShareApp() {
+  const preview = useSignal<any | null>(null);
+  const error = useSignal<string | null>(null);
+  const isScanning = useSignal<boolean>(false);
+  const manualInput = useSignal<string>('');
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
-    // Não precisa chamar nada, os stores já foram inicializados no App
+    initContatosStore();
+    
+    if (window.location.search.length > 3) {
+      handleProcessar(window.location.href);
+    } else {
+      iniciarCamera();
+    }
+
+    return () => pararCamera();
   }, []);
 
-  const handleAdicionar = async () => {
-    const raw = profileInput.value.trim();
-    if (!raw) {
-      showToast("Cole o JWT do contato.", "error");
+  const handleProcessar = async (input: string) => {
+    try {
+      error.value = null;
+      const resultado = await processarQualquerConvite(input);
+      preview.value = resultado;
+    } catch (e: any) {
+      error.value = e.message || "Falha ao processar convite.";
+    }
+  };
+
+  const iniciarCamera = async () => {
+    if (!('BarcodeDetector' in window)) {
+      error.value = "Seu navegador não suporta a API nativa de leitura de QR Code. Tente colar o link manual abaixo.";
       return;
     }
+
     try {
-      const { header, payload, valid } = await verificarJWT(raw);
-      if (!valid) throw new Error("Assinatura inválida.");
-      if (payload.sub !== "contact") throw new Error("JWT não é de contato.");
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        isScanning.value = true;
+        scanLoop();
+      }
+    } catch (err) {
+      error.value = "Não foi possível acessar a câmera. Verifique as permissões do navegador.";
+    }
+  };
+
+  const pararCamera = () => {
+    isScanning.value = false;
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  const scanLoop = async () => {
+    if (!isScanning.value || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
+      if (isScanning.value) requestAnimationFrame(scanLoop);
+      return;
+    }
+
+    try {
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const barcodes = await detector.detect(videoRef.current);
       
+      if (barcodes.length > 0) {
+        pararCamera();
+        handleProcessar(barcodes[0].rawValue);
+        return; 
+      }
+    } catch (e) {
+      console.warn("Erro no BarcodeDetector:", e);
+    }
+
+    if (isScanning.value) requestAnimationFrame(scanLoop);
+  };
+
+  const handleManualSubmit = () => {
+    if (!manualInput.value.trim()) return;
+    pararCamera();
+    handleProcessar(manualInput.value.trim());
+  };
+
+  const confirmar = async () => {
+    if (!preview.value) return;
+    try {
+      const { header, payload } = preview.value;
       const novoContato: Contato = {
         publicKeyVapid: header.kid,
         email: payload.iss,
@@ -2409,321 +3406,98 @@ export function ContatosSection() {
           keys: payload.s.keys
         },
         vapidPrivateKey: payload.s.k,
-        homologado: true,
+        homologado: true, 
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
+      
       await adicionarContato(novoContato);
-      profileInput.value = '';
-      showToast(`✅ Contato "${novoContato.nome}" adicionado.`, "success");
-      addDebugLog(`✅ Contato "${novoContato.nome}" adicionado.`);
-    } catch (err: any) {
-      showToast(`❌ ${err.message}`, "error");
-      addDebugLog(`❌ Erro ao adicionar contato: ${err.message}`);
+      alert("✅ Contato adicionado com sucesso!");
+      window.location.href = '/'; 
+    } catch (e: any) {
+      alert("❌ Erro ao adicionar contato: " + e.message);
     }
+  };
+
+  const cancelar = () => {
+    pararCamera();
+    window.location.href = '/';
   };
 
   return (
-    <div class="container container-contatos">
-      <h2>📇 Contatos</h2>
-      <div class="row">
-        <div class="col">
-          <label>Cole aqui o perfil de outra pessoa (JWT):</label>
-          <md-outlined-text-field
-            label="JWT do contato"
-            value={profileInput.value}
-            onInput={(e: any) => profileInput.value = e.target.value}
-            rows="4"
-            multiline
-          ></md-outlined-text-field>
-          <md-filled-button onClick={handleAdicionar}>➕ Adicionar Contato</md-filled-button>
-        </div>
-      </div>
-      <div class="mt-10">
-        <label>📋 Meus Contatos:</label>
-        <div style="max-height: 200px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
-          {contatos.value.length === 0 ? (
-            <p style="color: #666;">Nenhum contato adicionado ainda.</p>
-          ) : (
-            <md-list>
-              {contatos.value.map(c => (
-                <md-list-item key={c.email}>
-                  <span slot="headline"><strong>{c.nome}</strong> &lt;{c.email}&gt;</span>
-                  <span slot="supporting-text">{c.homologado ? '✅ Homologado' : '🔄 Não homologado'}</span>
-                  <div slot="end" style="display: flex; gap: 8px;">
-                    {!c.homologado && (
-                      <md-outlined-button onClick={async () => {
-                        await homologarContatoPorPublicKey(c.publicKeyVapid);
-                        showToast("Contato homologado!", "success");
-                      }}>Homologar</md-outlined-button>
-                    )}
-                    <md-icon-button onClick={async () => {
-                      if (confirm('Remover este contato?')) {
-                        await removerContatoPorPublicKey(c.publicKeyVapid);
-                      }
-                    }}>delete</md-icon-button>
-                  </div>
-                </md-list-item>
-              ))}
-            </md-list>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-```
+    <div style="min-height: 100vh; background-color: var(--md-sys-color-background); display: flex; flex-direction: column;">
+      
+      <header class="sidebar-header" style="background: var(--md-sys-color-surface-variant); border-bottom: 1px solid #e0e0e0; padding: 16px; display: flex; align-items: center; gap: 16px;">
+        <md-icon-button onClick={cancelar}>
+          <md-icon>arrow_back</md-icon>
+        </md-icon-button>
+        <h1 style="margin: 0; font-size: 1.25rem;">Leitor / Adicionar Contato</h1>
+      </header>
 
----
+      <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;">
+        {error.value ? (
+          <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
+            <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
+            <h2 style="justify-content: center;">Ops! Algo deu errado</h2>
+            <p style="color: #666; margin-bottom: 24px;">{error.value}</p>
+            <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
+              Tentar Novamente
+            </md-filled-button>
+          </div>
+        ) : preview.value ? (
+          <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 400px; width: 100%;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
+              <h2 style="justify-content: center;">Adicionar Contato</h2>
+              <p style="color: #666; font-size: 0.9rem;">Você foi convidado(a) para se conectar de ponta a ponta com este perfil.</p>
+            </div>
+            
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
+              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
+              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.payload.nm}</h3>
+              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.payload.iss}</p>
+            </div>
 
-## Arquivo: `src/components/EnviarMensagemSection.tsx`
-
-```tsx
-// src/components/EnviarMensagemSection.tsx
-import { contatoSelecionado, mensagemEnvio, addDebugLog, showToast } from '../signals/state.ts';
-import { contatosComHash, mensagensEnviadas, adicionarMensagemEnviada, removerMensagemEnviadaPorId, carregarMensagensEnviadas } from '../stores/index.ts';
-import { buscarContatoPorHash } from '../stores/contatosStore.ts';
-import { gerarIdMensagem } from '../utils/id-utils.ts';
-import { useEffect } from 'preact/hooks';
-
-export function EnviarMensagemSection() {
-  const handleEnviar = async () => {
-    const selectedHash = contatoSelecionado.value;
-    if (!selectedHash) {
-      showToast("Selecione um contato.", "error");
-      return;
-    }
-    const conteudo = mensagemEnvio.value;
-    if (!conteudo) {
-      showToast("Digite uma mensagem.", "error");
-      return;
-    }
-    try {
-      const contato = await buscarContatoPorHash(selectedHash);
-      if (!contato) {
-        showToast("Contato não encontrado.", "error");
-        return;
-      }
-      const msgId = gerarIdMensagem();
-      await adicionarMensagemEnviada({
-        id: msgId,
-        contatoHash: selectedHash,
-        conteudo,
-        status: 'pendente',
-        tentativas: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      });
-      const reg = await navigator.serviceWorker.ready;
-      reg.active?.postMessage({ type: 'PROCESSAR_FILA_ENVIO' });
-      mensagemEnvio.value = '';
-      showToast(`✅ Mensagem adicionada à fila para ${contato.nome}.`, "success");
-      addDebugLog(`✅ Mensagem ${msgId} adicionada à fila.`);
-    } catch (err: any) {
-      showToast(`❌ ${err.message}`, "error");
-      addDebugLog(`❌ Erro ao enviar: ${err.message}`);
-    }
-  };
-
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'MENSAGEM_ENTREGUE') {
-        carregarMensagensEnviadas();
-      }
-    };
-    navigator.serviceWorker.addEventListener('message', handler);
-    return () => navigator.serviceWorker.removeEventListener('message', handler);
-  }, []);
-
-  return (
-    <div class="container container-emissor">
-      <h2>📤 Enviar Mensagem</h2>
-      <div class="row">
-        <div class="col">
-          <md-outlined-select
-            label="Selecione o contato destino"
-            value={contatoSelecionado.value}
-            onInput={(e: any) => contatoSelecionado.value = e.target.value}
-          >
-            <md-select-option value="">-- Selecione --</md-select-option>
-            {contatosComHash.value.map(({ contato, hash }) => (
-              <md-select-option key={contato.email} value={hash}>
-                {contato.nome} ({contato.email})
-              </md-select-option>
-            ))}
-          </md-outlined-select>
-        </div>
-      </div>
-      <md-outlined-text-field
-        label="Mensagem"
-        value={mensagemEnvio.value}
-        onInput={(e: any) => mensagemEnvio.value = e.target.value}
-        rows="3"
-        multiline
-      ></md-outlined-text-field>
-      <md-filled-button onClick={handleEnviar} style="width: 100%; margin-top: 10px;">
-        🚀 Enviar Mensagem
-      </md-filled-button>
-
-      <div class="mt-10">
-        <label>📤 Mensagens Enviadas:</label>
-        <div style="max-height: 250px; overflow-y: auto; background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
-          {mensagensEnviadas.value.length === 0 ? (
-            <p style="color: #666;">Nenhuma mensagem enviada.</p>
-          ) : (
-            <md-list>
-              {mensagensEnviadas.value.map(msg => {
-                const contatoComHash = contatosComHash.value.find(c => c.hash === msg.contatoHash);
-                const nomeDestino = contatoComHash?.contato.nome || msg.contatoHash.substring(0,16)+'...';
-                return (
-                  <md-list-item key={msg.id}>
-                    <span slot="headline">
-                      {msg.status === 'pendente' && '⏳'}
-                      {msg.status === 'enviando' && '🔄'}
-                      {msg.status === 'enviada' && '✅'}
-                      {msg.status === 'entregue' && '📬'}
-                      {msg.status === 'falha' && '❌'}
-                      {' '}
-                      Para: {nomeDestino}
-                    </span>
-                    <span slot="supporting-text">
-                      {msg.conteudo} <br />
-                      Status: {msg.status} {msg.tentativas > 0 && `(tentativas: ${msg.tentativas})`}
-                    </span>
-                    {msg.status !== 'pendente' && msg.status !== 'enviando' && (
-                      <md-icon-button slot="end" onClick={async () => {
-                        if (confirm('Remover esta mensagem?')) {
-                          await removerMensagemEnviadaPorId(msg.id);
-                        }
-                      }}>delete</md-icon-button>
-                    )}
-                  </md-list-item>
-                );
-              })}
-            </md-list>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/MensagensRecebidasSection.tsx`
-
-```tsx
-// src/components/MensagensRecebidasSection.tsx
-import { mensagensRecebidas, marcarMensagemRecebidaComoLida, removerMensagemRecebidaPorId, carregarMensagensRecebidas } from '../stores/mensagensStore.ts';
-import { contatosComHash } from '../stores/contatosStore.ts';
-import { useEffect } from 'preact/hooks';
-import { showToast, addDebugLog } from '../signals/state.ts';
-
-export function MensagensRecebidasSection() {
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'PUSH_RECEIVED') {
-        carregarMensagensRecebidas();
-      }
-    };
-    navigator.serviceWorker.addEventListener('message', handler);
-    return () => navigator.serviceWorker.removeEventListener('message', handler);
-  }, []);
-
-  const removerLidas = async () => {
-    if (!confirm('Remover todas as mensagens lidas?')) return;
-    const lidas = mensagensRecebidas.value.filter(m => m.status === 'lida');
-    for (const m of lidas) {
-      await removerMensagemRecebidaPorId(m.id);
-    }
-    showToast(`✅ ${lidas.length} mensagens removidas.`, "success");
-  };
-
-  const getNome = (hash: string): string => {
-    const item = contatosComHash.value.find(c => c.hash === hash);
-    return item?.contato.nome || hash.substring(0, 16) + '...';
-  };
-
-  return (
-    <div class="container container-receptor">
-      <h2>📬 Mensagens Recebidas</h2>
-      <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-        <md-outlined-button onClick={carregarMensagensRecebidas}>🔄 Atualizar</md-outlined-button>
-        <md-outlined-button onClick={removerLidas}>🗑️ Remover Lidas</md-outlined-button>
-      </div>
-      <div>
-        {mensagensRecebidas.value.length === 0 ? (
-          <p style="color: #666;">Nenhuma mensagem recebida.</p>
+            <div style="display: flex; gap: 8px; flex-direction: column;">
+              <md-filled-button onClick={confirmar} style="width: 100%;">✅ Confirmar e Adicionar</md-filled-button>
+            </div>
+          </div>
         ) : (
-          <md-list>
-            {mensagensRecebidas.value.map(msg => {
-              const nomeRemetente = getNome(msg.contatoPublicKeyVapid);
-              return (
-                <md-list-item key={msg.id}>
-                  <span slot="headline">
-                    {msg.status === 'nao_lida' && '🟡'}
-                    {msg.status === 'notificada' && '🔔'}
-                    {msg.status === 'lida' && '✅'}
-                    {' '}
-                    De: {nomeRemetente}
-                  </span>
-                  <span slot="supporting-text">
-                    {msg.conteudo}
-                    <br />
-                    Recebido: {new Date(msg.recebidoEm).toLocaleString()}
-                    <br />
-                    Status: {msg.status}
-                  </span>
-                  <div slot="end" style="display: flex; gap: 8px;">
-                    {(msg.status === 'nao_lida' || msg.status === 'notificada') && (
-                      <md-outlined-button onClick={async () => {
-                        await marcarMensagemRecebidaComoLida(msg.id);
-                      }}>Marcar lida</md-outlined-button>
-                    )}
-                    <md-icon-button onClick={async () => {
-                      if (confirm('Remover esta mensagem?')) {
-                        await removerMensagemRecebidaPorId(msg.id);
-                      }
-                    }}>delete</md-icon-button>
-                  </div>
-                </md-list-item>
-              );
-            })}
-          </md-list>
+          <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 400px; width: 100%;">
+            <h2 style="justify-content: center;">Ler QR Code</h2>
+            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo.</p>
+            
+            <div style="position: relative; width: 100%; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden;">
+               <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>
+               <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px dashed rgba(255,255,255,0.7); width: 70%; height: 70%; border-radius: 16px; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);"></div>
+            </div>
+
+            <div style="width: 100%; margin-top: 24px; text-align: left;">
+              <label style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">
+                Ou cole o link/código de convite:
+              </label>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <md-outlined-text-field
+                  value={manualInput.value}
+                  onInput={(e: any) => manualInput.value = e.target.value}
+                  placeholder="Cole aqui..."
+                  style="flex-grow: 1; margin-bottom: 0;"
+                ></md-outlined-text-field>
+                <md-filled-button onClick={handleManualSubmit} style="height: 56px; margin-bottom: 0;">
+                  Adicionar
+                </md-filled-button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
 }
-```
 
----
-
-## Arquivo: `src/components/DebugPanel.tsx`
-
-```tsx
-// src/components/DebugPanel.tsx
-import { debugLogs, clearDebugLogs } from '../signals/state.ts';
-
-export function DebugPanel() {
-  const logs = debugLogs.value;
-
-  return (
-    <div class="container" style="background: #f5f5f5; border: 2px dashed #999; margin-top: 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h2 style="margin: 0;">🔍 Debug Logs</h2>
-        <md-outlined-button onClick={clearDebugLogs}>🗑️ Limpar Logs</md-outlined-button>
-      </div>
-      <div id="debugPanel" style="background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-        {logs.length === 0 ? (
-          <div>Aguardando logs...</div>
-        ) : (
-          logs.map((log, index) => <div key={index}>{log}</div>)
-        )}
-      </div>
-    </div>
-  );
+const root = document.getElementById('app-share');
+if (root) {
+  render(<ShareApp />, root);
 }
 ```
 
@@ -2736,14 +3510,17 @@ export function DebugPanel() {
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>loco</title>
+  
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
   <meta name="application-name" content="loco" />
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
 </head>
 <body>
   <div id="app"></div>
@@ -2758,6 +3535,10 @@ export function DebugPanel() {
 
 ```css
 /* src/styles.css */
+
+/* ==========================================================================
+   1. VARIÁVEIS DE TEMA (Material Design 3)
+   ========================================================================== */
 :root {
   --md-sys-color-primary: #006c4f;
   --md-sys-color-on-primary: #ffffff;
@@ -2789,20 +3570,30 @@ export function DebugPanel() {
   --md-sys-color-surface-tint: #006c4f;
 }
 
+/* ==========================================================================
+   2. RESET E TIPOGRAFIA BASE (Rolagem e Viewport Ajustados)
+   ========================================================================== */
 * {
   box-sizing: border-box;
 }
 
-body {
+html, body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   margin: 0;
-  padding: 24px;
+  padding: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100vw;
   background-color: var(--md-sys-color-background);
   color: var(--md-sys-color-on-background);
-  max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
   line-height: 1.6;
+}
+
+/* Habilita rolagem vertical natural quando a página ultrapassa a viewport */
+@media (max-width: 768px) {
+  body {
+    overflow-y: auto;
+  }
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -2829,19 +3620,147 @@ p {
   margin-top: 0;
 }
 
-/* Containers */
+/* ==========================================================================
+   3. ESTRUTURA DE LAYOUT APP (Estilo WhatsApp sem cortes na base)
+   ========================================================================== */
+#app-root {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* --- Painel Lateral (Sidebar) --- */
+.app-sidebar {
+  width: 30%;
+  min-width: 320px;
+  max-width: 450px;
+  border-right: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface);
+  height: 100%;
+  z-index: 10;
+}
+
+.sidebar-header {
+  padding: 16px;
+  background: var(--md-sys-color-surface-variant);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  flex-shrink: 0;
+}
+
+.sidebar-content {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background-color: var(--md-sys-color-background);
+  box-sizing: border-box;
+}
+
+/* --- Painel Principal (Área de Chat) --- */
+.app-main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--md-sys-color-surface-container-lowest, #f0f2f5);
+  overflow: hidden;
+}
+
+.chat-header {
+  padding: 16px;
+  background: var(--md-sys-color-surface-variant);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 73px;
+  flex-shrink: 0;
+}
+
+.chat-messages {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-input-area {
+  padding: 16px;
+  background: var(--md-sys-color-surface);
+  border-top: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  flex-shrink: 0;
+}
+
+/* Botão de voltar (escondido no desktop) */
+.back-button {
+  display: none;
+}
+
+/* --- Responsividade Mobile (Deslizamento e Viewport Dinâmica) --- */
+@media (max-width: 768px) {
+  #app-root {
+    height: 100dvh;
+  }
+
+  .app-sidebar, .app-main {
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  /* Quando a view ativa for a lista de conversas */
+  .view-mode-list .app-main {
+    transform: translateX(100%);
+  }
+  .view-mode-list .app-sidebar {
+    transform: translateX(0);
+  }
+
+  /* Quando a view ativa for o chat aberto */
+  .view-mode-chat .app-sidebar {
+    transform: translateX(-30%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .view-mode-chat .app-main {
+    transform: translateX(0);
+  }
+
+  .back-button {
+    display: inline-flex;
+  }
+}
+
+/* ==========================================================================
+   4. ESTILOS DE COMPONENTES INTERNOS (Cards, inputs, blocos)
+   ========================================================================== */
+
+/* Containers (cards padrão) */
 .container {
   background: var(--md-sys-color-surface);
-  padding: 24px;
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  margin-bottom: 24px;
-  border-left: 6px solid var(--md-sys-color-primary);
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  margin-bottom: 20px;
+  border-left: 4px solid var(--md-sys-color-primary);
   transition: box-shadow 0.2s ease;
 }
 
 .container:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
 }
 
 .container-emissor {
@@ -2869,7 +3788,7 @@ p {
   min-width: 200px;
 }
 
-/* MD3 components customização */
+/* Material Design Components Espaçamentos */
 md-filled-button,
 md-outlined-button,
 md-text-button {
@@ -2877,11 +3796,7 @@ md-text-button {
 }
 
 md-outlined-text-field,
-md-filled-text-field {
-  width: 100%;
-  margin-bottom: 8px;
-}
-
+md-filled-text-field,
 md-outlined-select {
   width: 100%;
   margin-bottom: 8px;
@@ -2897,7 +3812,6 @@ md-list-item {
   background: var(--md-sys-color-surface);
 }
 
-/* Labels e textos auxiliares */
 label {
   display: block;
   font-weight: 500;
@@ -2906,7 +3820,7 @@ label {
   font-size: 0.875rem;
 }
 
-/* Área de perfil */
+/* Campo de Perfil e JSON Viewer */
 .profile-field {
   background: var(--md-sys-color-surface-variant);
   padding: 12px;
@@ -2921,13 +3835,15 @@ label {
   color: var(--md-sys-color-on-surface);
 }
 
-/* Mensagens */
+/* ==========================================================================
+   5. BALÕES DE CHAT E STATUS
+   ========================================================================== */
 .msg-item {
   border-radius: 8px;
   padding: 12px 16px;
   margin-bottom: 8px;
   background: var(--md-sys-color-surface);
-  border: 1px solid var(--md-sys-color-outline);
+  border: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
   transition: background 0.15s ease;
 }
 
@@ -2973,6 +3889,7 @@ label {
   border-left: 4px solid #d32f2f;
 }
 
+/* Badges de Status (Pílulas) */
 .status-badge {
   display: inline-block;
   padding: 2px 12px;
@@ -2983,133 +3900,87 @@ label {
   letter-spacing: 0.03em;
 }
 
-.status-badge-homologado {
-  background: #d4edda;
-  color: #155724;
-}
+.status-badge-homologado { background: #d4edda; color: #155724; }
+.status-badge-nao-homologado { background: #fff3cd; color: #856404; }
+.status-badge-lida { background: #d1ecf1; color: #0c5460; }
+.status-badge-notificada { background: #d1ecf1; color: #0c5460; }
+.status-badge-enviada { background: #d4edda; color: #155724; }
+.status-badge-entregue { background: #c3e6cb; color: #155724; }
+.status-badge-falha { background: #f8d7da; color: #721c24; }
+.status-badge-pendente { background: #fff3cd; color: #856404; }
 
-.status-badge-nao-homologado {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.status-badge-lida {
-  background: #d1ecf1;
-  color: #0c5460;
-}
-
-.status-badge-notificada {
-  background: #d1ecf1;
-  color: #0c5460;
-}
-
-.status-badge-enviada {
-  background: #d4edda;
-  color: #155724;
-}
-
-.status-badge-entregue {
-  background: #c3e6cb;
-  color: #155724;
-}
-
-.status-badge-falha {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.status-badge-pendente {
-  background: #fff3cd;
-  color: #856404;
-}
-
-/* Contato item */
-.contato-item {
+/* Wrapper da Linha */
+.chat-bubble-wrapper {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.chat-bubble-wrapper.in {
+  justify-content: flex-start;
+}
+.chat-bubble-wrapper.out {
+  justify-content: flex-end;
+}
+
+/* O Balão de Fala */
+.chat-bubble {
+  max-width: 80%;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--md-sys-color-outline);
+  border-radius: 12px;
+  position: relative;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  word-wrap: break-word;
+  user-select: none;
 }
 
-.contato-item:last-child {
-  border-bottom: none;
+/* Balão Recebido (Esquerda) */
+.chat-bubble.in {
+  background-color: var(--md-sys-color-surface);
+  border-top-left-radius: 2px;
 }
 
-.contato-item:hover {
-  background: var(--md-sys-color-surface-variant);
-  border-radius: 4px;
+/* Balão Enviado (Direita - Estilo Mensageiros) */
+.chat-bubble.out {
+  background-color: #d9fdd3;
+  color: #111;
+  border-top-right-radius: 2px;
 }
 
-/* Tabs (legado) */
-.tabs {
+.chat-bubble-text {
+  font-size: 0.95rem;
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+.chat-bubble-meta {
   display: flex;
+  justify-content: flex-end;
+  align-items: center;
   gap: 4px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+  font-size: 0.65rem;
+  color: rgba(0,0,0,0.45);
+  margin-top: 4px;
+  margin-bottom: -4px;
 }
 
-.tab {
-  padding: 8px 16px;
-  background: var(--md-sys-color-surface-variant);
-  border: none;
-  border-radius: 4px 4px 0 0;
-  cursor: pointer;
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface);
+.chat-bubble.out .chat-bubble-meta {
+  color: rgba(0,0,0,0.55);
 }
 
-.tab.active {
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
+.status-icon {
+  font-size: 0.7rem;
+  letter-spacing: -2px;
 }
 
-.tab-content {
-  display: none;
+/* Fundo da Área de Mensagens */
+.chat-messages {
+  background-image: url('data:image/svg+xml,%3Csvg width="20" height="20" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M0 0h20v20H0z" fill="%23f0f2f5"/%3E%3Ccircle cx="2" cy="2" r="1" fill="%23d0d4d8"/%3E%3C/svg%3E');
 }
 
-.tab-content.active {
-  display: block;
-}
-
-/* Toast (substituído por alert por enquanto) */
-.toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  padding: 12px 24px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  z-index: 9999;
-  max-width: 400px;
-  font-family: system-ui, sans-serif;
-  animation: fadeInUp 0.3s ease;
-}
-
-.toast-success {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
-}
-
-.toast-error {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
-
-.toast-info {
-  background: #d1ecf1;
-  color: #0c5460;
-  border: 1px solid #bee5eb;
-}
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Debug panel */
+/* ==========================================================================
+   6. PAINEL DE DEBUG E ANIMAÇÕES
+   ========================================================================== */
 #debugPanel {
   background: #1e1e1e;
   color: #d4d4d4;
@@ -3124,7 +3995,23 @@ label {
   border: 1px solid #333;
 }
 
-/* Utility */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Utilitários Gerais */
 .mt-10 { margin-top: 10px; }
 .mb-10 { margin-bottom: 10px; }
 .mt-20 { margin-top: 20px; }
@@ -3136,173 +4023,6 @@ label {
 .w-full { width: 100%; }
 .text-center { text-align: center; }
 .text-muted { color: var(--md-sys-color-on-surface-variant); }
-
-/* Responsividade */
-@media (max-width: 640px) {
-  body { padding: 16px; }
-  .row { flex-direction: column; }
-  .container { padding: 16px; }
-  h1 { font-size: 1.75rem; }
-}
-```
-
----
-
-## Arquivo: `src/stores/index.ts`
-
-```ts
-// src/stores/index.ts
-export * from './contatosStore.ts';
-export * from './mensagensStore.ts';
-export * from './profileStore.ts';
-```
-
----
-
-## Arquivo: `src/stores/contatosStore.ts`
-
-```ts
-// src/stores/contatosStore.ts
-import { signal } from '@preact/signals';
-import { 
-  listarContatos, 
-  salvarContato, 
-  removerContato, 
-  homologarContato, 
-  buscarContatoPorChave,
-  serializarPublicKeyVapid,
-} from '../utils/db-helpers.ts';
-import type { Contato } from '../constants/db.ts';
-
-export const contatos = signal<Contato[]>([]);
-export const contatosComHash = signal<Array<{ contato: Contato; hash: string }>>([]);
-
-export async function carregarContatos() {
-  const lista = await listarContatos();
-  contatos.value = lista;
-  const comHash = await Promise.all(lista.map(async (c) => {
-    const hash = await serializarPublicKeyVapid(c.publicKeyVapid);
-    return { contato: c, hash };
-  }));
-  contatosComHash.value = comHash;
-}
-
-export async function adicionarContato(contato: Contato) {
-  await salvarContato(contato);
-  await carregarContatos();
-}
-
-export async function removerContatoPorPublicKey(publicKeyVapid: JsonWebKey) {
-  await removerContato(publicKeyVapid);
-  await carregarContatos();
-}
-
-export async function homologarContatoPorPublicKey(publicKeyVapid: JsonWebKey) {
-  await homologarContato(publicKeyVapid);
-  await carregarContatos();
-}
-
-export async function buscarContatoPorHash(hash: string): Promise<Contato | undefined> {
-  const item = contatosComHash.value.find(item => item.hash === hash);
-  if (item) return item.contato;
-  return await buscarContatoPorChave(hash);
-}
-
-export async function initContatosStore() {
-  await carregarContatos();
-}
-```
-
----
-
-## Arquivo: `src/stores/mensagensStore.ts`
-
-```ts
-// src/stores/mensagensStore.ts
-import { signal } from '@preact/signals';
-import {
-  listarMensagensRecebidas,
-  listarMensagensEnviadas,
-  salvarMensagemRecebida,
-  salvarMensagemEnviada,
-  atualizarStatusMensagemRecebida,
-  atualizarStatusMensagemEnviada,
-  removerMensagemRecebida,
-  removerMensagemEnviada,
-} from '../utils/db-helpers.ts';
-import type { MensagemRecebida, MensagemEnviada } from '../constants/db.ts';
-
-export const mensagensRecebidas = signal<MensagemRecebida[]>([]);
-export const mensagensEnviadas = signal<MensagemEnviada[]>([]);
-
-export async function carregarMensagensRecebidas() {
-  const lista = await listarMensagensRecebidas();
-  lista.sort((a, b) => b.recebidoEm - a.recebidoEm);
-  mensagensRecebidas.value = lista;
-}
-
-export async function carregarMensagensEnviadas() {
-  const lista = await listarMensagensEnviadas();
-  lista.sort((a, b) => b.createdAt - a.createdAt);
-  mensagensEnviadas.value = lista;
-}
-
-export async function adicionarMensagemRecebida(mensagem: MensagemRecebida) {
-  await salvarMensagemRecebida(mensagem);
-  await carregarMensagensRecebidas();
-}
-
-export async function adicionarMensagemEnviada(mensagem: MensagemEnviada) {
-  await salvarMensagemEnviada(mensagem);
-  await carregarMensagensEnviadas();
-}
-
-export async function marcarMensagemRecebidaComoLida(id: string) {
-  await atualizarStatusMensagemRecebida(id, 'lida');
-  await carregarMensagensRecebidas();
-}
-
-export async function removerMensagemRecebidaPorId(id: string) {
-  await removerMensagemRecebida(id);
-  await carregarMensagensRecebidas();
-}
-
-export async function removerMensagemEnviadaPorId(id: string) {
-  await removerMensagemEnviada(id);
-  await carregarMensagensEnviadas();
-}
-
-export async function initMensagensStore() {
-  await carregarMensagensRecebidas();
-  await carregarMensagensEnviadas();
-}
-```
-
----
-
-## Arquivo: `src/stores/profileStore.ts`
-
-```ts
-// src/stores/profileStore.ts
-import { signal } from '@preact/signals';
-import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-
-export const profile = signal<ProfileConfig | null>(null);
-
-export async function carregarProfile() {
-  const p = await buscarProfile();
-  profile.value = p || null;
-}
-
-export async function atualizarProfile(p: ProfileConfig) {
-  await salvarProfile(p);
-  profile.value = p;
-}
-
-export async function initProfileStore() {
-  await carregarProfile();
-}
 ```
 
 ---
@@ -3313,21 +4033,28 @@ export async function initProfileStore() {
 // src/app.tsx
 import { render } from 'preact';
 import { useEffect } from 'preact/hooks';
-import { ProfileSection } from './components/ProfileSection.tsx';
+import { useSignal } from '@preact/signals';
 import { ContatosSection } from './components/ContatosSection.tsx';
-import { EnviarMensagemSection } from './components/EnviarMensagemSection.tsx';
-import { MensagensRecebidasSection } from './components/MensagensRecebidasSection.tsx';
+import { ChatSection } from './components/ChatSection.tsx'; 
 import { DebugPanel } from './components/DebugPanel.tsx';
-import { addDebugLog } from './signals/state.ts';
-import { initProfileStore, initContatosStore, initMensagensStore } from './stores/index.ts';
+import { addDebugLog, currentMobileView, contatoSelecionado } from './signals/state.ts';
+import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
 
 import "@material/web/all.js";
 import './styles.css';
 
 function App() {
+  const isDebugOpen = useSignal<boolean>(false);
+
   useEffect(() => {
     const init = async () => {
       await initProfileStore();
+      
+      if (!profile.value || !profile.value.e2ePrivateKeyJwk || !profile.value.vapidPrivateKeyJwk) {
+        window.location.href = '/profile.html';
+        return;
+      }
+
       await initContatosStore();
       await initMensagensStore();
       addDebugLog("✅ Stores inicializados");
@@ -3335,15 +4062,107 @@ function App() {
     init();
   }, []);
 
+  if (!profile.value) {
+    return (
+      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
+        <md-circular-progress indeterminate></md-circular-progress>
+      </div>
+    );
+  }
+
+  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
+
+  const fecharChat = () => {
+    currentMobileView.value = 'list';
+    contatoSelecionado.value = '';
+  };
+
   return (
-    <div id="app-root">
-      <h1>📬 Web Push Descentralizado</h1>
-      <p style={{ color: '#666', marginBottom: '20px' }}>Compartilhe seu perfil e receba mensagens de forma descentralizada.</p>
-      <ProfileSection />
-      <ContatosSection />
-      <EnviarMensagemSection />
-      <MensagensRecebidasSection />
-      <DebugPanel />
+    <div id="app-root" class={`view-mode-${currentMobileView.value}`}>
+      
+      <aside class="app-sidebar">
+        <header class="sidebar-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="position: relative;">
+              <md-icon-button id="btn-menu" onClick={() => {
+                const menu: any = document.getElementById('main-menu');
+                if(menu) menu.open = !menu.open;
+              }}>
+                <md-icon>menu</md-icon>
+              </md-icon-button>
+              
+              {/* 🔥 MENU HAMBÚRGUER COM ABERTURA DO MODAL DE DEBUG */}
+              <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
+                <md-menu-item onClick={() => isDebugOpen.value = true}>
+                  <div slot="headline">Logs de Debug</div>
+                  <md-icon slot="start">bug_report</md-icon>
+                </md-menu-item>
+                <md-menu-item onClick={() => window.location.href = '/logout.html'}>
+                  <div slot="headline">Sair do App (Logout)</div>
+                  <md-icon slot="start">logout</md-icon>
+                </md-menu-item>
+              </md-menu>
+            </div>
+            <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
+          </div>
+          
+          <md-icon-button onClick={() => window.location.href = '/profile.html'}>
+            <md-icon>account_circle</md-icon>
+          </md-icon-button>
+        </header>
+        
+        <div class="sidebar-content" style="padding: 0;">
+          <div style="padding: 16px; animation: fadeIn 0.3s ease;">
+            <ContatosSection />
+          </div>
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="chat-header">
+          <md-icon-button class="back-button" onClick={fecharChat}>
+            <md-icon>arrow_back</md-icon>
+          </md-icon-button>
+          
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <md-icon style="font-size: 2rem; color: #555;">account_circle</md-icon>
+            <div>
+              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2;">
+                {contatoAtivo ? contatoAtivo.nome : "Selecione um contato"}
+              </h2>
+              <span style="font-size: 0.8rem; color: #666;">
+                {contatoAtivo ? contatoAtivo.email : "Inicie uma conversa na barra lateral"}
+              </span>
+            </div>
+          </div>
+        </header>
+
+        {contatoSelecionado.value ? (
+           <ChatSection /> 
+        ) : (
+          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888;">
+            <div style="text-align: center;">
+              <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
+              <p>Clique em um contato na barra lateral<br/>para iniciar uma conversa criptografada.</p>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* 🔥 MODAL DE DEBUG FLUTUANTE INTEGRADO NA INDEX */}
+      <md-dialog open={isDebugOpen.value || undefined} onClose={() => isDebugOpen.value = false}>
+        <div slot="headline" style="display: flex; align-items: center; gap: 8px;">
+          <md-icon>bug_report</md-icon>
+          Painel de Inspeção & Logs
+        </div>
+        <div slot="content" style="padding-top: 8px;">
+          <DebugPanel />
+        </div>
+        <div slot="actions">
+          <md-text-button onClick={() => isDebugOpen.value = false}>Fechar</md-text-button>
+        </div>
+      </md-dialog>
+
     </div>
   );
 }
@@ -3351,9 +4170,583 @@ function App() {
 const root = document.getElementById('app');
 if (root) {
   render(<App />, root);
-} else {
-  console.error("Elemento #app não encontrado.");
 }
+```
+
+---
+
+## Arquivo: `src/profile.tsx`
+
+```tsx
+// src/profile.tsx
+import { render } from 'preact';
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, carregarProfile, atualizarProfile } from './stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from './signals/state.ts';
+import { gerarProfileCompleto } from './utils/profile-utils.ts';
+import { cifrarChaveVapid } from './utils/push-utils.ts';
+import { salvarProfile } from './utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from './utils/share-utils.ts';
+
+import "@material/web/all.js";
+import './styles.css';
+
+function ProfileApp() {
+  const diagnostic = useSignal({
+    identificacao: false,
+    criptografia: false,
+    blindagemServidor: false,
+    permissoes: false,
+    inscricaoRegistrada: false,
+    inscricaoValida: false,
+    isOnline: navigator.onLine,
+    loading: true,
+  });
+
+  const qrCodeDataUrl = useSignal<string | null>(null);
+
+  useEffect(() => {
+    carregarProfile();
+
+    const updateOnlineStatus = () => {
+      diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine };
+    };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, []);
+
+  const runDiagnostics = async () => {
+    const p = profile.value;
+    
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch (e) {
+        console.warn("Envelope VAPID corrompido ou malformado.", e);
+        envelopeOK = false;
+      }
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoes: false,
+      inscricaoRegistrada: !!p?.subscription,
+      inscricaoValida: false,
+      isOnline: navigator.onLine,
+    };
+
+    if ('Notification' in window && Notification.permission === 'granted' && 'serviceWorker' in navigator) {
+      diag.permissoes = true;
+    }
+
+    if (diag.permissoes && p?.subscription) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) {
+            diag.inscricaoValida = true;
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao checar inscrição:", e);
+      }
+    }
+
+    diagnostic.value = { ...diag, loading: false };
+  };
+
+  useEffect(() => {
+    runDiagnostics();
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+  
+  const hasErrors = !diag.loading && (
+    !diag.identificacao || 
+    !diag.criptografia || 
+    !diag.blindagemServidor || 
+    !diag.permissoes || 
+    !diag.inscricaoRegistrada || 
+    !diag.inscricaoValida
+  );
+
+  useEffect(() => {
+    const gerarQrCodeLocal = async () => {
+      const p = profile.value;
+      if (!p) return;
+      try {
+        const payloadBinario = gerarPayloadQrCodeCompacto(p);
+        
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0);
+
+      } catch (e) {
+        console.error("Falha ao gerar QR Code", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (!hasErrors && profile.value) {
+      gerarQrCodeLocal();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [diagnostic.value, profile.value, hasErrors]);
+
+  const handleGerarOuCorrigir = async () => {
+    try {
+      const p = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(p);
+      await runDiagnostics();
+      
+      if (hasErrors) {
+        showToast(`✅ Problemas corrigidos com sucesso!`, "success");
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+      await runDiagnostics();
+    }
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      let p = profile.value;
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+
+      const resServerKey = await fetch("/api/server-public-key");
+      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
+      const serverPublicKeyJwk = await resServerKey.json();
+      
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, serverPublicKeyJwk);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  const isExistingUser = profile.value !== null;
+
+  return (
+    <div style="display: flex; flex-direction: column; align-items: center; min-height: 100vh; height: 100%; overflow-y: auto; padding-bottom: 40px; box-sizing: border-box;">
+      
+      <header class="sidebar-header" style="width: 100%; max-width: 600px; background: transparent; border: none; padding-top: 24px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          {isExistingUser && (
+            <md-icon-button onClick={() => window.location.href = '/'}>
+              <md-icon>arrow_back</md-icon>
+            </md-icon-button>
+          )}
+          <h1 style="margin: 0; font-size: 1.5rem; color: var(--md-sys-color-primary);">
+            {isExistingUser ? "Meu Perfil" : "Configurar Conta"}
+          </h1>
+        </div>
+      </header>
+
+      <div style="width: 100%; max-width: 600px; padding: 16px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box;">
+        
+        <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
+          <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
+          <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
+            Este nome será visível para os contatos que você convidar.
+          </p>
+          
+          <md-outlined-text-field
+            label="Seu Nome"
+            value={profileName.value}
+            onInput={(e: any) => profileName.value = e.target.value}
+            style="margin-bottom: 12px;"
+          ></md-outlined-text-field>
+          
+          <md-outlined-text-field
+            label="Seu E-mail"
+            value={profileEmail.value}
+            onInput={(e: any) => profileEmail.value = e.target.value}
+            style="margin-bottom: 16px;"
+          ></md-outlined-text-field>
+
+          <div style="display: flex; gap: 8px; flex-direction: column;">
+            {hasErrors ? (
+              <md-filled-button onClick={handleGerarOuCorrigir} style="width: 100%; --md-sys-color-primary: #ba1a1a;">
+                🔧 Gerar Chaves / Corrigir Permissões
+              </md-filled-button>
+            ) : (
+              <md-filled-button onClick={handleGerarOuCorrigir} style="width: 100%;">
+                💾 Salvar Alterações
+              </md-filled-button>
+            )}
+            
+            <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={hasErrors ? true : undefined}>
+              🔗 Copiar Link de Convite
+            </md-outlined-button>
+
+            {!hasErrors && !diag.loading && (
+               <md-text-button onClick={() => window.location.href = '/'} style="width: 100%; margin-top: 8px;">
+                 Entrar no App ➡️
+               </md-text-button>
+            )}
+          </div>
+        </div>
+
+        {qrCodeDataUrl.value && !hasErrors && (
+          <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
+            <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+              <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+              Seu QR Code de Convite
+            </h3>
+            <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
+              Mostre isso para um amigo escanear pelo App Loco.
+            </p>
+            <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
+          </div>
+        )}
+
+        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: #555;">
+          <h3 style="font-size: 0.95rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem;">health_and_safety</md-icon>
+            Diagnóstico Criptográfico
+          </h3>
+          
+          {diag.loading ? (
+            <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando...</p>
+          ) : (
+            <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+              <li>{diag.isOnline ? '✅' : '❌'} Conexão com a Internet</li>
+              <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+              <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+              <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+              <li>{diag.permissoes ? '✅' : '❌'} Permissões do Navegador</li>
+              <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+              <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+            </ul>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+const root = document.getElementById('app-profile');
+if (root) {
+  render(<ProfileApp />, root);
+}
+```
+
+---
+
+## Arquivo: `README.md`
+
+````md
+# 📡 Loco – Mensageiro PWA Descentralizado
+
+## 1. Visão Geral
+
+O Loco é um PWA (Progressive Web App) de mensagens descentralizado com interface Material Design 3, comunicação híbrida (Web Push + WebRTC) e arquitetura de armazenamento robusta offline-first. O app prioriza a privacidade, o controle granular de dados pelo usuário e a resistência à evicção automática pelo navegador.
+
+Neste estágio, o núcleo implementa a comunicação utilizando a API **Web Push** (especificamente via FCM) como transporte. Dois ou mais navegadores trocam mensagens diretamente, sem um banco de dados central para armazenar mensagens ou gerenciar contatos.
+
+Cada navegador atua como um **ponto autônomo**:
+
+* **Emissor**: envia mensagens criptografadas para outro usuário.
+* **Receptor**: recebe mensagens, emite recibos de entrega (handshakes) e pode responder.
+
+A infraestrutura mínima é um **servidor proxy** (Deno) que fornece uma chave pública RSA usada para cifrar a chave privada VAPID durante a troca de perfis e reencaminha as requisições push ao serviço (FCM).
+
+---
+
+## 2. Regras de Desenvolvimento (Para Devs e Agentes IA)
+
+Para manter a sanidade da base de código e garantir a performance, siga estas regras rigorosamente:
+
+* **Runtime e Ecossistema:** Obrigatório o uso do Deno 2.x. Nunca usar Node, npm ou dependências que exijam Node nativo. O build é feito de forma customizada em `build.ts` usando `Deno.bundle()`.
+* **Zero `localStorage`:** É estritamente proibido o uso de `localStorage`. Todo e qualquer dado deve passar pelo `src/utils/storage.ts` (wrapper do `idb-keyval`) ou OPFS.
+* **Gerenciamento de Estado:** Os Signals devem ser importados exclusivamente de `@preact/signals`. Nunca instancie signals em nível de módulo global se eles forem exclusivos de um componente; crie-os dentro do escopo adequado.
+* **Isolamento Assíncrono:** Todas as operações de leitura/escrita de dados devem ser `async/await`. Processamentos pesados (WebTorrent, I/O de arquivos, criptografia massiva) devem rodar em Web Workers (`p2p-transfer.worker.js`).
+* **Comentários Táticos:** Comente apenas para explicar o "porquê" de uma decisão complexa, nunca o "o quê" o código está fazendo.
+* **Degradação Graciosa (Fallback):** O sistema deve tentar conexões P2P (`RTCDataChannel`) primeiro. O Web Push atua como fallback silencioso e garantido.
+
+---
+
+## 3. Conceitos Fundamentais
+
+### 3.1. Perfil (Profile)
+
+A identidade de um usuário, armazenada no IndexedDB (`AppConfig_DB`). Pode ser compartilhada através de um **JWT** (JSON Web Token) com a claim `sub: "contact"`.
+
+```json
+{
+  "iss": "email@exemplo.com",       // Identificador único do dono
+  "sub": "contact",                 // Tipo de token
+  "nm": "Nome do Usuário",          // Nome legível
+  "kid": { ... },                   // Chave pública VAPID (ECDSA P-256) em JWK
+  "p": { ... },                     // Chave pública RSA (RSA-OAEP-256) em JWK
+  "s": {                            // Subscription do Web Push
+    "endpoint": "https://fcm.googleapis.com/...",
+    "keys": {
+      "p256dh": "base64...",
+      "auth": "base64..."
+    },
+    "k": "base64..."                // Chave privada VAPID cifrada (envelope)
+  },
+  "iat": 1738765432                 // Timestamp de emissão
+}
+
+```
+
+**Segurança VAPID:** O campo `k` contém a chave privada VAPID cifrada (AES-GCM + RSA-OAEP) com a chave pública do servidor proxy. Apenas o servidor pode decifrá-la para disparar o push, garantindo que ela nunca vaze em texto puro. Ao compartilhar o perfil, o sistema recria automaticamente esse envelope.
+
+### 3.2. Contato (Contact)
+
+Quando um usuário recebe uma mensagem ou importa um perfil via JWT, o emissor é salvo localmente. Contatos importados via JWT já recebem a flag `homologado: true`.
+
+```typescript
+interface Contato {
+  publicKeyVapid: JsonWebKey;      // Chave pública VAPID (ECDSA)
+  email: string;
+  nome: string;
+  publicKeyRSA: JsonWebKey;        // Chave pública RSA (para cifrar a resposta)
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  };
+  vapidPrivateKey: string;         // Chave privada VAPID cifrada
+  homologado: boolean;             // Controle de lista branca
+  createdAt: number;
+  updatedAt: number;
+}
+
+```
+
+### 3.3. Mensagens e Filas
+
+As mensagens transitam dentro de um JWT assinado e comprimido para respeitar o limite de 4096 bytes.
+
+* **Mensagem Recebida:** Possui `id`, `contatoPublicKeyVapid` (Hash SHA-256 da chave VAPID), `conteudo`, `status` (`'nao_lida'`, `'lida'`, `'notificada'`) e timestamp.
+* **Mensagem Enviada (Fila):** Mantida offline-first com os campos `contatoHash`, `conteudo`, `status` (`'pendente'`, `'enviando'`, `'enviada'`, `'falha'`, `'entregue'`), e limite de `MAX_TENTATIVAS = 3`.
+
+### 3.4. Handshake (Confirmação de Entrega)
+
+O receptor de uma mensagem (`sub: "msg"`) notifica o emissor invisivelmente usando um JWT do tipo `sub: "hand"`.
+
+```typescript
+interface Handshake {
+  id: string;                    // NanoID (12 caracteres)
+  mensagemId: string;            // ID da mensagem confirmada
+  tipo: 'confirmacao_entrega';   // Expansível para leitura, etc.
+  direcao: 'out' | 'in';         // Fluxo de saída ou entrada
+  status: 'pendente' | 'enviado' | 'falha' | 'entregue';
+  tentativas: number;
+  payload: any;
+  createdAt: number;
+  updatedAt: number;
+}
+
+```
+
+---
+
+## 4. Armazenamento: IndexedDB e OPFS
+
+A aplicação usa uma arquitetura de dados híbrida para resistir a limitações do navegador.
+
+### Bancos de Dados (`idb-keyval`)
+
+| Store (`DB_NAMES`) | Chave Primária | Entidade | Descrição |
+| --- | --- | --- | --- |
+| `AppConfig_DB` | `"profile"` | `ProfileConfig` | Store unificada com perfil, chaves e subscriptions. |
+| `BrowserB_Contatos_DB` | Hash SHA-256 (hex) | `Contato` | Contatos. Chave é hash para evitar erros de serialização. |
+| `BrowserB_MensagensRecebidas_DB` | ID da Mensagem | `MensagemRecebida` | Histórico local de entrada. |
+| `BrowserA_MensagensEnviadas_DB` | ID da Mensagem | `MensagemEnviada` | Fila local de saída. |
+| `Handshake_DB` | ID do Handshake | `Handshake` | Rastreamento de confirmações e recibos. |
+
+### Origin Private File System (OPFS) - *Em Implementação*
+
+Destinado a arquivos binários grandes (fotos, vídeos, PDF) recebidos ou enviados via WebTorrent/WebRTC. Arquivos serão nomeados como `{messageId}.{ext}` e o usuário poderá excluí-los granularmente sem afetar o histórico de texto no IndexedDB.
+
+---
+
+## 5. Fluxos Detalhados (Engenharia)
+
+**1. Geração do Perfil (`gerarProfileCompleto`)**
+Solicita permissão de notificação -> Registra Service Worker -> Gera pares ECDSA (VAPID) e RSA-OAEP (E2E) -> Obtém Subscription no PushManager -> Busca chave pública do Proxy -> Cifra chave VAPID privada (Envelope) -> Salva no IndexedDB.
+
+**2. Envio de Mensagem (`processarFilaEnvio` no SW)**
+Interface salva na fila como `'pendente'` e avisa o SW -> SW acorda e filtra fila -> Monta payload e cifra com AES-GCM + RSA-OAEP -> Constrói JWT (`sub: "msg"`) -> Envia payload, subscription e envelope VAPID para `/api/proxy-push` -> Atualiza status local para `'enviada'`.
+
+**3. Recebimento e Handshake (`processarMensagemRecebida`)**
+Evento push acorda o SW -> Valida JWT e `aud` -> Decifra envelope -> Atualiza ou cria contato -> Salva mensagem recebida -> Cria registro `'pendente'` no `Handshake_DB` -> Aciona `processarFilaHandshake()` para enviar recibo ao emissor original via `/api/proxy-push` (`sub: "hand"`).
+
+**4. Confirmação de Entrega (Recepção do Handshake)**
+Evento push acorda o emissor original -> SW valida JWT (`sub: "hand"`) -> Atualiza `Handshake_DB` para `'entregue'` -> Encontra a mensagem original e altera status final para `'entregue'` -> Manda `postMessage` atualizando a UI caso o usuário esteja online.
+
+---
+
+## 6. Estrutura do Projeto
+
+| Caminho / Arquivo | Responsabilidade Principal |
+| --- | --- |
+| `src/app.tsx` | Ponto de entrada do Preact. Roteamento de telas e actions baseadas em hash. |
+| `src/service-worker.ts` | Orquestrador principal. Registra processadores e acorda filas. |
+| `src/sw/push.ts` | Router do SW. Faz triagem pelo claim `sub` do JWT (`msg` ou `hand`). |
+| `src/sw/sw-mensagens.ts` | Descriptografa mensagens e gerencia a fila principal de envio. |
+| `src/sw/sw-handshakes.ts` | Decodifica confirmações e gerencia a fila de recibos de saída. |
+| `src/utils/push-utils.ts` | Helpers pesados de criptografia híbrida (AES-GCM + RSA-OAEP). |
+| `src/utils/storage.ts` | (A ser criado) Wrapper absoluto para IDB, OPFS e proteção de quota. |
+| `main.ts` | Servidor Deno (Proxy Web Push). Endpoints: `/api/server-public-key` e `/api/proxy-push`. |
+| `build.ts` | Ferramenta de CLI. Gera os bundles via `Deno.bundle`, injeta variáveis e atualiza HTML. |
+
+---
+
+## 7. Build e Execução
+
+Use os comandos integrados definidos no `deno.json`.
+
+**Gerar o Bundle de Produção (HTML, SW e Workers):**
+
+```bash
+deno task build
+
+```
+
+**Iniciar Servidor Local:**
+
+```bash
+deno task start
+
+```
+
+*Disponível em `http://localhost:8000`. Testes de push exigem múltiplas instâncias de navegadores diferentes.*
+
+**Rodar Testes Unitários:**
+
+```bash
+deno task test --no-check
+
+```
+
+---
+
+## 8. Roadmap & Integrações Planejadas
+
+A aplicação está transicionando de um protótipo estrito de Web Push para um mensageiro moderno abrangente:
+
+* **P2P First (WebRTC & WebTorrent):** Implementação de `RTCDataChannel` para envio de texto direto, deixando o push apenas para acordar o Worker. Criação do `p2p-transfer.worker.js` para tráfego pesado focado diretamente no disco virtual (OPFS).
+* **Media & APIs PWA:** Implementação do leitor de QR Code (`BarcodeDetector`), Picture-in-Picture nativo para chamadas (`CallScreen.tsx`) e `Screen Wake Lock` durante uploads ativos.
+* **Proteção de Evicção:** Automação de solicitações `navigator.storage.persist()` para assegurar os dados do usuário.
+* **Web Share Target:** Permitir que o Loco receba conteúdos diretos do Android share sheet.
+* **Backup (fflate):** Exportação completa do estado (IDB + OPFS) criptografada em um arquivo ZIP.
+
+---
+
+## 9. Glossário e Troubleshooting
+
+* **Evicção:** Processo em que o SO apaga o IndexedDB para liberar espaço. Evitado usando `persist()`.
+* **VAPID:** *Voluntary Application Server Identification*. Assegura ao provedor (FCM) quem está emitindo o push.
+* **Rate Limiting:** Falhas `HTTP 429` ou `410` do FCM ao sobrecarregar a fila de Push. Resolvido caindo para WebRTC sempre que a aba estiver aberta.
+* **"Não foi possível extrair o código do SW":** Erro do `build.ts`. Certifique-se de que não há erros de sintaxe explícitos nos arquivos importados pelo `service-worker.ts`.
+````
+
+---
+
+## Arquivo: `public/manifest.json`
+
+```json
+{
+  "start_url": "/index.html",
+  "scope": "/",
+  "name": "loco",
+  "short_name": "loco",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#3b82f6",
+  "background_color": "#60a5fa",
+  "display": "standalone"
+}
+```
+
+---
+
+## Arquivo: `deno.json`
+
+```json
+{
+  "workspace": ["proto/_template", "proto/01-push-messaging"],
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"]
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/http": "jsr:@std/http@^1",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
+    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
+    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+  },
+  "tasks": {
+    "test": "deno test --allow-env --allow-net tests/",
+    "typecheck": "deno check main.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
+    "dev": "deno task build && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "rm -rf dist && mkdir -p dist",
+    "export": "deno run --allow-read --allow-write export.ts"
+  },
+  "exclude": ["dist/", "public/"]
+}
+
 ```
 
 ---
@@ -3524,7 +4917,13 @@ async function build() {
 
   console.log("📦 Compilando página HTML (browser-b)...");
   await runBundle("HTML", {
-    entrypoints: [join(SRC_DIR, "index.html"), join(SRC_DIR, "logout.html")],
+    entrypoints: [
+      join(SRC_DIR, "index.html"), 
+      join(SRC_DIR, "logout.html"),
+      join(SRC_DIR, "share.html"),
+      join(SRC_DIR, "profile.html")
+
+    ],
     outputDir: DIST_DIR,
     platform: "browser",
     format: "esm",
@@ -3966,379 +5365,6 @@ Deno.serve({ port: PORT }, async (req) => {
 });
 
 console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
-```
-
----
-
-## Arquivo: `README.md`
-
-````md
-# 📡 Web Push Descentralizado – Protótipo Detalhado
-
-## 1. Objetivo Geral
-
-Este protótipo implementa um sistema de mensagens **descentralizado** utilizando a API **Web Push** (especificamente via FCM no Chrome) como transporte. O objetivo é permitir que dois navegadores (ou mais) troquem mensagens diretamente, sem a necessidade de um servidor central para armazenar mensagens ou gerenciar contatos.
-
-Cada navegador atua como um **ponto autônomo**:
-- **Emissor**: envia mensagens para outro usuário.
-- **Receptor**: recebe mensagens e pode responder.
-
-A infraestrutura mínima necessária é um **servidor proxy** (fornecido neste projeto em Deno) que:
-- Fornece uma chave pública RSA usada para cifrar a chave privada VAPID durante a troca de perfis.
-- Reencaminha as requisições push ao serviço de push (FCM), após descriptografar a chave privada VAPID para assinar o cabeçalho de autorização.
-
-Não há banco de dados central, nem filas compartilhadas: cada navegador mantém seu próprio **IndexedDB** com contatos, histórico de mensagens, handshakes e o perfil do usuário.
-
----
-
-## 2. Conceitos Fundamentais
-
-### 2.1. Perfil (Profile)
-Um **perfil** é a identidade de um usuário no sistema. Ele é armazenado localmente no IndexedDB (`AppConfig_DB`) e pode ser compartilhado através de um **JWT** (JSON Web Token) para que outros usuários possam adicioná-lo como contato.
-
-**Estrutura do Perfil Público (JWT com `sub: "contact"`):**
-```json
-{
-  "iss": "email@exemplo.com",       // Identificador único (e-mail do dono)
-  "sub": "contact",                 // Tipo de token (contato)
-  "nm": "Nome do Usuário",           // Nome legível (exibido nas mensagens)
-  "kid": { ... },                    // Chave pública VAPID (ECDSA P-256) em JWK
-  "p": { ... },                      // Chave pública RSA (RSA-OAEP-256) em JWK
-  "s": {                             // Subscription do Web Push
-    "endpoint": "https://fcm.googleapis.com/...",
-    "keys": {
-      "p256dh": "base64...",
-      "auth": "base64..."
-    },
-    "k": "base64..."                 // Chave privada VAPID cifrada (envelope RSA-AES)
-  },
-  "iat": 1738765432                  // Timestamp de emissão
-}
-```
-
-**Campos explicados:**
-- `iss`: E-mail ou identificador único do dono do perfil.
-- `nm`: Nome legível para exibição na interface e nas notificações.
-- `kid`: Chave pública VAPID. Usada para verificar a assinatura do JWT recebido e para identificar o contato.
-- `p`: Chave pública RSA. Usada pelo emissor para cifrar a chave AES que, por sua vez, cifra a mensagem.
-- `s`: Subscription obtida via `PushManager.subscribe()`. Contém o endpoint do serviço de push e as chaves `p256dh`/`auth`, necessárias para cifrar o payload. Inclui `k` (chave privada VAPID cifrada).
-- `k` (dentro de `s`): Chave privada VAPID cifrada com um envelope híbrido: AES-GCM + RSA-OAEP usando a chave pública RSA do servidor proxy. Apenas o servidor proxy pode decifrá-la, garantindo que a chave privada VAPID nunca seja transmitida em texto puro.
-
-**Importante:** Ao compartilhar o perfil, o sistema **recria automaticamente** o envelope da chave VAPID usando a chave pública atual do servidor, garantindo que o perfil compartilhado seja sempre compatível com as chaves do servidor.
-
-### 2.2. Contato (Contact)
-Quando um usuário recebe uma mensagem (ou adiciona manualmente um perfil via JWT), o emissor é salvo localmente como um **contato**. O contato armazena a subscription e as chaves públicas do emissor, permitindo que o receptor responda no futuro sem a necessidade de um novo perfil.
-
-**Estrutura do Contato (IndexedDB):**
-```typescript
-interface Contato {
-  publicKeyVapid: JsonWebKey;      // Chave pública VAPID (ECDSA)
-  email: string;
-  nome: string;
-  publicKeyRSA: JsonWebKey;        // Chave pública RSA (para cifrar a resposta)
-  subscription: {
-    endpoint: string;
-    keys: { p256dh: string; auth: string };
-  };
-  vapidPrivateKey: string;         // Chave privada VAPID cifrada (para o proxy)
-  homologado: boolean;             // Se o contato é confiável (lista branca)
-  createdAt: number;
-  updatedAt: number;
-}
-```
-
-**Homologação:** Contatos importados via JWT já são considerados **homologados** (`homologado: true`). A homologação pode ser gerenciada na lista de contatos, onde o usuário pode homologar individualmente ou em massa.
-
-### 2.3. Mensagem (Message)
-A mensagem propriamente dita é transportada dentro de um **JWT** assinado. O conteúdo da mensagem é cifrado e comprimido para reduzir o tamanho (limite de 4096 bytes no Web Push).
-
-**Estrutura da mensagem recebida (IndexedDB):**
-```typescript
-interface MensagemRecebida {
-  id: string;                       // msg_<timestamp>_<random>
-  contatoPublicKeyVapid: string;   // Hash SHA-256 da chave VAPID do emissor (referência ao contato)
-  conteudo: string;                 // Texto decifrado
-  status: 'nao_lida' | 'lida' | 'notificada';
-  recebidoEm: number;
-}
-```
-
-**Estrutura da mensagem enviada (IndexedDB) – fila de envio:**
-```typescript
-interface MensagemEnviada {
-  id: string;                      // msg_<timestamp>_<random>
-  contatoHash: string;             // Hash SHA-256 da chave pública VAPID do contato
-  conteudo: string;                // Texto original da mensagem
-  status: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue';
-  tentativas: number;              // Número de tentativas de envio
-  createdAt: number;
-  updatedAt: number;
-  erro?: string;                   // Mensagem de erro, se houver
-}
-```
-**Constante:** `MAX_TENTATIVAS = 3` (número máximo de tentativas antes de marcar como falha).
-
-### 2.4. Handshake (Confirmação de Entrega)
-O handshake é um mecanismo para que o **receptor** de uma mensagem notifique o **emissor** sobre o status da entrega. Atualmente, o único tipo de handshake é `confirmacao_entrega`, que indica que a mensagem foi recebida com sucesso.
-
-**Estrutura do Handshake (IndexedDB):**
-```typescript
-interface Handshake {
-  id: string;                     // NanoID (12 caracteres) – identificador único
-  mensagemId: string;            // ID da mensagem original que está sendo confirmada
-  tipo: 'confirmacao_entrega';   // Futuramente: 'recebimento', 'leitura', etc.
-  direcao: 'out' | 'in';         // 'out' = enviado, 'in' = recebido
-  status: 'pendente' | 'enviado' | 'falha' | 'entregue';
-  tentativas: number;            // Tentativas de envio (para handshakes out)
-  payload: any;                  // Dados adicionais específicos do tipo
-  createdAt: number;
-  updatedAt: number;
-  erro?: string;
-}
-```
-
-**Fluxo do Handshake:**
-1. O **receptor** recebe uma mensagem (`sub: "msg"`) e a processa.
-2. O receptor **cria automaticamente** um handshake do tipo `confirmacao_entrega` no banco `Handshake_DB`, com direção `'out'` e status `'pendente'`.
-3. O Service Worker do receptor processa a fila de handshakes e envia um **JWT com `sub: "hand"`** para o emissor original, contendo no `aud` o ID da mensagem original e no envelope cifrado apenas o `htype`.
-4. O **emissor** recebe o JWT com `sub: "hand"`, decifra o envelope, valida o `aud` e **atualiza o status da mensagem enviada** para `'entregue'`, além de notificar a interface (se aberta).
-
-O handshake é feito em background, sem exibir notificações visíveis, garantindo que o emissor saiba que a mensagem foi entregue.
-
----
-
-## 3. Armazenamento IndexedDB – Detalhamento
-
-O sistema utiliza as seguintes stores (bancos) no IndexedDB, gerenciadas pela biblioteca `idb-keyval`:
-
-| Nome da Store (`DB_NAMES`) | Chave | Valor | Finalidade |
-| :--- | :--- | :--- | :--- |
-| `AppConfig_DB` | `"profile"` | `ProfileConfig` | **Store unificada** – contém todos os dados do perfil do usuário: nome, e-mail, chaves VAPID (pública e privada em JWK), envelope da chave privada VAPID, chaves RSA (pública e privada em JWK) e subscription. |
-| `BrowserB_Contatos_DB` | **Hash SHA-256** (hex) da chave VAPID pública | `Contato` | Armazena todos os contatos conhecidos. A chave é um hash para evitar problemas de capitalização e inconsistências de serialização. |
-| `BrowserB_MensagensRecebidas_DB` | ID da mensagem | `MensagemRecebida` | Armazena mensagens recebidas. O campo `contatoPublicKeyVapid` referencia a chave hash do contato correspondente. |
-| `BrowserA_MensagensEnviadas_DB` | ID da mensagem | `MensagemEnviada` | Fila de mensagens aguardando envio (offline-first). O status e o contador de tentativas permitem gerenciar o fluxo de envio. |
-| `Handshake_DB` | ID do handshake | `Handshake` | **Nova store** – armazena handshakes enviados e recebidos, permitindo rastrear a confirmação de entrega e outros futuros handshakes. |
-
-**Observações importantes:**
-- **A store `AppConfig_DB` substitui as antigas stores** – todas as informações do perfil ficam em um único lugar.
-- **Chaves privadas** são persistidas como JWK dentro do `ProfileConfig`, garantindo persistência entre recarregamentos.
-- **O envelope da chave privada VAPID** (`vapidPrivateKeyEnvelope`) é armazenado para evitar recifragem a cada envio.
-- **A store `BrowserA_Bundles_DB` foi removida** – o bundle do emissor é construído dinamicamente.
-- **A store de mensagens enviadas agora inclui o status `'entregue'`**, atualizado quando um handshake de confirmação é recebido.
-
-**Geração do Hash do Contato:**
-Para evitar diferenças de capitalização, a chave primária da store de contatos é um **hash SHA-256** da string normalizada: `${kty}|${crv}|${x}|${y}`.
-
----
-
-## 4. Fluxos Detalhados
-
-### 4.1. Geração do Perfil
-O processo de criação do perfil é dividido em duas ações no front-end:
-
-**Ação 1: "Gerar/Atualizar Perfil"** (`gerarProfile()` em `src/app.tsx`)
-1. **Verificação de permissões**: Checa se a permissão de notificação está concedida; caso contrário, solicita.
-2. **Registro do Service Worker**: Registra ou obtém a instância do Service Worker.
-3. **Geração/obtenção de chaves VAPID**: Tenta carregar do perfil existente; caso não existam, gera um novo par ECDSA P-256 (`extractable: true`).
-4. **Geração/obtenção de chaves RSA**: Tenta carregar do perfil existente; caso não existam, gera um novo par RSA-OAEP-256 (`extractable: true`).
-5. **Obtenção da subscription**: Obtém a subscription do `PushManager` do navegador, usando a chave pública VAPID como `applicationServerKey`; reutiliza a subscription existente se ainda for válida.
-6. **Busca da chave pública do servidor**: Faz uma requisição GET para `/api/server-public-key` para obter a chave pública RSA do servidor proxy.
-7. **Cifragem da chave privada VAPID**: A chave privada VAPID (em JWK) é cifrada com AES-GCM, e a chave simétrica é cifrada com RSA-OAEP usando a chave pública do servidor. O envelope resultante é salvo no campo `vapidPrivateKeyEnvelope` do `ProfileConfig`.
-8. **Persistência do perfil unificado**: Salva todos os dados na store `AppConfig_DB` com a chave `"profile"`.
-
-**Ação 2: "Compartilhar Perfil (JWT)"** (`compartilharProfile()` em `src/app.tsx`)
-1. **Validação**: Verifica se todos os campos obrigatórios estão presentes no perfil.
-2. **Recriação do envelope**: Busca a chave pública atual do servidor e recria o envelope da chave VAPID, salvando-o no perfil.
-3. **Montagem do payload**: Constrói o payload do JWT com `iss`, `sub: "contact"`, `nm`, `p`, `s` (com `k` = envelope recém-criado), e `iat`.
-4. **Criação do JWT**: Gera o JWT assinado com a chave privada VAPID do emissor, colocando a chave pública VAPID no header (`kid`).
-5. **Exibição**: O JWT é exibido e copiado para a área de transferência.
-
-### 4.2. Adição de Contato
-**Função:** `adicionarContato()` em `src/app.tsx`
-
-1. Usuário cola um JWT (gerado pela outra pessoa) no campo de texto.
-2. **Validação do formato**, **verificação da assinatura** e **validação de campos obrigatórios** (`kid`, `p`, `s`, `s.k`, `sub: "contact"`).
-3. **Criação do contato**: Com os dados extraídos, cria um objeto `Contato` com `homologado: true` e o salva no IndexedDB (`BrowserB_Contatos_DB`), usando o hash da chave pública VAPID como chave primária.
-4. **Atualização da interface**: A lista de contatos e o dropdown são recarregados.
-
-### 4.3. Envio de Mensagem – App
-**Função:** `enviarMensagemB()` em `src/app.tsx`
-
-1. Usuário seleciona um contato e digita a mensagem.
-2. Recupera o contato completo do IndexedDB.
-3. **Salva a mensagem na fila de envio** (`BrowserA_MensagensEnviadas_DB`) com status `'pendente'`.
-4. **Notifica o Service Worker** via `postMessage` com o tipo `PROCESSAR_FILA_ENVIO`.
-5. O Service Worker processará a mensagem em background (offline-first).
-
-### 4.4. Processamento do Envio – Service Worker
-**Função:** `processarFilaEnvio()` em `src/sw/sw-mensagens.ts`
-
-1. Busca mensagens com status `'pendente'` ou `'enviando'` travados.
-2. Para cada mensagem:
-   - Atualiza status para `'enviando'`.
-   - Busca contato e perfil.
-   - **Validações** (chaves, subscription, etc.).
-   - **Monta o payloadObj** com o envelope do emissor, subscription, e chave pública RSA.
-   - **Cifra o payloadObj** com AES-GCM + RSA-OAEP.
-   - **Constrói o JWT de mensagem** (`sub: "msg"`) assinado com a chave privada VAPID do emissor.
-   - **Envia para o servidor proxy** (`/api/proxy-push`) com a subscription do contato e o envelope da chave VAPID do contato.
-   - Atualiza status para `'enviada'` em caso de sucesso, ou incrementa tentativas/status `'falha'` em caso de erro.
-
-### 4.5. Recebimento da Mensagem – Service Worker
-**Função:** `processarMensagemRecebida()` em `src/sw/sw-mensagens.ts` (chamada via router)
-
-1. O router (`push.ts`) recebe o evento `push`, verifica `sub: "msg"` e chama o processador.
-2. **Validação da assinatura**, `aud` (email do receptor).
-3. **Decifra o envelope** com a chave privada RSA do receptor.
-4. **Salva/Atualiza o contato** com os dados do emissor.
-5. **Salva a mensagem recebida** no IndexedDB (`BrowserB_MensagensRecebidas_DB`).
-6. **Dispara a criação de um handshake de confirmação de entrega** (chama `criarHandshakeConfirmacaoEntrega`).
-7. **Exibe notificação** e notifica clientes abertos via `postMessage`.
-
-### 4.6. Handshake de Confirmação de Entrega (Envio pelo Receptor)
-**Função:** `criarHandshakeConfirmacaoEntrega()` em `src/sw/sw-mensagens.ts`
-
-1. Verifica se já existe um handshake para essa mensagem (evita duplicatas).
-2. **Salva um handshake no banco `Handshake_DB`** com status `'pendente'`, direção `'out'`.
-3. **Dispara o processamento da fila de handshakes** (`self.processarFilaHandshake()`), que:
-   - Busca handshakes pendentes.
-   - Para cada handshake, busca o contato (pela mensagem original), valida chaves, **cifra um payload com `{ htype }`**, monta o JWT com `sub: "hand"`, `aud = mensagemId`, e envia ao proxy.
-   - Atualiza status para `'enviado'` ou `'falha'`.
-
-### 4.7. Recebimento do Handshake – Emissor
-**Função:** `processarHandshakeRecebido()` em `src/sw/sw-handshakes.ts` (chamada via router)
-
-1. O router (`push.ts`) recebe o evento `push`, verifica `sub: "hand"` e chama o processador.
-2. **Validação**: verifica `jti`, `aud` (mensagemId), `ct`.
-3. **Decifra o envelope** (obtém `{ htype }`).
-4. **Salva o handshake recebido** no banco `Handshake_DB` com direção `'in'` e status `'entregue'`.
-5. Se `htype === 'confirmacao_entrega'`, **atualiza a mensagem enviada correspondente** (com ID = `aud`) para status `'entregue'` e notifica a UI via `MENSAGEM_ENTREGUE`.
-
-### 4.8. Resposta (Responder)
-1. Na interface de mensagens recebidas, cada mensagem tem um botão "Responder".
-2. Ao clicar, o sistema obtém o hash do contato a partir da mensagem, preenche o dropdown de seleção de contatos e navega para a aba de envio.
-3. O usuário digita a mensagem e o fluxo de envio (4.3 e 4.4) é executado.
-
----
-
-## 5. Estrutura do Projeto (Arquivos Relevantes)
-
-| Arquivo | Responsabilidade |
-| :--- | :--- |
-| `src/app.tsx` | Interface principal (UI) e lógica de negócio (geração de perfil, adição de contato, criação de mensagens na fila). |
-| `src/service-worker.ts` | Orquestrador que importa os módulos do Service Worker. |
-| `src/sw/push.ts` | Router – recebe eventos `push`, verifica `sub` e delega para `sw-mensagens.ts` ou `sw-handshakes.ts`. |
-| `src/sw/sw-mensagens.ts` | Processa mensagens recebidas (`sub: "msg"`) e cria handshakes. |
-| `src/sw/sw-handshakes.ts` | Processa handshakes recebidos (`sub: "hand"`) e gerencia a fila de envio de handshakes. |
-| `src/sw/push-common.ts` | Funções comuns de acesso ao IndexedDB (perfil, contatos, mensagens). |
-| `src/utils/push-utils.ts` | Funções de criptografia (cifrar payload, cifrar chave VAPID) e envio ao proxy. |
-| `src/utils/jwt-helpers.ts` | Criação, verificação e decodificação de JWTs. |
-| `src/utils/db-helpers.ts` | Funções genéricas e específicas para operações IndexedDB. |
-| `src/constants/db.ts` | Definição dos nomes das stores, interfaces (`ProfileConfig`, `MensagemEnviada`, `MensagemRecebida`, `Contato`, `Handshake`). |
-| `main.ts` | Servidor Deno (proxy). Endpoints: `/api/server-public-key` e `/api/proxy-push`. |
-| `build.ts` | Script de build usando `Deno.bundle` com entrypoints HTML. |
-
----
-
-## 6. Build e Execução
-
-### Build
-```bash
-deno task build
-```
-- Compila `src/index.html` (entrypoint), gerando bundle JS e atualizando o HTML.
-- Compila o Service Worker separadamente (`src/service-worker.ts`) e injeta lista de assets e hash de versão.
-- Gera as chaves RSA do servidor (`.env`) se não existirem.
-
-### Execução do Servidor
-```bash
-deno task start
-```
-- Roda na porta 8000, serve os arquivos da pasta `dist/` e fornece os endpoints `/api/server-public-key` (GET) e `/api/proxy-push` (POST).
-
----
-
-## 7. Estado Atual e Pontos de Atenção
-
-- **Perfil unificado**: todas as informações do usuário em uma única store (`AppConfig_DB`).
-- **Persistência de chaves privadas**: armazenadas como JWK, garantindo disponibilidade após recarregar.
-- **Fila de envio simplificada**: mensagens enviadas são armazenadas com status e tentativas; o SW é responsável pelo envio.
-- **Chave de Contato**: baseada em hash SHA-256 da chave pública VAPID.
-- **Limitação de Payload**: o JWT deve ser inferior a 4096 bytes; compressão gzip e campos curtos são usados.
-- **Homologação**: campo booleano em contato, gerenciado manualmente.
-- **Handshake de confirmação de entrega**: implementado com banco `Handshake_DB`, fila de envio separada e roteamento no SW.
-- **Service Worker**: modularizado, com router e processadores dedicados para mensagens e handshakes.
-- **Service Worker**: durante o desenvolvimento, é necessário desregistrar manualmente (Application → Service Workers → Unregister) e recarregar a página para atualizar.
-
----
-
-## 8. Próximos Passos
-
-- **Consistência de chaves**: verificar se todas as operações usam corretamente o hash SHA-256.
-- **Atualização de contatos**: garantir que, ao receber uma nova mensagem, o nome e dados do contato sejam atualizados.
-- **Otimização de performance**: avaliar consultas ao IndexedDB e possíveis índices.
-- **Fluxo de resposta**: testes exaustivos da resposta com handshake.
-- **Segurança adicional**: possibilidade de cifrar chaves privadas no IndexedDB com senha.
-
----
-
-## 9. Glossário de Termos
-
-| Termo | Significado |
-| :--- | :--- |
-| **VAPID** | Voluntary Application Server Identification – identificação do servidor de aplicação; usa chaves ECDSA. |
-| **JWK** | JSON Web Key – formato para representar chaves criptográficas. |
-| **JWT** | JSON Web Token – token assinado para transporte de informações. |
-| **FCM** | Firebase Cloud Messaging – serviço de push da Google. |
-| **Handshake** | Mensagem de confirmação enviada pelo receptor ao emissor. |
-| **E2EE** | End-to-End Encryption – criptografia de ponta a ponta. |
-| **Subscription** | Inscrição do navegador no serviço de push, contendo endpoint e chaves. |
-| **Envelope** | Estrutura com `iv`, `dadosCifrados`, `chaveAesCifrada`. |
-| **MAX_TENTATIVAS** | Número máximo de tentativas de envio (padrão 3). |
-
----
-
-## ✅ Resumo das Atualizações no README
-
-- **Seção 2.1**: Destacada a recriação automática do envelope no compartilhamento do perfil.
-- **Seção 2.4 (nova)**: Adicionado o conceito de Handshake, com estrutura e fluxo.
-- **Seção 3**: Atualizada para incluir a store `Handshake_DB`.
-- **Seção 4.6 e 4.7 (novas)**: Detalhamento do envio e recebimento de handshake.
-- **Seção 5**: Atualizada a lista de arquivos com os novos módulos (`push.ts`, `push-common.ts`, `push-utils.ts`, `sw-handshakes.ts`).
-- **Seção 7**: Acrescentado item sobre a implementação do handshake.
-- **Glossário**: Adicionado termo "Handshake".
-
-
-````
-
----
-
-## Arquivo: `deno.json`
-
-```json
-{
-  "extends": "../../deno.json",
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact"
-  },
-  "imports": {
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
-    "preact": "https://esm.sh/preact@10.29.7",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle"
-  },
-  "tasks": {
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "clean": "rm -rf dist && mkdir -p dist",
-    "export": "deno run --allow-read --allow-write export.ts"
-  },
-  "exclude": ["dist/", "public/"]
-}
 ```
 
 ---
