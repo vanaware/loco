@@ -84,6 +84,20 @@ p {
   margin-top: 0;
 }
 
+/* 🔥 CORREÇÃO DE CORTE DE ÍCONES (MATERIAL SYMBOLS & WEB COMPONENTS) 🔥 */
+md-icon, .material-symbols-outlined {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  overflow: visible !important;
+  vertical-align: middle;
+}
+
+md-icon-button {
+  flex-shrink: 0 !important; /* Impede o botão de encolher em containers flex */
+}
+
 /* ==========================================================================
    3. ESTRUTURA DE LAYOUT APP (Estilo WhatsApp sem cortes na base)
    ========================================================================== */
@@ -164,12 +178,10 @@ p {
   flex-shrink: 0;
 }
 
-/* Botão de voltar (escondido no desktop) */
 .back-button {
   display: none;
 }
 
-/* --- Responsividade Mobile (Deslizamento e Viewport Dinâmica) --- */
 @media (max-width: 768px) {
   #app-root {
     height: 100dvh;
@@ -185,7 +197,6 @@ p {
     transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   }
 
-  /* Quando a view ativa for a lista de conversas */
   .view-mode-list .app-main {
     transform: translateX(100%);
   }
@@ -193,7 +204,6 @@ p {
     transform: translateX(0);
   }
 
-  /* Quando a view ativa for o chat aberto */
   .view-mode-chat .app-sidebar {
     transform: translateX(-30%);
     opacity: 0;
@@ -212,7 +222,6 @@ p {
    4. ESTILOS DE COMPONENTES INTERNOS (Cards, inputs, blocos)
    ========================================================================== */
 
-/* Containers (cards padrão) */
 .container {
   background: var(--md-sys-color-surface);
   padding: 20px;
@@ -227,19 +236,10 @@ p {
   box-shadow: 0 4px 8px rgba(0,0,0,0.05);
 }
 
-.container-emissor {
-  border-left-color: #002b3d;
-}
+.container-emissor { border-left-color: #002b3d; }
+.container-receptor { border-left-color: #ff6b00; }
+.container-contatos { border-left-color: #6c4f00; }
 
-.container-receptor {
-  border-left-color: #ff6b00;
-}
-
-.container-contatos {
-  border-left-color: #6c4f00;
-}
-
-/* Grid / Row */
 .row {
   display: flex;
   gap: 16px;
@@ -252,7 +252,6 @@ p {
   min-width: 200px;
 }
 
-/* Material Design Components Espaçamentos */
 md-filled-button,
 md-outlined-button,
 md-text-button {
@@ -274,6 +273,7 @@ md-list-item {
   border-radius: 8px;
   margin-bottom: 4px;
   background: var(--md-sys-color-surface);
+  overflow: visible !important; /* 🔥 Evita cortar o efeito ripple dos botões */
 }
 
 label {
@@ -284,7 +284,6 @@ label {
   font-size: 0.875rem;
 }
 
-/* Campo de Perfil e JSON Viewer */
 .profile-field {
   background: var(--md-sys-color-surface-variant);
   padding: 12px;
@@ -302,92 +301,15 @@ label {
 /* ==========================================================================
    5. BALÕES DE CHAT E STATUS
    ========================================================================== */
-.msg-item {
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 8px;
-  background: var(--md-sys-color-surface);
-  border: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  transition: background 0.15s ease;
-}
-
-.msg-item-nao-lida {
-  background: #fffde7;
-  border-left: 4px solid #ffb300;
-}
-
-.msg-item-notificada {
-  background: #e3f2fd;
-  border-left: 4px solid #1e88e5;
-}
-
-.msg-item-lida {
-  background: #f5f5f5;
-}
-
-.msg-item-homologado {
-  border-left: 4px solid #2e7d32;
-}
-
-.msg-item-nao-homologado {
-  border-left: 4px solid #e65100;
-}
-
-.msg-item-pendente {
-  background: #fff8e1;
-  border-left: 4px solid #f9a825;
-}
-
-.msg-item-enviada {
-  background: #e8f5e9;
-  border-left: 4px solid #43a047;
-}
-
-.msg-item-entregue {
-  background: #c8e6c9;
-  border-left: 4px solid #2e7d32;
-}
-
-.msg-item-falha {
-  background: #ffebee;
-  border-left: 4px solid #d32f2f;
-}
-
-/* Badges de Status (Pílulas) */
-.status-badge {
-  display: inline-block;
-  padding: 2px 12px;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.status-badge-homologado { background: #d4edda; color: #155724; }
-.status-badge-nao-homologado { background: #fff3cd; color: #856404; }
-.status-badge-lida { background: #d1ecf1; color: #0c5460; }
-.status-badge-notificada { background: #d1ecf1; color: #0c5460; }
-.status-badge-enviada { background: #d4edda; color: #155724; }
-.status-badge-entregue { background: #c3e6cb; color: #155724; }
-.status-badge-falha { background: #f8d7da; color: #721c24; }
-.status-badge-pendente { background: #fff3cd; color: #856404; }
-
-/* Wrapper da Linha */
 .chat-bubble-wrapper {
   display: flex;
   width: 100%;
   margin-bottom: 8px;
 }
 
-.chat-bubble-wrapper.in {
-  justify-content: flex-start;
-}
-.chat-bubble-wrapper.out {
-  justify-content: flex-end;
-}
+.chat-bubble-wrapper.in { justify-content: flex-start; }
+.chat-bubble-wrapper.out { justify-content: flex-end; }
 
-/* O Balão de Fala */
 .chat-bubble {
   max-width: 80%;
   padding: 8px 12px;
@@ -398,13 +320,11 @@ label {
   user-select: none;
 }
 
-/* Balão Recebido (Esquerda) */
 .chat-bubble.in {
   background-color: var(--md-sys-color-surface);
   border-top-left-radius: 2px;
 }
 
-/* Balão Enviado (Direita - Estilo Mensageiros) */
 .chat-bubble.out {
   background-color: #d9fdd3;
   color: #111;
@@ -437,7 +357,6 @@ label {
   letter-spacing: -2px;
 }
 
-/* Fundo da Área de Mensagens */
 .chat-messages {
   background-image: url('data:image/svg+xml,%3Csvg width="20" height="20" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M0 0h20v20H0z" fill="%23f0f2f5"/%3E%3Ccircle cx="2" cy="2" r="1" fill="%23d0d4d8"/%3E%3C/svg%3E');
 }
@@ -460,14 +379,8 @@ label {
 }
 
 @keyframes slideInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes fadeIn {
@@ -475,7 +388,6 @@ label {
   to { opacity: 1; }
 }
 
-/* Utilitários Gerais */
 .mt-10 { margin-top: 10px; }
 .mb-10 { margin-bottom: 10px; }
 .mt-20 { margin-top: 20px; }

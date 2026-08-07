@@ -1,14 +1,13 @@
 // src/signals/state.ts
 import { signal } from '@preact/signals';
 
-// Define qual visualização está ativa no layout mobile
-// 'list' = mostra a sidebar (contatos), 'chat' = mostra a área de mensagens, 'profile' = mostra configurações
+// Define qual visualização está ativa no layout mobile ('list' | 'chat' | 'profile')
 export const currentMobileView = signal<'list' | 'chat' | 'profile'>('list');
 
 export const contatoSelecionado = signal<string>('');
+export const contatoCompartilharHash = signal<string | null>(null); // 🔥 Contato em exibição no cartão de compartilhamento
 export const mensagemEnvio = signal<string>('');
 
-// 🔥 Inicializamos vazios em vez de "Alice" para evitar o piscar na tela
 export const profileInput = signal<string>('');
 export const profileName = signal<string>('');
 export const profileEmail = signal<string>('');

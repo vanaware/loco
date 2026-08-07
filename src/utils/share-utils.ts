@@ -1,9 +1,51 @@
 // src/utils/share-utils.ts
 import { gzipSync, gunzipSync } from 'fflate';
 import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
-import type { ProfileConfig } from '../constants/db.ts';
+import type { ProfileConfig, Contato } from '../constants/db.ts';
 
 const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
+
+/**
+ * Interface normalizada para compartilhamento de identidades (Perfil próprio ou Contato)
+ */
+export interface ShareableIdentity {
+  email: string;
+  name: string;
+  vapidPublicKey: JsonWebKey;
+  e2ePublicKey: JsonWebKey;
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  };
+  vapidPrivateKeyEnvelope: string;
+}
+
+/**
+ * Converte um ProfileConfig ou Contato em uma estrutura normalizada de compartilhamento
+ * 
+ * @param {ProfileConfig | Contato} target - Perfil do usuário ou objeto de Contato
+ * @returns {ShareableIdentity} Estrutura padronizada para geração de convites
+ */
+function toShareable(target: ProfileConfig | Contato): ShareableIdentity {
+  if ('vapidPrivateKeyEnvelope' in target) {
+    return {
+      email: target.email,
+      name: target.name,
+      vapidPublicKey: target.vapidPublicKey,
+      e2ePublicKey: target.e2ePublicKey,
+      subscription: target.subscription,
+      vapidPrivateKeyEnvelope: target.vapidPrivateKeyEnvelope
+    };
+  }
+  return {
+    email: target.email,
+    name: target.nome,
+    vapidPublicKey: target.publicKeyVapid,
+    e2ePublicKey: target.publicKeyRSA,
+    subscription: target.subscription,
+    vapidPrivateKeyEnvelope: target.vapidPrivateKey
+  };
+}
 
 /**
  * Converte uma string Base64 / Base64Url para Uint8Array direto
@@ -20,12 +62,17 @@ function bytesToBase64Url(bytes: Uint8Array): string {
 }
 
 /**
- * 1. GERADOR DE QR CODE BINÁRIO (De-para direto de ArrayBuffer - Extremamente leve)
+ * Generates a high-density binary payload for QR Code rendering (sub-650 bytes).
+ * Works for both My Profile and Saved Contacts.
+ * 
+ * @param {ProfileConfig | Contato} target - Perfil próprio ou Contato a ser compartilhado
+ * @returns {string} Payload compactado codificado em Base64Url
  */
-export function gerarPayloadQrCodeCompacto(p: ProfileConfig): string {
+export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
+  const p = toShareable(target);
   const envelopeObj = JSON.parse(atob(p.vapidPrivateKeyEnvelope));
 
-  // Otimiza o endpoint tirando o prefixo repetitivo da Google
+  // Otimiza o endpoint tirando o prefixo repetitivo do FCM Google
   let ep = p.subscription.endpoint;
   if (ep.startsWith(FCM_PREFIX)) {
     ep = "1:" + ep.replace(FCM_PREFIX, "");
@@ -40,13 +87,13 @@ export function gerarPayloadQrCodeCompacto(p: ProfileConfig): string {
   const chaveBytes = hexToBytes(envelopeObj.chaveAesCifrada);
   const rsaNBytes = base64ToBytes(p.e2ePublicKey.n!);
 
-  // Estrutura ultra-compacta contendo valores convertidos/compactados
+  // Tupla ordenada sem nomes de propriedades JSON para zerar overhead
   const compactPayload = [
     p.email,
     p.name,
     p.vapidPublicKey.x,
     p.vapidPublicKey.y,
-    bytesToBase64Url(rsaNBytes), // RSA Módulo em bytes limpos
+    bytesToBase64Url(rsaNBytes),
     ep,
     p.subscription.keys.p256dh,
     p.subscription.keys.auth,
@@ -55,7 +102,6 @@ export function gerarPayloadQrCodeCompacto(p: ProfileConfig): string {
     bytesToBase64Url(chaveBytes)
   ];
 
-  // Comprime o JSON minimalista
   const jsonBytes = new TextEncoder().encode(JSON.stringify(compactPayload));
   const compressed = gzipSync(jsonBytes);
 
@@ -63,9 +109,21 @@ export function gerarPayloadQrCodeCompacto(p: ProfileConfig): string {
 }
 
 /**
- * 2. GERADOR DE LINK DE CONVITE (JWT Assinado Comprimido para Web/WhatsApp)
+ * Generates a GZIP-compressed web invitation link (cjwt) for WhatsApp/Web.
+ * Works for both My Profile and Saved Contacts.
+ * 
+ * @param {ProfileConfig | Contato} target - Perfil próprio ou Contato a ser compartilhado
+ * @param {JsonWebKey} myVapidPrivateKeyJwk - Chave privada VAPID de quem está assinando o convite
+ * @param {JsonWebKey} myVapidPublicKeyJwk - Chave pública VAPID de quem está assinando
+ * @returns {Promise<string>} URL de convite pronta para compartilhamento
  */
-export async function gerarLinkConviteWeb(p: ProfileConfig, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+export async function gerarLinkConviteWeb(
+  target: ProfileConfig | Contato,
+  myVapidPrivateKeyJwk: JsonWebKey,
+  myVapidPublicKeyJwk: JsonWebKey
+): Promise<string> {
+  const p = toShareable(target);
+
   const payload = {
     iss: p.email,
     sub: "contact",
@@ -79,7 +137,7 @@ export async function gerarLinkConviteWeb(p: ProfileConfig, serverPublicKeyJwk: 
     iat: Math.floor(Date.now() / 1000)
   };
 
-  const jwt = await criarJWT(payload, p.vapidPrivateKeyJwk, { kid: p.vapidPublicKey });
+  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
   
   const jwtBytes = new TextEncoder().encode(jwt);
   const compressed = gzipSync(jwtBytes);
@@ -89,7 +147,10 @@ export async function gerarLinkConviteWeb(p: ProfileConfig, serverPublicKeyJwk: 
 }
 
 /**
- * 3. PARSER UNIFICADO (Lê tanto QR Codes binários quanto Links cjwt/jwt)
+ * Unified parser that decodes any QR Code binary payload (cqr) or Web Link (cjwt / jwt).
+ * 
+ * @param {string} input - URL recebida, parâmetro cjwt/cqr ou código bruto
+ * @returns {Promise<{ header: any; payload: any }>} Estrutura do contato decodificado
  */
 export async function processarQualquerConvite(input: string): Promise<{ header: any; payload: any }> {
   let cqr = null;
@@ -102,9 +163,8 @@ export async function processarQualquerConvite(input: string): Promise<{ header:
     cjwt = url.searchParams.get('cjwt');
     jwt = url.searchParams.get('jwt');
   } catch {
-    // Se colou código bruto no campo de texto
     if (!input.includes('.')) {
-      cqr = input; // Tenta como payload binário
+      cqr = input;
     } else {
       jwt = input;
     }
@@ -121,12 +181,10 @@ export async function processarQualquerConvite(input: string): Promise<{ header:
       if (Array.isArray(data) && data.length === 11) {
         let [email, name, vapidX, vapidY, rsaN, endpoint, p256dh, auth, b64Iv, b64Dados, b64Chave] = data;
 
-        // Reconstitui o endpoint FCM se tiver sido tokenizado
         if (endpoint.startsWith("1:")) {
           endpoint = FCM_PREFIX + endpoint.substring(2);
         }
 
-        // Reconstitui o Envelope Hexadecimal a partir do Base64
         const b64ToHex = (b64: string) => {
           const bytes = base64ToBytes(b64);
           return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -155,11 +213,11 @@ export async function processarQualquerConvite(input: string): Promise<{ header:
         };
       }
     } catch (e) {
-      // Se falhar o parse do binário, cai pro CJWT
+      // Falha no parse do binário, prossegue para testar como JWT
     }
   }
 
-  // CASO B: JWT Comprimido (Link Web / WhatsApp)
+  // CASO B: JWT Comprimido (Link Web)
   const targetCjwt = cjwt || cqr;
   if (targetCjwt) {
     const compressed = base64ToBytes(targetCjwt);
@@ -171,7 +229,7 @@ export async function processarQualquerConvite(input: string): Promise<{ header:
     return { header, payload };
   }
 
-  // CASO C: JWT Legado (Não comprimido)
+  // CASO C: JWT Legado
   if (jwt) {
     const { header, payload, valid } = await verificarJWT(jwt);
     if (!valid) throw new Error("Assinatura do convite inválida.");

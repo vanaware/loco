@@ -1,15 +1,22 @@
 // src/components/ContatosSection.tsx
 import { useEffect } from 'preact/hooks';
 import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast, contatoSelecionado, currentMobileView } from '../signals/state.ts';
+import { showToast, contatoSelecionado, contatoCompartilharHash, currentMobileView } from '../signals/state.ts';
 
 export function ContatosSection() {
   useEffect(() => {
-    // Stores já inicializados no App.tsx
+    // Stores inicializadas no App.tsx
   }, []);
 
   const abrirChat = (hash: string) => {
+    contatoCompartilharHash.value = null;
     contatoSelecionado.value = hash;
+    currentMobileView.value = 'chat';
+  };
+
+  const abrirDetalhesContato = (e: Event, hash: string) => {
+    e.stopPropagation();
+    contatoCompartilharHash.value = hash;
     currentMobileView.value = 'chat';
   };
 
@@ -18,12 +25,11 @@ export function ContatosSection() {
       
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
         <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
-        <md-icon-button onClick={() => window.location.href = '/share.html'}>
+        <md-icon-button onClick={() => window.location.href = '/share.html'} title="Adicionar / Escanear Contato">
           <md-icon>person_add</md-icon>
         </md-icon-button>
       </div>
       
-      {/* 🔥 Eliminamos a trava de tamanho fixo e permitimos rolagem flexível */}
       <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
         {contatosComHash.value.length === 0 ? (
           <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
@@ -36,23 +42,44 @@ export function ContatosSection() {
                 style="cursor: pointer;"
               >
                 <md-icon slot="start">person</md-icon>
-                <span slot="headline"><strong>{contato.nome}</strong></span>
+                <span slot="headline" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: block;">
+                  <strong>{contato.nome}</strong>
+                </span>
                 <span slot="supporting-text">{contato.homologado ? '✅ Homologado' : '🔄 Não homologado'}</span>
                 
-                <div slot="end" style="display: flex; gap: 8px;">
+                {/* 🔥 flex-shrink: 0 garante que o container de botões não seja espremido */}
+                <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
+                  <md-icon-button 
+                    onClick={(e) => abrirDetalhesContato(e, hash)}
+                    title={`Ver QR Code / Indicar ${contato.nome}`}
+                  >
+                    <md-icon>qr_code_2</md-icon>
+                  </md-icon-button>
+
                   {!contato.homologado && (
-                    <md-icon-button onClick={async (e) => {
-                      e.stopPropagation();
-                      await homologarContatoPorPublicKey(contato.publicKeyVapid);
-                      showToast("Contato homologado!", "success");
-                    }}><md-icon>verified</md-icon></md-icon-button>
+                    <md-icon-button 
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await homologarContatoPorPublicKey(contato.publicKeyVapid);
+                        showToast("Contato homologado!", "success");
+                      }}
+                      title="Homologar contato"
+                    >
+                      <md-icon>verified</md-icon>
+                    </md-icon-button>
                   )}
-                  <md-icon-button onClick={async (e) => {
-                    e.stopPropagation();
-                    if (confirm('Remover este contato?')) {
-                      await removerContatoPorPublicKey(contato.publicKeyVapid);
-                    }
-                  }}><md-icon>delete</md-icon></md-icon-button>
+
+                  <md-icon-button 
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remover ${contato.nome} dos contatos?`)) {
+                        await removerContatoPorPublicKey(contato.publicKeyVapid);
+                      }
+                    }}
+                    title="Excluir contato"
+                  >
+                    <md-icon>delete</md-icon>
+                  </md-icon-button>
                 </div>
               </md-list-item>
             ))}

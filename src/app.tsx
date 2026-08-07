@@ -4,8 +4,9 @@ import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { ContatosSection } from './components/ContatosSection.tsx';
 import { ChatSection } from './components/ChatSection.tsx'; 
+import { ContactDetailSection } from './components/ContactDetailSection.tsx';
 import { DebugPanel } from './components/DebugPanel.tsx';
-import { addDebugLog, currentMobileView, contatoSelecionado } from './signals/state.ts';
+import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
 
 import "@material/web/all.js";
@@ -39,10 +40,18 @@ function App() {
   }
 
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
+  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
 
-  const fecharChat = () => {
+  const fecharChatOuDetalhes = () => {
     currentMobileView.value = 'list';
     contatoSelecionado.value = '';
+    contatoCompartilharHash.value = null;
+  };
+
+  const handleAbrirDetalhesDoContato = () => {
+    if (contatoSelecionado.value) {
+      contatoCompartilharHash.value = contatoSelecionado.value;
+    }
   };
 
   return (
@@ -59,7 +68,6 @@ function App() {
                 <md-icon>menu</md-icon>
               </md-icon-button>
               
-              {/* 🔥 MENU HAMBÚRGUER COM ABERTURA DO MODAL DE DEBUG */}
               <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
                 <md-menu-item onClick={() => isDebugOpen.value = true}>
                   <div slot="headline">Logs de Debug</div>
@@ -88,36 +96,51 @@ function App() {
 
       <main class="app-main">
         <header class="chat-header">
-          <md-icon-button class="back-button" onClick={fecharChat}>
+          <md-icon-button class="back-button" onClick={fecharChatOuDetalhes}>
             <md-icon>arrow_back</md-icon>
           </md-icon-button>
           
-          <div style="display: flex; align-items: center; gap: 12px;">
+          {/* 🔥 BLOCO DO CABEÇALHO CLICÁVEL PARA ABRIR CARTÃO DO CONTATO */}
+          <div 
+            onClick={handleAbrirDetalhesDoContato}
+            style={`display: flex; align-items: center; gap: 12px; ${contatoAtivo ? 'cursor: pointer;' : ''}`}
+            title={contatoAtivo ? `Ver QR Code / Cartão de ${contatoAtivo.nome}` : ''}
+          >
             <md-icon style="font-size: 2rem; color: #555;">account_circle</md-icon>
             <div>
-              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2;">
-                {contatoAtivo ? contatoAtivo.nome : "Selecione um contato"}
+              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
+                {contatoCompartilharHash.value 
+                  ? `Cartão de ${contatoDetalhesAtivo?.nome || 'Contato'}`
+                  : (contatoAtivo ? contatoAtivo.nome : "Selecione um contato")}
               </h2>
               <span style="font-size: 0.8rem; color: #666;">
-                {contatoAtivo ? contatoAtivo.email : "Inicie uma conversa na barra lateral"}
+                {contatoCompartilharHash.value 
+                  ? "Aponte a câmera ou copie o link para indicar este contato"
+                  : (contatoAtivo ? contatoAtivo.email : "Inicie uma conversa na barra lateral")}
               </span>
             </div>
+
+            {/* Ícone discreto indicando que o cabeçalho é interativo */}
+            {contatoAtivo && !contatoCompartilharHash.value && (
+              <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-primary); opacity: 0.8; margin-left: 4px;">qr_code_2</md-icon>
+            )}
           </div>
         </header>
 
-        {contatoSelecionado.value ? (
-           <ChatSection /> 
+        {contatoCompartilharHash.value ? (
+          <ContactDetailSection />
+        ) : contatoSelecionado.value ? (
+          <ChatSection /> 
         ) : (
           <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888;">
             <div style="text-align: center;">
               <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
-              <p>Clique em um contato na barra lateral<br/>para iniciar uma conversa criptografada.</p>
+              <p>Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
             </div>
           </div>
         )}
       </main>
 
-      {/* 🔥 MODAL DE DEBUG FLUTUANTE INTEGRADO NA INDEX */}
       <md-dialog open={isDebugOpen.value || undefined} onClose={() => isDebugOpen.value = false}>
         <div slot="headline" style="display: flex; align-items: center; gap: 8px;">
           <md-icon>bug_report</md-icon>
