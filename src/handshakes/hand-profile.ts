@@ -1,5 +1,4 @@
 // src/handshakes/hand-profile.ts
-
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
@@ -14,15 +13,18 @@ import {
   serializarPublicKeyVapid
 } from "../utils/db-helpers.ts";
 
-// Importamos a função principal do roteador para forçar a fila a andar quando criamos uma saída
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
+// 🔥 Interface estrita de Saída
+interface ProfileOutParams {
+  function: string;
+  contato: string;
+  campos?: string[];
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ProfileOutParams }) {
   
-  // ==========================================
-  // 📥 FLUXO DE ENTRADA (IN)
-  // ==========================================
   if (handshakeId) {
     addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
@@ -34,7 +36,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     const profileReq = handshake.in.rotas.profile;
 
-    // 1. Recebemos uma SOLICITAÇÃO (campos array) -> Devemos gerar a Resposta (FluxoOut)
     if (Array.isArray(profileReq.campos)) {
       addDebugLog(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
       
@@ -43,8 +44,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
       
-      // Monta os dados a serem enviados de volta
-      const rotasProfileData: any = { id: meuHash };
+      const rotasProfileData: Record<string, unknown> = { id: meuHash };
       const camposSet = new Set(profileReq.campos);
 
       if (camposSet.has('name')) rotasProfileData.name = profile.name;
@@ -54,7 +54,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = profile.e2ePublicKey;
       if (camposSet.has('subscription')) rotasProfileData.subscription = profile.subscription;
 
-      // O próprio handshake recebido ganha um out (resposta)
       handshake.out = {
         status: 'pendente',
         tentativas: 0,
@@ -68,12 +67,10 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       handshake.updatedAt = Date.now();
       await salvarHandshake(handshake);
 
-      // Aciona o processador para enviar a resposta imediatamente
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // 2. Recebemos uma RESPOSTA (data object) -> Devemos salvar no IndexedDB
-    else if (profileReq.data && profileReq.data.id) {
+    else if (profileReq.data && typeof profileReq.data.id === 'string') {
       addDebugLog(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
       
       const contatoId = profileReq.data.id;
@@ -82,19 +79,18 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       if (contato) {
         const d = profileReq.data;
         
-        // Atualiza apenas os campos que o contato enviou de volta
-        if (d.name !== undefined) contato.name = d.name;
-        if (d.email !== undefined) contato.email = d.email;
-        if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = d.vapidPublicKey;
-        if (d.vapidPrivateKeyEnvelope !== undefined) contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
-        if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = d.e2ePublicKey;
-        if (d.subscription !== undefined) contato.subscription = d.subscription;
+        // Validação Estrita de Tipos antes da mutação
+        if (typeof d.name === 'string') contato.name = d.name;
+        if (typeof d.email === 'string') contato.email = d.email;
+        if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = d.vapidPublicKey as JsonWebKey;
+        if (typeof d.vapidPrivateKeyEnvelope === 'string') contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
+        if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = d.e2ePublicKey as JsonWebKey;
+        if (d.subscription !== undefined) contato.subscription = d.subscription as any;
 
         contato.updatedAt = Date.now();
         await salvarContato(contato);
         addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
 
-        // Notifica a Interface (UI) para se recarregar
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
         clients.forEach(client => {
           client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
@@ -105,13 +101,9 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     }
   }
   
-  // ==========================================
-  // 📤 FLUXO DE SAÍDA (OUT - Acionado por nós)
-  // ==========================================
   if (outParams) {
     addDebugLog(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
     
-    // Função: solicitarPerfil
     if (outParams.function === 'solicitarPerfil') {
       const contatoId = outParams.contato;
       const campos = outParams.campos;
@@ -139,7 +131,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       await salvarHandshake(novoHandshake);
       addDebugLog(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
       
-      // Aciona a fila para processar o envio
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }

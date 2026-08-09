@@ -16,7 +16,7 @@ export const contatosRaw = signal<Contato[]>([]);
 
 /**
  * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
- * Utilizado por ChatSection, ContactDetailSection e ContatosSection.
+ * O Preact reage de forma super eficiente graças à computação sob demanda.
  */
 export const contatosComHash = computed(() => {
   return contatosRaw.value.map((contato) => ({
@@ -34,7 +34,7 @@ export const contatosMap = computed(() => {
 });
 
 /**
- * Carrega a lista de contatos do IndexedDB para a memória
+ * Carrega a lista de contatos do IndexedDB para a memória. Chamado apenas no init.
  */
 export async function carregarContatos(): Promise<void> {
   try {
@@ -46,23 +46,31 @@ export async function carregarContatos(): Promise<void> {
   }
 }
 
-/**
- * Inicializa a store de contatos
- */
 export async function initContatosStore(): Promise<void> {
   await carregarContatos();
 }
 
 /**
- * Adiciona ou atualiza um contato no banco IndexedDB e recarrega o estado reativo
+ * Adiciona ou atualiza um contato usando Inserção Otimista em Memória
  */
 export async function adicionarContato(contato: Contato): Promise<void> {
   try {
+    // 1. Atualiza memória instantaneamente para UI reagir
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === contato.id);
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = contato;
+      contatosRaw.value = novaLista;
+    } else {
+      contatosRaw.value = [...atual, contato];
+    }
+
+    // 2. Grava no banco sem travar a thread principal
     await salvarContato(contato);
-    await carregarContatos();
-    addDebugLog("success", "STORE:CONTATO", `Contato salvo: ${contato.name} (${contato.id})`);
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
   } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", `Erro ao adicionar contato ${contato.id}`, err);
+    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
     throw err;
   }
 }
@@ -74,12 +82,17 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
 }
 
 /**
- * Remove um contato a partir de sua chave pública VAPID
+ * Remove um contato com atualização local imediata
  */
 export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    
+    // Atualiza memória
+    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
+    
+    // Persiste remoção
     await removerContato(vapidPublicKey);
-    await carregarContatos();
     addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
@@ -91,15 +104,20 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
  */
 export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
-    const contato = await buscarContatoPorPublicKey(vapidPublicKey);
-    if (contato) {
-      contato.trusted = true;
-      contato.updatedAt = Date.now();
-      await salvarContato(contato);
-      await carregarContatos();
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contato.name}`);
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === hash);
+    
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = { ...novaLista[index], trusted: true, updatedAt: Date.now() };
+      contatosRaw.value = novaLista;
+      
+      // Persiste as mudanças consolidadas
+      await salvarContato(novaLista[index]);
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${novaLista[index].name}`);
     } else {
-      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado para homologação");
+      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
     }
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
@@ -107,13 +125,18 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
 }
 
 export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
-  const contato = contatosMap.value.get(id);
-  if (contato) {
-    const atualizado = { ...contato, me: meStatus, updatedAt: Date.now() };
-    adicionarContato(atualizado).catch((err) => {
-      addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
+  const atual = contatosRaw.value;
+  const index = atual.findIndex(c => c.id === id);
+  if (index >= 0) {
+    const novaLista = [...atual];
+    novaLista[index] = { ...novaLista[index], me: meStatus, updatedAt: Date.now() };
+    contatosRaw.value = novaLista;
+    
+    // Dispara salvamento em background
+    salvarContato(novaLista[index]).catch(err => {
+        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
     });
   } else {
-    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado para atualizar status`);
+    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
 }

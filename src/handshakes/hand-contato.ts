@@ -1,5 +1,4 @@
 // src/handshakes/hand-contato.ts
-
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
@@ -13,26 +12,32 @@ import {
   salvarContato,
   serializarPublicKeyVapid
 } from "../utils/db-helpers.ts";
-import { extrairDadosCompactos, expandirDadosCompactos } from "../utils/share-utils.ts";
+import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
+interface ContatoOutParams {
+  function: string;
+  contato: string;
+  campos?: string[];
+  responder?: boolean;
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
   
   if (handshakeId) {
     const handshake = await buscarHandshake(handshakeId);
     if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
     const contatoReq = handshake.in.rotas.contato;
 
-    // 1. Recebemos um Pull (O contato quer saber se confiamos nele e se temos os dados certos)
     if (Array.isArray(contatoReq.campos) && contatoReq.id) {
       addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
       const contato = await buscarContatoPorChave(handshake.aud);
-      const rotasContatoData: any = { id: handshake.aud };
+      const rotasContatoData: Record<string, unknown> = { id: handshake.aud };
 
       if (contato) {
         const camposSet = new Set(contatoReq.campos);
-        const cp = extrairDadosCompactos(contato); // Puxa os dados espremidos
+        const cp = extrairDadosCompactos(contato);
         
         if (camposSet.has('vapidPublicKey')) { rotasContatoData.vx = cp.vx; rotasContatoData.vy = cp.vy; }
         if (camposSet.has('e2ePublicKey')) rotasContatoData.en = cp.en;
@@ -41,6 +46,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (camposSet.has('email')) rotasContatoData.em = cp.em;
         if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
         if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
+      } else {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Contato não localizado no banco local para aud: ${handshake.aud}`);
       }
 
       handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
@@ -49,50 +56,59 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // 2. Recebemos a Resposta do Pull (Avaliando a consistência)
     else if (contatoReq.data) {
       addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
       const contato = await buscarContatoPorChave(handshake.aud);
       const profile = await buscarProfile();
 
-      if (contato && profile) {
-        const d = contatoReq.data;
-        const mp = extrairDadosCompactos(profile); // Puxa o nosso perfil espremido para bater de frente
-        let novoMeStatus = contato.me;
+      if (!contato) {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local (aud: ${handshake.aud}).`);
+        return;
+      }
 
-        if (!d.se) {
-          novoMeStatus = 'none'; 
-        } else {
-          if (d.tr === true) novoMeStatus = 'trusted';
-          else novoMeStatus = 'saved';
+      if (!profile) {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Perfil local não encontrado.`);
+        return;
+      }
 
-          if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
-              d.vx !== mp.vx || d.vy !== mp.vy || d.en !== mp.en || d.ve !== mp.ve) {
-            novoMeStatus = 'wrong';
-          }
+      const d = contatoReq.data as Record<string, unknown>;
+      const mp = extrairDadosCompactos(profile);
+      let novoMeStatus = contato.me;
+
+      if (!d.se) {
+        novoMeStatus = 'none'; 
+      } else {
+        if (d.tr === true) novoMeStatus = 'trusted';
+        else novoMeStatus = 'saved';
+
+        if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
+            d.vx !== mp.vx || d.vy !== mp.vy || d.en !== mp.en || d.ve !== mp.ve) {
+          novoMeStatus = 'wrong';
         }
+      }
 
-        if (contato.me !== novoMeStatus) {
-          contato.me = novoMeStatus;
-          contato.updatedAt = Date.now();
-          await salvarContato(contato);
-          addDebugLog(`[HAND-CONTATO] ✅ Status do contato atualizado para: ${novoMeStatus}`);
-          
-          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-          clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-        }
+      if (contato.me !== novoMeStatus) {
+        const statusAnterior = contato.me;
+        contato.me = novoMeStatus;
+        contato.updatedAt = Date.now();
+        await salvarContato(contato);
+        addDebugLog(`[HAND-CONTATO] ✅ Status alterado de '${statusAnterior}' para: '${novoMeStatus}'`);
+        
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      } else {
+        addDebugLog(`[HAND-CONTATO] ✅ Consistência avaliada. Status mantido em: '${novoMeStatus}'`);
       }
     }
 
-    // 3. Recebemos um Push (enviarSubscription/sync)
     else if (contatoReq.sync) {
       addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
       
-      const expanded = expandirDadosCompactos(contatoReq.sync);
+      const syncData = contatoReq.sync as unknown as CompactContact;
+      const expanded = expandirDadosCompactos(syncData);
       const contatoAntigo = await buscarContatoPorChave(handshake.aud);
       
-      // Avaliação blindada do status enviado pelo remetente
-      const eleConfiaEmMim = contatoReq.sync.tr === true; 
+      const eleConfiaEmMim = syncData.tr === true; 
       const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
 
       const novoContato: Contato = {
@@ -115,21 +131,21 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
 
-      if (contatoReq.sync.req) {
+      if (syncData.req) {
         addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
         await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
       }
     }
   }
 
-  // ==========================================
-  // 📤 FLUXO DE SAÍDA (OUT)
-  // ==========================================
   if (outParams) {
-    // PULL - Diagnóstico
     if (outParams.function === 'confirmarSubscription') {
       const profile = await buscarProfile();
-      const meuHash = await serializarPublicKeyVapid(profile!.vapidPublicKey);
+      if (!profile) {
+        addDebugLog(`[HAND-CONTATO] ❌ Erro ao criar Pull: Perfil local ausente.`);
+        return;
+      }
+      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
 
       const novoHandshake: Handshake = {
         id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
@@ -140,7 +156,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // PUSH - Forçar Sincronização
     if (outParams.function === 'enviarSubscription') {
       const profile = await buscarProfile();
       if (!profile) throw new Error("Perfil não encontrado.");
@@ -148,12 +163,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const contatoAlvo = await buscarContatoPorChave(outParams.contato);
       const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
 
-      // Utiliza a função importada para reduzir DRY
       const compactSyncData = extrairDadosCompactos(profile, !outParams.responder, euConfio);
 
       const novoHandshake: Handshake = {
         id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData } } }
+        out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData as unknown as Record<string, unknown> } } }
       };
 
       await salvarHandshake(novoHandshake);

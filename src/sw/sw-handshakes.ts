@@ -25,21 +25,57 @@ import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
 
+// Wrapper transacional para o salvamento de Handshakes (Mitiga QuotaExceededError)
+async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso?: string) {
+  try {
+    await salvarHandshake(handshake);
+    if (mensagemSucesso) addDebugLog(mensagemSucesso);
+  } catch (e: any) {
+    if (e.name === 'QuotaExceededError') {
+      addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida ao salvar handshake. O banco pode estar cheio.");
+      // TODO: Implementar estratégia de eviction (limpeza) de handshakes muito antigos
+    } else {
+      addDebugLog(`[SW-ROUTER] ❌ Erro ao gravar handshake no IndexedDB: ${e.message}`);
+    }
+    throw e;
+  }
+}
+
 export async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
   addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
-    if (!payload.jti) throw new Error("Handshake sem jti");
-    if (!payload.ct) throw new Error("Handshake sem ct (envelope cifrado)");
+    // Early returns para proteger contra payloads malformados ou lixo de rede
+    if (!payload?.jti) {
+      addDebugLog("[SW-ROUTER] ⚠️ Handshake rejeitado precocemente: Ausência de 'jti'");
+      return;
+    }
+    if (!payload?.ct) {
+      addDebugLog("[SW-ROUTER] ⚠️ Handshake rejeitado precocemente: Ausência de 'ct' (envelope cifrado)");
+      return;
+    }
 
-    const privateDecryptKey = await buscarChaveDecript(); 
-    if (!privateDecryptKey) throw new Error("Chave privada RSA não disponível para decifrar handshake.");
+    const privateDecryptKey = await buscarChaveDecript();
+    if (!privateDecryptKey) {
+      throw new Error("Chave privada RSA não disponível para decifrar handshake.");
+    }
 
-    const envelope = JSON.parse(payload.ct);
+    let envelope;
+    try {
+      envelope = JSON.parse(payload.ct);
+    } catch (e) {
+      addDebugLog("[SW-ROUTER] ⚠️ Falha ao fazer parse do envelope cifrado 'ct'. JSON malformado.");
+      return;
+    }
+
     const iv = envelope.i || envelope.iv;
     const dados = envelope.d || envelope.dadosCifrados;
     const chaveAesCifrada = envelope.k || envelope.chaveAesCifrada;
-    if (!iv || !dados || !chaveAesCifrada) throw new Error("Envelope incompleto.");
+
+    if (!iv || !dados || !chaveAesCifrada) {
+      addDebugLog("[SW-ROUTER] ⚠️ Envelope incompleto. Descarte antecipado.");
+      return;
+    }
 
     const ivBytes = new Uint8Array(base64UrlToArrayBuffer(iv));
     const dadosBytes = new Uint8Array(base64UrlToArrayBuffer(dados));
@@ -48,9 +84,16 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
     const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateDecryptKey, chaveAesCifradaBytes);
     const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
     const textoDecifradoBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
-    
-    const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
-    const rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
+
+    let decompressed;
+    let rotasObj;
+    try {
+      decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
+      rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
+    } catch (e) {
+      addDebugLog("[SW-ROUTER] ⚠️ Falha ao descomprimir (fflate) ou fazer parse JSON do payload decifrado.");
+      throw new Error("Falha na descompressão ou parse do payload interno.");
+    }
 
     const senderPublicKeyVapid = header.kid;
     const senderHash = senderPublicKeyVapid ? await serializarPublicKeyVapid(senderPublicKeyVapid) : '';
@@ -66,14 +109,15 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
 
     handshake.in = { status: 'recebido', tentativas: 0, rotas: rotasObj, erro: erroIn };
     handshake.updatedAt = Date.now();
+
+    await salvarHandshakeTransacional(handshake, `[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
     
-    await salvarHandshake(handshake);
-    addDebugLog(`[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
-    await processarFilaHandshake();
+    // Inicia o processamento da fila sem usar await aqui, deixando rodar em background
+    processarFilaHandshake().catch(err => console.error(err));
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro ao decifrar handshake recebido: ${err.message}`);
-    throw err;
+    throw err; // Repassa o erro caso seja falha criptográfica crítica
   }
 }
 
@@ -99,7 +143,7 @@ export async function processarFilaHandshake() {
       h.in!.status = 'processando';
       h.in!.tentativas++;
       h.updatedAt = Date.now();
-      await salvarHandshake(h);
+      await salvarHandshakeTransacional(h);
 
       try {
         if (h.in!.rotas.profile) await ProcessarProfile({ in: h.id });
@@ -110,7 +154,7 @@ export async function processarFilaHandshake() {
         if (hFresh && hFresh.in) {
           hFresh.in.status = 'processado';
           hFresh.updatedAt = Date.now();
-          await salvarHandshake(hFresh);
+          await salvarHandshakeTransacional(hFresh);
         }
       } catch (err: any) {
         addDebugLog(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}: ${err.message}`);
@@ -119,7 +163,7 @@ export async function processarFilaHandshake() {
           hFresh.in.status = 'falha';
           hFresh.in.erro = err.message;
           hFresh.updatedAt = Date.now();
-          await salvarHandshake(hFresh);
+          await salvarHandshakeTransacional(hFresh);
         }
       }
     }
@@ -137,7 +181,7 @@ export async function processarFilaHandshake() {
       h.out!.status = 'enviando';
       h.out!.tentativas++;
       h.updatedAt = Date.now();
-      await salvarHandshake(h);
+      await salvarHandshakeTransacional(h);
 
       try {
         const contatoIdHash = await normalizarChaveContato(h.aud);
@@ -181,7 +225,7 @@ export async function processarFilaHandshake() {
 
         h.out!.status = 'enviado';
         h.updatedAt = Date.now();
-        await salvarHandshake(h);
+        await salvarHandshakeTransacional(h);
         addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
 
       } catch (err: any) {
@@ -191,7 +235,7 @@ export async function processarFilaHandshake() {
           hFresh.out.status = hFresh.out.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
           hFresh.out.erro = err.message;
           hFresh.updatedAt = Date.now();
-          await salvarHandshake(hFresh);
+          await salvarHandshakeTransacional(hFresh);
         }
       }
     }
@@ -204,12 +248,18 @@ export async function processarFilaHandshake() {
   }
 }
 
-// Escuta a volta de conectividade ou tarefas agendadas em Background
-self.addEventListener('sync', async function (event: any) {
-  if (event.tag === 'sync-envio-handshakes') event.waitUntil(processarFilaHandshake());
-});
-self.addEventListener('online', async function () {
-  await processarFilaHandshake();
+// Escuta a volta de conectividade ou tarefas agendadas em Background (com waitUntil)
+self.addEventListener('sync', function (event: any) {
+  if (event.tag === 'sync-envio-handshakes') {
+    event.waitUntil(processarFilaHandshake());
+  }
 });
 
-// REMOVIDO: o listener de `message` que estava duplicado e causava os disparos duplos!
+self.addEventListener('online', function (event: Event) {
+  // Envelopando a execução para o SW não morrer no meio do caminho
+  if ('waitUntil' in event) {
+    (event as ExtendableEvent).waitUntil(processarFilaHandshake());
+  } else {
+    processarFilaHandshake();
+  }
+});

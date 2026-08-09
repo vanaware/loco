@@ -22,9 +22,6 @@ export const KEY_NAMES = {
 export const MAX_TENTATIVAS = 3;
 export const MAX_PAYLOAD_SIZE = 4096;
 
-// =======================================================
-// PERFIL LOCAL
-// =======================================================
 export interface ProfileConfig {
   name: string;
   email: string;
@@ -44,9 +41,6 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
-// =======================================================
-// MENSAGENS
-// =======================================================
 export interface MensagemEnviada {
   id: string;
   contatoHash: string;
@@ -68,13 +62,10 @@ export interface MensagemRecebida {
   notificadaEm?: number;
 }
 
-// =======================================================
-// CONTATOS (Agenda Criptográfica)
-// =======================================================
 export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
 
 export interface Contato {
-  id: string; // Hash SHA-256 da vapidPublicKey
+  id: string; 
   email: string;
   name: string;
   vapidPublicKey: JsonWebKey;
@@ -90,14 +81,33 @@ export interface Contato {
   updatedAt: number;
 }
 
-// =======================================================
-// HANDSHAKE (Máquina de Estados de Sincronização)
-// =======================================================
+// 🔥 Removidos os Any: O compilador agora checará as fronteiras
+export interface ProfileRouteData {
+  campos?: string[];
+  data?: Record<string, unknown>;
+  id?: string;
+}
+
+export interface MensagemRouteData {
+  recebida?: string;
+  enviada?: string;
+  conteudo?: string;
+  campos?: string[];
+  data?: Record<string, unknown>;
+}
+
+export interface ContatoRouteData {
+  id?: string;
+  campos?: string[];
+  data?: Record<string, unknown>;
+  sync?: Record<string, unknown>;
+}
+
 export interface HandshakeRotas { 
-  profile?: any; 
-  mensagem?: any; 
-  contato?: any; 
-  [key: string]: any; // Permite extensibilidade para o roadmap
+  profile?: ProfileRouteData; 
+  mensagem?: MensagemRouteData; 
+  contato?: ContatoRouteData; 
+  [key: string]: unknown; // Garante extensibilidade futura segura sem "any"
 }
 
 export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
@@ -119,16 +129,13 @@ export interface FluxoOut {
 
 export interface Handshake { 
   id: string; 
-  aud: string; // id do contato (hash da chave publica vapid do destinatário)
+  aud: string; 
   in?: FluxoIn; 
   out?: FluxoOut; 
   createdAt: number; 
   updatedAt: number; 
 }
 
-// =======================================================
-// PAYLOADS DE REDE E CRIPTOGRAFIA
-// =======================================================
 export interface EnvelopeCifrado {
   i: string;
   d: string;

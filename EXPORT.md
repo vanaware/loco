@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do meu projeto estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.2-msmdcc54** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
-> Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo e não somente as partes que devem ser modificadas.
+> Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Código Fonte Selecionado do Projeto
+# Contexto Exportado do Projeto Loco [v0.2.2-msmdcc54] - Modo: MAIN
 
-Gerado automaticamente em: 8/9/2026, 5:17:07 PM
+Gerado automaticamente em: 8/9/2026, 7:33:08 PM
 
 ---
 
@@ -521,214 +521,6 @@ export function ContactDetailSection() {
 
 ---
 
-## Arquivo: `src/components/AdvancedSection.tsx`
-
-```tsx
-// src/components/AdvancedSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { profile } from '../stores/profileStore.ts';
-import { currentMobileView, showAdvanced, showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
-import { DebugPanel } from './DebugPanel.tsx';
-
-export function AdvancedSection() {
-  const diagnostic = useSignal({
-    identificacao: false, criptografia: false, blindagemServidor: false,
-    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
-    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
-    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
-    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
-    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
-    loading: true,
-  });
-
-  const runDiagnostics = async () => {
-    const p = profile.value;
-    
-    // 1. Checagem de Envelope VAPID
-    let envelopeOK = false;
-    if (p?.vapidPrivateKeyEnvelope) {
-      try {
-        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
-        const envelopeDecoded = JSON.parse(envelopeJson);
-        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
-          envelopeOK = true;
-        }
-      } catch { envelopeOK = false; }
-    }
-
-    // 2. Consulta de Permissões de Mídia
-    let cameraState = 'prompt', micState = 'prompt';
-    if ('navigator' in window && 'permissions' in navigator && navigator.permissions.query) {
-      try { cameraState = (await navigator.permissions.query({ name: 'camera' as any })).state; } catch {}
-      try { micState = (await navigator.permissions.query({ name: 'microphone' as any })).state; } catch {}
-    }
-
-    // 3. Estimativa de Armazenamento
-    let storagePersisted = false;
-    let quotaInfo = { usoMB: 0, livreMB: 0 };
-    if ('storage' in navigator) {
-      if (navigator.storage.persisted) {
-        try { storagePersisted = await navigator.storage.persisted(); } catch {}
-      }
-      if (navigator.storage.estimate) {
-        try {
-          const estimate = await navigator.storage.estimate();
-          quotaInfo = {
-            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
-            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
-          };
-        } catch {}
-      }
-    }
-
-    // 4. Estado do SW
-    let swControlando = false, hasBackgroundSync = false;
-    if ('serviceWorker' in navigator) {
-      swControlando = navigator.serviceWorker.controller !== null;
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) hasBackgroundSync = 'sync' in reg;
-      } catch {}
-    }
-
-    const diag = {
-      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
-      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
-      blindagemServidor: envelopeOK,
-      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
-      inscricaoRegistrada: !!p?.subscription,
-      inscricaoValida: false,
-      swAtivoEControlando: swControlando,
-      isOnline: navigator.onLine,
-      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
-      permissaoCamera: cameraState,
-      permissaoMicrofone: micState,
-      suporteBarcodeDetector: 'BarcodeDetector' in window,
-      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
-      suporteWebRTC: 'RTCPeerConnection' in window,
-      suporteBackgroundSync: hasBackgroundSync,
-      armazenamentoPersistido: storagePersisted,
-      cotaEspaco: quotaInfo,
-      loading: false,
-    };
-
-    if (diag.permissoesNotificacao && p?.subscription) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg && reg.pushManager) {
-          const sub = await reg.pushManager.getSubscription();
-          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
-        }
-      } catch {}
-    }
-
-    diagnostic.value = diag;
-  };
-
-  useEffect(() => {
-    runDiagnostics();
-    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
-    };
-  }, [profile.value]);
-
-  const diag = diagnostic.value;
-
-  const handleSolicitarPersistenciaManual = async () => {
-    const ok = await solicitarArmazenamentoPersistente();
-    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
-    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
-    await runDiagnostics();
-  };
-
-  const handleFechar = () => {
-    showAdvanced.value = false;
-    currentMobileView.value = 'list';
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
-          </span>
-          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        {diag.loading ? (
-          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
-        ) : (
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                🛑 Requisitos Obrigatórios
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
-                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
-                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
-                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
-                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
-                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
-                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
-              </ul>
-            </div>
-            <md-divider></md-divider>
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                ⚡ Recursos Desejáveis & Status
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
-                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
-                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
-                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
-                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
-                <li>
-                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
-                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
-                   'ℹ️ Permissão de Câmera (Pendente)'}
-                </li>
-                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
-                  {!diag.armazenamentoPersistido && (
-                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                      Proteger Dados
-                    </md-outlined-button>
-                  )}
-                </li>
-                {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
-                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
-                  </li>
-                )}
-              </ul>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style="max-width: 600px; width: 100%;">
-        <DebugPanel />
-      </div>
-    </div>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/ContatosSection.tsx`
 
 ```tsx
@@ -1096,10 +888,13 @@ debugChannel.onmessage = (event) => {
   if (!isDebugEnabled.value) return;
 
   if (event.data && event.data.type === "LOCO_DEBUG_LOG") {
+    // 🔥 Capturamos exatamente a propriedade "entry" que o Logger agora enviará
     const entry: DebugLogEntry = event.data.entry;
-    const updated = [entry, ...debugLogs.value].slice(0, MAX_LOGS);
-    debugLogs.value = updated;
-    persistSingleLog(entry);
+    if (entry && entry.id) {
+      const updated = [entry, ...debugLogs.value].slice(0, MAX_LOGS);
+      debugLogs.value = updated;
+      persistSingleLog(entry);
+    }
   }
 };
 
@@ -1250,138 +1045,256 @@ function getTypeBadgeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-    padding: "16px",
-    backgroundColor: "var(--md-sys-color-surface-container, #f5f5f5)",
-    borderRadius: "12px",
-    border: "1px solid var(--md-sys-color-outline-variant, #e0e0e0)",
-    fontFamily: "monospace",
-    fontSize: "0.85rem",
-    maxHeight: "600px",
+    display: "flex", flexDirection: "column", gap: "12px", padding: "16px",
+    backgroundColor: "var(--md-sys-color-surface-container, #f5f5f5)", borderRadius: "12px",
+    border: "1px solid var(--md-sys-color-outline-variant, #e0e0e0)", fontFamily: "monospace",
+    fontSize: "0.85rem", maxHeight: "600px",
   },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: "8px",
-  },
-  titleGroup: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-  },
-  title: {
-    fontSize: "1rem",
-    fontWeight: "bold",
-  },
-  badgeCount: {
-    fontSize: "0.75rem",
-    padding: "2px 8px",
-    borderRadius: "12px",
-    backgroundColor: "var(--md-sys-color-secondary-container, #e0e0e0)",
-  },
-  actions: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-  },
-  switchLabel: {
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    cursor: "pointer",
-    userSelect: "none",
-  },
-  checkbox: {
-    cursor: "pointer",
-    width: "16px",
-    height: "16px",
-  },
-  filterBar: {
-    display: "flex",
-    gap: "8px",
-  },
-  searchInput: {
-    flex: 1,
-    padding: "6px 10px",
-    borderRadius: "6px",
-    border: "1px solid #ccc",
-    fontSize: "0.85rem",
-  },
-  selectInput: {
-    padding: "6px 10px",
-    borderRadius: "6px",
-    border: "1px solid #ccc",
-    fontSize: "0.85rem",
-  },
-  logList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    overflowY: "auto",
-    maxHeight: "450px",
-    paddingRight: "4px",
-  },
-  disabledNotice: {
-    padding: "10px",
-    backgroundColor: "#fff3cd",
-    color: "#856404",
-    borderRadius: "6px",
-    fontSize: "0.8rem",
-  },
-  emptyState: {
-    textAlign: "center",
-    padding: "24px",
-    color: "#888",
-  },
-  logItem: {
-    padding: "8px 12px",
-    borderRadius: "6px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  },
-  logMeta: {
-    display: "flex",
-    gap: "8px",
-    alignItems: "center",
-    fontSize: "0.75rem",
-  },
-  time: {
-    color: "#666",
-  },
-  module: {
-    fontWeight: "bold",
-    color: "#333",
-  },
-  typeTag: {
-    fontWeight: "bold",
-  },
-  message: {
-    wordBreak: "break-word",
-    whiteSpace: "pre-wrap",
-  },
-  details: {
-    marginTop: "4px",
-  },
-  summary: {
-    cursor: "pointer",
-    color: "#0066cc",
-    fontSize: "0.75rem",
-  },
-  json: {
-    margin: "4px 0 0 0",
-    padding: "8px",
-    backgroundColor: "#1e1e1e",
-    color: "#00ff66",
-    borderRadius: "4px",
-    fontSize: "0.75rem",
-    overflowX: "auto",
-  },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" },
+  titleGroup: { display: "flex", alignItems: "center", gap: "8px" },
+  title: { fontSize: "1rem", fontWeight: "bold" },
+  badgeCount: { fontSize: "0.75rem", padding: "2px 8px", borderRadius: "12px", backgroundColor: "var(--md-sys-color-secondary-container, #e0e0e0)" },
+  actions: { display: "flex", alignItems: "center", gap: "12px" },
+  switchLabel: { display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", userSelect: "none" },
+  checkbox: { cursor: "pointer", width: "16px", height: "16px" },
+  filterBar: { display: "flex", gap: "8px" },
+  searchInput: { flex: 1, padding: "6px 10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "0.85rem" },
+  selectInput: { padding: "6px 10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "0.85rem" },
+  logList: { display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", maxHeight: "450px", paddingRight: "4px" },
+  disabledNotice: { padding: "10px", backgroundColor: "#fff3cd", color: "#856404", borderRadius: "6px", fontSize: "0.8rem" },
+  emptyState: { textAlign: "center", padding: "24px", color: "#888" },
+  logItem: { padding: "8px 12px", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "4px" },
+  logMeta: { display: "flex", gap: "8px", alignItems: "center", fontSize: "0.75rem" },
+  time: { color: "#666" },
+  module: { fontWeight: "bold", color: "#333" },
+  typeTag: { fontWeight: "bold" },
+  message: { wordBreak: "break-word", whiteSpace: "pre-wrap" },
+  details: { marginTop: "4px" },
+  summary: { cursor: "pointer", color: "#0066cc", fontSize: "0.75rem" },
+  json: { margin: "4px 0 0 0", padding: "8px", backgroundColor: "#1e1e1e", color: "#00ff66", borderRadius: "4px", fontSize: "0.75rem", overflowX: "auto" },
 };
+```
+
+---
+
+## Arquivo: `src/components/AdvancedSection.tsx`
+
+```tsx
+// src/components/AdvancedSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { profile } from '../stores/profileStore.ts';
+import { currentMobileView, showAdvanced, showToast } from '../signals/state.ts';
+import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
+import { DebugPanel } from './DebugPanel.tsx';
+// 🔥 Importamos a versão gerada automaticamente pelo Build
+import { APP_VERSION } from '../constants/version.ts'; 
+
+export function AdvancedSection() {
+  const diagnostic = useSignal({
+    identificacao: false, criptografia: false, blindagemServidor: false,
+    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
+    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
+    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
+    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
+    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
+    loading: true,
+  });
+
+  const runDiagnostics = async () => {
+    const p = profile.value;
+    
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch { envelopeOK = false; }
+    }
+
+    let cameraState = 'prompt', micState = 'prompt';
+    if ('navigator' in window && 'permissions' in navigator && navigator.permissions.query) {
+      try { cameraState = (await navigator.permissions.query({ name: 'camera' as any })).state; } catch {}
+      try { micState = (await navigator.permissions.query({ name: 'microphone' as any })).state; } catch {}
+    }
+
+    let storagePersisted = false;
+    let quotaInfo = { usoMB: 0, livreMB: 0 };
+    if ('storage' in navigator) {
+      if (navigator.storage.persisted) {
+        try { storagePersisted = await navigator.storage.persisted(); } catch {}
+      }
+      if (navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          quotaInfo = {
+            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
+            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
+          };
+        } catch {}
+      }
+    }
+
+    let swControlando = false, hasBackgroundSync = false;
+    if ('serviceWorker' in navigator) {
+      swControlando = navigator.serviceWorker.controller !== null;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) hasBackgroundSync = 'sync' in reg;
+      } catch {}
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
+      inscricaoRegistrada: !!p?.subscription,
+      inscricaoValida: false,
+      swAtivoEControlando: swControlando,
+      isOnline: navigator.onLine,
+      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
+      permissaoCamera: cameraState,
+      permissaoMicrofone: micState,
+      suporteBarcodeDetector: 'BarcodeDetector' in window,
+      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
+      suporteWebRTC: 'RTCPeerConnection' in window,
+      suporteBackgroundSync: hasBackgroundSync,
+      armazenamentoPersistido: storagePersisted,
+      cotaEspaco: quotaInfo,
+      loading: false,
+    };
+
+    if (diag.permissoesNotificacao && p?.subscription) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
+        }
+      } catch {}
+    }
+
+    diagnostic.value = diag;
+  };
+
+  useEffect(() => {
+    runDiagnostics();
+    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+
+  const handleSolicitarPersistenciaManual = async () => {
+    const ok = await solicitarArmazenamentoPersistente();
+    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
+    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
+    await runDiagnostics();
+  };
+
+  const handleFechar = () => {
+    showAdvanced.value = false;
+    currentMobileView.value = 'list';
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
+            </span>
+            {/* 🔥 Exibição da versão injetada */}
+            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+              Build Version: v{APP_VERSION}
+            </span>
+          </div>
+          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        {diag.loading ? (
+          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
+        ) : (
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                🛑 Requisitos Obrigatórios
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
+                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
+              </ul>
+            </div>
+            <md-divider></md-divider>
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                ⚡ Recursos Desejáveis & Status
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
+                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
+                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
+                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
+                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
+                <li>
+                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
+                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
+                   'ℹ️ Permissão de Câmera (Pendente)'}
+                </li>
+                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
+                  {!diag.armazenamentoPersistido && (
+                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                      Proteger Dados
+                    </md-outlined-button>
+                  )}
+                </li>
+                {diag.cotaEspaco.livreMB > 0 && (
+                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
+                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style="max-width: 600px; width: 100%;">
+        <DebugPanel />
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/constants/version.ts`
+
+```ts
+// Arquivo gerado automaticamente pelo build.ts
+export const APP_VERSION = "0.2.2-msmdcc54";
+
 ```
 
 ---
@@ -1413,9 +1326,6 @@ export const KEY_NAMES = {
 export const MAX_TENTATIVAS = 3;
 export const MAX_PAYLOAD_SIZE = 4096;
 
-// =======================================================
-// PERFIL LOCAL
-// =======================================================
 export interface ProfileConfig {
   name: string;
   email: string;
@@ -1435,9 +1345,6 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
-// =======================================================
-// MENSAGENS
-// =======================================================
 export interface MensagemEnviada {
   id: string;
   contatoHash: string;
@@ -1459,13 +1366,10 @@ export interface MensagemRecebida {
   notificadaEm?: number;
 }
 
-// =======================================================
-// CONTATOS (Agenda Criptográfica)
-// =======================================================
 export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
 
 export interface Contato {
-  id: string; // Hash SHA-256 da vapidPublicKey
+  id: string; 
   email: string;
   name: string;
   vapidPublicKey: JsonWebKey;
@@ -1481,14 +1385,33 @@ export interface Contato {
   updatedAt: number;
 }
 
-// =======================================================
-// HANDSHAKE (Máquina de Estados de Sincronização)
-// =======================================================
+// 🔥 Removidos os Any: O compilador agora checará as fronteiras
+export interface ProfileRouteData {
+  campos?: string[];
+  data?: Record<string, unknown>;
+  id?: string;
+}
+
+export interface MensagemRouteData {
+  recebida?: string;
+  enviada?: string;
+  conteudo?: string;
+  campos?: string[];
+  data?: Record<string, unknown>;
+}
+
+export interface ContatoRouteData {
+  id?: string;
+  campos?: string[];
+  data?: Record<string, unknown>;
+  sync?: Record<string, unknown>;
+}
+
 export interface HandshakeRotas { 
-  profile?: any; 
-  mensagem?: any; 
-  contato?: any; 
-  [key: string]: any; // Permite extensibilidade para o roadmap
+  profile?: ProfileRouteData; 
+  mensagem?: MensagemRouteData; 
+  contato?: ContatoRouteData; 
+  [key: string]: unknown; // Garante extensibilidade futura segura sem "any"
 }
 
 export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
@@ -1510,16 +1433,13 @@ export interface FluxoOut {
 
 export interface Handshake { 
   id: string; 
-  aud: string; // id do contato (hash da chave publica vapid do destinatário)
+  aud: string; 
   in?: FluxoIn; 
   out?: FluxoOut; 
   createdAt: number; 
   updatedAt: number; 
 }
 
-// =======================================================
-// PAYLOADS DE REDE E CRIPTOGRAFIA
-// =======================================================
 export interface EnvelopeCifrado {
   i: string;
   d: string;
@@ -1547,30 +1467,25 @@ export const profileInput = signal<string>('');
 export const profileName = signal<string>('');
 export const profileEmail = signal<string>('');
 
-export const debugLogs = signal<string[]>([]);
-
-// Mantemos o wrapper para não quebrar a importação nos componentes da UI
-export function addDebugLog(msg: string, details?: any): void {
-  emitLog(msg, details);
+/**
+ * Re-exportação com sobrecarga mantendo compatibilidade com toda a Interface de Usuário
+ */
+export function addDebugLog(
+  typeOrMsg: string,
+  moduleOrDetails?: any,
+  message?: string,
+  details?: unknown
+): void {
+  emitLog(typeOrMsg, moduleOrDetails, message, details);
 }
 
 export function clearDebugLogs(): void {
-  debugLogs.value = [];
+  // A persistência de limpeza de logs agora ocorre nativamente no DebugPanel.tsx
+  // Esta casca existe apenas para não quebrar referências antigas.
 }
 
 export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
   alert(`${type.toUpperCase()}: ${msg}`);
-}
-
-// Inicializa o ouvinte global para capturar logs do Service Worker e de outras partes
-if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
-  const channel = new BroadcastChannel("loco_debug_channel");
-  channel.onmessage = (e) => {
-    if (e.data?.type === "LOCO_DEBUG_LOG") {
-      // Mantém os últimos 150 logs para não travar a memória da UI
-      debugLogs.value = [e.data.payload, ...debugLogs.value].slice(0, 150);
-    }
-  };
 }
 ```
 
@@ -1597,8 +1512,8 @@ import {
   listarMensagensEnviadas,
   salvarMensagemRecebida,
   salvarMensagemEnviada,
-  atualizarStatusMensagemRecebida,
-  atualizarStatusMensagemEnviada,
+  atualizarStatusMensagemRecebida as dbAtualizarStatusRecebida,
+  atualizarStatusMensagemEnviada as dbAtualizarStatusEnviada,
   removerMensagemRecebida,
   removerMensagemEnviada,
 } from '../utils/db-helpers.ts';
@@ -1607,6 +1522,10 @@ import type { MensagemRecebida, MensagemEnviada } from '../constants/db.ts';
 export const mensagensRecebidas = signal<MensagemRecebida[]>([]);
 export const mensagensEnviadas = signal<MensagemEnviada[]>([]);
 
+/**
+ * Carrega o histórico completo do banco. 
+ * Deve ser chamado APENAS na inicialização do app.
+ */
 export async function carregarMensagensRecebidas() {
   const lista = await listarMensagensRecebidas();
   lista.sort((a, b) => b.recebidoEm - a.recebidoEm);
@@ -1619,72 +1538,64 @@ export async function carregarMensagensEnviadas() {
   mensagensEnviadas.value = lista;
 }
 
+/**
+ * Atualização Otimista: Injeta na memória instantaneamente e depois salva no DB
+ */
 export async function adicionarMensagemRecebida(mensagem: MensagemRecebida) {
+  // 1. Atualiza a memória (Signal) clonando raso para evitar re-renderização total
+  mensagensRecebidas.value = [mensagem, ...mensagensRecebidas.value].sort((a, b) => b.recebidoEm - a.recebidoEm);
+  // 2. Persiste no banco em background
   await salvarMensagemRecebida(mensagem);
-  await carregarMensagensRecebidas();
 }
 
 export async function adicionarMensagemEnviada(mensagem: MensagemEnviada) {
+  mensagensEnviadas.value = [mensagem, ...mensagensEnviadas.value].sort((a, b) => b.createdAt - a.createdAt);
   await salvarMensagemEnviada(mensagem);
-  await carregarMensagensEnviadas();
 }
 
+/**
+ * Atualização Granular: Modifica apenas a mensagem específica sem buscar o DB inteiro
+ */
 export async function marcarMensagemRecebidaComoLida(id: string) {
-  await atualizarStatusMensagemRecebida(id, 'lida');
-  await carregarMensagensRecebidas();
+  // Modificação direta em memória
+  const atual = mensagensRecebidas.value;
+  const index = atual.findIndex(m => m.id === id);
+  if (index !== -1) {
+    const nova = [...atual];
+    nova[index] = { ...nova[index], status: 'lida', lidaEm: Date.now() };
+    mensagensRecebidas.value = nova;
+  }
+  // Sincronização em background com o DB
+  await dbAtualizarStatusRecebida(id, 'lida');
+}
+
+export async function atualizarStatusDeMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string) {
+  const atual = mensagensEnviadas.value;
+  const index = atual.findIndex(m => m.id === id);
+  if (index !== -1) {
+    const nova = [...atual];
+    const msgAtualizada = { ...nova[index], status, updatedAt: Date.now() };
+    if (erro) msgAtualizada.erro = erro;
+    nova[index] = msgAtualizada;
+    mensagensEnviadas.value = nova;
+  }
+  
+  await dbAtualizarStatusEnviada(id, status, erro);
 }
 
 export async function removerMensagemRecebidaPorId(id: string) {
+  mensagensRecebidas.value = mensagensRecebidas.value.filter(m => m.id !== id);
   await removerMensagemRecebida(id);
-  await carregarMensagensRecebidas();
 }
 
 export async function removerMensagemEnviadaPorId(id: string) {
+  mensagensEnviadas.value = mensagensEnviadas.value.filter(m => m.id !== id);
   await removerMensagemEnviada(id);
-  await carregarMensagensEnviadas();
 }
 
 export async function initMensagensStore() {
   await carregarMensagensRecebidas();
   await carregarMensagensEnviadas();
-}
-```
-
----
-
-## Arquivo: `src/stores/profileStore.ts`
-
-```ts
-// src/stores/profileStore.ts
-import { signal } from '@preact/signals';
-import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { profileName, profileEmail } from '../signals/state.ts';
-
-export const profile = signal<ProfileConfig | null>(null);
-
-export async function carregarProfile() {
-  const p = await buscarProfile();
-  profile.value = p || null;
-  
-  // 🔥 Preenche a UI automaticamente com os dados salvos no banco de dados
-  if (p) {
-    profileName.value = p.name;
-    profileEmail.value = p.email;
-  }
-}
-
-export async function atualizarProfile(p: ProfileConfig) {
-  await salvarProfile(p);
-  profile.value = p;
-  
-  // 🔥 Atualiza a UI quando salvamos um novo perfil
-  profileName.value = p.name;
-  profileEmail.value = p.email;
-}
-
-export async function initProfileStore() {
-  await carregarProfile();
 }
 ```
 
@@ -1711,7 +1622,7 @@ export const contatosRaw = signal<Contato[]>([]);
 
 /**
  * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
- * Utilizado por ChatSection, ContactDetailSection e ContatosSection.
+ * O Preact reage de forma super eficiente graças à computação sob demanda.
  */
 export const contatosComHash = computed(() => {
   return contatosRaw.value.map((contato) => ({
@@ -1729,7 +1640,7 @@ export const contatosMap = computed(() => {
 });
 
 /**
- * Carrega a lista de contatos do IndexedDB para a memória
+ * Carrega a lista de contatos do IndexedDB para a memória. Chamado apenas no init.
  */
 export async function carregarContatos(): Promise<void> {
   try {
@@ -1741,23 +1652,31 @@ export async function carregarContatos(): Promise<void> {
   }
 }
 
-/**
- * Inicializa a store de contatos
- */
 export async function initContatosStore(): Promise<void> {
   await carregarContatos();
 }
 
 /**
- * Adiciona ou atualiza um contato no banco IndexedDB e recarrega o estado reativo
+ * Adiciona ou atualiza um contato usando Inserção Otimista em Memória
  */
 export async function adicionarContato(contato: Contato): Promise<void> {
   try {
+    // 1. Atualiza memória instantaneamente para UI reagir
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === contato.id);
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = contato;
+      contatosRaw.value = novaLista;
+    } else {
+      contatosRaw.value = [...atual, contato];
+    }
+
+    // 2. Grava no banco sem travar a thread principal
     await salvarContato(contato);
-    await carregarContatos();
-    addDebugLog("success", "STORE:CONTATO", `Contato salvo: ${contato.name} (${contato.id})`);
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
   } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", `Erro ao adicionar contato ${contato.id}`, err);
+    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
     throw err;
   }
 }
@@ -1769,12 +1688,17 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
 }
 
 /**
- * Remove um contato a partir de sua chave pública VAPID
+ * Remove um contato com atualização local imediata
  */
 export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    
+    // Atualiza memória
+    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
+    
+    // Persiste remoção
     await removerContato(vapidPublicKey);
-    await carregarContatos();
     addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
@@ -1786,15 +1710,20 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
  */
 export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
-    const contato = await buscarContatoPorPublicKey(vapidPublicKey);
-    if (contato) {
-      contato.trusted = true;
-      contato.updatedAt = Date.now();
-      await salvarContato(contato);
-      await carregarContatos();
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contato.name}`);
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === hash);
+    
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = { ...novaLista[index], trusted: true, updatedAt: Date.now() };
+      contatosRaw.value = novaLista;
+      
+      // Persiste as mudanças consolidadas
+      await salvarContato(novaLista[index]);
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${novaLista[index].name}`);
     } else {
-      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado para homologação");
+      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
     }
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
@@ -1802,15 +1731,84 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
 }
 
 export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
-  const contato = contatosMap.value.get(id);
-  if (contato) {
-    const atualizado = { ...contato, me: meStatus, updatedAt: Date.now() };
-    adicionarContato(atualizado).catch((err) => {
-      addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
+  const atual = contatosRaw.value;
+  const index = atual.findIndex(c => c.id === id);
+  if (index >= 0) {
+    const novaLista = [...atual];
+    novaLista[index] = { ...novaLista[index], me: meStatus, updatedAt: Date.now() };
+    contatosRaw.value = novaLista;
+    
+    // Dispara salvamento em background
+    salvarContato(novaLista[index]).catch(err => {
+        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
     });
   } else {
-    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado para atualizar status`);
+    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
+}
+```
+
+---
+
+## Arquivo: `src/stores/profileStore.ts`
+
+```ts
+// src/stores/profileStore.ts
+import { signal } from '@preact/signals';
+import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
+
+// Mutex simples para evitar condições de corrida ao salvar o perfil ativamente
+let isSavingProfile = false;
+
+export const profile = signal<ProfileConfig | null>(null);
+
+export async function carregarProfile() {
+  try {
+    const p = await buscarProfile();
+    profile.value = p || null;
+    
+    // 🔥 Preenche a UI passivamente com os dados salvos no banco de dados
+    if (p) {
+      profileName.value = p.name;
+      profileEmail.value = p.email;
+    }
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
+  }
+}
+
+/**
+ * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
+ * Implementa um mutex (isSavingProfile) caso multiplas chamadas tentem
+ * gravar coisas simultâneas.
+ */
+export async function atualizarProfile(p: ProfileConfig) {
+  // 1. Atualização Otimista na Memória
+  profile.value = { ...p };
+  profileName.value = p.name;
+  profileEmail.value = p.email;
+  
+  if (isSavingProfile) {
+      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
+      return; // Previne gravações corrompidas e cruzadas
+  }
+
+  // 2. Persistência Isolada com Trava
+  isSavingProfile = true;
+  try {
+    await salvarProfile(p);
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
+    // Em um app real pesado, faríamos um rollback aqui recarregando do DB: await carregarProfile()
+  } finally {
+    isSavingProfile = false;
+  }
+}
+
+export async function initProfileStore() {
+  await carregarProfile();
 }
 ```
 
@@ -2000,28 +1998,64 @@ import {
 } from "../utils/db-helpers.ts";
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
-import { addDebugLog } from "../utils/debug-utils.ts"; // 🔥 O novo logger sem estado do Preact
+import { addDebugLog } from "../utils/debug-utils.ts";
 
 // Importa os roteadores especializados
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
 
+// Wrapper transacional para o salvamento de Handshakes (Mitiga QuotaExceededError)
+async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso?: string) {
+  try {
+    await salvarHandshake(handshake);
+    if (mensagemSucesso) addDebugLog(mensagemSucesso);
+  } catch (e: any) {
+    if (e.name === 'QuotaExceededError') {
+      addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida ao salvar handshake. O banco pode estar cheio.");
+      // TODO: Implementar estratégia de eviction (limpeza) de handshakes muito antigos
+    } else {
+      addDebugLog(`[SW-ROUTER] ❌ Erro ao gravar handshake no IndexedDB: ${e.message}`);
+    }
+    throw e;
+  }
+}
+
 export async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
   addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
-    if (!payload.jti) throw new Error("Handshake sem jti");
-    if (!payload.ct) throw new Error("Handshake sem ct (envelope cifrado)");
+    // Early returns para proteger contra payloads malformados ou lixo de rede
+    if (!payload?.jti) {
+      addDebugLog("[SW-ROUTER] ⚠️ Handshake rejeitado precocemente: Ausência de 'jti'");
+      return;
+    }
+    if (!payload?.ct) {
+      addDebugLog("[SW-ROUTER] ⚠️ Handshake rejeitado precocemente: Ausência de 'ct' (envelope cifrado)");
+      return;
+    }
 
-    const privateDecryptKey = await buscarChaveDecript(); 
-    if (!privateDecryptKey) throw new Error("Chave privada RSA não disponível para decifrar handshake.");
+    const privateDecryptKey = await buscarChaveDecript();
+    if (!privateDecryptKey) {
+      throw new Error("Chave privada RSA não disponível para decifrar handshake.");
+    }
 
-    const envelope = JSON.parse(payload.ct);
+    let envelope;
+    try {
+      envelope = JSON.parse(payload.ct);
+    } catch (e) {
+      addDebugLog("[SW-ROUTER] ⚠️ Falha ao fazer parse do envelope cifrado 'ct'. JSON malformado.");
+      return;
+    }
+
     const iv = envelope.i || envelope.iv;
     const dados = envelope.d || envelope.dadosCifrados;
     const chaveAesCifrada = envelope.k || envelope.chaveAesCifrada;
-    if (!iv || !dados || !chaveAesCifrada) throw new Error("Envelope incompleto.");
+
+    if (!iv || !dados || !chaveAesCifrada) {
+      addDebugLog("[SW-ROUTER] ⚠️ Envelope incompleto. Descarte antecipado.");
+      return;
+    }
 
     const ivBytes = new Uint8Array(base64UrlToArrayBuffer(iv));
     const dadosBytes = new Uint8Array(base64UrlToArrayBuffer(dados));
@@ -2030,9 +2064,16 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
     const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateDecryptKey, chaveAesCifradaBytes);
     const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
     const textoDecifradoBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
-    
-    const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
-    const rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
+
+    let decompressed;
+    let rotasObj;
+    try {
+      decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
+      rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
+    } catch (e) {
+      addDebugLog("[SW-ROUTER] ⚠️ Falha ao descomprimir (fflate) ou fazer parse JSON do payload decifrado.");
+      throw new Error("Falha na descompressão ou parse do payload interno.");
+    }
 
     const senderPublicKeyVapid = header.kid;
     const senderHash = senderPublicKeyVapid ? await serializarPublicKeyVapid(senderPublicKeyVapid) : '';
@@ -2048,18 +2089,28 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
 
     handshake.in = { status: 'recebido', tentativas: 0, rotas: rotasObj, erro: erroIn };
     handshake.updatedAt = Date.now();
+
+    await salvarHandshakeTransacional(handshake, `[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
     
-    await salvarHandshake(handshake);
-    addDebugLog(`[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
-    await processarFilaHandshake();
+    // Inicia o processamento da fila sem usar await aqui, deixando rodar em background
+    processarFilaHandshake().catch(err => console.error(err));
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro ao decifrar handshake recebido: ${err.message}`);
-    throw err;
+    throw err; // Repassa o erro caso seja falha criptográfica crítica
   }
 }
 
+// 🔥 Variável de Trava (Mutex) para evitar que a fila seja processada duas vezes simultaneamente
+let isProcessingFila = false;
+
 export async function processarFilaHandshake() {
+  if (isProcessingFila) {
+    // Fila já está sendo processada. Ignora chamadas concorrentes para não enviar mensagens duplicadas.
+    return;
+  }
+  
+  isProcessingFila = true;
   addDebugLog("[SW-ROUTER] 🔄 Processando fila geral de handshakes...");
 
   try {
@@ -2072,7 +2123,7 @@ export async function processarFilaHandshake() {
       h.in!.status = 'processando';
       h.in!.tentativas++;
       h.updatedAt = Date.now();
-      await salvarHandshake(h);
+      await salvarHandshakeTransacional(h);
 
       try {
         if (h.in!.rotas.profile) await ProcessarProfile({ in: h.id });
@@ -2083,7 +2134,7 @@ export async function processarFilaHandshake() {
         if (hFresh && hFresh.in) {
           hFresh.in.status = 'processado';
           hFresh.updatedAt = Date.now();
-          await salvarHandshake(hFresh);
+          await salvarHandshakeTransacional(hFresh);
         }
       } catch (err: any) {
         addDebugLog(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}: ${err.message}`);
@@ -2092,7 +2143,7 @@ export async function processarFilaHandshake() {
           hFresh.in.status = 'falha';
           hFresh.in.erro = err.message;
           hFresh.updatedAt = Date.now();
-          await salvarHandshake(hFresh);
+          await salvarHandshakeTransacional(hFresh);
         }
       }
     }
@@ -2110,7 +2161,7 @@ export async function processarFilaHandshake() {
       h.out!.status = 'enviando';
       h.out!.tentativas++;
       h.updatedAt = Date.now();
-      await salvarHandshake(h);
+      await salvarHandshakeTransacional(h);
 
       try {
         const contatoIdHash = await normalizarChaveContato(h.aud);
@@ -2154,7 +2205,7 @@ export async function processarFilaHandshake() {
 
         h.out!.status = 'enviado';
         h.updatedAt = Date.now();
-        await salvarHandshake(h);
+        await salvarHandshakeTransacional(h);
         addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
 
       } catch (err: any) {
@@ -2164,31 +2215,33 @@ export async function processarFilaHandshake() {
           hFresh.out.status = hFresh.out.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
           hFresh.out.erro = err.message;
           hFresh.updatedAt = Date.now();
-          await salvarHandshake(hFresh);
+          await salvarHandshakeTransacional(hFresh);
         }
       }
     }
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
+  } finally {
+    // 🔥 Libera a trava independente de erro ou sucesso
+    isProcessingFila = false;
   }
 }
 
-self.addEventListener('message', async (event) => {
-  const data = event.data;
-  if (data.type === 'PROCESSAR_FILA_HANDSHAKE') await processarFilaHandshake();
-  if (data.type === 'CRIAR_HANDSHAKE_OUT' && data.payload) {
-    const { rotasModulo, params } = data.payload;
-    if (rotasModulo === 'profile') await ProcessarProfile({ out: params });
-    if (rotasModulo === 'contato') await ProcessarContato({ out: params });
-    if (rotasModulo === 'mensagem') await ProcessarMensagem({ out: params });
+// Escuta a volta de conectividade ou tarefas agendadas em Background (com waitUntil)
+self.addEventListener('sync', function (event: any) {
+  if (event.tag === 'sync-envio-handshakes') {
+    event.waitUntil(processarFilaHandshake());
   }
 });
-self.addEventListener('sync', async function (event: any) {
-  if (event.tag === 'sync-envio-handshakes') event.waitUntil(processarFilaHandshake());
-});
-self.addEventListener('online', async function () {
-  await processarFilaHandshake();
+
+self.addEventListener('online', function (event: Event) {
+  // Envelopando a execução para o SW não morrer no meio do caminho
+  if ('waitUntil' in event) {
+    (event as ExtendableEvent).waitUntil(processarFilaHandshake());
+  } else {
+    processarFilaHandshake();
+  }
 });
 ```
 
@@ -2219,6 +2272,7 @@ self.addEventListener('push', function (event) {
     return;
   }
 
+  // Envolve todo o fluxo de processamento assíncrono para garantir que o SW permaneça vivo
   event.waitUntil(
     (async function () {
       try {
@@ -2227,8 +2281,8 @@ self.addEventListener('push', function (event) {
         if (!valid) {
           addDebugLog("[SW-PUSH-ROUTER] ⚠️ Assinatura de pacote rejeitada.");
           await self.registration.showNotification("⚠️ Assinatura inválida", {
-            body: `Mensagem rejeitada.`,
-            icon: '/icon.png',
+            body: `Mensagem rejeitada por falha de integridade.`,
+            icon: '/icon-192.png',
           });
           return;
         }
@@ -2242,321 +2296,14 @@ self.addEventListener('push', function (event) {
         addDebugLog(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
       } catch (err: any) {
         addDebugLog(`[SW-PUSH-ROUTER] ❌ Falha crítica no desempacotamento de Push: ${err.message}`);
-        await self.registration.showNotification("⚠️ Erro ao processar push", {
-          body: "Falha criptográfica no processamento.",
-          icon: '/icon.png',
+        await self.registration.showNotification("⚠️ Erro de Rede", {
+          body: "Falha criptográfica no processamento de uma mensagem recebida.",
+          icon: '/icon-192.png',
         });
       }
     })()
   );
 });
-```
-
----
-
-## Arquivo: `src/utils/jwt-helpers.ts`
-
-```ts
-// src/utils/jwt-helpers.ts
-
-// ============================================================
-// UTILITÁRIOS BASE64URL
-// ============================================================
-
-export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
-  let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-  while (base64.length % 4) base64 += '=';
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-export function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-// ============================================================
-// FUNÇÃO GENÉRICA: CRIAR JWT
-// ============================================================
-
-/**
- * Cria um JWT assinado com ES256 (ECDSA P-256 + SHA-256).
- * @param payload - Objeto com os dados do payload (será convertido para JSON).
- * @param privateKeyJwk - Chave privada VAPID em formato JWK.
- * @param headerExtra - Campos extras para o header (ex: { kid: ... }).
- * @returns JWT completo (string) no formato header.payload.signature.
- */
-export async function criarJWT(
-  payload: Record<string, any>,
-  privateKeyJwk: JsonWebKey,
-  headerExtra: Record<string, any> = {}
-): Promise<string> {
-  const header = { alg: "ES256", ...headerExtra };
-  const encoder = new TextEncoder();
-
-  const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
-  const toSign = `${headerB64}.${payloadB64}`;
-
-  const privateKey = await crypto.subtle.importKey(
-    "jwk",
-    privateKeyJwk,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" },
-    privateKey,
-    encoder.encode(toSign)
-  );
-  const sigB64 = arrayBufferToBase64Url(signature);
-
-  return `${toSign}.${sigB64}`;
-}
-
-// ============================================================
-// FUNÇÃO GENÉRICA: VERIFICAR JWT
-// ============================================================
-
-/**
- * Verifica um JWT assinado com ES256.
- * Se publicKeyJwk for fornecido, usa-o; senão, extrai a chave do campo 'kid' do header.
- * Retorna { header, payload, signature, valid }.
- */
-export async function verificarJWT(
-  jwt: string,
-  publicKeyJwk?: JsonWebKey
-): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
-  const parts = jwt.split('.');
-  if (parts.length !== 3) {
-    throw new Error("JWT inválido: deve ter 3 partes separadas por '.'");
-  }
-
-  const [headerB64, payloadB64, signatureB64] = parts;
-  const decoder = new TextDecoder();
-
-  const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-  const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-  const header = JSON.parse(headerJson);
-  const payload = JSON.parse(payloadJson);
-
-  let publicKeyJwkFinal = publicKeyJwk;
-  if (!publicKeyJwkFinal) {
-    if (!header.kid) {
-      throw new Error("Header JWT não contém 'kid' e nenhuma chave pública foi fornecida.");
-    }
-    publicKeyJwkFinal = header.kid;
-  }
-
-  const publicKey = await crypto.subtle.importKey(
-    "jwk",
-    publicKeyJwkFinal,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["verify"]
-  );
-
-  const toSign = `${headerB64}.${payloadB64}`;
-  const signatureBytes = base64UrlToArrayBuffer(signatureB64);
-
-  const encoder = new TextEncoder();
-  const valid = await crypto.subtle.verify(
-    { name: "ECDSA", hash: "SHA-256" },
-    publicKey,
-    signatureBytes,
-    encoder.encode(toSign)
-  );
-
-  return { header, payload, signature: signatureB64, valid };
-}
-
-// ============================================================
-// FUNÇÃO GENÉRICA: DECODIFICAR JWT (sem verificar assinatura)
-// ============================================================
-
-/**
- * Decodifica um JWT sem verificar a assinatura (apenas para leitura).
- * Retorna { header, payload, signature }.
- */
-export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
-  const parts = jwt.split('.');
-  if (parts.length !== 3) {
-    throw new Error("JWT inválido: deve ter 3 partes separadas por '.'");
-  }
-
-  const [headerB64, payloadB64, signatureB64] = parts;
-  const decoder = new TextDecoder();
-
-  const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-  const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-
-  return {
-    header: JSON.parse(headerJson),
-    payload: JSON.parse(payloadJson),
-    signature: signatureB64
-  };
-}
-```
-
----
-
-## Arquivo: `src/utils/push-utils.ts`
-
-```ts
-
-import { gzipSync } from "fflate";
-
-// ============================================================
-// UTILITÁRIOS DE CRIPTOGRAFIA
-// ============================================================
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-/**
- * Cifra um payloadObj (objeto JavaScript) usando AES-GCM e RSA-OAEP.
- * Retorna envelope: { i: ivBase64, d: dadosCifradosBase64, k: chaveAesCifradaBase64 }
- */
-export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
-  i: string;
-  d: string;
-  k: string;
-}> {
-  const encoder = new TextEncoder();
-  const jsonString = JSON.stringify(payloadObj);
-  const bytes = encoder.encode(jsonString);
-  const compressed = gzipSync(bytes);
-  console.log(`[PUSH-UTILS] 📦 Comprimido: ${compressed.length} bytes (original: ${bytes.length})`);
-
-  const aesKey = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt"]
-  );
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    aesKey,
-    compressed
-  );
-
-  const cryptoKeyDestino = await crypto.subtle.importKey(
-    "jwk",
-    publicKeyRSA,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    true,
-    ["encrypt"]
-  );
-  const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-  const aesKeyEncrypted = await crypto.subtle.encrypt(
-    { name: "RSA-OAEP" },
-    cryptoKeyDestino,
-    aesKeyRaw
-  );
-
-  return {
-    i: arrayBufferToBase64(iv.buffer),
-    d: arrayBufferToBase64(encryptedBuffer),
-    k: arrayBufferToBase64(aesKeyEncrypted)
-  };
-}
-
-/**
- * Envia um payload JWT para o servidor proxy.
- * subscription: objeto com endpoint e keys.
- * payloadText: string JWT.
- * vapid: { subject, publicKey, privateKey } (privateKey pode ser envelope cifrado).
- * Retorna true se sucesso, lança erro em caso de falha.
- */
-export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  payloadText: string,
-  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
-): Promise<void> {
-  const response = await fetch("/api/proxy-push", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      subscription,
-      payloadText,
-      vapid: {
-        subject: vapid.subject,
-        publicKey: vapid.publicKey,
-        privateKey: vapid.privateKey // envelope ou JWK
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`HTTP ${response.status}: ${errorText}`);
-  }
-}
-
-/**
- * Cifra a chave privada VAPID (JWK) com a chave pública do servidor.
- * Retorna envelope base64.
- */
-export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
-  const serverKey = await crypto.subtle.importKey(
-    "jwk",
-    serverPublicKeyJwk,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    true,
-    ["encrypt"]
-  );
-  const aesKey = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt"]
-  );
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoder = new TextEncoder();
-  const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
-  const vapidCifrado = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    aesKey,
-    vapidBytes
-  );
-  const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-  const aesKeyCifrado = await crypto.subtle.encrypt(
-    { name: "RSA-OAEP" },
-    serverKey,
-    aesKeyRaw
-  );
-  const toHex = (buf: ArrayBuffer) =>
-    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  const envelope = {
-    iv: toHex(iv.buffer),
-    dadosCifrados: toHex(vapidCifrado),
-    chaveAesCifrada: toHex(aesKeyCifrado)
-  };
-  return btoa(JSON.stringify(envelope));
-}
 ```
 
 ---
@@ -2738,197 +2485,6 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
   if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
 
   return expandirDadosCompactos(compactData);
-}
-```
-
----
-
-## Arquivo: `src/utils/crypto-utils.ts`
-
-```ts
-// src/utils/crypto-utils.ts
-import { addDebugLog } from "./debug-utils.ts";
-
-/**
- * Converte ArrayBuffer para string Base64URL
- */
-export function bufferToBase64Url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-/**
- * Alias de compatibilidade para conversão de ArrayBuffer em Base64URL
- */
-export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
-  return bufferToBase64Url(buffer);
-}
-
-/**
- * Converte string Base64URL para ArrayBuffer
- */
-export function base64UrlToBuffer(base64url: string): ArrayBuffer {
-  let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-  while (base64.length % 4) {
-    base64 += "=";
-  }
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-/**
- * Gera um par de chaves VAPID (ECDSA P-256) via WebCrypto API
- */
-export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
-  try {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["sign", "verify"]
-    );
-    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
-    return keyPair;
-  } catch (error) {
-    addDebugLog("error", "CRYPTO", "Erro ao gerar chaves VAPID", error);
-    throw error;
-  }
-}
-
-/**
- * Gera um par de chaves RSA-OAEP 2048 para Criptografia E2E
- */
-export async function generateE2EEKeys(): Promise<{
-  publicEncrypt: JsonWebKey;
-  privateDecryptJwk: JsonWebKey;
-}> {
-  try {
-    const keyPair = await crypto.subtle.generateKey(
-      {
-        name: "RSA-OAEP",
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash: "SHA-256",
-      },
-      true,
-      ["encrypt", "decrypt"]
-    );
-
-    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-
-    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
-    return { publicEncrypt, privateDecryptJwk };
-  } catch (error) {
-    addDebugLog("error", "CRYPTO", "Erro ao gerar chaves RSA E2E", error);
-    throw error;
-  }
-}
-
-/**
- * Criptografa um texto em UTF-8 usando AES-GCM
- */
-export async function encryptTextAES(
-  key: CryptoKey,
-  plainText: string
-): Promise<{ cipherTextBase64: string; ivBase64: string }> {
-  try {
-    const enc = new TextEncoder();
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encodedText = enc.encode(plainText);
-
-    const cipherBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      encodedText
-    );
-
-    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
-
-    return {
-      cipherTextBase64: bufferToBase64Url(cipherBuffer),
-      ivBase64: bufferToBase64Url(iv.buffer),
-    };
-  } catch (error) {
-    addDebugLog("error", "CRYPTO", "Erro ao criptografar texto AES-GCM", error);
-    throw error;
-  }
-}
-
-/**
- * Descriptografa um ciphertext em Base64URL usando AES-GCM
- */
-export async function decryptTextAES(
-  key: CryptoKey,
-  cipherTextBase64: string,
-  ivBase64: string
-): Promise<string> {
-  try {
-    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
-    const ivBuffer = base64UrlToBuffer(ivBase64);
-
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
-      key,
-      cipherBuffer
-    );
-
-    const dec = new TextDecoder();
-    addDebugLog("info", "CRYPTO", "Texto decriptografado via AES-GCM com sucesso");
-    return dec.decode(decryptedBuffer);
-  } catch (error) {
-    addDebugLog("error", "CRYPTO", "Erro ao descriptografar texto AES-GCM", error);
-    throw error;
-  }
-}
-
-/**
- * Exporta chave CryptoKey para formato JWK seguro
- */
-export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
-  try {
-    const jwk = await crypto.subtle.exportKey("jwk", key);
-    addDebugLog("info", "CRYPTO", "Chave exportada para JWK", { kty: jwk.kty, alg: jwk.alg });
-    return jwk;
-  } catch (error) {
-    addDebugLog("error", "CRYPTO", "Erro ao exportar chave para JWK", error);
-    throw error;
-  }
-}
-
-/**
- * Importa chave JWK para CryptoKey
- */
-export async function importJWKToKey(
-  jwk: JsonWebKey,
-  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
-  extractable: boolean,
-  keyUsages: KeyUsage[]
-): Promise<CryptoKey> {
-  try {
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      algorithm,
-      extractable,
-      keyUsages
-    );
-    addDebugLog("info", "CRYPTO", "Chave JWK importada com sucesso", { algorithm });
-    return key;
-  } catch (error) {
-    addDebugLog("error", "CRYPTO", "Erro ao importar chave JWK", error);
-    throw error;
-  }
 }
 ```
 
@@ -3233,48 +2789,6 @@ export async function removerHandshake(id: string): Promise<void> {
 
 ---
 
-## Arquivo: `src/utils/debug-utils.ts`
-
-```ts
-// src/utils/debug-utils.ts
-
-const DEBUG_CHANNEL_NAME = "loco_debug_channel";
-
-// BroadcastChannel é suportado tanto na Window (UI) quanto no ServiceWorker
-let debugChannel: BroadcastChannel | null = null;
-if (typeof BroadcastChannel !== "undefined") {
-  debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
-}
-
-/**
- * Emite logs desacoplados. Pode ser chamado de qualquer lugar.
- */
-export function addDebugLog(msg: string, details?: any): void {
-  const timestamp = new Date().toLocaleTimeString();
-  let detailStr = "";
-  
-  if (details !== undefined) {
-     try {
-       detailStr = typeof details === 'object' ? JSON.stringify(details) : String(details);
-     } catch(e) {
-       detailStr = "[Objeto Complexo]";
-     }
-  }
-  
-  const logEntry = `[${timestamp}] ${msg}${detailStr ? ' | ' + detailStr : ''}`;
-  
-  // Imprime no console nativo (DevTools)
-  console.log(msg, details !== undefined ? details : "");
-
-  // Dispara o log para o canal onde o painel da UI está escutando
-  if (debugChannel) {
-    debugChannel.postMessage({ type: "LOCO_DEBUG_LOG", payload: logEntry });
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/profile-utils.ts`
 
 ```ts
@@ -3450,6 +2964,668 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
 
 ---
 
+## Arquivo: `src/utils/debug-utils.ts`
+
+```ts
+// src/utils/debug-utils.ts
+
+const DEBUG_CHANNEL_NAME = "loco_debug_channel";
+
+// BroadcastChannel é suportado tanto na Window (UI) quanto no ServiceWorker
+let debugChannel: BroadcastChannel | null = null;
+if (typeof BroadcastChannel !== "undefined") {
+  debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
+}
+
+export interface DebugLogPayload {
+  id: string;
+  timestamp: string;
+  type: "info" | "warn" | "error" | "success";
+  module: string;
+  message: string;
+  details?: unknown;
+}
+
+/**
+ * Emite logs desacoplados via BroadcastChannel para o DebugPanel e inspeciona no console nativo.
+ * Esta função suporta retrocompatibilidade, aceitando tanto 1 argumento (msg) quanto a versão rica.
+ */
+export function addDebugLog(
+  typeOrMsg: string,
+  moduleOrDetails?: any,
+  message?: string,
+  details?: unknown
+): void {
+  let logType: DebugLogPayload["type"] = "info";
+  let logModule = "SYSTEM";
+  let logMessage = "";
+  let logDetails: unknown = undefined;
+
+  // Trata a sobrecarga de argumentos
+  if (arguments.length === 1 || (arguments.length === 2 && typeof moduleOrDetails !== "string")) {
+    logType = "info";
+    logModule = "APP";
+    logMessage = typeOrMsg;
+    logDetails = moduleOrDetails;
+  } else {
+    logType = (typeOrMsg as DebugLogPayload["type"]) || "info";
+    logModule = moduleOrDetails as string || "SYSTEM";
+    logMessage = message || "";
+    logDetails = details;
+  }
+
+  // 🔥 Cria a estrutura exata que o DebugPanel.tsx espera receber
+  const entry: DebugLogPayload = {
+    id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    timestamp: new Date().toLocaleTimeString(),
+    type: logType,
+    module: logModule,
+    message: logMessage,
+    details: logDetails,
+  };
+
+  try {
+    if (debugChannel) {
+      debugChannel.postMessage({
+        type: "LOCO_DEBUG_LOG",
+        entry, // A propriedade mágica "entry" que faltava no payload
+      });
+    }
+  } catch (err) {
+    console.warn("Erro ao emitir log no BroadcastChannel:", err);
+  }
+
+  // Espelha no console de desenvolvedor do navegador
+  const consoleMsg = `[${logModule}] ${logMessage}`;
+  if (logType === "error") console.error(consoleMsg, logDetails ?? "");
+  else if (logType === "warn") console.warn(consoleMsg, logDetails ?? "");
+  else console.log(consoleMsg, logDetails ?? "");
+}
+```
+
+---
+
+## Arquivo: `src/utils/crypto-utils.ts`
+
+```ts
+// src/utils/crypto-utils.ts
+import { addDebugLog } from "./debug-utils.ts";
+
+/**
+ * Converte ArrayBuffer para string Base64URL de forma segura
+ */
+export function bufferToBase64Url(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO", "Falha crítica ao converter Buffer para Base64Url", err.message);
+    throw new Error(`Buffer conversion failed: ${err.message}`);
+  }
+}
+
+/**
+ * Alias de compatibilidade para conversão de ArrayBuffer em Base64URL
+ */
+export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
+  return bufferToBase64Url(buffer);
+}
+
+/**
+ * Converte string Base64URL para ArrayBuffer blindado contra malformações
+ */
+export function base64UrlToBuffer(base64url: string): ArrayBuffer {
+  try {
+    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+    // Restaura o padding exato para evitar InvalidCharacterError no atob
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO", "Tentativa de decodificar Base64Url malformado ou corrompido", err.message);
+    throw new Error("Formato Base64Url inválido.");
+  }
+}
+
+/**
+ * Gera um par de chaves VAPID (ECDSA P-256) via WebCrypto API
+ */
+export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
+    return keyPair;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha de Hardware/Browser ao gerar VAPID: ${error.message}`, error);
+    throw new Error("Este navegador não suporta geração de chaves ECDSA P-256 necessárias para o funcionamento offline.");
+  }
+}
+
+/**
+ * Gera um par de chaves RSA-OAEP 2048 para Criptografia E2E
+ */
+export async function generateE2EEKeys(): Promise<{
+  publicEncrypt: JsonWebKey;
+  privateDecryptJwk: JsonWebKey;
+}> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      {
+        name: "RSA-OAEP",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["encrypt", "decrypt"]
+    );
+
+    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+
+    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
+    return { publicEncrypt, privateDecryptJwk };
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA E2E: ${error.message}`, error);
+    throw new Error("Este dispositivo não suporta geração de chaves RSA-OAEP de 2048 bits.");
+  }
+}
+
+/**
+ * Criptografa um texto em UTF-8 usando AES-GCM
+ */
+export async function encryptTextAES(
+  key: CryptoKey,
+  plainText: string
+): Promise<{ cipherTextBase64: string; ivBase64: string }> {
+  try {
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encodedText = enc.encode(plainText);
+
+    const cipherBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encodedText
+    );
+
+    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
+
+    return {
+      cipherTextBase64: bufferToBase64Url(cipherBuffer),
+      ivBase64: bufferToBase64Url(iv.buffer),
+    };
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha interna no motor AES-GCM (Encrypt): ${error.message}`, error);
+    throw new Error("Não foi possível criptografar os dados.");
+  }
+}
+
+/**
+ * Descriptografa um ciphertext em Base64URL usando AES-GCM
+ */
+export async function decryptTextAES(
+  key: CryptoKey,
+  cipherTextBase64: string,
+  ivBase64: string
+): Promise<string> {
+  try {
+    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
+    const ivBuffer = base64UrlToBuffer(ivBase64);
+
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
+      key,
+      cipherBuffer
+    );
+
+    const dec = new TextDecoder();
+    return dec.decode(decryptedBuffer);
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha de decifragem AES-GCM (Chave incorreta ou corrompido): ${error.message}`, error);
+    throw new Error("A decodificação falhou. Dados corrompidos ou chave inválida.");
+  }
+}
+
+/**
+ * Exporta chave CryptoKey para formato JWK seguro
+ */
+export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
+  try {
+    const jwk = await crypto.subtle.exportKey("jwk", key);
+    return jwk;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Erro ao extrair chave (não extraível?): ${error.message}`, error);
+    throw new Error("Falha ao exportar a chave para formato seguro.");
+  }
+}
+
+/**
+ * Importa chave JWK para CryptoKey blindado
+ */
+export async function importJWKToKey(
+  jwk: JsonWebKey,
+  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
+  extractable: boolean,
+  keyUsages: KeyUsage[]
+): Promise<CryptoKey> {
+  try {
+    const key = await crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      algorithm,
+      extractable,
+      keyUsages
+    );
+    return key;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Erro estrutural ao importar chave JWK: ${error.message}`, error);
+    throw new Error("A chave de criptografia fornecida está corrompida ou é incompatível.");
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/jwt-helpers.ts`
+
+```ts
+// src/utils/jwt-helpers.ts
+
+// ============================================================
+// UTILITÁRIOS BASE64URL (Robustos e Protegidos)
+// ============================================================
+
+export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
+  }
+}
+
+export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
+  try {
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    // Preenchimento rígido matemático para evitar quebra do atob
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch (e: any) {
+    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
+  }
+}
+
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
+  }
+}
+
+// ============================================================
+// FUNÇÃO GENÉRICA: CRIAR JWT
+// ============================================================
+
+/**
+ * Cria um JWT assinado com ES256 (ECDSA P-256 + SHA-256).
+ * @param payload - Objeto com os dados do payload (será convertido para JSON).
+ * @param privateKeyJwk - Chave privada VAPID em formato JWK.
+ * @param headerExtra - Campos extras para o header (ex: { kid: ... }).
+ * @returns JWT completo (string) no formato header.payload.signature.
+ */
+export async function criarJWT(
+  payload: Record<string, any>,
+  privateKeyJwk: JsonWebKey,
+  headerExtra: Record<string, any> = {}
+): Promise<string> {
+  try {
+    const header = { alg: "ES256", ...headerExtra };
+    const encoder = new TextEncoder();
+
+    const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
+    const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
+    const toSign = `${headerB64}.${payloadB64}`;
+
+    const privateKey = await crypto.subtle.importKey(
+      "jwk",
+      privateKeyJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      encoder.encode(toSign)
+    );
+    const sigB64 = arrayBufferToBase64Url(signature);
+
+    return `${toSign}.${sigB64}`;
+  } catch (err: any) {
+    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
+  }
+}
+
+// ============================================================
+// FUNÇÃO GENÉRICA: VERIFICAR JWT
+// ============================================================
+
+/**
+ * Verifica um JWT assinado com ES256.
+ * Se publicKeyJwk for fornecido, usa-o; senão, extrai a chave do campo 'kid' do header.
+ * Retorna { header, payload, signature, valid }.
+ */
+export async function verificarJWT(
+  jwt: string,
+  publicKeyJwk?: JsonWebKey
+): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) {
+      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
+    }
+
+    const [headerB64, payloadB64, signatureB64] = parts;
+    const decoder = new TextDecoder();
+
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+    
+    let header, payload;
+    try {
+      header = JSON.parse(headerJson);
+      payload = JSON.parse(payloadJson);
+    } catch (parseErr) {
+      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
+    }
+
+    let publicKeyJwkFinal = publicKeyJwk;
+    if (!publicKeyJwkFinal) {
+      if (!header.kid) {
+        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
+      }
+      publicKeyJwkFinal = header.kid;
+    }
+
+    const publicKey = await crypto.subtle.importKey(
+      "jwk",
+      publicKeyJwkFinal,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+
+    const toSign = `${headerB64}.${payloadB64}`;
+    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
+
+    const encoder = new TextEncoder();
+    const valid = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      signatureBytes,
+      encoder.encode(toSign)
+    );
+
+    return { header, payload, signature: signatureB64, valid };
+  } catch (err: any) {
+    // Retorna valid: false com o log amigável da camada superior caso quebre integridade estrutural
+    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
+  }
+}
+
+// ============================================================
+// FUNÇÃO GENÉRICA: DECODIFICAR JWT (sem verificar assinatura)
+// ============================================================
+
+/**
+ * Decodifica um JWT sem verificar a assinatura (apenas para leitura).
+ * Retorna { header, payload, signature }.
+ */
+export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error("JWT malformado. Leitura interrompida.");
+  }
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  const decoder = new TextDecoder();
+
+  try {
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+
+    return {
+      header: JSON.parse(headerJson),
+      payload: JSON.parse(payloadJson),
+      signature: signatureB64
+    };
+  } catch (err: any) {
+    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/push-utils.ts`
+
+```ts
+// src/utils/push-utils.ts
+import { gzipSync } from "fflate";
+import { addDebugLog } from "./debug-utils.ts";
+
+// ============================================================
+// UTILITÁRIOS DE CRIPTOGRAFIA PARA PUSH
+// ============================================================
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
+  }
+}
+
+/**
+ * Cifra um payloadObj (objeto JavaScript) usando AES-GCM e a chave E2EE RSA do destinatário.
+ * Retorna envelope blindado: { i: ivBase64, d: dadosCifradosBase64, k: chaveAesCifradaBase64 }
+ */
+export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
+  i: string;
+  d: string;
+  k: string;
+}> {
+  try {
+    const encoder = new TextEncoder();
+    const jsonString = JSON.stringify(payloadObj);
+    const bytes = encoder.encode(jsonString);
+    
+    // Otimização: Compressão Deflate para poupar tráfego e respeitar a cota Web Push
+    const compressed = gzipSync(bytes);
+    
+    // Avaliação Proativa de Gargalos de Rede (WebPush limita FCM a 4096 bytes)
+    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
+    if (compressed.length > 3000) {
+       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
+    }
+
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      compressed
+    );
+
+    const cryptoKeyDestino = await crypto.subtle.importKey(
+      "jwk",
+      publicKeyRSA,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyEncrypted = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoKeyDestino,
+      aesKeyRaw
+    );
+
+    return {
+      i: arrayBufferToBase64(iv.buffer),
+      d: arrayBufferToBase64(encryptedBuffer),
+      k: arrayBufferToBase64(aesKeyEncrypted)
+    };
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
+    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
+  }
+}
+
+/**
+ * Envia um payload JWT pronto para o servidor proxy.
+ * Retorna true se sucesso, lança erro detalhado em caso de falha.
+ */
+export async function enviarParaProxy(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payloadText: string,
+  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
+): Promise<void> {
+  // Apenas Blob consegue medir strings com caracteres multi-byte UTF-8 corretamente no Client Side
+  const payloadSize = new Blob([payloadText]).size;
+  if (payloadSize > 4096) {
+    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
+    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
+  }
+
+  try {
+    const response = await fetch("/api/proxy-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription,
+        payloadText,
+        vapid: {
+          subject: vapid.subject,
+          publicKey: vapid.publicKey,
+          privateKey: vapid.privateKey // Pode ser o envelope RSA para o servidor ou a JWK exposta
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
+    }
+  } catch (err: any) {
+     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
+     throw err;
+  }
+}
+
+/**
+ * Cifra a chave privada VAPID (JWK) com a chave pública do servidor usando Hybrid Crypto.
+ * Retorna string Base64 estruturada.
+ */
+export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  try {
+    const serverKey = await crypto.subtle.importKey(
+      "jwk",
+      serverPublicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+    
+    const vapidCifrado = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      vapidBytes
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyCifrado = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      serverKey,
+      aesKeyRaw
+    );
+
+    // NOTA TÉCNICA: Mantemos Hex encoding temporariamente para retrocompatibilidade
+    // estrutural com a leitura da API do Servidor (main.ts).
+    const toHex = (buf: ArrayBuffer) =>
+      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    const envelope = {
+      iv: toHex(iv.buffer),
+      dadosCifrados: toHex(vapidCifrado),
+      chaveAesCifrada: toHex(aesKeyCifrado)
+    };
+    
+    return btoa(JSON.stringify(envelope));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
+    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/styles.d.ts`
 
 ```ts
@@ -3465,72 +3641,61 @@ declare module "*.css" {
 ## Arquivo: `src/types/material-web.d.ts`
 
 ```ts
-import { JSX as _JSX } from "preact";
+// src/types/material-web.d.ts
+import { JSX } from "preact";
 
 declare module "preact" {
   namespace JSX {
+    // Definimos um tipo base forte que une os atributos HTML do Preact aos custom attributes do MD3
+    type MdElement = JSX.HTMLAttributes<HTMLElement> & {
+      value?: string | number;
+      checked?: boolean;
+      disabled?: boolean;
+      label?: string;
+      placeholder?: string;
+      slot?: string;
+      onInput?: (e: Event) => void;
+      onChange?: (e: Event) => void;
+    };
+
     interface IntrinsicElements {
-      // Buttons
-      "md-filled-button": unknown;
-      "md-outlined-button": unknown;
-      "md-text-button": unknown;
-      "md-filled-tonal-button": unknown;
-      "md-icon-button": unknown;
-      "md-fab": unknown;
-      "md-extended-fab": unknown;
-
-      // Cards
-      "md-elevated-card": unknown;
-      "md-filled-card": unknown;
-      "md-outlined-card": unknown;
-
-      // Text Fields
-      "md-filled-text-field": unknown;
-      "md-outlined-text-field": unknown;
-
-      // Selection Controls
-      "md-checkbox": unknown;
-      "md-radio": unknown;
-      "md-switch": unknown;
-
-      // Lists
-      "md-list": unknown;
-      "md-list-item": unknown;
-      "md-divider": unknown;
-
-      // Menus
-      "md-menu": unknown;
-      "md-menu-item": unknown;
-
-      // Dialogs
-      "md-dialog": unknown;
-
-      // Chips
-      "md-assist-chip": unknown;
-      "md-filter-chip": unknown;
-      "md-input-chip": unknown;
-      "md-suggestion-chip": unknown;
-
-      // Progress
-      "md-circular-progress": unknown;
-      "md-linear-progress": unknown;
-
-      // Icons
-      "md-icon": unknown;
-
-      // Tabs
-      "md-tabs": unknown;
-      "md-primary-tab": unknown;
-      "md-secondary-tab": unknown;
-
-      // Select
-      "md-filled-select": unknown;
-      "md-outlined-select": unknown;
-      "md-select-option": unknown;
+      "md-filled-button": MdElement;
+      "md-outlined-button": MdElement;
+      "md-text-button": MdElement;
+      "md-filled-tonal-button": MdElement;
+      "md-icon-button": MdElement;
+      "md-fab": MdElement;
+      "md-extended-fab": MdElement;
+      "md-elevated-card": MdElement;
+      "md-filled-card": MdElement;
+      "md-outlined-card": MdElement;
+      "md-filled-text-field": MdElement;
+      "md-outlined-text-field": MdElement;
+      "md-checkbox": MdElement;
+      "md-radio": MdElement;
+      "md-switch": MdElement;
+      "md-list": MdElement;
+      "md-list-item": MdElement;
+      "md-divider": MdElement;
+      "md-menu": MdElement & { anchor?: string; positioning?: string; open?: boolean };
+      "md-menu-item": MdElement;
+      "md-dialog": MdElement & { open?: boolean };
+      "md-assist-chip": MdElement;
+      "md-filter-chip": MdElement;
+      "md-input-chip": MdElement;
+      "md-suggestion-chip": MdElement;
+      "md-circular-progress": MdElement & { indeterminate?: boolean };
+      "md-linear-progress": MdElement & { indeterminate?: boolean };
+      "md-icon": MdElement;
+      "md-tabs": MdElement;
+      "md-primary-tab": MdElement;
+      "md-secondary-tab": MdElement;
+      "md-filled-select": MdElement;
+      "md-outlined-select": MdElement;
+      "md-select-option": MdElement;
     }
   }
 }
-
 ```
 
 ---
@@ -4226,6 +4391,335 @@ if (root) {
 
 ---
 
+## Arquivo: `src/handshakes/hand-profile.ts`
+
+```ts
+// src/handshakes/hand-profile.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { Handshake } from "../constants/db.ts";
+import { gerarId } from "../utils/id-utils.ts";
+import {
+  buscarHandshake,
+  salvarHandshake,
+  buscarProfile,
+  buscarContatoPorChave,
+  salvarContato,
+  serializarPublicKeyVapid
+} from "../utils/db-helpers.ts";
+
+import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+
+// 🔥 Interface estrita de Saída
+interface ProfileOutParams {
+  function: string;
+  contato: string;
+  campos?: string[];
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ProfileOutParams }) {
+  
+  if (handshakeId) {
+    addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
+    const handshake = await buscarHandshake(handshakeId);
+    
+    if (!handshake || !handshake.in || !handshake.in.rotas.profile) {
+      addDebugLog(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
+      return;
+    }
+
+    const profileReq = handshake.in.rotas.profile;
+
+    if (Array.isArray(profileReq.campos)) {
+      addDebugLog(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
+      
+      const profile = await buscarProfile();
+      if (!profile) throw new Error("Perfil local não encontrado para responder à requisição.");
+
+      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
+      
+      const rotasProfileData: Record<string, unknown> = { id: meuHash };
+      const camposSet = new Set(profileReq.campos);
+
+      if (camposSet.has('name')) rotasProfileData.name = profile.name;
+      if (camposSet.has('email')) rotasProfileData.email = profile.email;
+      if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = profile.vapidPublicKey;
+      if (camposSet.has('vapidPrivateKeyEnvelope')) rotasProfileData.vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
+      if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = profile.e2ePublicKey;
+      if (camposSet.has('subscription')) rotasProfileData.subscription = profile.subscription;
+
+      handshake.out = {
+        status: 'pendente',
+        tentativas: 0,
+        rotas: {
+          profile: {
+            data: rotasProfileData
+          }
+        }
+      };
+      
+      handshake.updatedAt = Date.now();
+      await salvarHandshake(handshake);
+
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    else if (profileReq.data && typeof profileReq.data.id === 'string') {
+      addDebugLog(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
+      
+      const contatoId = profileReq.data.id;
+      const contato = await buscarContatoPorChave(contatoId);
+      
+      if (contato) {
+        const d = profileReq.data;
+        
+        // Validação Estrita de Tipos antes da mutação
+        if (typeof d.name === 'string') contato.name = d.name;
+        if (typeof d.email === 'string') contato.email = d.email;
+        if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = d.vapidPublicKey as JsonWebKey;
+        if (typeof d.vapidPrivateKeyEnvelope === 'string') contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
+        if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = d.e2ePublicKey as JsonWebKey;
+        if (d.subscription !== undefined) contato.subscription = d.subscription as any;
+
+        contato.updatedAt = Date.now();
+        await salvarContato(contato);
+        addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
+
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => {
+          client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
+        });
+      } else {
+        addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
+      }
+    }
+  }
+  
+  if (outParams) {
+    addDebugLog(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
+    
+    if (outParams.function === 'solicitarPerfil') {
+      const contatoId = outParams.contato;
+      const campos = outParams.campos;
+
+      if (!contatoId || !campos) {
+        throw new Error("Parâmetros inválidos para solicitarPerfil. Exigido 'contato' e 'campos'.");
+      }
+
+      const novoHandshake: Handshake = {
+        id: gerarId(),
+        aud: contatoId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        out: {
+          status: 'pendente',
+          tentativas: 0,
+          rotas: {
+            profile: {
+              campos: campos
+            }
+          }
+        }
+      };
+
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
+      
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+}
+```
+
+---
+
+## Arquivo: `src/handshakes/hand-contato.ts`
+
+```ts
+// src/handshakes/hand-contato.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { Handshake, Contato } from "../constants/db.ts";
+import { gerarId } from "../utils/id-utils.ts";
+import {
+  buscarHandshake,
+  salvarHandshake,
+  buscarProfile,
+  buscarContatoPorChave,
+  salvarContato,
+  serializarPublicKeyVapid
+} from "../utils/db-helpers.ts";
+import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
+import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+
+interface ContatoOutParams {
+  function: string;
+  contato: string;
+  campos?: string[];
+  responder?: boolean;
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
+  
+  if (handshakeId) {
+    const handshake = await buscarHandshake(handshakeId);
+    if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
+    const contatoReq = handshake.in.rotas.contato;
+
+    if (Array.isArray(contatoReq.campos) && contatoReq.id) {
+      addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
+      const contato = await buscarContatoPorChave(handshake.aud);
+      const rotasContatoData: Record<string, unknown> = { id: handshake.aud };
+
+      if (contato) {
+        const camposSet = new Set(contatoReq.campos);
+        const cp = extrairDadosCompactos(contato);
+        
+        if (camposSet.has('vapidPublicKey')) { rotasContatoData.vx = cp.vx; rotasContatoData.vy = cp.vy; }
+        if (camposSet.has('e2ePublicKey')) rotasContatoData.en = cp.en;
+        if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; }
+        if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
+        if (camposSet.has('email')) rotasContatoData.em = cp.em;
+        if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
+        if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
+      } else {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Contato não localizado no banco local para aud: ${handshake.aud}`);
+      }
+
+      handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
+      handshake.updatedAt = Date.now();
+      await salvarHandshake(handshake);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    else if (contatoReq.data) {
+      addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
+      const contato = await buscarContatoPorChave(handshake.aud);
+      const profile = await buscarProfile();
+
+      if (!contato) {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local (aud: ${handshake.aud}).`);
+        return;
+      }
+
+      if (!profile) {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Perfil local não encontrado.`);
+        return;
+      }
+
+      const d = contatoReq.data as Record<string, unknown>;
+      const mp = extrairDadosCompactos(profile);
+      let novoMeStatus = contato.me;
+
+      if (!d.se) {
+        novoMeStatus = 'none'; 
+      } else {
+        if (d.tr === true) novoMeStatus = 'trusted';
+        else novoMeStatus = 'saved';
+
+        if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
+            d.vx !== mp.vx || d.vy !== mp.vy || d.en !== mp.en || d.ve !== mp.ve) {
+          novoMeStatus = 'wrong';
+        }
+      }
+
+      if (contato.me !== novoMeStatus) {
+        const statusAnterior = contato.me;
+        contato.me = novoMeStatus;
+        contato.updatedAt = Date.now();
+        await salvarContato(contato);
+        addDebugLog(`[HAND-CONTATO] ✅ Status alterado de '${statusAnterior}' para: '${novoMeStatus}'`);
+        
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      } else {
+        addDebugLog(`[HAND-CONTATO] ✅ Consistência avaliada. Status mantido em: '${novoMeStatus}'`);
+      }
+    }
+
+    else if (contatoReq.sync) {
+      addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
+      
+      const syncData = contatoReq.sync as unknown as CompactContact;
+      const expanded = expandirDadosCompactos(syncData);
+      const contatoAntigo = await buscarContatoPorChave(handshake.aud);
+      
+      const eleConfiaEmMim = syncData.tr === true; 
+      const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
+
+      const novoContato: Contato = {
+        id: handshake.aud,
+        vapidPublicKey: expanded.vapidPublicKey!,
+        e2ePublicKey: expanded.e2ePublicKey!,
+        email: expanded.email || '',
+        name: expanded.name || '',
+        subscription: expanded.subscription!,
+        vapidPrivateKeyEnvelope: expanded.vapidPrivateKeyEnvelope!,
+        trusted: contatoAntigo ? contatoAntigo.trusted : false, 
+        me: novoMeStatus, 
+        createdAt: contatoAntigo ? contatoAntigo.createdAt : Date.now(),
+        updatedAt: Date.now()
+      };
+
+      await salvarContato(novoContato);
+      addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
+
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+
+      if (syncData.req) {
+        addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
+        await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
+      }
+    }
+  }
+
+  if (outParams) {
+    if (outParams.function === 'confirmarSubscription') {
+      const profile = await buscarProfile();
+      if (!profile) {
+        addDebugLog(`[HAND-CONTATO] ❌ Erro ao criar Pull: Perfil local ausente.`);
+        return;
+      }
+      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
+      };
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-CONTATO] ✅ Handshake de confirmação de inscrição (Pull) criado.`);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    if (outParams.function === 'enviarSubscription') {
+      const profile = await buscarProfile();
+      if (!profile) throw new Error("Perfil não encontrado.");
+
+      const contatoAlvo = await buscarContatoPorChave(outParams.contato);
+      const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
+
+      const compactSyncData = extrairDadosCompactos(profile, !outParams.responder, euConfio);
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData as unknown as Record<string, unknown> } } }
+      };
+
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-CONTATO] ✅ Handshake de sync de contato (Push) criado.`);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/handshakes/hand-mensagem.ts`
 
 ```ts
@@ -4246,13 +4740,18 @@ import {
 } from "../utils/db-helpers.ts";
 
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts"; // 🔥 Ajustado para Logger Puro
+import { addDebugLog } from "../utils/debug-utils.ts"; 
 
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
+interface MensagemOutParams {
+  function: string;
+  contato: string;
+  conteudo?: string;
+  mensagem?: string;
+  campos?: string[];
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
   
-  // ==========================================
-  // 📥 FLUXO DE ENTRADA (IN)
-  // ==========================================
   if (handshakeId) {
     addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
@@ -4260,11 +4759,10 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
     const msgReq = handshake.in.rotas.mensagem;
 
-    // 1. Recebemos uma SOLICITAÇÃO sobre uma mensagem que recebemos
     if (msgReq.recebida && Array.isArray(msgReq.campos)) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
       const msgLocal = await buscarMensagemRecebida(msgReq.recebida);
-      const rotasMsgData: any = { recebida: msgReq.recebida };
+      const rotasMsgData: Record<string, unknown> = { recebida: msgReq.recebida };
 
       if (msgLocal) {
         const camposSet = new Set(msgReq.campos);
@@ -4279,8 +4777,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // 2. Recebemos RESPOSTA de um pacote de status de leitura/entrega
-    else if (msgReq.data && msgReq.data.recebida && msgReq.data.status) {
+    else if (msgReq.data && typeof msgReq.data.recebida === 'string' && typeof msgReq.data.status === 'string') {
       addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. A mensagem ${msgReq.data.recebida} consta como ${msgReq.data.status} no destino.`);
       
       const msgEnviada = await buscarMensagemEnviada(msgReq.data.recebida);
@@ -4295,7 +4792,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
     }
 
-    // 3. Recebemos uma NOVA MENSAGEM de fato
     else if (msgReq.enviada && msgReq.conteudo) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
       
@@ -4308,7 +4804,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
       await salvarMensagemRecebida(novaMsgRecebida);
 
-      // Auto-Ack para bater o Double-Check lá no emisor!
       const ackHandshake: Handshake = {
         id: gerarId(),
         aud: handshake.aud,
@@ -4339,9 +4834,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     }
   }
   
-  // ==========================================
-  // 📤 FLUXO DE SAÍDA (OUT)
-  // ==========================================
   if (outParams) {
     if (outParams.function === 'confirmarEntrega') {
       const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
@@ -4355,6 +4847,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     else if (outParams.function === 'enviarMensagem') {
       const { contato: contatoId, conteudo } = outParams;
+      if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
+
       const msgId = gerarId();
 
       const msgEnviada: MensagemEnviada = {
@@ -4371,330 +4865,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       await salvarHandshake(novoHandshake);
       addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${msgId} salva na fila do Service Worker.`);
       
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-  }
-}
-```
-
----
-
-## Arquivo: `src/handshakes/hand-profile.ts`
-
-```ts
-// src/handshakes/hand-profile.ts
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-import { Handshake } from "../constants/db.ts";
-import { gerarId } from "../utils/id-utils.ts";
-import {
-  buscarHandshake,
-  salvarHandshake,
-  buscarProfile,
-  buscarContatoPorChave,
-  salvarContato,
-  serializarPublicKeyVapid
-} from "../utils/db-helpers.ts";
-
-// Importamos a função principal do roteador para forçar a fila a andar quando criamos uma saída
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
-  
-  // ==========================================
-  // 📥 FLUXO DE ENTRADA (IN)
-  // ==========================================
-  if (handshakeId) {
-    addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
-    const handshake = await buscarHandshake(handshakeId);
-    
-    if (!handshake || !handshake.in || !handshake.in.rotas.profile) {
-      addDebugLog(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
-      return;
-    }
-
-    const profileReq = handshake.in.rotas.profile;
-
-    // 1. Recebemos uma SOLICITAÇÃO (campos array) -> Devemos gerar a Resposta (FluxoOut)
-    if (Array.isArray(profileReq.campos)) {
-      addDebugLog(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
-      
-      const profile = await buscarProfile();
-      if (!profile) throw new Error("Perfil local não encontrado para responder à requisição.");
-
-      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
-      
-      // Monta os dados a serem enviados de volta
-      const rotasProfileData: any = { id: meuHash };
-      const camposSet = new Set(profileReq.campos);
-
-      if (camposSet.has('name')) rotasProfileData.name = profile.name;
-      if (camposSet.has('email')) rotasProfileData.email = profile.email;
-      if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = profile.vapidPublicKey;
-      if (camposSet.has('vapidPrivateKeyEnvelope')) rotasProfileData.vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
-      if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = profile.e2ePublicKey;
-      if (camposSet.has('subscription')) rotasProfileData.subscription = profile.subscription;
-
-      // O próprio handshake recebido ganha um out (resposta)
-      handshake.out = {
-        status: 'pendente',
-        tentativas: 0,
-        rotas: {
-          profile: {
-            data: rotasProfileData
-          }
-        }
-      };
-      
-      handshake.updatedAt = Date.now();
-      await salvarHandshake(handshake);
-
-      // Aciona o processador para enviar a resposta imediatamente
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    // 2. Recebemos uma RESPOSTA (data object) -> Devemos salvar no IndexedDB
-    else if (profileReq.data && profileReq.data.id) {
-      addDebugLog(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
-      
-      const contatoId = profileReq.data.id;
-      const contato = await buscarContatoPorChave(contatoId);
-      
-      if (contato) {
-        const d = profileReq.data;
-        
-        // Atualiza apenas os campos que o contato enviou de volta
-        if (d.name !== undefined) contato.name = d.name;
-        if (d.email !== undefined) contato.email = d.email;
-        if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = d.vapidPublicKey;
-        if (d.vapidPrivateKeyEnvelope !== undefined) contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
-        if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = d.e2ePublicKey;
-        if (d.subscription !== undefined) contato.subscription = d.subscription;
-
-        contato.updatedAt = Date.now();
-        await salvarContato(contato);
-        addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
-
-        // Notifica a Interface (UI) para se recarregar
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => {
-          client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
-        });
-      } else {
-        addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
-      }
-    }
-  }
-  
-  // ==========================================
-  // 📤 FLUXO DE SAÍDA (OUT - Acionado por nós)
-  // ==========================================
-  if (outParams) {
-    addDebugLog(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
-    
-    // Função: solicitarPerfil
-    if (outParams.function === 'solicitarPerfil') {
-      const contatoId = outParams.contato;
-      const campos = outParams.campos;
-
-      if (!contatoId || !campos) {
-        throw new Error("Parâmetros inválidos para solicitarPerfil. Exigido 'contato' e 'campos'.");
-      }
-
-      const novoHandshake: Handshake = {
-        id: gerarId(),
-        aud: contatoId,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        out: {
-          status: 'pendente',
-          tentativas: 0,
-          rotas: {
-            profile: {
-              campos: campos
-            }
-          }
-        }
-      };
-
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
-      
-      // Aciona a fila para processar o envio
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-  }
-}
-```
-
----
-
-## Arquivo: `src/handshakes/hand-contato.ts`
-
-```ts
-// src/handshakes/hand-contato.ts
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-import { Handshake, Contato } from "../constants/db.ts";
-import { gerarId } from "../utils/id-utils.ts";
-import {
-  buscarHandshake,
-  salvarHandshake,
-  buscarProfile,
-  buscarContatoPorChave,
-  salvarContato,
-  serializarPublicKeyVapid
-} from "../utils/db-helpers.ts";
-import { extrairDadosCompactos, expandirDadosCompactos } from "../utils/share-utils.ts";
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
-  
-  if (handshakeId) {
-    const handshake = await buscarHandshake(handshakeId);
-    if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
-    const contatoReq = handshake.in.rotas.contato;
-
-    // 1. Recebemos um Pull (O contato quer saber se confiamos nele e se temos os dados certos)
-    if (Array.isArray(contatoReq.campos) && contatoReq.id) {
-      addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const rotasContatoData: any = { id: handshake.aud };
-
-      if (contato) {
-        const camposSet = new Set(contatoReq.campos);
-        const cp = extrairDadosCompactos(contato); // Puxa os dados espremidos
-        
-        if (camposSet.has('vapidPublicKey')) { rotasContatoData.vx = cp.vx; rotasContatoData.vy = cp.vy; }
-        if (camposSet.has('e2ePublicKey')) rotasContatoData.en = cp.en;
-        if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; }
-        if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
-        if (camposSet.has('email')) rotasContatoData.em = cp.em;
-        if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
-        if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
-      }
-
-      handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
-      handshake.updatedAt = Date.now();
-      await salvarHandshake(handshake);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    // 2. Recebemos a Resposta do Pull (Avaliando a consistência)
-    else if (contatoReq.data) {
-      addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const profile = await buscarProfile();
-
-      if (contato && profile) {
-        const d = contatoReq.data;
-        const mp = extrairDadosCompactos(profile); // Puxa o nosso perfil espremido para bater de frente
-        let novoMeStatus = contato.me;
-
-        if (!d.se) {
-          novoMeStatus = 'none'; 
-        } else {
-          if (d.tr === true) novoMeStatus = 'trusted';
-          else novoMeStatus = 'saved';
-
-          if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
-              d.vx !== mp.vx || d.vy !== mp.vy || d.en !== mp.en || d.ve !== mp.ve) {
-            novoMeStatus = 'wrong';
-          }
-        }
-
-        if (contato.me !== novoMeStatus) {
-          contato.me = novoMeStatus;
-          contato.updatedAt = Date.now();
-          await salvarContato(contato);
-          addDebugLog(`[HAND-CONTATO] ✅ Status do contato atualizado para: ${novoMeStatus}`);
-          
-          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-          clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-        }
-      }
-    }
-
-    // 3. Recebemos um Push (enviarSubscription/sync)
-    else if (contatoReq.sync) {
-      addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
-      
-      const expanded = expandirDadosCompactos(contatoReq.sync);
-      const contatoAntigo = await buscarContatoPorChave(handshake.aud);
-      
-      // Avaliação blindada do status enviado pelo remetente
-      const eleConfiaEmMim = contatoReq.sync.tr === true; 
-      const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
-
-      const novoContato: Contato = {
-        id: handshake.aud,
-        vapidPublicKey: expanded.vapidPublicKey!,
-        e2ePublicKey: expanded.e2ePublicKey!,
-        email: expanded.email || '',
-        name: expanded.name || '',
-        subscription: expanded.subscription!,
-        vapidPrivateKeyEnvelope: expanded.vapidPrivateKeyEnvelope!,
-        trusted: contatoAntigo ? contatoAntigo.trusted : false, 
-        me: novoMeStatus, 
-        createdAt: contatoAntigo ? contatoAntigo.createdAt : Date.now(),
-        updatedAt: Date.now()
-      };
-
-      await salvarContato(novoContato);
-      addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
-
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-
-      if (contatoReq.sync.req) {
-        addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
-        await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
-      }
-    }
-  }
-
-  // ==========================================
-  // 📤 FLUXO DE SAÍDA (OUT)
-  // ==========================================
-  if (outParams) {
-    // PULL - Diagnóstico
-    if (outParams.function === 'confirmarSubscription') {
-      const profile = await buscarProfile();
-      const meuHash = await serializarPublicKeyVapid(profile!.vapidPublicKey);
-
-      const novoHandshake: Handshake = {
-        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
-      };
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-CONTATO] ✅ Handshake de confirmação de inscrição (Pull) criado.`);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    // PUSH - Forçar Sincronização
-    if (outParams.function === 'enviarSubscription') {
-      const profile = await buscarProfile();
-      if (!profile) throw new Error("Perfil não encontrado.");
-
-      const contatoAlvo = await buscarContatoPorChave(outParams.contato);
-      const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
-
-      // Utiliza a função importada para reduzir DRY
-      const compactSyncData = extrairDadosCompactos(profile, !outParams.responder, euConfio);
-
-      const novoHandshake: Handshake = {
-        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData } } }
-      };
-
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-CONTATO] ✅ Handshake de sync de contato (Push) criado.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
@@ -5117,7 +5287,7 @@ import "./sw/push.ts";
 import "./sw/click.ts";
 import "./sw/sw-handshakes.ts";
 
-// 🔥 CORREÇÃO: Importando a função com o novo nome padronizado
+// Importando a função principal
 import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
 
 // Importando os processadores de Handshake
@@ -5133,7 +5303,6 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
     (async () => {
       await new Promise(r => setTimeout(r, 1000));
       try {
-        // 🔥 CORREÇÃO: Chamando a função com o novo nome
         await processarFilaHandshake();
       } catch (e) {
         console.error("[SW] Erro ao processar fila de handshakes:", e);
@@ -5142,13 +5311,20 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
   );
 });
 
-// Listener de mensagens para capturar os comandos da Interface (UI)
+// Este é O ÚNICO listener de mensagens do nosso Service Worker agora.
+// Ele funciona como o Diretor de Tráfego vindo da UI.
 self.addEventListener('message', (event: ExtendableMessageEvent) => {
   if (!event.data) return;
 
   const { type, payload } = event.data;
 
-  // Roteador de comandos de saída (Envio de Mensagens, Contatos, etc)
+  // Manual Trigger: UI pedindo para a fila de rede andar
+  if (type === 'PROCESSAR_FILA_HANDSHAKE') {
+    processarFilaHandshake().catch(err => console.error(err));
+    return;
+  }
+
+  // Roteador de comandos de saída (Envio de Mensagens, Contatos, etc) criados pela UI
   if (type === 'CRIAR_HANDSHAKE_OUT') {
     const { rotasModulo, params } = payload;
     console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);
@@ -5193,276 +5369,6 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
   "background_color": "#60a5fa",
   "display": "standalone"
 }
-```
-
----
-
-## Arquivo: `deno.json`
-
-```json
-{
-  "workspace": ["proto/_template", "proto/01-push-messaging"],
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"]
-  },
-  "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
-    "@std/fs": "jsr:@std/fs@^1",
-    "@std/http": "jsr:@std/http@^1",
-    "@std/path": "jsr:@std/path@^1",
-    "@std/http/file-server": "jsr:@std/http@^1/file-server",
-    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
-    "preact": "https://esm.sh/preact@10.29.7",
-    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
-    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
-  },
-  "tasks": {
-    "test": "deno test --allow-env --allow-net tests/",
-    "typecheck": "deno check main.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno task build && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "clean": "rm -rf dist && mkdir -p dist",
-    "export": "deno run --allow-read --allow-write export.ts"
-  },
-  "exclude": ["dist/", "public/"]
-}
-
-```
-
----
-
-## Arquivo: `build.ts`
-
-```ts
-/// <reference lib="deno.ns" />
-import { ensureDir, copy, walk } from "@std/fs";
-import { join } from "@std/path";
-
-const DIST_DIR = "dist";
-const SRC_DIR = "src";
-const PUBLIC_DIR = "public";
-
-interface BundleResult {
-  success: boolean;
-  errors?: unknown[];
-  warnings?: unknown[];
-  outputFiles?: Array<{
-    path: string;
-    contents: Record<string, number> | Uint8Array | string;
-    hash?: string;
-  }>;
-  code?: string;
-  output?: string;
-}
-
-interface BundleOptions {
-  entrypoints: string[];
-  outputDir?: string;
-  outputFile?: string;
-  platform?: "browser" | "deno" | "neutral";
-  format?: "esm" | "iife" | "cjs";
-  bundle?: boolean;
-  minify?: boolean;
-  sourcemap?: boolean | "linked" | "inline";
-  write?: boolean;
-  jsx?: "automatic" | "react" | "preserve";
-  jsxImportSource?: string;
-  jsxFactory?: string;
-  jsxFragment?: string;
-}
-
-async function clean() {
-  try {
-    await Deno.remove(DIST_DIR, { recursive: true });
-  } catch {
-    // diretório não existe, ok
-  }
-  await ensureDir(DIST_DIR);
-  console.log("📁 Arquivos anteriores excluídos");
-}
-
-async function copyStatic() {
-  try {
-    await copy(PUBLIC_DIR, DIST_DIR, { overwrite: true });
-    console.log("📁 Arquivos estáticos copiados");
-  } catch {
-    console.log("⚠️ Pasta public não encontrada ou erro na cópia");
-  }
-}
-
-function contentsToString(contents: Record<string, number> | Uint8Array | string): string {
-  if (typeof contents === 'string') return contents;
-  if (contents instanceof Uint8Array) return new TextDecoder().decode(contents);
-  if (contents && typeof contents === 'object') {
-    const bytes: number[] = [];
-    const keys = Object.keys(contents);
-    const isNumericKeys = keys.every(k => !isNaN(Number(k)));
-    if (isNumericKeys && keys.length > 0) {
-      const sortedKeys = keys.map(Number).sort((a, b) => a - b);
-      for (const key of sortedKeys) {
-        const value = (contents as Record<string, number>)[key.toString()];
-        if (typeof value === 'number' && value >= 0 && value <= 255) bytes.push(value);
-      }
-      if (bytes.length > 0) return new TextDecoder().decode(new Uint8Array(bytes));
-    }
-  }
-  return JSON.stringify(contents);
-}
-
-async function writeOutput(result: BundleResult, fileName: string): Promise<void> {
-  if (!result.outputFiles || result.outputFiles.length === 0) {
-    throw new Error(`Nenhum output gerado para ${fileName}`);
-  }
-  const text = contentsToString(result.outputFiles[0].contents);
-  await Deno.writeTextFile(join(DIST_DIR, fileName), text);
-}
-
-function extrairCodigoDoBundle(result: BundleResult): string {
-  if (!result.outputFiles || result.outputFiles.length === 0) return '';
-  return contentsToString(result.outputFiles[0].contents);
-}
-
-async function runBundle(name: string, bundleOpts: BundleOptions): Promise<BundleResult> {
-  console.log(`🔨 [${name}] Iniciando bundle...`);
-  // deno-lint-ignore no-explicit-any
-  const result = (await (Deno as any).bundle(bundleOpts)) as BundleResult;
-  if (!result.success) {
-    console.error(`❌ Erros no bundle ${name}:`, result.errors);
-    throw new Error(`Falha ao gerar ${name}`);
-  }
-  for (const warning of result.warnings || []) {
-    console.warn(`⚠️ ${name}:`, warning);
-  }
-  return result;
-}
-
-async function gerarOuCarregarChavesServidor() {
-  let publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
-  let privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
-  if (publicKey && privateKey) {
-    console.log("🔑 Chaves do servidor carregadas do .env");
-    return;
-  }
-  console.log("🔐 Gerando novas chaves RSA do servidor...");
-  const keyPair = await crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-  const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-  const publicKeyStr = JSON.stringify(publicJwk);
-  const privateKeyStr = JSON.stringify(privateJwk);
-  Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
-  Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
-  await Deno.writeTextFile(
-    '.env',
-    `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
-    `# NÃO COMMITAR ESTE ARQUIVO!\n` +
-    `SERVER_PUBLIC_KEY=${publicKeyStr}\n` +
-    `SERVER_PRIVATE_KEY=${privateKeyStr}\n`
-  );
-  console.log(`✅ Chaves do servidor salvas em .env`);
-  console.log("   ⚠️  NÃO COMMITAR este arquivo!");
-  console.log("   💡 Use 'deno task start' para rodar o servidor");
-}
-
-async function listarAssetsParaCache(): Promise<string[]> {
-  const assets: string[] = []; // Não Inclui a rota raiz explicitamente
-  const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
-  
-  // Caminha recursivamente por todos os subdiretórios criados pelo bundle dentro de dist
-  for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
-    if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      // Transforma o caminho do sistema de arquivos em caminho relativo web (ex: /assets/style.css)
-      const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
-      assets.push(webPath);
-    }
-  }
-  return assets;
-}
-
-async function build() {
-  console.log("\n🚀 Iniciando build do protótipo...\n");
-  const start = performance.now();
-
-  await gerarOuCarregarChavesServidor();
-  await clean();
-  await copyStatic();
-
-  console.log("📦 Compilando página HTML (browser-b)...");
-  await runBundle("HTML", {
-    entrypoints: [
-      join(SRC_DIR, "index.html"), 
-      join(SRC_DIR, "logout.html"),
-      join(SRC_DIR, "share.html"),
-      join(SRC_DIR, "profile.html")
-
-    ],
-    outputDir: DIST_DIR,
-    platform: "browser",
-    format: "esm",
-    bundle: true,
-    minify: false,
-    write: true,
-    jsx: "automatic",
-    jsxImportSource: "preact",
-    jsxFactory: "h",
-    jsxFragment: "Fragment",
-  });
- 
-  console.log("📦 Compilando Service Worker em memória...");
-  const swResult = await runBundle("ServiceWorker", {
-    entrypoints: [join(SRC_DIR, "service-worker.ts")],
-    platform: "browser",
-    format: "iife",
-    bundle: true,
-    minify: false,
-    write: false,
-  });
-
-  let swCode = extrairCodigoDoBundle(swResult);
-  if (swCode.length < 100) throw new Error("Não foi possível extrair o código do Service Worker");
-  console.log(`   📄 Código extraído: ${swCode.length} caracteres`);
-
-const assets = await listarAssetsParaCache();
-const versionHash = Date.now().toString();
-
-// Injeta as propriedades de forma robusta
-swCode = swCode
-  .replace(/VERSION_HASH/g, versionHash)
-  // Substitui a expressão inteira __GENERATED_ASSETS__ pelo array serializado em JSON
-  .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets).slice(1, -1)); 
-  // O .slice(1, -1) remove os colchetes [ ] do JSON.stringify para encaixar perfeitamente dentro de [__GENERATED_ASSETS__]
-
-await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
-
-  console.log(`✨ Service Worker gerado com sucesso! (v_${versionHash})`);
-  console.log(`   📦 ${assets.length} assets em cache`);
-  console.log(`   📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
-
-  const elapsed = (performance.now() - start).toFixed(0);
-  console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/`);
-  console.log(`   📄 Assets cacheados: ${assets.join(', ')}\n`);
-}
-
-await build();
 ```
 
 ---
@@ -5857,6 +5763,466 @@ Deno.serve({ port: PORT }, async (req) => {
 
 console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
 ```
+
+---
+
+## Arquivo: `deno.jsonc`
+
+```json
+{
+  // ============================================================================
+  // 🚀 LOCO PWA - Manifesto do Deno
+  // Mensageiro PWA Descentralizado, Offline-First & E2EE
+  // ============================================================================
+
+  // 📋 Metadados do Projeto
+  "name": "@vanaware/loco",
+  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
+  "version": "0.2.2-msmdcc54",
+  "exports": "./main.ts",
+  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
+  "author": "Vanaware",
+  "license": "MIT",
+  
+  "workspace": [
+    "proto/_template",
+    "proto/01-push-messaging"
+  ],
+
+  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+
+  // 📦 Gerenciamento de Dependências
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/http": "jsr:@std/http@^1",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
+    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
+    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+  },
+
+  // 🛠️ Scripts de Automação
+  "tasks": {
+    "test": "deno test --allow-env --allow-net tests/",
+    "typecheck": "deno check main.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
+    "dev": "deno task build && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "rm -rf dist && mkdir -p dist",
+    "export": "deno run --allow-read --allow-write export.ts"
+  },
+
+  "exclude": ["dist/", "public/"]
+}
+```
+
+---
+
+## Arquivo: `build.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { ensureDir, copy, walk } from "@std/fs";
+import { join } from "@std/path";
+
+const DIST_DIR = "dist";
+const SRC_DIR = "src";
+const PUBLIC_DIR = "public";
+
+interface BundleResult {
+  success: boolean;
+  errors?: unknown[];
+  warnings?: unknown[];
+  outputFiles?: Array<{
+    path: string;
+    contents: Record<string, number> | Uint8Array | string;
+    hash?: string;
+  }>;
+  code?: string;
+  output?: string;
+}
+
+interface BundleOptions {
+  entrypoints: string[];
+  outputDir?: string;
+  outputFile?: string;
+  platform?: "browser" | "deno" | "neutral";
+  format?: "esm" | "iife" | "cjs";
+  bundle?: boolean;
+  minify?: boolean;
+  sourcemap?: boolean | "linked" | "inline";
+  write?: boolean;
+  jsx?: "automatic" | "react" | "preserve";
+  jsxImportSource?: string;
+  jsxFactory?: string;
+  jsxFragment?: string;
+}
+
+async function incrementVersion(): Promise<string> {
+  const denoJsoncPath = "deno.jsonc";
+  let content = await Deno.readTextFile(denoJsoncPath);
+  let currentVersion = "0.0.0";
+  
+  // Gera o hash único deste build
+  const buildHash = Date.now().toString(36);
+
+  // Regex para capturar a versão, ignorando o hash antigo se ele existir, e somando o patch
+  content = content.replace(/"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9]+)?"/, (_match, major, minor, patch) => {
+    const nextPatch = parseInt(patch, 10) + 1;
+    currentVersion = `${major}.${minor}.${nextPatch}-${buildHash}`;
+    return `"version": "${currentVersion}"`;
+  });
+
+  await Deno.writeTextFile(denoJsoncPath, content);
+  
+  // Gera um arquivo TS injetável para o Frontend ler a versão de forma síncrona
+  await ensureDir(join(SRC_DIR, "constants"));
+  const versionTsContent = `// Arquivo gerado automaticamente pelo build.ts\nexport const APP_VERSION = "${currentVersion}";\n`;
+  await Deno.writeTextFile(join(SRC_DIR, "constants", "version.ts"), versionTsContent);
+  
+  console.log(`📈 Versão incrementada para: v${currentVersion}`);
+  return currentVersion; // Retorna ex: "0.1.2-msmcsbjx"
+}
+
+async function clean() {
+  try {
+    await Deno.remove(DIST_DIR, { recursive: true });
+  } catch {
+    // diretório não existe, ok
+  }
+  await ensureDir(DIST_DIR);
+  console.log("📁 Arquivos anteriores excluídos");
+}
+
+async function copyStaticAndSyncManifest(appVersion: string) {
+  try {
+    await copy(PUBLIC_DIR, DIST_DIR, { overwrite: true });
+    
+    // Injeta a versão sincronizada dentro do dist/manifest.json
+    const manifestPath = join(DIST_DIR, "manifest.json");
+    try {
+      const manifestText = await Deno.readTextFile(manifestPath);
+      const manifestObj = JSON.parse(manifestText);
+      manifestObj.version = appVersion; // 🔥 Injeção da versão unificada
+      await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
+      console.log(`📱 Versão v${appVersion} injetada em dist/manifest.json`);
+    } catch {
+      console.log("⚠️ Não foi possível atualizar a versão dentro do manifest.json");
+    }
+
+    console.log("📁 Arquivos estáticos copiados");
+  } catch {
+    console.log("⚠️ Pasta public não encontrada ou erro na cópia");
+  }
+}
+
+function contentsToString(contents: Record<string, number> | Uint8Array | string): string {
+  if (typeof contents === 'string') return contents;
+  if (contents instanceof Uint8Array) return new TextDecoder().decode(contents);
+  if (contents && typeof contents === 'object') {
+    const bytes: number[] = [];
+    const keys = Object.keys(contents);
+    const isNumericKeys = keys.every(k => !isNaN(Number(k)));
+    if (isNumericKeys && keys.length > 0) {
+      const sortedKeys = keys.map(Number).sort((a, b) => a - b);
+      for (const key of sortedKeys) {
+        const value = (contents as Record<string, number>)[key.toString()];
+        if (typeof value === 'number' && value >= 0 && value <= 255) bytes.push(value);
+      }
+      if (bytes.length > 0) return new TextDecoder().decode(new Uint8Array(bytes));
+    }
+  }
+  return JSON.stringify(contents);
+}
+
+function extrairCodigoDoBundle(result: BundleResult): string {
+  if (!result.outputFiles || result.outputFiles.length === 0) return '';
+  return contentsToString(result.outputFiles[0].contents);
+}
+
+async function runBundle(name: string, bundleOpts: BundleOptions): Promise<BundleResult> {
+  console.log(`🔨 [${name}] Iniciando bundle...`);
+  // deno-lint-ignore no-explicit-any
+  const result = (await (Deno as any).bundle(bundleOpts)) as BundleResult;
+  if (!result.success) {
+    console.error(`❌ Erros no bundle ${name}:`, result.errors);
+    throw new Error(`Falha ao gerar ${name}`);
+  }
+  for (const warning of result.warnings || []) {
+    console.warn(`⚠️ ${name}:`, warning);
+  }
+  return result;
+}
+
+async function gerarOuCarregarChavesServidor() {
+  let publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
+  let privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
+  if (publicKey && privateKey) {
+    console.log("🔑 Chaves do servidor carregadas do .env");
+    return;
+  }
+  console.log("🔐 Gerando novas chaves RSA do servidor...");
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: "RSA-OAEP",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt", "decrypt"]
+  );
+  const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+  const publicKeyStr = JSON.stringify(publicJwk);
+  const privateKeyStr = JSON.stringify(privateJwk);
+  Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
+  Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
+  await Deno.writeTextFile(
+    '.env',
+    `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
+    `# NÃO COMMITAR ESTE ARQUIVO!\n` +
+    `SERVER_PUBLIC_KEY=${publicKeyStr}\n` +
+    `SERVER_PRIVATE_KEY=${privateKeyStr}\n`
+  );
+  console.log(`✅ Chaves do servidor salvas em .env`);
+}
+
+async function listarAssetsParaCache(): Promise<string[]> {
+  const assets: string[] = [];
+  const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
+  
+  for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
+    if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
+      const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
+      assets.push(webPath);
+    }
+  }
+  return assets;
+}
+
+async function build() {
+  console.log("\n🚀 Iniciando build do protótipo...\n");
+  const start = performance.now();
+
+  const appVersion = await incrementVersion();
+  await gerarOuCarregarChavesServidor();
+  await clean();
+  await copyStaticAndSyncManifest(appVersion);
+
+  console.log("📦 Compilando página HTML (browser-b)...");
+  await runBundle("HTML", {
+    entrypoints: [
+      join(SRC_DIR, "index.html"), 
+      join(SRC_DIR, "logout.html"),
+      join(SRC_DIR, "share.html"),
+      join(SRC_DIR, "profile.html")
+    ],
+    outputDir: DIST_DIR,
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    write: true,
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    jsxFactory: "h",
+    jsxFragment: "Fragment",
+  });
+  
+  console.log("📦 Compilando Service Worker em memória...");
+  const swResult = await runBundle("ServiceWorker", {
+    entrypoints: [join(SRC_DIR, "service-worker.ts")],
+    platform: "browser",
+    format: "iife",
+    bundle: true,
+    minify: false,
+    write: false,
+  });
+
+  let swCode = extrairCodigoDoBundle(swResult);
+  if (swCode.length < 100) throw new Error("Não foi possível extrair o código do Service Worker");
+
+  const assets = await listarAssetsParaCache();
+  const versionHash = `v${appVersion}`;
+
+  swCode = swCode
+    .replace(/VERSION_HASH/g, versionHash)
+    .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets).slice(1, -1)); 
+
+  await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+
+  console.log(`✨ Service Worker gerado com sucesso! (Cache ID: ${versionHash})`);
+  console.log(`   📦 ${assets.length} assets em cache`);
+  console.log(`   📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
+
+  const elapsed = (performance.now() - start).toFixed(0);
+  console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/\n`);
+}
+
+await build();
+```
+
+---
+
+## Arquivo: `export.ts`
+
+````ts
+// export.ts
+/**
+ * @file export.ts
+ * @description Script de consolidação de contexto para IAs com suporte a parâmetros via CLI,
+ * nomes de arquivos de saída dinâmicos e sincronização automática de versão.
+ * 
+ * USO VIA DENO TASKS:
+ * - deno task export        -> Exporta Código Fonte para EXPORT.md
+ * - deno task export main   -> Exporta Código Fonte para EXPORT.md
+ * - deno task export docs   -> Exporta Documentação para EXPORT-DOCS.md
+ */
+
+import { walk } from "jsr:@std/fs/walk";
+import { relative } from "jsr:@std/path/relative";
+import { APP_VERSION } from "./src/constants/version.ts";
+
+type ModoExportacao = "main" | "docs";
+
+// 1. Leitura do parâmetro via CLI nativo do Deno
+const argModo = Deno.args[0]?.toLowerCase();
+const modo: ModoExportacao = argModo === "docs" ? "docs" : "main";
+
+// Nomes de arquivos de saída distintos para cada modo de operação
+const ARQUIVO_SAIDA = modo === "docs" ? "EXPORT-DOCS.md" : "EXPORT.md";
+
+// Lista de extensões válidas de texto/código
+const EXTENSOES_PERMITIDAS = [
+  ".tsx", ".jsx", ".js", ".ts", ".css", ".html", ".manifest", ".map",
+  ".sh", ".py", ".ps1",
+  ".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".env", ".env.example",
+  ".md", ".txt", ".sql"
+];
+
+/**
+ * Encontra a maior sequência consecutiva de crases dentro de um texto
+ * e retorna uma string de fechamento com uma crase a mais para não quebrar o Markdown.
+ */
+function calcularCraseWrapper(texto: string): string {
+  const matches = texto.match(/`+/g);
+  if (!matches) return "```";
+  
+  const maiorSequencia = Math.max(...matches.map(m => m.length));
+  const tamanhoNecessario = Math.max(3, maiorSequencia + 1);
+  return "`".repeat(tamanhoNecessario);
+}
+
+/**
+ * Avalia se o arquivo deve ser incluído com base no modo selecionado.
+ */
+function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): boolean {
+  // Ignora arquivos de exportação para evitar loops de leitura
+  if (caminhoRelativo === "EXPORT.md" || caminhoRelativo === "EXPORT-DOCS.md") {
+    return false;
+  }
+
+  const caminhoMinusculo = caminhoRelativo.toLowerCase();
+
+  if (modo === "docs") {
+    // Modo DOCUMENTAÇÃO: Pega docs/ e arquivos de licença/readme
+    if (caminhoRelativo.startsWith("docs/") || caminhoRelativo.startsWith("docs\\")) {
+      return EXTENSOES_PERMITIDAS.some(ext => caminhoMinusculo.endsWith(ext));
+    }
+    const arquivosDocsRaiz = ["readme.md", "readme", "license", "license.md", "license.txt"];
+    return arquivosDocsRaiz.includes(caminhoMinusculo);
+  } else {
+    // Modo MAIN (Padrão): Pega arquivos da raiz e pastas src/ e public/
+    const arquivosRaizPermitidos = ["main.ts", "build.ts", "deno.json", "deno.jsonc", "export.ts"];
+    
+    if (arquivosRaizPermitidos.includes(caminhoRelativo)) {
+      return true;
+    }
+
+    const pastasPermitidas = ["src", "public"];
+    const estaEmPastaPermitida = pastasPermitidas.some(pasta => 
+      caminhoRelativo.startsWith(`${pasta}/`) || caminhoRelativo.startsWith(`${pasta}\\`)
+    );
+
+    if (estaEmPastaPermitida) {
+      return EXTENSOES_PERMITIDAS.some(ext => 
+        caminhoMinusculo.endsWith(ext) || caminhoMinusculo === ext
+      );
+    }
+  }
+
+  return false;
+}
+
+// 2. Montagem do cabeçalho instrucional dinâmico com a versão sincronizada
+let conteudoFinal = `> **INSTRUÇÃO PARA A IA:** 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v${APP_VERSION}** (${modo === "docs" ? "DOCUMENTAÇÃO" : "CÓDIGO FONTE"}) estruturados em blocos. 
+> Cada arquivo começa com um título indicando seu caminho relativo exato (ex: \`## Arquivo: src/main.ts\`).
+> Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
+
+---
+
+# Contexto Exportado do Projeto Loco [v${APP_VERSION}] - Modo: ${modo.toUpperCase()}
+
+Gerado automaticamente em: ${new Date().toLocaleString()}
+
+---
+
+`;
+
+console.log(`🚀 Iniciando exportação do Loco v${APP_VERSION} no modo: [${modo.toUpperCase()}] -> Gerando '${ARQUIVO_SAIDA}'`);
+
+// 3. Varredura do diretório
+for await (const entry of walk(".", { includeDirs: false })) {
+  const caminhoRelativo = relative(".", entry.path);
+
+  if (deveIncluirArquivo(caminhoRelativo, modo)) {
+    try {
+      console.log(` 📄 Incluindo: ${caminhoRelativo}`);
+      const conteudoArquivo = await Deno.readTextFile(entry.path);
+      
+      let extensaoMarkdown = caminhoRelativo.split(".").pop() || "";
+      if (extensaoMarkdown === "manifest") extensaoMarkdown = "json";
+      if (extensaoMarkdown === "jsonc") extensaoMarkdown = "json";
+      if (caminhoRelativo.includes(".env")) extensaoMarkdown = "properties";
+
+      const wrapperCrasis = calcularCraseWrapper(conteudoArquivo);
+
+      conteudoFinal += `## Arquivo: \`${caminhoRelativo}\`\n\n`;
+      conteudoFinal += `${wrapperCrasis}${extensaoMarkdown}\n`;
+      conteudoFinal += conteudoArquivo;
+      conteudoFinal += `\n${wrapperCrasis}\n\n---\n\n`;
+    } catch (erro) {
+      if (erro instanceof Error) {
+        console.error(`❌ Erro ao ler ${caminhoRelativo}:`, erro.message);
+      }
+    }
+  }
+}
+
+await Deno.writeTextFile(ARQUIVO_SAIDA, conteudoFinal);
+console.log(`\n✨ Prontinho! O arquivo ${ARQUIVO_SAIDA} (v${APP_VERSION}) foi gerado com sucesso.`);
+````
 
 ---
 

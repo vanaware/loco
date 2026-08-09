@@ -5,6 +5,8 @@ import { profile } from '../stores/profileStore.ts';
 import { currentMobileView, showAdvanced, showToast } from '../signals/state.ts';
 import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
 import { DebugPanel } from './DebugPanel.tsx';
+// 🔥 Importamos a versão gerada automaticamente pelo Build
+import { APP_VERSION } from '../constants/version.ts'; 
 
 export function AdvancedSection() {
   const diagnostic = useSignal({
@@ -20,7 +22,6 @@ export function AdvancedSection() {
   const runDiagnostics = async () => {
     const p = profile.value;
     
-    // 1. Checagem de Envelope VAPID
     let envelopeOK = false;
     if (p?.vapidPrivateKeyEnvelope) {
       try {
@@ -32,14 +33,12 @@ export function AdvancedSection() {
       } catch { envelopeOK = false; }
     }
 
-    // 2. Consulta de Permissões de Mídia
     let cameraState = 'prompt', micState = 'prompt';
     if ('navigator' in window && 'permissions' in navigator && navigator.permissions.query) {
       try { cameraState = (await navigator.permissions.query({ name: 'camera' as any })).state; } catch {}
       try { micState = (await navigator.permissions.query({ name: 'microphone' as any })).state; } catch {}
     }
 
-    // 3. Estimativa de Armazenamento
     let storagePersisted = false;
     let quotaInfo = { usoMB: 0, livreMB: 0 };
     if ('storage' in navigator) {
@@ -57,7 +56,6 @@ export function AdvancedSection() {
       }
     }
 
-    // 4. Estado do SW
     let swControlando = false, hasBackgroundSync = false;
     if ('serviceWorker' in navigator) {
       swControlando = navigator.serviceWorker.controller !== null;
@@ -131,9 +129,15 @@ export function AdvancedSection() {
       <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
         
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
-          </span>
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
+            </span>
+            {/* 🔥 Exibição da versão injetada */}
+            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+              Build Version: v{APP_VERSION}
+            </span>
+          </div>
           <md-icon-button onClick={handleFechar} title="Fechar Avançado">
             <md-icon>close</md-icon>
           </md-icon-button>

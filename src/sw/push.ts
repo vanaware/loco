@@ -20,6 +20,7 @@ self.addEventListener('push', function (event) {
     return;
   }
 
+  // Envolve todo o fluxo de processamento assíncrono para garantir que o SW permaneça vivo
   event.waitUntil(
     (async function () {
       try {
@@ -28,8 +29,8 @@ self.addEventListener('push', function (event) {
         if (!valid) {
           addDebugLog("[SW-PUSH-ROUTER] ⚠️ Assinatura de pacote rejeitada.");
           await self.registration.showNotification("⚠️ Assinatura inválida", {
-            body: `Mensagem rejeitada.`,
-            icon: '/icon.png',
+            body: `Mensagem rejeitada por falha de integridade.`,
+            icon: '/icon-192.png',
           });
           return;
         }
@@ -43,9 +44,9 @@ self.addEventListener('push', function (event) {
         addDebugLog(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
       } catch (err: any) {
         addDebugLog(`[SW-PUSH-ROUTER] ❌ Falha crítica no desempacotamento de Push: ${err.message}`);
-        await self.registration.showNotification("⚠️ Erro ao processar push", {
-          body: "Falha criptográfica no processamento.",
-          icon: '/icon.png',
+        await self.registration.showNotification("⚠️ Erro de Rede", {
+          body: "Falha criptográfica no processamento de uma mensagem recebida.",
+          icon: '/icon-192.png',
         });
       }
     })()

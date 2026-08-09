@@ -15,13 +15,18 @@ import {
 } from "../utils/db-helpers.ts";
 
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts"; // 🔥 Ajustado para Logger Puro
+import { addDebugLog } from "../utils/debug-utils.ts"; 
 
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
+interface MensagemOutParams {
+  function: string;
+  contato: string;
+  conteudo?: string;
+  mensagem?: string;
+  campos?: string[];
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
   
-  // ==========================================
-  // 📥 FLUXO DE ENTRADA (IN)
-  // ==========================================
   if (handshakeId) {
     addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
@@ -29,11 +34,10 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
     const msgReq = handshake.in.rotas.mensagem;
 
-    // 1. Recebemos uma SOLICITAÇÃO sobre uma mensagem que recebemos
     if (msgReq.recebida && Array.isArray(msgReq.campos)) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
       const msgLocal = await buscarMensagemRecebida(msgReq.recebida);
-      const rotasMsgData: any = { recebida: msgReq.recebida };
+      const rotasMsgData: Record<string, unknown> = { recebida: msgReq.recebida };
 
       if (msgLocal) {
         const camposSet = new Set(msgReq.campos);
@@ -48,8 +52,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // 2. Recebemos RESPOSTA de um pacote de status de leitura/entrega
-    else if (msgReq.data && msgReq.data.recebida && msgReq.data.status) {
+    else if (msgReq.data && typeof msgReq.data.recebida === 'string' && typeof msgReq.data.status === 'string') {
       addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. A mensagem ${msgReq.data.recebida} consta como ${msgReq.data.status} no destino.`);
       
       const msgEnviada = await buscarMensagemEnviada(msgReq.data.recebida);
@@ -64,7 +67,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
     }
 
-    // 3. Recebemos uma NOVA MENSAGEM de fato
     else if (msgReq.enviada && msgReq.conteudo) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
       
@@ -77,7 +79,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
       await salvarMensagemRecebida(novaMsgRecebida);
 
-      // Auto-Ack para bater o Double-Check lá no emisor!
       const ackHandshake: Handshake = {
         id: gerarId(),
         aud: handshake.aud,
@@ -108,9 +109,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     }
   }
   
-  // ==========================================
-  // 📤 FLUXO DE SAÍDA (OUT)
-  // ==========================================
   if (outParams) {
     if (outParams.function === 'confirmarEntrega') {
       const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
@@ -124,6 +122,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     else if (outParams.function === 'enviarMensagem') {
       const { contato: contatoId, conteudo } = outParams;
+      if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
+
       const msgId = gerarId();
 
       const msgEnviada: MensagemEnviada = {

@@ -1,163 +1,49 @@
-# 🧠 Gerenciamento de Estado no Loco — Especificação Técnica
+# 🧠 Gerenciamento de Estado no Loco PWA
 
-O **Loco** adota uma arquitetura de estado reativa e descentralizada baseada em **Preact Signals** (`@preact/signals`), combinada com persistência local não-bloqueante via **IndexedDB** (`idb-keyval`) e **OPFS (Origin Private File System)**.
-
----
-
-## 1. Visão Geral e Filosofia
-
-Para garantir alta performance (60 FPS em dispositivos móveis) e separação estrita de responsabilidades, o estado da aplicação é dividido em duas camadas principais:
-
-1. **Estado de Interface (UI Signals):** Mantido em `src/signals/state.ts`, controla a navegação entre visões, alternância de seções, responsividade mobile e depuração.
-2. **Estado de Negócio e Dados (Modular Stores):** Mantido no diretório `src/stores/`, abstrai a reatividade das entidades principais (Perfil, Contatos e Mensagens) e sincroniza automaticamente as alterações com o IndexedDB.
+O **Loco** adota uma arquitetura de gerenciamento de estado híbrida e descentralizada. Para garantir máxima performance (60fps), baixíssimo consumo de bateria no mobile e resiliência offline, nós dividimos o estado da aplicação em três camadas com responsabilidades estritas.
 
 ---
 
-## 2. Signals de UI Globais (`src/signals/state.ts`)
+## 1. Camada de Interface (UI Reativa)
+**Ferramenta:** `@preact/signals`  
+**Arquivos:** `src/stores/mensagensStore.ts`, `contatosStore.ts`, `profileStore.ts`
 
-Os Signals globais de interface gerenciam o fluxo visual da aplicação SPA (Single Page Application):
+Nesta camada, lidamos exclusivamente com **Dados de Negócio Visíveis** (o que o usuário efetivamente vê e interage na tela).
 
-```typescript
-import { signal } from "@preact/signals";
-
-// Seção visível na SPA ('chat' | 'contatos' | 'contato-detalhe' | 'profile' | 'advanced')
-export const currentSection = signal<SectionType>("chat");
-
-// Hash SHA-256 da chave pública do contato em exibição na timeline
-export const selectedContactHash = signal<string | null>(null);
-
-// Alternador de visualização para dispositivos móveis ('list' | 'chat' | 'detail')
-export const mobileView = signal<MobileViewType>("list");
-
-// Coleção reativa de logs consumida pelo DebugPanel.tsx
-export const logs = signal<LogEntry[]>([]);
-```
+### A Estratégia: Atualizações Otimistas (Optimistic UI)
+*   **O Problema:** Esperar o banco de dados (IndexedDB) responder para atualizar a tela cria "engasgos" e travamentos na Main Thread.
+*   **A Solução Loco:** Quando o usuário envia uma mensagem, nós injetamos o dado *instantaneamente* na memória RAM (no Signal). A interface reage em ~1ms. Só então delegamos a gravação real para o IndexedDB rodar em background.
+*   **Mutação Granular:** Ao invés de recarregar arrays inteiros (o que causa re-renderização destrutiva no DOM), nós fazemos a mutação apenas do nó específico (ex: alterando o status de `enviando` para `entregue` no array em memória).
 
 ---
 
-## 3. Estrutura Modular de Stores (`src/stores/`)
+## 2. Camada de Infraestrutura (Background Sync)
+**Ferramenta:** `IndexedDB` (idb-keyval) + `Service Worker`  
+**Arquivos:** `src/sw/sw-handshakes.ts`, `Handshake_DB`
 
-Diferente de arquiteturas legadas com arquivos monolíticos, a lógica de negócios e persistência do Loco é organizada em stores especializados:
+A "Máquina de Estados de Handshakes" é a nossa tubulação invisível. Ela é responsável por garantir que dados saiam do PWA e cheguem à rede (e vice-versa), lidando com instabilidades de conexão (Offline-First).
 
-```text
-src/stores/
-├── index.ts              # Orquestrador global de inicialização (initStores)
-├── profileStore.ts       # Gerencia o Perfil Local, Chaves VAPID e E2E
-├── contatosStore.ts      # Gerencia a Agenda e o Ciclo de Confiança ('me' / 'trusted')
-└── mensagensStore.ts     # Gerencia as Timelines de Envio e Recebimento
-```
-
-### A. Perfil Store (`src/stores/profileStore.ts`)
-* **Signal Exposto:** `profile = signal<ProfileConfig | null>(null)`
-* **Responsabilidade:** Mantém as chaves criptográficas (`VAPID ECDSA` e `RSA-OAEP`), foto de perfil em Base64, subscrição Web Push e o `vapidPrivateKeyEnvelope`.
-* **Persistência:** Armazenado sob a chave `"profile"` no banco `AppConfig_DB`.
-
-### B. Contatos Store (`src/stores/contatosStore.ts`)
-* **Signal Exposto:** `contatosMap = signal<Map<string, Contato>>(new Map())`
-* **Responsabilidade:** Mantém a lista de contatos indexada pelo Hash SHA-256 da `vapidPublicKey`. Gerencia o estado de confiança mútua (`me` e `trusted`).
-* **Persistência:** Cada contato é gravado como um registro individual no banco `BrowserB_Contatos_DB`.
-
-### C. Mensagens Store (`src/stores/mensagensStore.ts`)
-* **Signals Expostos:**
-  * `mensagensEnviadasMap = signal<Map<string, MensagemEnviada>>(new Map())`
-  * `mensagensRecebidasMap = signal<Map<string, MensagemRecebida>>(new Map())`
-* **Responsabilidade:** Controla a timeline de cada conversa, marcas de entrega (`✓` enviado, `✓✓` entregue/lido) e carimbos de data/hora.
-* **Persistência:** Dividido entre os bancos `BrowserA_MensagensEnviadas_DB` e `BrowserB_MensagensRecebidas_DB`.
+### Por que não usamos Signals/Stores aqui? (Fronteira de Threads)
+*   **Isolamento:** O Service Worker roda em uma *Background Thread* que sobrevive mesmo quando o PWA é fechado. Ele não tem acesso ao DOM nem à memória do Preact.
+*   **Performance:** Se tivéssemos um `handshakesStore` na UI, cada vez que o Service Worker tentasse processar um pacote invisível de rede, ele precisaria trafegar esse dado via `postMessage` para a Main Thread. O Preact recalcularia a árvore de renderização para dados que nem estão na tela, causando extrema lentidão.
+*   **O Fluxo:** O Service Worker gerencia a tabela `Handshake_DB` de forma autônoma e transacional. Ele só avisa a UI (via `postMessage`) quando uma etapa crucial é concluída (ex: *"Mensagem entregue!"* ou *"Novo contato sincronizado!"*), permitindo que os Stores da Camada 1 reajam de forma limpa.
 
 ---
 
-## 4. Inicialização do Sistema (`initStores()`)
+## 3. Camada de Telemetria (Debug)
+**Ferramenta:** `BroadcastChannel` + Local Signals  
+**Arquivos:** `src/components/DebugPanel.tsx`, `src/utils/debug-utils.ts`
 
-Ao abrir o aplicativo, o ponto de entrada (`src/app.tsx`) invoca a função `initStores()` em `src/stores/index.ts`. O carregamento ocorre de forma assíncrona antes da renderização da interface:
+O sistema de debug é um *Cross-Cutting Concern* (interesse transversal). Ele precisa capturar logs tanto da Main Thread (UI) quanto da Background Thread (Service Worker).
 
-```typescript
-export async function initStores(): Promise<void> {
-  // 1. Carrega dados do Perfil e Chaves Criptográficas
-  await loadProfile();
-
-  // 2. Carrega a Lista de Contatos e Chaves Públicas
-  await loadContatos();
-
-  // 3. Carrega o Histórico de Mensagens Enviadas e Recebidas
-  await loadMensagens();
-}
-```
+### Por que não existe um `debugStore` global?
+*   **Poluição de Estado:** O fluxo principal do aplicativo (Chat, Contatos) não deve ser reativo à chegada de um novo log de sistema. Ter um Signal global para logs forçaria a árvore do Preact a observar coisas inúteis.
+*   **Colocação de Estado (State Colocation):** Os sinais de debug (`isDebugEnabled`, `debugLogs`) vivem *dentro* do componente `DebugPanel.tsx`. Apenas o painel se importa com os logs. Se o painel não estiver renderizado, a memória não é desperdiçada.
+*   **Comunicação Desacoplada:** Usamos o `BroadcastChannel("loco_debug_channel")`. Qualquer arquivo, seja o Service Worker ou um Utilitário de Criptografia, pode "gritar" um erro neste canal sem precisar importar dependências de UI. O Painel de Debug, se estiver aberto, escuta o canal e renderiza o log em tempo real.
 
 ---
 
-## 5. Persistência Estruturada no IndexedDB (`src/utils/db-helpers.ts`)
-
-O Loco proíbe o uso de `localStorage` para evitar bloqueios síncronos na thread principal do navegador. Todos os dados estruturados utilizam o IndexedDB através do utilitário `idb-keyval` em bancos de dados isolados (`DB_NAMES`):
-
-| Banco de Dados (`DB_NAMES`) | Chave Primária | Entidade Armazenada | Finalidade |
-| :--- | :--- | :--- | :--- |
-| `AppConfig_DB` | `"profile"` | `ProfileConfig` | Perfil local, pares de chaves e subscrição Push. |
-| `BrowserB_Contatos_DB` | Hash SHA-256 (`vapidPublicKey`) | `Contato` | Agenda de contatos, chaves E2E e estado de confiança (`me` / `trusted`). |
-| `BrowserB_MensagensRecebidas_DB` | ID da Mensagem | `MensagemRecebida` | Histórico de mensagens recebidas e timestamps de leitura. |
-| `BrowserA_MensagensEnviadas_DB` | ID da Mensagem | `MensagemEnviada` | Histórico e fila de envio de mensagens com status do ciclo de vida. |
-| `Handshake_DB` | ID do Handshake (`jti`) | `Handshake` | Fila assíncrona da Máquina de Estados (fluxos `in` e `out`). |
-
----
-
-## 6. Padrão de Mutação e Reatividade de Signals
-
-Para garantir que o Preact Signals detecte alterações em coleções como `Map` e force a re-renderização dos componentes dependentes, os stores utilizam **imobilidade por substituição de referência**:
-
-```typescript
-// Exemplo de atualização reativa em contatosStore.ts
-export async function saveContato(contato: Contato): Promise<void> {
-  // 1. Grava no IndexedDB
-  await dbSet(DB_NAMES.CONTATOS, contato.hash, contato);
-
-  // 2. Cria uma nova instância de Map para disparar a reatividade do Signal
-  const novoMap = new Map(contatosMap.value);
-  novoMap.set(contato.hash, contato);
-  contatosMap.value = novoMap;
-}
-```
-
----
-
-## 7. Divisão de Responsabilidades: IndexedDB vs. OPFS
-
-```text
-                               +----------------------------+
-                               |     Recursos de Dados      |
-                               +--------------+-------------+
-                                              |
-                       +----------------------+----------------------+
-                       |                                             |
-            (Dados Estruturados)                              (Arquivos Grandes)
-                       |                                             |
-                       v                                             v
-        +------------------------------+              +------------------------------+
-        |          IndexedDB           |              |             OPFS             |
-        |      (via idb-keyval)        |              | (Origin Private File System) |
-        +------------------------------+              +------------------------------+
-        | - Mensagens de texto         |              | - Imagens originais em alta  |
-        | - Atributos de Contatos      |              | - Áudios e Mensagens de Voz  |
-        | - Chaves Públicas / VAPID    |              | - Vídeos e Documentos P2P    |
-        | - Handshakes da Fila         |              | - Anexos da Timeline         |
-        +------------------------------+              +------------------------------+
-```
-
----
-
-## 8. Tabela Comparativa: Especificação Antiga vs. Arquitetura Atual
-
-| Recurso / Aspecto | Especificação Legada | Implementação Atual do Loco |
-| :--- | :--- | :--- |
-| **Organização do Estado** | Arquivo único `src/store.ts` | **Modularizado em `src/signals/state.ts` e `src/stores/`** |
-| **Bancos do IndexedDB** | Chaves soltas em tabela genérica | **Bancos isolados e fortemente tipados (`DB_NAMES`)** |
-| **Navegação Reativa** | Signal `currentView` | **`currentSection`, `selectedContactHash` e `mobileView`** |
-| **Gerenciamento de Logs** | Sem suporte nativo | **Signal `logs` integrado ao `DebugPanel.tsx`** |
-| **Histórico de Mensagens** | Array plano em `chatSessions` | **Mapeamento bidirecional (`BrowserA` e `BrowserB`)** |
-
----
-
-## 9. Resumo
-
-- O gerenciamento de estado do Loco utiliza **Preact Signals** divididos entre UI (`state.ts`) e Regras de Negócio (`src/stores/`).
-- Não existe arquivo monolítico `store.ts`; a lógica de negócios é modular e coesa.
-- A persistência é 100% assíncrona e não-bloqueante no **IndexedDB** (`idb-keyval`) e **OPFS**, utilizando bancos isolados para cada domínio de informação.
-- As atualizações de estado seguem o padrão imutável de substituição de referência de `Map` para assegurar a atualização reativa automática da interface.
+### 📝 Resumo da Arquitetura
+1.  **Se o usuário precisa ver na tela imediatamente:** Use `@preact/signals` (`/stores`).
+2.  **Se precisa de garantia de entrega em redes instáveis:** Use IndexedDB e delegue ao `Service Worker` (Handshakes).
+3.  **Se precisa monitorar o funcionamento do motor:** Jogue a mensagem no `BroadcastChannel` e deixe o `DebugPanel` resolver.

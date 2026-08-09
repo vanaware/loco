@@ -1,51 +1,39 @@
+// export.ts
 /**
- * @file exportar.ts
- * @description CONTEXTO PARA OUTRAS IAs: Este script automatiza a consolidação do código-fonte 
- * deste projeto em um único arquivo Markdown (EXPORT.md). Ele foi desenhado para otimizar o 
- * envio manual de contexto para chats de IA, garantindo que o modelo receptor entenda a 
- * árvore de arquivos e as dependências sem estourar o limite de tokens com arquivos inúteis.
+ * @file export.ts
+ * @description Script de consolidação de contexto para IAs com suporte a parâmetros via CLI,
+ * nomes de arquivos de saída dinâmicos e sincronização automática de versão.
  * 
- * @rules REGRAS DE ESCOPO E FILTROS (NÃO ALTERAR SEM COMANDO EXPRESSO):
- * 1. Raiz do Projeto: Permite estritamente os arquivos ["main.ts", "build.ts", "deno.json", "deno.jsonc"].
- * 2. Diretores Permitidos: Faz varredura recursiva apenas dentro das pastas ["src", "public"].
- * 3. Extensões Válidas: Filtra apenas arquivos de texto/código clássicos listados na constante EXTENSOES_PERMITIDAS.
- * 4. Auto-Exclusão: Nunca deve ler o próprio arquivo de saída ("EXPORT.md") para evitar loops de escrita.
- * 
- * @logic LÓGICA DE FORMATAÇÃO DO OUTPUT:
- * - Adiciona um prompt de comando fixo no topo do EXPORT.md instruindo a IA receptora sobre como responder.
- * - Identifica cada arquivo com seu caminho relativo exato (`## Arquivo: src/caminho/arquivo.ext`).
- * - Usa a função calcularCraseWrapper para analisar o conteúdo do arquivo e envelopá-lo com um número 
- *   seguro de crases (ex: se o código tiver 3 crases, abre o bloco com 4; se tiver 4, abre com 5), 
- *   impedindo de forma matemática que strings literais ou blocos internos quebrem o Markdown final.
+ * USO VIA DENO TASKS:
+ * - deno task export        -> Exporta Código Fonte para EXPORT.md
+ * - deno task export main   -> Exporta Código Fonte para EXPORT.md
+ * - deno task export docs   -> Exporta Documentação para EXPORT-DOCS.md
  */
-
 
 import { walk } from "jsr:@std/fs/walk";
 import { relative } from "jsr:@std/path/relative";
+import { APP_VERSION } from "./src/constants/version.ts";
 
-const ARQUIVO_SAIDA = "EXPORT.md";
+type ModoExportacao = "main" | "docs";
 
-// Arquivos específicos permitidos na raiz do projeto
-const ARQUIVOS_RAIZ_PERMITIDOS = ["main.ts", "build.ts", "deno.json", "deno.jsonc", "README", "LICENSE.md"];
+// 1. Leitura do parâmetro via CLI nativo do Deno
+const argModo = Deno.args[0]?.toLowerCase();
+const modo: ModoExportacao = argModo === "docs" ? "docs" : "main";
 
-// Pastas permitidas para varredura completa
-const PASTAS_PERMITIDAS = ["src", "public"];
+// Nomes de arquivos de saída distintos para cada modo de operação
+const ARQUIVO_SAIDA = modo === "docs" ? "EXPORT-DOCS.md" : "EXPORT.md";
 
-// Lista expandida com .jsonc e outras extensões clássicas
+// Lista de extensões válidas de texto/código
 const EXTENSOES_PERMITIDAS = [
-  // Web & Frontend
   ".tsx", ".jsx", ".js", ".ts", ".css", ".html", ".manifest", ".map",
-  // Scripts & Automação
   ".sh", ".py", ".ps1",
-  // Configuração & Dados (incluindo JSONC)
   ".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".env", ".env.example",
-  // Documentação & Outros
   ".md", ".txt", ".sql"
 ];
 
 /**
  * Encontra a maior sequência consecutiva de crases dentro de um texto
- * e retorna uma string de fechamento com uma crase a mais.
+ * e retorna uma string de fechamento com uma crase a mais para não quebrar o Markdown.
  */
 function calcularCraseWrapper(texto: string): string {
   const matches = texto.match(/`+/g);
@@ -56,15 +44,56 @@ function calcularCraseWrapper(texto: string): string {
   return "`".repeat(tamanhoNecessario);
 }
 
-// Mensagem estruturada para guiar o comportamento da IA no chat
+/**
+ * Avalia se o arquivo deve ser incluído com base no modo selecionado.
+ */
+function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): boolean {
+  // Ignora arquivos de exportação para evitar loops de leitura
+  if (caminhoRelativo === "EXPORT.md" || caminhoRelativo === "EXPORT-DOCS.md") {
+    return false;
+  }
+
+  const caminhoMinusculo = caminhoRelativo.toLowerCase();
+
+  if (modo === "docs") {
+    // Modo DOCUMENTAÇÃO: Pega docs/ e arquivos de licença/readme
+    if (caminhoRelativo.startsWith("docs/") || caminhoRelativo.startsWith("docs\\")) {
+      return EXTENSOES_PERMITIDAS.some(ext => caminhoMinusculo.endsWith(ext));
+    }
+    const arquivosDocsRaiz = ["readme.md", "readme", "license", "license.md", "license.txt"];
+    return arquivosDocsRaiz.includes(caminhoMinusculo);
+  } else {
+    // Modo MAIN (Padrão): Pega arquivos da raiz e pastas src/ e public/
+    const arquivosRaizPermitidos = ["main.ts", "build.ts", "deno.json", "deno.jsonc", "export.ts"];
+    
+    if (arquivosRaizPermitidos.includes(caminhoRelativo)) {
+      return true;
+    }
+
+    const pastasPermitidas = ["src", "public"];
+    const estaEmPastaPermitida = pastasPermitidas.some(pasta => 
+      caminhoRelativo.startsWith(`${pasta}/`) || caminhoRelativo.startsWith(`${pasta}\\`)
+    );
+
+    if (estaEmPastaPermitida) {
+      return EXTENSOES_PERMITIDAS.some(ext => 
+        caminhoMinusculo.endsWith(ext) || caminhoMinusculo === ext
+      );
+    }
+  }
+
+  return false;
+}
+
+// 2. Montagem do cabeçalho instrucional dinâmico com a versão sincronizada
 let conteudoFinal = `> **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do meu projeto estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v${APP_VERSION}** (${modo === "docs" ? "DOCUMENTAÇÃO" : "CÓDIGO FONTE"}) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: \`## Arquivo: src/main.ts\`).
-> Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo e não somente as partes que devem ser modificadas.
+> Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Código Fonte Selecionado do Projeto
+# Contexto Exportado do Projeto Loco [v${APP_VERSION}] - Modo: ${modo.toUpperCase()}
 
 Gerado automaticamente em: ${new Date().toLocaleString()}
 
@@ -72,40 +101,17 @@ Gerado automaticamente em: ${new Date().toLocaleString()}
 
 `;
 
+console.log(`🚀 Iniciando exportação do Loco v${APP_VERSION} no modo: [${modo.toUpperCase()}] -> Gerando '${ARQUIVO_SAIDA}'`);
+
+// 3. Varredura do diretório
 for await (const entry of walk(".", { includeDirs: false })) {
   const caminhoRelativo = relative(".", entry.path);
-  
-  // Ignora o próprio arquivo de saída
-  if (caminhoRelativo === ARQUIVO_SAIDA) continue;
 
-  let deveIncluir = false;
-
-  // Verifica se é um dos arquivos específicos da raiz
-  if (ARQUIVOS_RAIZ_PERMITIDOS.includes(caminhoRelativo)) {
-    deveIncluir = true;
-  } else {
-    // Verifica se o arquivo está dentro de src/ ou public/
-    const estaEmPastaPermitida = PASTAS_PERMITIDAS.some(pasta => 
-      caminhoRelativo.startsWith(`${pasta}/`) || caminhoRelativo.startsWith(`${pasta}\\`)
-    );
-
-    if (estaEmPastaPermitida) {
-      const caminhoMinusculo = caminhoRelativo.toLowerCase();
-      
-      // Validação inteligente para extensões ou arquivos .env
-      deveIncluir = EXTENSOES_PERMITIDAS.some(ext => 
-        caminhoMinusculo.endsWith(ext.toLowerCase()) || caminhoMinusculo === ext.toLowerCase()
-      );
-    }
-  }
-
-  // Se passou nos filtros, lê e adiciona ao arquivo final
-  if (deveIncluir) {
+  if (deveIncluirArquivo(caminhoRelativo, modo)) {
     try {
-      console.log(`Incluindo: ${caminhoRelativo}`);
+      console.log(` 📄 Incluindo: ${caminhoRelativo}`);
       const conteudoArquivo = await Deno.readTextFile(entry.path);
       
-      // Ajustes de codificação visual para o Markdown do chat da IA
       let extensaoMarkdown = caminhoRelativo.split(".").pop() || "";
       if (extensaoMarkdown === "manifest") extensaoMarkdown = "json";
       if (extensaoMarkdown === "jsonc") extensaoMarkdown = "json";
@@ -119,11 +125,11 @@ for await (const entry of walk(".", { includeDirs: false })) {
       conteudoFinal += `\n${wrapperCrasis}\n\n---\n\n`;
     } catch (erro) {
       if (erro instanceof Error) {
-        console.error(`Erro ao ler ${caminhoRelativo}:`, erro.message);
+        console.error(`❌ Erro ao ler ${caminhoRelativo}:`, erro.message);
       }
     }
   }
 }
 
 await Deno.writeTextFile(ARQUIVO_SAIDA, conteudoFinal);
-console.log(`\n Prontinho! O arquivo ${ARQUIVO_SAIDA} foi gerado com as instruções.`);
+console.log(`\n✨ Prontinho! O arquivo ${ARQUIVO_SAIDA} (v${APP_VERSION}) foi gerado com sucesso.`);

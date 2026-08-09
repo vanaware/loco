@@ -1,65 +1,55 @@
-import { JSX as _JSX } from "preact";
+// src/types/material-web.d.ts
+import { JSX } from "preact";
 
 declare module "preact" {
   namespace JSX {
+    // Definimos um tipo base forte que une os atributos HTML do Preact aos custom attributes do MD3
+    type MdElement = JSX.HTMLAttributes<HTMLElement> & {
+      value?: string | number;
+      checked?: boolean;
+      disabled?: boolean;
+      label?: string;
+      placeholder?: string;
+      slot?: string;
+      onInput?: (e: Event) => void;
+      onChange?: (e: Event) => void;
+    };
+
     interface IntrinsicElements {
-      // Buttons
-      "md-filled-button": unknown;
-      "md-outlined-button": unknown;
-      "md-text-button": unknown;
-      "md-filled-tonal-button": unknown;
-      "md-icon-button": unknown;
-      "md-fab": unknown;
-      "md-extended-fab": unknown;
-
-      // Cards
-      "md-elevated-card": unknown;
-      "md-filled-card": unknown;
-      "md-outlined-card": unknown;
-
-      // Text Fields
-      "md-filled-text-field": unknown;
-      "md-outlined-text-field": unknown;
-
-      // Selection Controls
-      "md-checkbox": unknown;
-      "md-radio": unknown;
-      "md-switch": unknown;
-
-      // Lists
-      "md-list": unknown;
-      "md-list-item": unknown;
-      "md-divider": unknown;
-
-      // Menus
-      "md-menu": unknown;
-      "md-menu-item": unknown;
-
-      // Dialogs
-      "md-dialog": unknown;
-
-      // Chips
-      "md-assist-chip": unknown;
-      "md-filter-chip": unknown;
-      "md-input-chip": unknown;
-      "md-suggestion-chip": unknown;
-
-      // Progress
-      "md-circular-progress": unknown;
-      "md-linear-progress": unknown;
-
-      // Icons
-      "md-icon": unknown;
-
-      // Tabs
-      "md-tabs": unknown;
-      "md-primary-tab": unknown;
-      "md-secondary-tab": unknown;
-
-      // Select
-      "md-filled-select": unknown;
-      "md-outlined-select": unknown;
-      "md-select-option": unknown;
+      "md-filled-button": MdElement;
+      "md-outlined-button": MdElement;
+      "md-text-button": MdElement;
+      "md-filled-tonal-button": MdElement;
+      "md-icon-button": MdElement;
+      "md-fab": MdElement;
+      "md-extended-fab": MdElement;
+      "md-elevated-card": MdElement;
+      "md-filled-card": MdElement;
+      "md-outlined-card": MdElement;
+      "md-filled-text-field": MdElement;
+      "md-outlined-text-field": MdElement;
+      "md-checkbox": MdElement;
+      "md-radio": MdElement;
+      "md-switch": MdElement;
+      "md-list": MdElement;
+      "md-list-item": MdElement;
+      "md-divider": MdElement;
+      "md-menu": MdElement & { anchor?: string; positioning?: string; open?: boolean };
+      "md-menu-item": MdElement;
+      "md-dialog": MdElement & { open?: boolean };
+      "md-assist-chip": MdElement;
+      "md-filter-chip": MdElement;
+      "md-input-chip": MdElement;
+      "md-suggestion-chip": MdElement;
+      "md-circular-progress": MdElement & { indeterminate?: boolean };
+      "md-linear-progress": MdElement & { indeterminate?: boolean };
+      "md-icon": MdElement;
+      "md-tabs": MdElement;
+      "md-primary-tab": MdElement;
+      "md-secondary-tab": MdElement;
+      "md-filled-select": MdElement;
+      "md-outlined-select": MdElement;
+      "md-select-option": MdElement;
     }
   }
 }

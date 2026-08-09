@@ -1,11 +1,35 @@
 {
-  "workspace": ["proto/_template", "proto/01-push-messaging"],
+  // ============================================================================
+  // 🚀 LOCO PWA - Manifesto do Deno
+  // Mensageiro PWA Descentralizado, Offline-First & E2EE
+  // ============================================================================
+
+  // 📋 Metadados do Projeto
+  "name": "@vanaware/loco",
+  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
+  "version": "0.2.2-msmdcc54",
+  "exports": "./main.ts",
+  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
+  "author": "Vanaware",
+  "license": "MIT",
+  
+  "workspace": [
+    "proto/_template",
+    "proto/01-push-messaging"
+  ],
+
+  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"]
+    "types": ["./src/types/material-web.d.ts"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
   },
+
+  // 📦 Gerenciamento de Dependências
   "imports": {
     "@std/assert": "jsr:@std/assert@^1",
     "@std/fs": "jsr:@std/fs@^1",
@@ -24,6 +48,8 @@
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
     "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
   },
+
+  // 🛠️ Scripts de Automação
   "tasks": {
     "test": "deno test --allow-env --allow-net tests/",
     "typecheck": "deno check main.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
@@ -33,5 +59,6 @@
     "clean": "rm -rf dist && mkdir -p dist",
     "export": "deno run --allow-read --allow-write export.ts"
   },
+
   "exclude": ["dist/", "public/"]
 }

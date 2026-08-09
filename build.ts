@@ -35,6 +35,32 @@ interface BundleOptions {
   jsxFragment?: string;
 }
 
+async function incrementVersion(): Promise<string> {
+  const denoJsoncPath = "deno.jsonc";
+  let content = await Deno.readTextFile(denoJsoncPath);
+  let currentVersion = "0.0.0";
+  
+  // Gera o hash único deste build
+  const buildHash = Date.now().toString(36);
+
+  // Regex para capturar a versão, ignorando o hash antigo se ele existir, e somando o patch
+  content = content.replace(/"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9]+)?"/, (_match, major, minor, patch) => {
+    const nextPatch = parseInt(patch, 10) + 1;
+    currentVersion = `${major}.${minor}.${nextPatch}-${buildHash}`;
+    return `"version": "${currentVersion}"`;
+  });
+
+  await Deno.writeTextFile(denoJsoncPath, content);
+  
+  // Gera um arquivo TS injetável para o Frontend ler a versão de forma síncrona
+  await ensureDir(join(SRC_DIR, "constants"));
+  const versionTsContent = `// Arquivo gerado automaticamente pelo build.ts\nexport const APP_VERSION = "${currentVersion}";\n`;
+  await Deno.writeTextFile(join(SRC_DIR, "constants", "version.ts"), versionTsContent);
+  
+  console.log(`📈 Versão incrementada para: v${currentVersion}`);
+  return currentVersion; // Retorna ex: "0.1.2-msmcsbjx"
+}
+
 async function clean() {
   try {
     await Deno.remove(DIST_DIR, { recursive: true });
@@ -45,9 +71,22 @@ async function clean() {
   console.log("📁 Arquivos anteriores excluídos");
 }
 
-async function copyStatic() {
+async function copyStaticAndSyncManifest(appVersion: string) {
   try {
     await copy(PUBLIC_DIR, DIST_DIR, { overwrite: true });
+    
+    // Injeta a versão sincronizada dentro do dist/manifest.json
+    const manifestPath = join(DIST_DIR, "manifest.json");
+    try {
+      const manifestText = await Deno.readTextFile(manifestPath);
+      const manifestObj = JSON.parse(manifestText);
+      manifestObj.version = appVersion; // 🔥 Injeção da versão unificada
+      await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
+      console.log(`📱 Versão v${appVersion} injetada em dist/manifest.json`);
+    } catch {
+      console.log("⚠️ Não foi possível atualizar a versão dentro do manifest.json");
+    }
+
     console.log("📁 Arquivos estáticos copiados");
   } catch {
     console.log("⚠️ Pasta public não encontrada ou erro na cópia");
@@ -71,14 +110,6 @@ function contentsToString(contents: Record<string, number> | Uint8Array | string
     }
   }
   return JSON.stringify(contents);
-}
-
-async function writeOutput(result: BundleResult, fileName: string): Promise<void> {
-  if (!result.outputFiles || result.outputFiles.length === 0) {
-    throw new Error(`Nenhum output gerado para ${fileName}`);
-  }
-  const text = contentsToString(result.outputFiles[0].contents);
-  await Deno.writeTextFile(join(DIST_DIR, fileName), text);
 }
 
 function extrairCodigoDoBundle(result: BundleResult): string {
@@ -132,18 +163,14 @@ async function gerarOuCarregarChavesServidor() {
     `SERVER_PRIVATE_KEY=${privateKeyStr}\n`
   );
   console.log(`✅ Chaves do servidor salvas em .env`);
-  console.log("   ⚠️  NÃO COMMITAR este arquivo!");
-  console.log("   💡 Use 'deno task start' para rodar o servidor");
 }
 
 async function listarAssetsParaCache(): Promise<string[]> {
-  const assets: string[] = []; // Não Inclui a rota raiz explicitamente
+  const assets: string[] = [];
   const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
   
-  // Caminha recursivamente por todos os subdiretórios criados pelo bundle dentro de dist
   for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
     if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      // Transforma o caminho do sistema de arquivos em caminho relativo web (ex: /assets/style.css)
       const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
       assets.push(webPath);
     }
@@ -155,9 +182,10 @@ async function build() {
   console.log("\n🚀 Iniciando build do protótipo...\n");
   const start = performance.now();
 
+  const appVersion = await incrementVersion();
   await gerarOuCarregarChavesServidor();
   await clean();
-  await copyStatic();
+  await copyStaticAndSyncManifest(appVersion);
 
   console.log("📦 Compilando página HTML (browser-b)...");
   await runBundle("HTML", {
@@ -166,7 +194,6 @@ async function build() {
       join(SRC_DIR, "logout.html"),
       join(SRC_DIR, "share.html"),
       join(SRC_DIR, "profile.html")
-
     ],
     outputDir: DIST_DIR,
     platform: "browser",
@@ -179,7 +206,7 @@ async function build() {
     jsxFactory: "h",
     jsxFragment: "Fragment",
   });
- 
+  
   console.log("📦 Compilando Service Worker em memória...");
   const swResult = await runBundle("ServiceWorker", {
     entrypoints: [join(SRC_DIR, "service-worker.ts")],
@@ -192,27 +219,22 @@ async function build() {
 
   let swCode = extrairCodigoDoBundle(swResult);
   if (swCode.length < 100) throw new Error("Não foi possível extrair o código do Service Worker");
-  console.log(`   📄 Código extraído: ${swCode.length} caracteres`);
 
-const assets = await listarAssetsParaCache();
-const versionHash = Date.now().toString();
+  const assets = await listarAssetsParaCache();
+  const versionHash = `v${appVersion}`;
 
-// Injeta as propriedades de forma robusta
-swCode = swCode
-  .replace(/VERSION_HASH/g, versionHash)
-  // Substitui a expressão inteira __GENERATED_ASSETS__ pelo array serializado em JSON
-  .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets).slice(1, -1)); 
-  // O .slice(1, -1) remove os colchetes [ ] do JSON.stringify para encaixar perfeitamente dentro de [__GENERATED_ASSETS__]
+  swCode = swCode
+    .replace(/VERSION_HASH/g, versionHash)
+    .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets).slice(1, -1)); 
 
-await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+  await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
 
-  console.log(`✨ Service Worker gerado com sucesso! (v_${versionHash})`);
+  console.log(`✨ Service Worker gerado com sucesso! (Cache ID: ${versionHash})`);
   console.log(`   📦 ${assets.length} assets em cache`);
   console.log(`   📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
 
   const elapsed = (performance.now() - start).toFixed(0);
-  console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/`);
-  console.log(`   📄 Assets cacheados: ${assets.join(', ')}\n`);
+  console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/\n`);
 }
 
 await build();
