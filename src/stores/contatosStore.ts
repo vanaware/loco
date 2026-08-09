@@ -1,64 +1,119 @@
 // src/stores/contatosStore.ts
-import { signal } from '@preact/signals';
-import { 
-  listarContatos, 
-  salvarContato, 
-  removerContato, 
-  buscarContatoPorChave,
+import { signal, computed } from "@preact/signals";
+import {
+  listarContatos,
+  salvarContato,
+  removerContato,
   serializarPublicKeyVapid,
-} from '../utils/db-helpers.ts';
-import type { Contato } from '../constants/db.ts';
+  buscarContatoPorPublicKey,
+} from "../utils/db-helpers.ts";
+import type { Contato } from "../constants/db.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
-export const contatos = signal<Contato[]>([]);
-export const contatosComHash = signal<Array<{ contato: Contato; hash: string }>>([]);
+export type { Contato };
 
-export async function carregarContatos() {
-  const lista = await listarContatos();
-  contatos.value = lista;
-  const comHash = await Promise.all(lista.map(async (c) => {
-    // Usamos vapidPublicKey no lugar de publicKeyVapid
-    const hash = await serializarPublicKeyVapid(c.vapidPublicKey);
-    return { contato: c, hash };
+export const contatosRaw = signal<Contato[]>([]);
+
+/**
+ * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
+ * Utilizado por ChatSection, ContactDetailSection e ContatosSection.
+ */
+export const contatosComHash = computed(() => {
+  return contatosRaw.value.map((contato) => ({
+    contato,
+    hash: contato.id,
   }));
-  contatosComHash.value = comHash;
-}
+});
 
-export async function adicionarContato(contato: Contato) {
-  await salvarContato(contato);
-  await carregarContatos();
-}
+export const contatosMap = computed(() => {
+  const map = new Map<string, Contato>();
+  for (const c of contatosRaw.value) {
+    map.set(c.id, c);
+  }
+  return map;
+});
 
-export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey) {
-  await removerContato(vapidPublicKey);
-  await carregarContatos();
-}
-
-export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey) {
-  const hash = await serializarPublicKeyVapid(vapidPublicKey);
-  const contato = await buscarContatoPorChave(hash);
-  if (contato) {
-    contato.trusted = true; // Substitui o antigo 'homologado'
-    contato.updatedAt = Date.now();
-    await salvarContato(contato);
-    await carregarContatos();
+/**
+ * Carrega a lista de contatos do IndexedDB para a memória
+ */
+export async function carregarContatos(): Promise<void> {
+  try {
+    const lista = await listarContatos();
+    contatosRaw.value = lista;
+    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
   }
 }
 
-export async function buscarContatoPorHash(hash: string): Promise<Contato | undefined> {
-  const item = contatosComHash.value.find(item => item.hash === hash);
-  if (item) return item.contato;
-  return await buscarContatoPorChave(hash);
-}
-
-export async function initContatosStore() {
+/**
+ * Inicializa a store de contatos
+ */
+export async function initContatosStore(): Promise<void> {
   await carregarContatos();
 }
 
-// Ouve os avisos do novo Service Worker Router para recarregar a tela
-if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', (e) => {
-    if (e.data?.type === 'CONTATO_ATUALIZADO') {
-      carregarContatos();
-    }
+/**
+ * Adiciona ou atualiza um contato no banco IndexedDB e recarrega o estado reativo
+ */
+export async function adicionarContato(contato: Contato): Promise<void> {
+  try {
+    await salvarContato(contato);
+    await carregarContatos();
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo: ${contato.name} (${contato.id})`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", `Erro ao adicionar contato ${contato.id}`, err);
+    throw err;
+  }
+}
+
+export function adicionarOuAtualizarContato(contato: Contato): void {
+  adicionarContato(contato).catch((err) => {
+    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
   });
+}
+
+/**
+ * Remove um contato a partir de sua chave pública VAPID
+ */
+export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    await removerContato(vapidPublicKey);
+    await carregarContatos();
+    addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
+  }
+}
+
+/**
+ * Marca um contato como verificado/confiável (trusted: true)
+ */
+export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const contato = await buscarContatoPorPublicKey(vapidPublicKey);
+    if (contato) {
+      contato.trusted = true;
+      contato.updatedAt = Date.now();
+      await salvarContato(contato);
+      await carregarContatos();
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contato.name}`);
+    } else {
+      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado para homologação");
+    }
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
+  }
+}
+
+export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
+  const contato = contatosMap.value.get(id);
+  if (contato) {
+    const atualizado = { ...contato, me: meStatus, updatedAt: Date.now() };
+    adicionarContato(atualizado).catch((err) => {
+      addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
+    });
+  } else {
+    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado para atualizar status`);
+  }
 }

@@ -4,7 +4,7 @@ import { cifrarChaveVapid } from './push-utils.ts';
 import { registrarServiceWorker } from './sw-utils.ts';
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from '../signals/state.ts';
+import { addDebugLog } from './debug-utils.ts'; // 🔥 Alterado para não importar o state.ts
 
 export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   if ('storage' in navigator && 'persist' in navigator.storage) {
@@ -35,11 +35,11 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     addDebugLog("Step 1: Verificando permissão de notificação...");
     try {
       if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação foi negada pelo usuário. Continuando sem notificações...");
+        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
       } else if (Notification.permission === "default") {
         const permission = await Notification.requestPermission();
         if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida. Continuando sem notificações...");
+          addDebugLog("⚠️ Permissão de notificação não concedida.");
         }
       }
     } catch (notifErr: any) {
@@ -68,18 +68,8 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
       privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
       try {
         vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey(
-            "jwk", publicKeyJwk,
-            { name: "ECDSA", namedCurve: "P-256" },
-            true,
-            ["verify"]
-          ),
-          privateKey: await window.crypto.subtle.importKey(
-            "jwk", privateKeyJwk,
-            { name: "ECDSA", namedCurve: "P-256" },
-            true,
-            ["sign"]
-          )
+          publicKey: await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk", privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
         } as CryptoKeyPair;
       } catch {
         addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
@@ -94,12 +84,8 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     }
 
     addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) {
-      throw new Error("Service Worker registration é null/undefined");
-    }
-    if (!registration.pushManager) {
-      throw new Error("Web Push API (pushManager) não disponível.");
-    }
+    if (!registration) throw new Error("Service Worker registration é null/undefined");
+    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
     
     let existingSubscription = await registration.pushManager.getSubscription();
     let subscriptionValida = false;
@@ -110,13 +96,10 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
         subscriptionValida = true;
       } else {
         await existingSubscription.unsubscribe();
-        
-        // Remove a assinatura inválida do perfil local para mantê-lo limpo
         if (existingProfile) {
            delete (existingProfile as any).subscription;
            await salvarProfile(existingProfile);
         }
-        
         existingSubscription = null;
       }
     }
@@ -151,13 +134,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
       try {
-        await window.crypto.subtle.importKey(
-          "jwk",
-          e2ePrivateKeyJwk,
-          { name: "RSA-OAEP", hash: "SHA-256" },
-          true,
-          ["decrypt"]
-        );
+        await window.crypto.subtle.importKey("jwk", e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
       } catch {
         addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
         const newKeys = await generateE2EEKeys();
@@ -174,16 +151,9 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
     const profile: ProfileConfig = {
-      name: nome,
-      email: email,
-      vapidPublicKey: publicKeyJwk,
-      vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted,
-      e2ePublicKey: e2ePublicKey,
-      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription,
-      createdAt: existingProfile?.createdAt || Date.now(),
-      updatedAt: Date.now()
+      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
     };
 
     await salvarProfile(profile);

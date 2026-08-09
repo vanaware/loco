@@ -16,6 +16,7 @@ import {
 
 // Importamos a função principal do roteador para forçar a fila a andar quando criamos uma saída
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
   
@@ -23,11 +24,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
   // 📥 FLUXO DE ENTRADA (IN)
   // ==========================================
   if (handshakeId) {
-    console.log(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
+    addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
     
     if (!handshake || !handshake.in || !handshake.in.rotas.profile) {
-      console.warn(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
+      addDebugLog(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
       return;
     }
 
@@ -35,7 +36,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 1. Recebemos uma SOLICITAÇÃO (campos array) -> Devemos gerar a Resposta (FluxoOut)
     if (Array.isArray(profileReq.campos)) {
-      console.log(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
+      addDebugLog(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
       
       const profile = await buscarProfile();
       if (!profile) throw new Error("Perfil local não encontrado para responder à requisição.");
@@ -73,7 +74,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 2. Recebemos uma RESPOSTA (data object) -> Devemos salvar no IndexedDB
     else if (profileReq.data && profileReq.data.id) {
-      console.log(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
+      addDebugLog(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
       
       const contatoId = profileReq.data.id;
       const contato = await buscarContatoPorChave(contatoId);
@@ -91,7 +92,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
         contato.updatedAt = Date.now();
         await salvarContato(contato);
-        console.log(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
+        addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
 
         // Notifica a Interface (UI) para se recarregar
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -99,7 +100,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
         });
       } else {
-        console.warn(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
+        addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
       }
     }
   }
@@ -108,7 +109,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
   // 📤 FLUXO DE SAÍDA (OUT - Acionado por nós)
   // ==========================================
   if (outParams) {
-    console.log(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
+    addDebugLog(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
     
     // Função: solicitarPerfil
     if (outParams.function === 'solicitarPerfil') {
@@ -136,7 +137,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
 
       await salvarHandshake(novoHandshake);
-      console.log(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
+      addDebugLog(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
       
       // Aciona a fila para processar o envio
       setTimeout(() => processarFilaHandshake(), 100);

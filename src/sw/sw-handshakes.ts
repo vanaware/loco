@@ -1,3 +1,4 @@
+// src/sw/sw-handshakes.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
@@ -17,6 +18,7 @@ import {
 } from "../utils/db-helpers.ts";
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
 // Importa os roteadores especializados
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
@@ -24,7 +26,7 @@ import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
 
 export async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
-  console.log("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
+  addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
     if (!payload.jti) throw new Error("Handshake sem jti");
@@ -66,22 +68,31 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
     handshake.updatedAt = Date.now();
     
     await salvarHandshake(handshake);
-    console.log(`[SW-ROUTER] ✅ Handshake ${handshake.id} enfileirado para processamento In.`);
+    addDebugLog(`[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
     await processarFilaHandshake();
 
-  } catch (err) {
-    console.error("[SW-ROUTER] ❌ Erro ao decifrar handshake recebido:", err);
+  } catch (err: any) {
+    addDebugLog(`[SW-ROUTER] ❌ Erro ao decifrar handshake recebido: ${err.message}`);
     throw err;
   }
 }
 
+// 🔥 Variável de Trava (Mutex) para evitar que a fila seja processada duas vezes simultaneamente
+let isProcessingFila = false;
+
 export async function processarFilaHandshake() {
-  console.log("[SW-ROUTER] 🔄 Processando fila geral de handshakes...");
+  if (isProcessingFila) {
+    // Fila já está sendo processada. Ignora chamadas concorrentes para não enviar mensagens duplicadas.
+    return;
+  }
+  
+  isProcessingFila = true;
+  addDebugLog("[SW-ROUTER] 🔄 Processando fila geral de handshakes...");
 
   try {
     const todos = await listarHandshakes();
 
-    // PROCESSAR ENTRADA
+    // 1. PROCESSAR ENTRADA (O que recebemos)
     const pendentesIn = todos.filter(h => h.in && (h.in.status === 'recebido' || (h.in.status === 'processando' && (Date.now() - h.updatedAt) > 60000)) && h.in.tentativas < MAX_TENTATIVAS);
 
     for (const h of pendentesIn) {
@@ -102,7 +113,7 @@ export async function processarFilaHandshake() {
           await salvarHandshake(hFresh);
         }
       } catch (err: any) {
-        console.error(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}:`, err);
+        addDebugLog(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}: ${err.message}`);
         const hFresh = await buscarHandshake(h.id);
         if (hFresh && hFresh.in) {
           hFresh.in.status = 'falha';
@@ -113,9 +124,9 @@ export async function processarFilaHandshake() {
       }
     }
 
-    // PROCESSAR SAIDA
+    // 2. PROCESSAR SAIDA (O que vamos enviar)
     if (!navigator.onLine) {
-      console.log("[SW-ROUTER] 🌐 Offline. Ignorando fila de saída (Out).");
+      addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
       return;
     }
 
@@ -139,28 +150,29 @@ export async function processarFilaHandshake() {
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
           const res = await fetch("/api/server-public-key");
-          if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor.");
+          if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor para cifrar envelope VAPID.");
           const serverPublicKeyJwk = await res.json();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
           await salvarProfile(profile);
         }
 
-        // 🔥 O PULO DO GATO (Piggybacking) REFINADO COM A NOVA FUNÇÃO
+        // INJEÇÃO/CARONA (Piggybacking): Adiciona dados de confiança no pacote caso desatualizado
         const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
         const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
         
         if (!isSyncHandshake && !isPullHandshake && (contato.me === 'none' || contato.me === 'wrong')) {
-          console.log(`[SW-ROUTER] 💉 Contato desatualizado. Pegando carona no handshake ${h.id}!`);
+          addDebugLog(`[SW-ROUTER] 💉 Contato desatualizado. Injetando dados de perfil no handshake ${h.id}.`);
           h.out!.rotas.contato = h.out!.rotas.contato || {};
           h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true);
         }
 
+        // Criptografia e Disparo para a Rede Proxy
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
         
-        if (jwt.length > 4096) throw new Error(`Payload excede limite (tamanho atual: ${jwt.length})`);
+        if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
 
         await enviarParaProxy(
           contato.subscription, jwt,
@@ -170,10 +182,10 @@ export async function processarFilaHandshake() {
         h.out!.status = 'enviado';
         h.updatedAt = Date.now();
         await salvarHandshake(h);
-        console.log(`[SW-ROUTER] 📤 Sucesso! Handshake ${h.id} enviado para o contato ${contato.id}.`);
+        addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
 
       } catch (err: any) {
-        console.error(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}:`, err);
+        addDebugLog(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}: ${err.message}`);
         const hFresh = await buscarHandshake(h.id);
         if (hFresh && hFresh.out) {
           hFresh.out.status = hFresh.out.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
@@ -184,24 +196,20 @@ export async function processarFilaHandshake() {
       }
     }
 
-  } catch (err) {
-    console.error("[SW-ROUTER] ❌ Erro geral ao processar fila:", err);
+  } catch (err: any) {
+    addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
+  } finally {
+    // 🔥 Libera a trava independente de erro ou sucesso
+    isProcessingFila = false;
   }
 }
 
-self.addEventListener('message', async (event) => {
-  const data = event.data;
-  if (data.type === 'PROCESSAR_FILA_HANDSHAKE') await processarFilaHandshake();
-  if (data.type === 'CRIAR_HANDSHAKE_OUT' && data.payload) {
-    const { rotasModulo, params } = data.payload;
-    if (rotasModulo === 'profile') await ProcessarProfile({ out: params });
-    if (rotasModulo === 'contato') await ProcessarContato({ out: params });
-    if (rotasModulo === 'mensagem') await ProcessarMensagem({ out: params });
-  }
-});
+// Escuta a volta de conectividade ou tarefas agendadas em Background
 self.addEventListener('sync', async function (event: any) {
   if (event.tag === 'sync-envio-handshakes') event.waitUntil(processarFilaHandshake());
 });
 self.addEventListener('online', async function () {
   await processarFilaHandshake();
 });
+
+// REMOVIDO: o listener de `message` que estava duplicado e causava os disparos duplos!

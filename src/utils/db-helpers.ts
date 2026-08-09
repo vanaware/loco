@@ -1,5 +1,5 @@
 // src/utils/db-helpers.ts
-import { get, set, createStore, del, entries } from "idb-keyval";
+import { get, set, createStore, del, entries, values } from "idb-keyval";
 import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
 import type {
   ProfileConfig,
@@ -13,34 +13,38 @@ import type {
 // Criação de Stores
 // ============================================================
 
-export function criarStore(nome: string) {
-  return createStore(nome, STORE_NAMES.KEYVAL);
+export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
+  return createStore(nome, storeName);
 }
 
 const storeConfig = criarStore(DB_NAMES.CONFIG);
 export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
 export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
-export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES);
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
 
 // ============================================================
 // Funções Genéricas
 // ============================================================
 
-export async function salvarChave<T>(store: IDBStore, key: string, value: T): Promise<void> {
+export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
   return set(key, value, store);
 }
 
-export async function buscarChave<T>(store: IDBStore, key: string): Promise<T | undefined> {
+export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
   return get(key, store);
 }
 
-export async function removerChave(store: IDBStore, key: string): Promise<void> {
+export async function removerChave(store: any, key: string): Promise<void> {
   return del(key, store);
 }
 
-export async function listarChaves<T>(store: IDBStore): Promise<[string, T][]> {
+export async function listarChaves<T>(store: any): Promise<[string, T][]> {
   return entries(store) as Promise<[string, T][]>;
+}
+
+export async function listarValores<T>(store: any): Promise<T[]> {
+  return values(store) as Promise<T[]>;
 }
 
 // ============================================================
@@ -103,8 +107,8 @@ export async function buscarMensagemEnviada(id: string): Promise<MensagemEnviada
 }
 
 export async function listarMensagensEnviadas(): Promise<MensagemEnviada[]> {
-  const entries = await listarChaves<MensagemEnviada>(storeMensagensEnviadasA);
-  return entries.map(([_, msg]) => msg);
+  const entriesList = await listarChaves<MensagemEnviada>(storeMensagensEnviadasA);
+  return entriesList.map(([_, msg]) => msg);
 }
 
 export async function listarMensagensEnviadasPorStatus(status: MensagemEnviada['status']): Promise<MensagemEnviada[]> {
@@ -139,8 +143,8 @@ export async function buscarMensagemRecebida(id: string): Promise<MensagemRecebi
 }
 
 export async function listarMensagensRecebidas(): Promise<MensagemRecebida[]> {
-  const entries = await listarChaves<MensagemRecebida>(storeMensagensRecebidasB);
-  return entries.map(([_, msg]) => msg);
+  const entriesList = await listarChaves<MensagemRecebida>(storeMensagensRecebidasB);
+  return entriesList.map(([_, msg]) => msg);
 }
 
 export async function atualizarStatusMensagemRecebida(id: string, status: MensagemRecebida['status']): Promise<void> {
@@ -158,7 +162,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos (Limpo - Sem Lógica Legada)
+// Contatos
 // ============================================================
 
 async function sha256(message: string): Promise<string> {
@@ -198,8 +202,8 @@ export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Pr
 }
 
 export async function listarContatos(): Promise<Contato[]> {
-  const entries = await listarChaves<Contato>(storeContatos);
-  return entries.map(([_, c]) => c);
+  const entriesList = await listarChaves<Contato>(storeContatos);
+  return entriesList.map(([_, c]) => c);
 }
 
 export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
@@ -208,7 +212,7 @@ export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> 
 }
 
 // ============================================================
-// Handshakes
+// Handshakes (Utilizando idb-keyval)
 // ============================================================
 
 export async function salvarHandshake(handshake: Handshake): Promise<void> {
@@ -224,8 +228,7 @@ export async function buscarHandshake(id: string): Promise<Handshake | undefined
 }
 
 export async function listarHandshakes(): Promise<Handshake[]> {
-  const entries = await listarChaves<Handshake>(storeHandshakes);
-  return entries.map(([_, h]) => h);
+  return listarValores<Handshake>(storeHandshakes);
 }
 
 export async function atualizarStatusHandshake(id: string, statusInOrOut: string, flow: 'in' | 'out', erro?: string): Promise<void> {

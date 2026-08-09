@@ -1,22 +1,297 @@
 // src/components/DebugPanel.tsx
-import { debugLogs, clearDebugLogs } from '../signals/state.ts';
+import { signal, computed } from "@preact/signals";
+import { useEffect } from "preact/hooks";
+import { buscarChave, salvarChave, criarStore } from "../utils/db-helpers.ts";
+import { DB_NAMES } from "../constants/db.ts";
+
+export interface DebugLogEntry {
+  id: string;
+  timestamp: string;
+  type: "info" | "warn" | "error" | "success";
+  module: string;
+  message: string;
+  details?: unknown;
+}
+
+const DEBUG_CONFIG_KEY = "loco_debug_enabled";
+const DEBUG_LOG_PREFIX = "debug_log_";
+const MAX_LOGS = 200;
+const DEBUG_CHANNEL_NAME = "loco_debug_channel";
+
+// Store dedicada para o AppConfig_DB
+const storeConfigDB = criarStore(DB_NAMES.CONFIG);
+
+// 1. Signal reativo para o interruptor LIGADO / DESLIGADO gerenciado via Preact Signals
+export const isDebugEnabled = signal<boolean>(false);
+
+// Carrega o estado inicial do interruptor de debug diretamente do IndexedDB (AppConfig_DB)
+buscarChave<boolean>(storeConfigDB, DEBUG_CONFIG_KEY).then((val) => {
+  if (val !== undefined) {
+    isDebugEnabled.value = val;
+  }
+});
+
+// 2. Histórico reativo de logs carregado de chaves individuais do localStorage
+export const debugLogs = signal<DebugLogEntry[]>(loadIndividualLogsFromStorage());
+
+function loadIndividualLogsFromStorage(): DebugLogEntry[] {
+  try {
+    const logs: DebugLogEntry[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(DEBUG_LOG_PREFIX)) {
+        const value = localStorage.getItem(key);
+        if (value) {
+          try {
+            const entry = JSON.parse(value) as DebugLogEntry;
+            if (entry && entry.id) {
+              logs.push(entry);
+            }
+          } catch {
+            // Ignora itens corrompidos
+          }
+        }
+      }
+    }
+
+    // Ordena do mais recente para o mais antigo e limita a quantidade máxima
+    logs.sort((a, b) => b.id.localeCompare(a.id));
+    return logs.slice(0, MAX_LOGS);
+  } catch (e) {
+    console.warn("Falha ao carregar logs individuais do localStorage:", e);
+    return [];
+  }
+}
+
+function persistSingleLog(entry: DebugLogEntry) {
+  if (!isDebugEnabled.value) return;
+  try {
+    localStorage.setItem(`${DEBUG_LOG_PREFIX}${entry.id}`, JSON.stringify(entry));
+    
+    // Controla o limite máximo de logs limpando os excedentes do localStorage
+    const currentLogs = debugLogs.value;
+    if (currentLogs.length > MAX_LOGS) {
+      const excesso = currentLogs.slice(MAX_LOGS);
+      for (const old of excesso) {
+        localStorage.removeItem(`${DEBUG_LOG_PREFIX}${old.id}`);
+      }
+      debugLogs.value = currentLogs.slice(0, MAX_LOGS);
+    }
+  } catch (e) {
+    console.warn("Falha ao salvar log individual no localStorage:", e);
+  }
+}
+
+/**
+ * Limpa todos os logs individuais do localStorage e da memória
+ */
+export async function clearDebugLogs() {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(DEBUG_LOG_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+    debugLogs.value = [];
+  } catch (e) {
+    console.error("Erro ao limpar logs individuais do localStorage:", e);
+  }
+}
+
+// 📻 3. Ouve o BroadcastChannel para capturar logs em tempo real
+const debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
+
+debugChannel.onmessage = (event) => {
+  if (!isDebugEnabled.value) return;
+
+  if (event.data && event.data.type === "LOCO_DEBUG_LOG") {
+    // 🔥 Capturamos exatamente a propriedade "entry" que o Logger agora enviará
+    const entry: DebugLogEntry = event.data.entry;
+    if (entry && entry.id) {
+      const updated = [entry, ...debugLogs.value].slice(0, MAX_LOGS);
+      debugLogs.value = updated;
+      persistSingleLog(entry);
+    }
+  }
+};
+
+// Signals de Filtro da Interface
+const filterText = signal<string>("");
+const filterType = signal<string>("all");
 
 export function DebugPanel() {
-  const logs = debugLogs.value;
+  // Efeito para persistir a alteração do interruptor de debug no IndexedDB (AppConfig_DB)
+  useEffect(() => {
+    salvarChave(storeConfigDB, DEBUG_CONFIG_KEY, isDebugEnabled.value).catch((err) => {
+      console.warn("Falha ao salvar configuração de debug no IndexedDB:", err);
+    });
+  }, [isDebugEnabled.value]);
+
+  const filteredLogs = computed(() => {
+    return debugLogs.value.filter((log) => {
+      const matchesText =
+        filterText.value === "" ||
+        log.module.toLowerCase().includes(filterText.value.toLowerCase()) ||
+        log.message.toLowerCase().includes(filterText.value.toLowerCase());
+
+      const matchesType =
+        filterType.value === "all" || log.type === filterType.value;
+
+      return matchesText && matchesType;
+    });
+  });
+
+  const toggleDebug = () => {
+    isDebugEnabled.value = !isDebugEnabled.value;
+  };
 
   return (
-    <div class="container" style="background: #f5f5f5; border: 2px dashed #999; margin-top: 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h2 style="margin: 0;">🔍 Debug Logs</h2>
-        <md-outlined-button onClick={clearDebugLogs}>🗑️ Limpar Logs</md-outlined-button>
+    <div style={styles.container}>
+      {/* Cabeçalho */}
+      <div style={styles.header}>
+        <div style={styles.titleGroup}>
+          <span style={styles.title}>🐞 Painel de Debug</span>
+          <span style={styles.badgeCount}>{debugLogs.value.length} logs</span>
+        </div>
+
+        <div style={styles.actions}>
+          <label style={styles.switchLabel}>
+            <input
+              type="checkbox"
+              checked={isDebugEnabled.value}
+              onChange={toggleDebug}
+              style={styles.checkbox}
+            />
+            <span style={{ fontWeight: "bold", fontSize: "0.85rem" }}>
+              {isDebugEnabled.value ? "LIGADO" : "DESLIGADO"}
+            </span>
+          </label>
+
+          <md-outlined-button
+            onClick={clearDebugLogs}
+            disabled={debugLogs.value.length === 0}
+          >
+            Limpar
+          </md-outlined-button>
+        </div>
       </div>
-      <div id="debugPanel" style="background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-        {logs.length === 0 ? (
-          <div>Aguardando logs...</div>
+
+      {/* Filtros */}
+      <div style={styles.filterBar}>
+        <input
+          type="text"
+          placeholder="Filtrar por módulo ou mensagem..."
+          value={filterText.value}
+          onInput={(e) => (filterText.value = (e.target as HTMLInputElement).value)}
+          style={styles.searchInput}
+        />
+
+        <select
+          value={filterType.value}
+          onChange={(e) => (filterType.value = (e.target as HTMLSelectElement).value)}
+          style={styles.selectInput}
+        >
+          <option value="all">Todos os tipos</option>
+          <option value="info">Info</option>
+          <option value="warn">Avisos (Warn)</option>
+          <option value="error">Erros</option>
+          <option value="success">Sucesso</option>
+        </select>
+      </div>
+
+      {/* Feed de Logs */}
+      <div style={styles.logList}>
+        {!isDebugEnabled.value && (
+          <div style={styles.disabledNotice}>
+            ⚠️ O modo Debug está <strong>DESLIGADO</strong>. O painel não está registrando novas mensagens.
+          </div>
+        )}
+
+        {filteredLogs.value.length === 0 ? (
+          <div style={styles.emptyState}>Nenhum log gravado.</div>
         ) : (
-          logs.map((log, index) => <div key={index}>{log}</div>)
+          filteredLogs.value.map((log) => (
+            <div key={log.id} style={{ ...styles.logItem, ...getTypeStyle(log.type) }}>
+              <div style={styles.logMeta}>
+                <span style={styles.time}>{log.timestamp}</span>
+                <span style={styles.module}>[{log.module}]</span>
+                <span style={{ ...styles.typeTag, ...getTypeBadgeStyle(log.type) }}>
+                  {log.type.toUpperCase()}
+                </span>
+              </div>
+              <div style={styles.message}>{log.message}</div>
+              {log.details !== undefined && (
+                <details style={styles.details}>
+                  <summary style={styles.summary}>Ver detalhes JSON</summary>
+                  <pre style={styles.json}>{JSON.stringify(log.details, null, 2)}</pre>
+                </details>
+              )}
+            </div>
+          ))
         )}
       </div>
     </div>
   );
 }
+
+function getTypeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
+  switch (type) {
+    case "error":
+      return { borderLeft: "4px solid #f44336", backgroundColor: "rgba(244, 67, 54, 0.05)" };
+    case "warn":
+      return { borderLeft: "4px solid #ff9800", backgroundColor: "rgba(255, 152, 0, 0.05)" };
+    case "success":
+      return { borderLeft: "4px solid #4caf50", backgroundColor: "rgba(76, 175, 80, 0.05)" };
+    default:
+      return { borderLeft: "4px solid #2196f3", backgroundColor: "rgba(33, 150, 243, 0.05)" };
+  }
+}
+
+function getTypeBadgeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
+  switch (type) {
+    case "error":
+      return { color: "#d32f2f" };
+    case "warn":
+      return { color: "#ed6c02" };
+    case "success":
+      return { color: "#2e7d32" };
+    default:
+      return { color: "#0288d1" };
+  }
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    display: "flex", flexDirection: "column", gap: "12px", padding: "16px",
+    backgroundColor: "var(--md-sys-color-surface-container, #f5f5f5)", borderRadius: "12px",
+    border: "1px solid var(--md-sys-color-outline-variant, #e0e0e0)", fontFamily: "monospace",
+    fontSize: "0.85rem", maxHeight: "600px",
+  },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" },
+  titleGroup: { display: "flex", alignItems: "center", gap: "8px" },
+  title: { fontSize: "1rem", fontWeight: "bold" },
+  badgeCount: { fontSize: "0.75rem", padding: "2px 8px", borderRadius: "12px", backgroundColor: "var(--md-sys-color-secondary-container, #e0e0e0)" },
+  actions: { display: "flex", alignItems: "center", gap: "12px" },
+  switchLabel: { display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", userSelect: "none" },
+  checkbox: { cursor: "pointer", width: "16px", height: "16px" },
+  filterBar: { display: "flex", gap: "8px" },
+  searchInput: { flex: 1, padding: "6px 10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "0.85rem" },
+  selectInput: { padding: "6px 10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "0.85rem" },
+  logList: { display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", maxHeight: "450px", paddingRight: "4px" },
+  disabledNotice: { padding: "10px", backgroundColor: "#fff3cd", color: "#856404", borderRadius: "6px", fontSize: "0.8rem" },
+  emptyState: { textAlign: "center", padding: "24px", color: "#888" },
+  logItem: { padding: "8px 12px", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "4px" },
+  logMeta: { display: "flex", gap: "8px", alignItems: "center", fontSize: "0.75rem" },
+  time: { color: "#666" },
+  module: { fontWeight: "bold", color: "#333" },
+  typeTag: { fontWeight: "bold" },
+  message: { wordBreak: "break-word", whiteSpace: "pre-wrap" },
+  details: { marginTop: "4px" },
+  summary: { cursor: "pointer", color: "#0066cc", fontSize: "0.75rem" },
+  json: { margin: "4px 0 0 0", padding: "8px", backgroundColor: "#1e1e1e", color: "#00ff66", borderRadius: "4px", fontSize: "0.75rem", overflowX: "auto" },
+};

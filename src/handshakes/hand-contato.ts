@@ -15,6 +15,7 @@ import {
 } from "../utils/db-helpers.ts";
 import { extrairDadosCompactos, expandirDadosCompactos } from "../utils/share-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
   
@@ -25,7 +26,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 1. Recebemos um Pull (O contato quer saber se confiamos nele e se temos os dados certos)
     if (Array.isArray(contatoReq.campos) && contatoReq.id) {
-      console.log(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
+      addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
       const contato = await buscarContatoPorChave(handshake.aud);
       const rotasContatoData: any = { id: handshake.aud };
 
@@ -50,7 +51,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 2. Recebemos a Resposta do Pull (Avaliando a consistência)
     else if (contatoReq.data) {
-      console.log(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
+      addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
       const contato = await buscarContatoPorChave(handshake.aud);
       const profile = await buscarProfile();
 
@@ -75,7 +76,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           contato.me = novoMeStatus;
           contato.updatedAt = Date.now();
           await salvarContato(contato);
-          console.log(`[HAND-CONTATO] ✅ Status do contato atualizado para: ${novoMeStatus}`);
+          addDebugLog(`[HAND-CONTATO] ✅ Status do contato atualizado para: ${novoMeStatus}`);
           
           const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
           clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
@@ -85,7 +86,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 3. Recebemos um Push (enviarSubscription/sync)
     else if (contatoReq.sync) {
-      console.log(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
+      addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
       
       const expanded = expandirDadosCompactos(contatoReq.sync);
       const contatoAntigo = await buscarContatoPorChave(handshake.aud);
@@ -109,13 +110,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
 
       await salvarContato(novoContato);
-      console.log(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
+      addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
 
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
 
       if (contatoReq.sync.req) {
-        console.log(`[HAND-CONTATO] 🔄 Devolvendo meus dados...`);
+        addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
         await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
       }
     }
@@ -135,6 +136,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
       };
       await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-CONTATO] ✅ Handshake de confirmação de inscrição (Pull) criado.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
@@ -155,6 +157,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
 
       await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-CONTATO] ✅ Handshake de sync de contato (Push) criado.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }

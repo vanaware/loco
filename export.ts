@@ -26,7 +26,7 @@ import { relative } from "jsr:@std/path/relative";
 const ARQUIVO_SAIDA = "EXPORT.md";
 
 // Arquivos específicos permitidos na raiz do projeto
-const ARQUIVOS_RAIZ_PERMITIDOS = ["main.ts", "build.ts", "deno.json", "deno.jsonc", "README.md", "LICENSE.md"];
+const ARQUIVOS_RAIZ_PERMITIDOS = ["main.ts", "build.ts", "deno.json", "deno.jsonc", "README", "LICENSE.md"];
 
 // Pastas permitidas para varredura completa
 const PASTAS_PERMITIDAS = ["src", "public"];

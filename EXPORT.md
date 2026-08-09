@@ -7,36 +7,7 @@
 
 # Código Fonte Selecionado do Projeto
 
-Gerado automaticamente em: 8/9/2026, 11:43:36 AM
-
----
-
-## Arquivo: `src/components/DebugPanel.tsx`
-
-```tsx
-// src/components/DebugPanel.tsx
-import { debugLogs, clearDebugLogs } from '../signals/state.ts';
-
-export function DebugPanel() {
-  const logs = debugLogs.value;
-
-  return (
-    <div class="container" style="background: #f5f5f5; border: 2px dashed #999; margin-top: 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h2 style="margin: 0;">🔍 Debug Logs</h2>
-        <md-outlined-button onClick={clearDebugLogs}>🗑️ Limpar Logs</md-outlined-button>
-      </div>
-      <div id="debugPanel" style="background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-        {logs.length === 0 ? (
-          <div>Aguardando logs...</div>
-        ) : (
-          logs.map((log, index) => <div key={index}>{log}</div>)
-        )}
-      </div>
-    </div>
-  );
-}
-```
+Gerado automaticamente em: 8/9/2026, 5:17:07 PM
 
 ---
 
@@ -1010,6 +981,411 @@ export function ProfileSection() {
 
 ---
 
+## Arquivo: `src/components/DebugPanel.tsx`
+
+```tsx
+// src/components/DebugPanel.tsx
+import { signal, computed } from "@preact/signals";
+import { useEffect } from "preact/hooks";
+import { buscarChave, salvarChave, criarStore } from "../utils/db-helpers.ts";
+import { DB_NAMES } from "../constants/db.ts";
+
+export interface DebugLogEntry {
+  id: string;
+  timestamp: string;
+  type: "info" | "warn" | "error" | "success";
+  module: string;
+  message: string;
+  details?: unknown;
+}
+
+const DEBUG_CONFIG_KEY = "loco_debug_enabled";
+const DEBUG_LOG_PREFIX = "debug_log_";
+const MAX_LOGS = 200;
+const DEBUG_CHANNEL_NAME = "loco_debug_channel";
+
+// Store dedicada para o AppConfig_DB
+const storeConfigDB = criarStore(DB_NAMES.CONFIG);
+
+// 1. Signal reativo para o interruptor LIGADO / DESLIGADO gerenciado via Preact Signals
+export const isDebugEnabled = signal<boolean>(false);
+
+// Carrega o estado inicial do interruptor de debug diretamente do IndexedDB (AppConfig_DB)
+buscarChave<boolean>(storeConfigDB, DEBUG_CONFIG_KEY).then((val) => {
+  if (val !== undefined) {
+    isDebugEnabled.value = val;
+  }
+});
+
+// 2. Histórico reativo de logs carregado de chaves individuais do localStorage
+export const debugLogs = signal<DebugLogEntry[]>(loadIndividualLogsFromStorage());
+
+function loadIndividualLogsFromStorage(): DebugLogEntry[] {
+  try {
+    const logs: DebugLogEntry[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(DEBUG_LOG_PREFIX)) {
+        const value = localStorage.getItem(key);
+        if (value) {
+          try {
+            const entry = JSON.parse(value) as DebugLogEntry;
+            if (entry && entry.id) {
+              logs.push(entry);
+            }
+          } catch {
+            // Ignora itens corrompidos
+          }
+        }
+      }
+    }
+
+    // Ordena do mais recente para o mais antigo e limita a quantidade máxima
+    logs.sort((a, b) => b.id.localeCompare(a.id));
+    return logs.slice(0, MAX_LOGS);
+  } catch (e) {
+    console.warn("Falha ao carregar logs individuais do localStorage:", e);
+    return [];
+  }
+}
+
+function persistSingleLog(entry: DebugLogEntry) {
+  if (!isDebugEnabled.value) return;
+  try {
+    localStorage.setItem(`${DEBUG_LOG_PREFIX}${entry.id}`, JSON.stringify(entry));
+    
+    // Controla o limite máximo de logs limpando os excedentes do localStorage
+    const currentLogs = debugLogs.value;
+    if (currentLogs.length > MAX_LOGS) {
+      const excesso = currentLogs.slice(MAX_LOGS);
+      for (const old of excesso) {
+        localStorage.removeItem(`${DEBUG_LOG_PREFIX}${old.id}`);
+      }
+      debugLogs.value = currentLogs.slice(0, MAX_LOGS);
+    }
+  } catch (e) {
+    console.warn("Falha ao salvar log individual no localStorage:", e);
+  }
+}
+
+/**
+ * Limpa todos os logs individuais do localStorage e da memória
+ */
+export async function clearDebugLogs() {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(DEBUG_LOG_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+    debugLogs.value = [];
+  } catch (e) {
+    console.error("Erro ao limpar logs individuais do localStorage:", e);
+  }
+}
+
+// 📻 3. Ouve o BroadcastChannel para capturar logs em tempo real
+const debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
+
+debugChannel.onmessage = (event) => {
+  if (!isDebugEnabled.value) return;
+
+  if (event.data && event.data.type === "LOCO_DEBUG_LOG") {
+    const entry: DebugLogEntry = event.data.entry;
+    const updated = [entry, ...debugLogs.value].slice(0, MAX_LOGS);
+    debugLogs.value = updated;
+    persistSingleLog(entry);
+  }
+};
+
+// Signals de Filtro da Interface
+const filterText = signal<string>("");
+const filterType = signal<string>("all");
+
+export function DebugPanel() {
+  // Efeito para persistir a alteração do interruptor de debug no IndexedDB (AppConfig_DB)
+  useEffect(() => {
+    salvarChave(storeConfigDB, DEBUG_CONFIG_KEY, isDebugEnabled.value).catch((err) => {
+      console.warn("Falha ao salvar configuração de debug no IndexedDB:", err);
+    });
+  }, [isDebugEnabled.value]);
+
+  const filteredLogs = computed(() => {
+    return debugLogs.value.filter((log) => {
+      const matchesText =
+        filterText.value === "" ||
+        log.module.toLowerCase().includes(filterText.value.toLowerCase()) ||
+        log.message.toLowerCase().includes(filterText.value.toLowerCase());
+
+      const matchesType =
+        filterType.value === "all" || log.type === filterType.value;
+
+      return matchesText && matchesType;
+    });
+  });
+
+  const toggleDebug = () => {
+    isDebugEnabled.value = !isDebugEnabled.value;
+  };
+
+  return (
+    <div style={styles.container}>
+      {/* Cabeçalho */}
+      <div style={styles.header}>
+        <div style={styles.titleGroup}>
+          <span style={styles.title}>🐞 Painel de Debug</span>
+          <span style={styles.badgeCount}>{debugLogs.value.length} logs</span>
+        </div>
+
+        <div style={styles.actions}>
+          <label style={styles.switchLabel}>
+            <input
+              type="checkbox"
+              checked={isDebugEnabled.value}
+              onChange={toggleDebug}
+              style={styles.checkbox}
+            />
+            <span style={{ fontWeight: "bold", fontSize: "0.85rem" }}>
+              {isDebugEnabled.value ? "LIGADO" : "DESLIGADO"}
+            </span>
+          </label>
+
+          <md-outlined-button
+            onClick={clearDebugLogs}
+            disabled={debugLogs.value.length === 0}
+          >
+            Limpar
+          </md-outlined-button>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div style={styles.filterBar}>
+        <input
+          type="text"
+          placeholder="Filtrar por módulo ou mensagem..."
+          value={filterText.value}
+          onInput={(e) => (filterText.value = (e.target as HTMLInputElement).value)}
+          style={styles.searchInput}
+        />
+
+        <select
+          value={filterType.value}
+          onChange={(e) => (filterType.value = (e.target as HTMLSelectElement).value)}
+          style={styles.selectInput}
+        >
+          <option value="all">Todos os tipos</option>
+          <option value="info">Info</option>
+          <option value="warn">Avisos (Warn)</option>
+          <option value="error">Erros</option>
+          <option value="success">Sucesso</option>
+        </select>
+      </div>
+
+      {/* Feed de Logs */}
+      <div style={styles.logList}>
+        {!isDebugEnabled.value && (
+          <div style={styles.disabledNotice}>
+            ⚠️ O modo Debug está <strong>DESLIGADO</strong>. O painel não está registrando novas mensagens.
+          </div>
+        )}
+
+        {filteredLogs.value.length === 0 ? (
+          <div style={styles.emptyState}>Nenhum log gravado.</div>
+        ) : (
+          filteredLogs.value.map((log) => (
+            <div key={log.id} style={{ ...styles.logItem, ...getTypeStyle(log.type) }}>
+              <div style={styles.logMeta}>
+                <span style={styles.time}>{log.timestamp}</span>
+                <span style={styles.module}>[{log.module}]</span>
+                <span style={{ ...styles.typeTag, ...getTypeBadgeStyle(log.type) }}>
+                  {log.type.toUpperCase()}
+                </span>
+              </div>
+              <div style={styles.message}>{log.message}</div>
+              {log.details !== undefined && (
+                <details style={styles.details}>
+                  <summary style={styles.summary}>Ver detalhes JSON</summary>
+                  <pre style={styles.json}>{JSON.stringify(log.details, null, 2)}</pre>
+                </details>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getTypeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
+  switch (type) {
+    case "error":
+      return { borderLeft: "4px solid #f44336", backgroundColor: "rgba(244, 67, 54, 0.05)" };
+    case "warn":
+      return { borderLeft: "4px solid #ff9800", backgroundColor: "rgba(255, 152, 0, 0.05)" };
+    case "success":
+      return { borderLeft: "4px solid #4caf50", backgroundColor: "rgba(76, 175, 80, 0.05)" };
+    default:
+      return { borderLeft: "4px solid #2196f3", backgroundColor: "rgba(33, 150, 243, 0.05)" };
+  }
+}
+
+function getTypeBadgeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
+  switch (type) {
+    case "error":
+      return { color: "#d32f2f" };
+    case "warn":
+      return { color: "#ed6c02" };
+    case "success":
+      return { color: "#2e7d32" };
+    default:
+      return { color: "#0288d1" };
+  }
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    padding: "16px",
+    backgroundColor: "var(--md-sys-color-surface-container, #f5f5f5)",
+    borderRadius: "12px",
+    border: "1px solid var(--md-sys-color-outline-variant, #e0e0e0)",
+    fontFamily: "monospace",
+    fontSize: "0.85rem",
+    maxHeight: "600px",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "8px",
+  },
+  titleGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  title: {
+    fontSize: "1rem",
+    fontWeight: "bold",
+  },
+  badgeCount: {
+    fontSize: "0.75rem",
+    padding: "2px 8px",
+    borderRadius: "12px",
+    backgroundColor: "var(--md-sys-color-secondary-container, #e0e0e0)",
+  },
+  actions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+  },
+  switchLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    cursor: "pointer",
+    userSelect: "none",
+  },
+  checkbox: {
+    cursor: "pointer",
+    width: "16px",
+    height: "16px",
+  },
+  filterBar: {
+    display: "flex",
+    gap: "8px",
+  },
+  searchInput: {
+    flex: 1,
+    padding: "6px 10px",
+    borderRadius: "6px",
+    border: "1px solid #ccc",
+    fontSize: "0.85rem",
+  },
+  selectInput: {
+    padding: "6px 10px",
+    borderRadius: "6px",
+    border: "1px solid #ccc",
+    fontSize: "0.85rem",
+  },
+  logList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    overflowY: "auto",
+    maxHeight: "450px",
+    paddingRight: "4px",
+  },
+  disabledNotice: {
+    padding: "10px",
+    backgroundColor: "#fff3cd",
+    color: "#856404",
+    borderRadius: "6px",
+    fontSize: "0.8rem",
+  },
+  emptyState: {
+    textAlign: "center",
+    padding: "24px",
+    color: "#888",
+  },
+  logItem: {
+    padding: "8px 12px",
+    borderRadius: "6px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  },
+  logMeta: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    fontSize: "0.75rem",
+  },
+  time: {
+    color: "#666",
+  },
+  module: {
+    fontWeight: "bold",
+    color: "#333",
+  },
+  typeTag: {
+    fontWeight: "bold",
+  },
+  message: {
+    wordBreak: "break-word",
+    whiteSpace: "pre-wrap",
+  },
+  details: {
+    marginTop: "4px",
+  },
+  summary: {
+    cursor: "pointer",
+    color: "#0066cc",
+    fontSize: "0.75rem",
+  },
+  json: {
+    margin: "4px 0 0 0",
+    padding: "8px",
+    backgroundColor: "#1e1e1e",
+    color: "#00ff66",
+    borderRadius: "4px",
+    fontSize: "0.75rem",
+    overflowX: "auto",
+  },
+};
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
@@ -1158,24 +1534,24 @@ export interface EnvelopeCifrado {
 ```ts
 // src/signals/state.ts
 import { signal } from '@preact/signals';
+import { addDebugLog as emitLog } from '../utils/debug-utils.ts';
 
 export const currentMobileView = signal<'list' | 'chat' | 'profile'>('list');
 
 export const contatoSelecionado = signal<string>('');
 export const contatoCompartilharHash = signal<string | null>(null); 
-export const showAdvanced = signal<boolean>(false); // 🔥 Controle da nova aba Avançado
+export const showAdvanced = signal<boolean>(false);
 export const mensagemEnvio = signal<string>('');
 
 export const profileInput = signal<string>('');
 export const profileName = signal<string>('');
 export const profileEmail = signal<string>('');
+
 export const debugLogs = signal<string[]>([]);
 
-export function addDebugLog(msg: string): void {
-  const timestamp = new Date().toLocaleTimeString();
-  const logEntry = `[${timestamp}] ${msg}`;
-  debugLogs.value = [...debugLogs.value, logEntry];
-  console.log(msg);
+// Mantemos o wrapper para não quebrar a importação nos componentes da UI
+export function addDebugLog(msg: string, details?: any): void {
+  emitLog(msg, details);
 }
 
 export function clearDebugLogs(): void {
@@ -1184,6 +1560,17 @@ export function clearDebugLogs(): void {
 
 export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
   alert(`${type.toUpperCase()}: ${msg}`);
+}
+
+// Inicializa o ouvinte global para capturar logs do Service Worker e de outras partes
+if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+  const channel = new BroadcastChannel("loco_debug_channel");
+  channel.onmessage = (e) => {
+    if (e.data?.type === "LOCO_DEBUG_LOG") {
+      // Mantém os últimos 150 logs para não travar a memória da UI
+      debugLogs.value = [e.data.payload, ...debugLogs.value].slice(0, 150);
+    }
+  };
 }
 ```
 
@@ -1307,68 +1694,123 @@ export async function initProfileStore() {
 
 ```ts
 // src/stores/contatosStore.ts
-import { signal } from '@preact/signals';
-import { 
-  listarContatos, 
-  salvarContato, 
-  removerContato, 
-  buscarContatoPorChave,
+import { signal, computed } from "@preact/signals";
+import {
+  listarContatos,
+  salvarContato,
+  removerContato,
   serializarPublicKeyVapid,
-} from '../utils/db-helpers.ts';
-import type { Contato } from '../constants/db.ts';
+  buscarContatoPorPublicKey,
+} from "../utils/db-helpers.ts";
+import type { Contato } from "../constants/db.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
-export const contatos = signal<Contato[]>([]);
-export const contatosComHash = signal<Array<{ contato: Contato; hash: string }>>([]);
+export type { Contato };
 
-export async function carregarContatos() {
-  const lista = await listarContatos();
-  contatos.value = lista;
-  const comHash = await Promise.all(lista.map(async (c) => {
-    // Usamos vapidPublicKey no lugar de publicKeyVapid
-    const hash = await serializarPublicKeyVapid(c.vapidPublicKey);
-    return { contato: c, hash };
+export const contatosRaw = signal<Contato[]>([]);
+
+/**
+ * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
+ * Utilizado por ChatSection, ContactDetailSection e ContatosSection.
+ */
+export const contatosComHash = computed(() => {
+  return contatosRaw.value.map((contato) => ({
+    contato,
+    hash: contato.id,
   }));
-  contatosComHash.value = comHash;
-}
+});
 
-export async function adicionarContato(contato: Contato) {
-  await salvarContato(contato);
-  await carregarContatos();
-}
+export const contatosMap = computed(() => {
+  const map = new Map<string, Contato>();
+  for (const c of contatosRaw.value) {
+    map.set(c.id, c);
+  }
+  return map;
+});
 
-export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey) {
-  await removerContato(vapidPublicKey);
-  await carregarContatos();
-}
-
-export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey) {
-  const hash = await serializarPublicKeyVapid(vapidPublicKey);
-  const contato = await buscarContatoPorChave(hash);
-  if (contato) {
-    contato.trusted = true; // Substitui o antigo 'homologado'
-    contato.updatedAt = Date.now();
-    await salvarContato(contato);
-    await carregarContatos();
+/**
+ * Carrega a lista de contatos do IndexedDB para a memória
+ */
+export async function carregarContatos(): Promise<void> {
+  try {
+    const lista = await listarContatos();
+    contatosRaw.value = lista;
+    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
   }
 }
 
-export async function buscarContatoPorHash(hash: string): Promise<Contato | undefined> {
-  const item = contatosComHash.value.find(item => item.hash === hash);
-  if (item) return item.contato;
-  return await buscarContatoPorChave(hash);
-}
-
-export async function initContatosStore() {
+/**
+ * Inicializa a store de contatos
+ */
+export async function initContatosStore(): Promise<void> {
   await carregarContatos();
 }
 
-// Ouve os avisos do novo Service Worker Router para recarregar a tela
-if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', (e) => {
-    if (e.data?.type === 'CONTATO_ATUALIZADO') {
-      carregarContatos();
-    }
+/**
+ * Adiciona ou atualiza um contato no banco IndexedDB e recarrega o estado reativo
+ */
+export async function adicionarContato(contato: Contato): Promise<void> {
+  try {
+    await salvarContato(contato);
+    await carregarContatos();
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo: ${contato.name} (${contato.id})`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", `Erro ao adicionar contato ${contato.id}`, err);
+    throw err;
+  }
+}
+
+export function adicionarOuAtualizarContato(contato: Contato): void {
+  adicionarContato(contato).catch((err) => {
+    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
   });
+}
+
+/**
+ * Remove um contato a partir de sua chave pública VAPID
+ */
+export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    await removerContato(vapidPublicKey);
+    await carregarContatos();
+    addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
+  }
+}
+
+/**
+ * Marca um contato como verificado/confiável (trusted: true)
+ */
+export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const contato = await buscarContatoPorPublicKey(vapidPublicKey);
+    if (contato) {
+      contato.trusted = true;
+      contato.updatedAt = Date.now();
+      await salvarContato(contato);
+      await carregarContatos();
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contato.name}`);
+    } else {
+      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado para homologação");
+    }
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
+  }
+}
+
+export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
+  const contato = contatosMap.value.get(id);
+  if (contato) {
+    const atualizado = { ...contato, me: meStatus, updatedAt: Date.now() };
+    adicionarContato(atualizado).catch((err) => {
+      addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
+    });
+  } else {
+    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado para atualizar status`);
+  }
 }
 ```
 
@@ -1499,62 +1941,38 @@ self.addEventListener('notificationclick', function(event) {
 
 ---
 
-## Arquivo: `src/sw/push.ts`
+## Arquivo: `src/sw/sw-utils.ts`
 
 ```ts
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
+// src/utils/sw-utils.ts
+import { addDebugLog } from './debug-utils.ts'; // 🔥 Alterado para não importar o state.ts
 
-import { verificarJWT } from "../utils/jwt-helpers.ts";
-import { processarHandshakeRecebido } from "./sw-handshakes.ts";
-import type { PayloadHandshake } from "../constants/db.ts";
-
-console.log("[SW-PUSH-ROUTER] 🔀 Router de push carregado.");
-
-self.addEventListener('push', function (event) {
-  if (!event.data) return;
-  const rawText = event.data.text();
-  console.log("[SW-PUSH-ROUTER] 📩 Push recebido, tamanho:", rawText.length);
-
-  if (rawText.split('.').length !== 3) {
-    event.waitUntil(
-      self.registration.showNotification("Notificação", { body: rawText })
-    );
-    return;
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
+  addDebugLog("📡 Verificando suporte ao Service Worker...");
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker não é suportado neste navegador.");
   }
 
-  event.waitUntil(
-    (async function () {
-      try {
-        const { header, payload, valid } = await verificarJWT(rawText);
-        if (!valid) {
-          await self.registration.showNotification("⚠️ Assinatura inválida", {
-            body: `Mensagem rejeitada.`,
-            icon: '/icon.png',
-          });
-          return;
-        }
+  const cacheBuster = Date.now();
+  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
 
-        // Tudo agora é Handshake!
-        if (payload.sub === "hand") {
-          await processarHandshakeRecebido(payload as PayloadHandshake, header, rawText);
-          return;
-        }
-
-        // Se uma mensagem do modelo MUITO ANTIGO ("msg") chegar, ignoramos ou logamos
-        console.warn(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
-      } catch (err: any) {
-        console.error("[SW-PUSH-ROUTER] ❌ Erro no router:", err);
-        await self.registration.showNotification("⚠️ Erro ao processar push", {
-          body: err.message || "Falha no processamento.",
-          icon: '/icon.png',
-        });
-      }
-    })()
-  );
-});
-
-console.log("[SW-PUSH-ROUTER] ✅ Router configurado.");
+  try {
+    const registration = await navigator.serviceWorker.register(
+      `./service-worker.js?cacheBuster=${cacheBuster}`,
+      { scope: "/" }
+    );
+    if (!registration) {
+      throw new Error("Service Worker registration retornou null/undefined");
+    }
+    addDebugLog("✅ Service Worker registrado, aguardando ready...");
+    const readyReg = await navigator.serviceWorker.ready;
+    addDebugLog("✅ Service Worker ativo e pronto.");
+    return readyReg;
+  } catch (err: any) {
+    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
+    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
+  }
+}
 ```
 
 ---
@@ -1562,6 +1980,7 @@ console.log("[SW-PUSH-ROUTER] ✅ Router configurado.");
 ## Arquivo: `src/sw/sw-handshakes.ts`
 
 ```ts
+// src/sw/sw-handshakes.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
@@ -1581,6 +2000,7 @@ import {
 } from "../utils/db-helpers.ts";
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
+import { addDebugLog } from "../utils/debug-utils.ts"; // 🔥 O novo logger sem estado do Preact
 
 // Importa os roteadores especializados
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
@@ -1588,7 +2008,7 @@ import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
 
 export async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
-  console.log("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
+  addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
     if (!payload.jti) throw new Error("Handshake sem jti");
@@ -1630,22 +2050,22 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
     handshake.updatedAt = Date.now();
     
     await salvarHandshake(handshake);
-    console.log(`[SW-ROUTER] ✅ Handshake ${handshake.id} enfileirado para processamento In.`);
+    addDebugLog(`[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
     await processarFilaHandshake();
 
-  } catch (err) {
-    console.error("[SW-ROUTER] ❌ Erro ao decifrar handshake recebido:", err);
+  } catch (err: any) {
+    addDebugLog(`[SW-ROUTER] ❌ Erro ao decifrar handshake recebido: ${err.message}`);
     throw err;
   }
 }
 
 export async function processarFilaHandshake() {
-  console.log("[SW-ROUTER] 🔄 Processando fila geral de handshakes...");
+  addDebugLog("[SW-ROUTER] 🔄 Processando fila geral de handshakes...");
 
   try {
     const todos = await listarHandshakes();
 
-    // PROCESSAR ENTRADA
+    // 1. PROCESSAR ENTRADA (O que recebemos)
     const pendentesIn = todos.filter(h => h.in && (h.in.status === 'recebido' || (h.in.status === 'processando' && (Date.now() - h.updatedAt) > 60000)) && h.in.tentativas < MAX_TENTATIVAS);
 
     for (const h of pendentesIn) {
@@ -1666,7 +2086,7 @@ export async function processarFilaHandshake() {
           await salvarHandshake(hFresh);
         }
       } catch (err: any) {
-        console.error(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}:`, err);
+        addDebugLog(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}: ${err.message}`);
         const hFresh = await buscarHandshake(h.id);
         if (hFresh && hFresh.in) {
           hFresh.in.status = 'falha';
@@ -1677,9 +2097,9 @@ export async function processarFilaHandshake() {
       }
     }
 
-    // PROCESSAR SAIDA
+    // 2. PROCESSAR SAIDA (O que vamos enviar)
     if (!navigator.onLine) {
-      console.log("[SW-ROUTER] 🌐 Offline. Ignorando fila de saída (Out).");
+      addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
       return;
     }
 
@@ -1703,28 +2123,29 @@ export async function processarFilaHandshake() {
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
           const res = await fetch("/api/server-public-key");
-          if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor.");
+          if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor para cifrar envelope VAPID.");
           const serverPublicKeyJwk = await res.json();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
           await salvarProfile(profile);
         }
 
-        // 🔥 O PULO DO GATO (Piggybacking) REFINADO COM A NOVA FUNÇÃO
+        // INJEÇÃO/CARONA (Piggybacking): Adiciona dados de confiança no pacote caso desatualizado
         const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
         const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
         
         if (!isSyncHandshake && !isPullHandshake && (contato.me === 'none' || contato.me === 'wrong')) {
-          console.log(`[SW-ROUTER] 💉 Contato desatualizado. Pegando carona no handshake ${h.id}!`);
+          addDebugLog(`[SW-ROUTER] 💉 Contato desatualizado. Injetando dados de perfil no handshake ${h.id}.`);
           h.out!.rotas.contato = h.out!.rotas.contato || {};
           h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true);
         }
 
+        // Criptografia e Disparo para a Rede Proxy
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
         
-        if (jwt.length > 4096) throw new Error(`Payload excede limite (tamanho atual: ${jwt.length})`);
+        if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
 
         await enviarParaProxy(
           contato.subscription, jwt,
@@ -1734,10 +2155,10 @@ export async function processarFilaHandshake() {
         h.out!.status = 'enviado';
         h.updatedAt = Date.now();
         await salvarHandshake(h);
-        console.log(`[SW-ROUTER] 📤 Sucesso! Handshake ${h.id} enviado para o contato ${contato.id}.`);
+        addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
 
       } catch (err: any) {
-        console.error(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}:`, err);
+        addDebugLog(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}: ${err.message}`);
         const hFresh = await buscarHandshake(h.id);
         if (hFresh && hFresh.out) {
           hFresh.out.status = hFresh.out.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
@@ -1748,8 +2169,8 @@ export async function processarFilaHandshake() {
       }
     }
 
-  } catch (err) {
-    console.error("[SW-ROUTER] ❌ Erro geral ao processar fila:", err);
+  } catch (err: any) {
+    addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
   }
 }
 
@@ -1768,6 +2189,66 @@ self.addEventListener('sync', async function (event: any) {
 });
 self.addEventListener('online', async function () {
   await processarFilaHandshake();
+});
+```
+
+---
+
+## Arquivo: `src/sw/push.ts`
+
+```ts
+// src/sw/push.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { verificarJWT } from "../utils/jwt-helpers.ts";
+import { processarHandshakeRecebido } from "./sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+
+addDebugLog("[SW-PUSH-ROUTER] 🔀 Event Listener de Push engatilhado.");
+
+self.addEventListener('push', function (event) {
+  if (!event.data) return;
+  const rawText = event.data.text();
+  addDebugLog(`[SW-PUSH-ROUTER] 📩 WebPush físico recebido! (Tamanho: ${rawText.length} bytes)`);
+
+  if (rawText.split('.').length !== 3) {
+    event.waitUntil(
+      self.registration.showNotification("Notificação", { body: "Dados crus capturados." })
+    );
+    return;
+  }
+
+  event.waitUntil(
+    (async function () {
+      try {
+        const { header, payload, valid } = await verificarJWT(rawText);
+        
+        if (!valid) {
+          addDebugLog("[SW-PUSH-ROUTER] ⚠️ Assinatura de pacote rejeitada.");
+          await self.registration.showNotification("⚠️ Assinatura inválida", {
+            body: `Mensagem rejeitada.`,
+            icon: '/icon.png',
+          });
+          return;
+        }
+
+        // Redireciona o payload fechado de Handshake para nossa Máquina de Estados
+        if (payload.sub === "hand") {
+          await processarHandshakeRecebido(payload, header, rawText);
+          return;
+        }
+
+        addDebugLog(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
+      } catch (err: any) {
+        addDebugLog(`[SW-PUSH-ROUTER] ❌ Falha crítica no desempacotamento de Push: ${err.message}`);
+        await self.registration.showNotification("⚠️ Erro ao processar push", {
+          body: "Falha criptográfica no processamento.",
+          icon: '/icon.png',
+        });
+      }
+    })()
+  );
 });
 ```
 
@@ -2080,82 +2561,6 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
 
 ---
 
-## Arquivo: `src/utils/sw-utils.ts`
-
-```ts
-// src/utils/sw-utils.ts
-import { addDebugLog } from '../signals/state.ts';
-
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  addDebugLog("📡 Verificando suporte ao Service Worker...");
-  if (!("serviceWorker" in navigator)) {
-    throw new Error("Service Worker não é suportado neste navegador.");
-  }
-
-  const cacheBuster = Date.now();
-  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
-
-  try {
-    const registration = await navigator.serviceWorker.register(
-      `./service-worker.js?cacheBuster=${cacheBuster}`,
-      { scope: "/" }
-    );
-    if (!registration) {
-      throw new Error("Service Worker registration retornou null/undefined");
-    }
-    addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    const readyReg = await navigator.serviceWorker.ready;
-    addDebugLog("✅ Service Worker ativo e pronto.");
-    return readyReg;
-  } catch (err: any) {
-    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
-    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/crypto-utils.ts`
-
-```ts
-// src/utils/crypto-utils.ts
-export async function generateE2EEKeys() {
-  const encryptionKeyPair = await window.crypto.subtle.generateKey(
-    { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: "SHA-256" },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  const publicEncryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.publicKey);
-  const privateDecryptJwk = await window.crypto.subtle.exportKey("jwk", encryptionKeyPair.privateKey);
-  return {
-    privateDecrypt: encryptionKeyPair.privateKey,
-    publicEncrypt: publicEncryptJwk,
-    privateDecryptJwk: privateDecryptJwk
-  };
-}
-
-export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
-  return await window.crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"]
-  );
-}
-
-export function rawBufferToBase64Url(buffer: ArrayBuffer | null): string {
-  if (!buffer) return "";
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-```
-
----
-
 ## Arquivo: `src/utils/id-utils.ts`
 
 ```ts
@@ -2191,256 +2596,6 @@ export function gerarIdFallback(): string {
  */
 export function validarId(id: string): boolean {
   return typeof id === 'string' && id.length > 0 && id.length <= 24;
-}
-```
-
----
-
-## Arquivo: `src/utils/db-helpers.ts`
-
-```ts
-// src/utils/db-helpers.ts
-import { get, set, createStore, del, entries } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type {
-  ProfileConfig,
-  MensagemEnviada,
-  MensagemRecebida,
-  Contato,
-  Handshake,
-} from "../constants/db.ts";
-
-// ============================================================
-// Criação de Stores
-// ============================================================
-
-export function criarStore(nome: string) {
-  return createStore(nome, STORE_NAMES.KEYVAL);
-}
-
-const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
-export const storeContatos = criarStore(DB_NAMES.CONTATOS);
-export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
-export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES);
-
-// ============================================================
-// Funções Genéricas
-// ============================================================
-
-export async function salvarChave<T>(store: IDBStore, key: string, value: T): Promise<void> {
-  return set(key, value, store);
-}
-
-export async function buscarChave<T>(store: IDBStore, key: string): Promise<T | undefined> {
-  return get(key, store);
-}
-
-export async function removerChave(store: IDBStore, key: string): Promise<void> {
-  return del(key, store);
-}
-
-export async function listarChaves<T>(store: IDBStore): Promise<[string, T][]> {
-  return entries(store) as Promise<[string, T][]>;
-}
-
-// ============================================================
-// Gerenciamento do Perfil (ProfileConfig)
-// ============================================================
-
-export async function salvarProfile(profile: ProfileConfig): Promise<void> {
-  profile.updatedAt = Date.now();
-  if (!profile.createdAt) {
-    profile.createdAt = Date.now();
-  }
-  await salvarChave(storeConfig, KEY_NAMES.PROFILE, profile);
-}
-
-export async function buscarProfile(): Promise<ProfileConfig | undefined> {
-  return buscarChave<ProfileConfig>(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function removerProfile(): Promise<void> {
-  await removerChave(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function buscarChaveDecript(): Promise<CryptoKey | null> {
-  try {
-    const profile = await buscarProfile();
-    if (!profile) {
-      console.warn("[DB-HELPERS] ⚠️ Perfil não encontrado.");
-      return null;
-    }
-    if (!profile.e2ePrivateKeyJwk) {
-      console.warn("[DB-HELPERS] ⚠️ Chave privada RSA não encontrada no perfil.");
-      return null;
-    }
-
-    const privateDecrypt = await crypto.subtle.importKey(
-      "jwk",
-      profile.e2ePrivateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["decrypt"]
-    );
-    console.log("[DB-HELPERS] 🔑 Chave de decodificação RSA encontrada e importada.");
-    return privateDecrypt;
-  } catch (err) {
-    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
-    return null;
-  }
-}
-
-// ============================================================
-// Mensagens Enviadas
-// ============================================================
-
-export async function salvarMensagemEnviada(mensagem: MensagemEnviada): Promise<void> {
-  await salvarChave(storeMensagensEnviadasA, mensagem.id, mensagem);
-}
-
-export async function buscarMensagemEnviada(id: string): Promise<MensagemEnviada | undefined> {
-  return buscarChave<MensagemEnviada>(storeMensagensEnviadasA, id);
-}
-
-export async function listarMensagensEnviadas(): Promise<MensagemEnviada[]> {
-  const entries = await listarChaves<MensagemEnviada>(storeMensagensEnviadasA);
-  return entries.map(([_, msg]) => msg);
-}
-
-export async function listarMensagensEnviadasPorStatus(status: MensagemEnviada['status']): Promise<MensagemEnviada[]> {
-  const todas = await listarMensagensEnviadas();
-  return todas.filter(m => m.status === status);
-}
-
-export async function atualizarStatusMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string): Promise<void> {
-  const mensagem = await buscarMensagemEnviada(id);
-  if (mensagem) {
-    mensagem.status = status;
-    mensagem.updatedAt = Date.now();
-    if (erro) mensagem.erro = erro;
-    await salvarMensagemEnviada(mensagem);
-  }
-}
-
-export async function removerMensagemEnviada(id: string): Promise<void> {
-  await removerChave(storeMensagensEnviadasA, id);
-}
-
-// ============================================================
-// Mensagens Recebidas
-// ============================================================
-
-export async function salvarMensagemRecebida(mensagem: MensagemRecebida): Promise<void> {
-  await salvarChave(storeMensagensRecebidasB, mensagem.id, mensagem);
-}
-
-export async function buscarMensagemRecebida(id: string): Promise<MensagemRecebida | undefined> {
-  return buscarChave<MensagemRecebida>(storeMensagensRecebidasB, id);
-}
-
-export async function listarMensagensRecebidas(): Promise<MensagemRecebida[]> {
-  const entries = await listarChaves<MensagemRecebida>(storeMensagensRecebidasB);
-  return entries.map(([_, msg]) => msg);
-}
-
-export async function atualizarStatusMensagemRecebida(id: string, status: MensagemRecebida['status']): Promise<void> {
-  const mensagem = await buscarMensagemRecebida(id);
-  if (mensagem) {
-    mensagem.status = status;
-    if (status === 'lida') mensagem.lidaEm = Date.now();
-    if (status === 'notificada') mensagem.notificadaEm = Date.now();
-    await salvarMensagemRecebida(mensagem);
-  }
-}
-
-export async function removerMensagemRecebida(id: string): Promise<void> {
-  await removerChave(storeMensagensRecebidasB, id);
-}
-
-// ============================================================
-// Contatos (Limpo - Sem Lógica Legada)
-// ============================================================
-
-async function sha256(message: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
-  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
-  return await sha256(raw);
-}
-
-export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
-  if (typeof input === 'string') return input;
-  if (typeof input === 'object' && input !== null && 'kty' in input) {
-    return await serializarPublicKeyVapid(input);
-  }
-  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
-}
-
-export async function salvarContato(contato: Contato): Promise<void> {
-  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
-  await salvarChave(storeContatos, key, contato);
-}
-
-export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  return await buscarChave<Contato>(storeContatos, key);
-}
-
-export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
-  const key = await normalizarChaveContato(chaveOuJwk);
-  return await buscarChave<Contato>(storeContatos, key);
-}
-
-export async function listarContatos(): Promise<Contato[]> {
-  const entries = await listarChaves<Contato>(storeContatos);
-  return entries.map(([_, c]) => c);
-}
-
-export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  await removerChave(storeContatos, key);
-}
-
-// ============================================================
-// Handshakes
-// ============================================================
-
-export async function salvarHandshake(handshake: Handshake): Promise<void> {
-  handshake.updatedAt = Date.now();
-  if (!handshake.createdAt) {
-    handshake.createdAt = Date.now();
-  }
-  await salvarChave(storeHandshakes, handshake.id, handshake);
-}
-
-export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
-  return buscarChave<Handshake>(storeHandshakes, id);
-}
-
-export async function listarHandshakes(): Promise<Handshake[]> {
-  const entries = await listarChaves<Handshake>(storeHandshakes);
-  return entries.map(([_, h]) => h);
-}
-
-export async function atualizarStatusHandshake(id: string, statusInOrOut: string, flow: 'in' | 'out', erro?: string): Promise<void> {
-  const handshake = await buscarHandshake(id);
-  if (handshake && handshake[flow]) {
-    handshake[flow]!.status = statusInOrOut as any;
-    handshake.updatedAt = Date.now();
-    if (erro) handshake[flow]!.erro = erro;
-    await salvarHandshake(handshake);
-  }
-}
-
-export async function removerHandshake(id: string): Promise<void> {
-  await removerChave(storeHandshakes, id);
 }
 ```
 
@@ -2588,6 +2743,538 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
 
 ---
 
+## Arquivo: `src/utils/crypto-utils.ts`
+
+```ts
+// src/utils/crypto-utils.ts
+import { addDebugLog } from "./debug-utils.ts";
+
+/**
+ * Converte ArrayBuffer para string Base64URL
+ */
+export function bufferToBase64Url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/**
+ * Alias de compatibilidade para conversão de ArrayBuffer em Base64URL
+ */
+export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
+  return bufferToBase64Url(buffer);
+}
+
+/**
+ * Converte string Base64URL para ArrayBuffer
+ */
+export function base64UrlToBuffer(base64url: string): ArrayBuffer {
+  let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) {
+    base64 += "=";
+  }
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+/**
+ * Gera um par de chaves VAPID (ECDSA P-256) via WebCrypto API
+ */
+export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
+    return keyPair;
+  } catch (error) {
+    addDebugLog("error", "CRYPTO", "Erro ao gerar chaves VAPID", error);
+    throw error;
+  }
+}
+
+/**
+ * Gera um par de chaves RSA-OAEP 2048 para Criptografia E2E
+ */
+export async function generateE2EEKeys(): Promise<{
+  publicEncrypt: JsonWebKey;
+  privateDecryptJwk: JsonWebKey;
+}> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      {
+        name: "RSA-OAEP",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["encrypt", "decrypt"]
+    );
+
+    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+
+    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
+    return { publicEncrypt, privateDecryptJwk };
+  } catch (error) {
+    addDebugLog("error", "CRYPTO", "Erro ao gerar chaves RSA E2E", error);
+    throw error;
+  }
+}
+
+/**
+ * Criptografa um texto em UTF-8 usando AES-GCM
+ */
+export async function encryptTextAES(
+  key: CryptoKey,
+  plainText: string
+): Promise<{ cipherTextBase64: string; ivBase64: string }> {
+  try {
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encodedText = enc.encode(plainText);
+
+    const cipherBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encodedText
+    );
+
+    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
+
+    return {
+      cipherTextBase64: bufferToBase64Url(cipherBuffer),
+      ivBase64: bufferToBase64Url(iv.buffer),
+    };
+  } catch (error) {
+    addDebugLog("error", "CRYPTO", "Erro ao criptografar texto AES-GCM", error);
+    throw error;
+  }
+}
+
+/**
+ * Descriptografa um ciphertext em Base64URL usando AES-GCM
+ */
+export async function decryptTextAES(
+  key: CryptoKey,
+  cipherTextBase64: string,
+  ivBase64: string
+): Promise<string> {
+  try {
+    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
+    const ivBuffer = base64UrlToBuffer(ivBase64);
+
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
+      key,
+      cipherBuffer
+    );
+
+    const dec = new TextDecoder();
+    addDebugLog("info", "CRYPTO", "Texto decriptografado via AES-GCM com sucesso");
+    return dec.decode(decryptedBuffer);
+  } catch (error) {
+    addDebugLog("error", "CRYPTO", "Erro ao descriptografar texto AES-GCM", error);
+    throw error;
+  }
+}
+
+/**
+ * Exporta chave CryptoKey para formato JWK seguro
+ */
+export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
+  try {
+    const jwk = await crypto.subtle.exportKey("jwk", key);
+    addDebugLog("info", "CRYPTO", "Chave exportada para JWK", { kty: jwk.kty, alg: jwk.alg });
+    return jwk;
+  } catch (error) {
+    addDebugLog("error", "CRYPTO", "Erro ao exportar chave para JWK", error);
+    throw error;
+  }
+}
+
+/**
+ * Importa chave JWK para CryptoKey
+ */
+export async function importJWKToKey(
+  jwk: JsonWebKey,
+  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
+  extractable: boolean,
+  keyUsages: KeyUsage[]
+): Promise<CryptoKey> {
+  try {
+    const key = await crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      algorithm,
+      extractable,
+      keyUsages
+    );
+    addDebugLog("info", "CRYPTO", "Chave JWK importada com sucesso", { algorithm });
+    return key;
+  } catch (error) {
+    addDebugLog("error", "CRYPTO", "Erro ao importar chave JWK", error);
+    throw error;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/sw-utils.ts`
+
+```ts
+// src/utils/sw-utils.ts
+import { addDebugLog } from "./debug-utils.ts";
+
+export function logSwInfo(module: string, message: string, details?: unknown) {
+  addDebugLog("info", `SW:${module}`, message, details);
+}
+
+export function logSwError(module: string, message: string, details?: unknown) {
+  addDebugLog("error", `SW:${module}`, message, details);
+}
+
+export function logSwWarn(module: string, message: string, details?: unknown) {
+  addDebugLog("warn", `SW:${module}`, message, details);
+}
+
+export function logSwSuccess(module: string, message: string, details?: unknown) {
+  addDebugLog("success", `SW:${module}`, message, details);
+}
+
+/**
+ * Registra o Service Worker principal no navegador
+ */
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (!("serviceWorker" in navigator)) {
+    logSwWarn("INIT", "Service Worker não é suportado neste navegador.");
+    return null;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.register("/service-worker.js", {
+      scope: "/",
+    });
+    logSwSuccess("INIT", "Service Worker registrado com sucesso", { scope: registration.scope });
+    return registration;
+  } catch (error: any) {
+    logSwError("INIT", "Falha ao registrar Service Worker", error);
+    throw error;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/db-helpers.ts`
+
+```ts
+// src/utils/db-helpers.ts
+import { get, set, createStore, del, entries, values } from "idb-keyval";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
+import type {
+  ProfileConfig,
+  MensagemEnviada,
+  MensagemRecebida,
+  Contato,
+  Handshake,
+} from "../constants/db.ts";
+
+// ============================================================
+// Criação de Stores
+// ============================================================
+
+export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
+  return createStore(nome, storeName);
+}
+
+const storeConfig = criarStore(DB_NAMES.CONFIG);
+export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
+export const storeContatos = criarStore(DB_NAMES.CONTATOS);
+export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
+
+// ============================================================
+// Funções Genéricas
+// ============================================================
+
+export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
+  return set(key, value, store);
+}
+
+export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
+  return get(key, store);
+}
+
+export async function removerChave(store: any, key: string): Promise<void> {
+  return del(key, store);
+}
+
+export async function listarChaves<T>(store: any): Promise<[string, T][]> {
+  return entries(store) as Promise<[string, T][]>;
+}
+
+export async function listarValores<T>(store: any): Promise<T[]> {
+  return values(store) as Promise<T[]>;
+}
+
+// ============================================================
+// Gerenciamento do Perfil (ProfileConfig)
+// ============================================================
+
+export async function salvarProfile(profile: ProfileConfig): Promise<void> {
+  profile.updatedAt = Date.now();
+  if (!profile.createdAt) {
+    profile.createdAt = Date.now();
+  }
+  await salvarChave(storeConfig, KEY_NAMES.PROFILE, profile);
+}
+
+export async function buscarProfile(): Promise<ProfileConfig | undefined> {
+  return buscarChave<ProfileConfig>(storeConfig, KEY_NAMES.PROFILE);
+}
+
+export async function removerProfile(): Promise<void> {
+  await removerChave(storeConfig, KEY_NAMES.PROFILE);
+}
+
+export async function buscarChaveDecript(): Promise<CryptoKey | null> {
+  try {
+    const profile = await buscarProfile();
+    if (!profile) {
+      console.warn("[DB-HELPERS] ⚠️ Perfil não encontrado.");
+      return null;
+    }
+    if (!profile.e2ePrivateKeyJwk) {
+      console.warn("[DB-HELPERS] ⚠️ Chave privada RSA não encontrada no perfil.");
+      return null;
+    }
+
+    const privateDecrypt = await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+    console.log("[DB-HELPERS] 🔑 Chave de decodificação RSA encontrada e importada.");
+    return privateDecrypt;
+  } catch (err) {
+    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
+    return null;
+  }
+}
+
+// ============================================================
+// Mensagens Enviadas
+// ============================================================
+
+export async function salvarMensagemEnviada(mensagem: MensagemEnviada): Promise<void> {
+  await salvarChave(storeMensagensEnviadasA, mensagem.id, mensagem);
+}
+
+export async function buscarMensagemEnviada(id: string): Promise<MensagemEnviada | undefined> {
+  return buscarChave<MensagemEnviada>(storeMensagensEnviadasA, id);
+}
+
+export async function listarMensagensEnviadas(): Promise<MensagemEnviada[]> {
+  const entriesList = await listarChaves<MensagemEnviada>(storeMensagensEnviadasA);
+  return entriesList.map(([_, msg]) => msg);
+}
+
+export async function listarMensagensEnviadasPorStatus(status: MensagemEnviada['status']): Promise<MensagemEnviada[]> {
+  const todas = await listarMensagensEnviadas();
+  return todas.filter(m => m.status === status);
+}
+
+export async function atualizarStatusMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string): Promise<void> {
+  const mensagem = await buscarMensagemEnviada(id);
+  if (mensagem) {
+    mensagem.status = status;
+    mensagem.updatedAt = Date.now();
+    if (erro) mensagem.erro = erro;
+    await salvarMensagemEnviada(mensagem);
+  }
+}
+
+export async function removerMensagemEnviada(id: string): Promise<void> {
+  await removerChave(storeMensagensEnviadasA, id);
+}
+
+// ============================================================
+// Mensagens Recebidas
+// ============================================================
+
+export async function salvarMensagemRecebida(mensagem: MensagemRecebida): Promise<void> {
+  await salvarChave(storeMensagensRecebidasB, mensagem.id, mensagem);
+}
+
+export async function buscarMensagemRecebida(id: string): Promise<MensagemRecebida | undefined> {
+  return buscarChave<MensagemRecebida>(storeMensagensRecebidasB, id);
+}
+
+export async function listarMensagensRecebidas(): Promise<MensagemRecebida[]> {
+  const entriesList = await listarChaves<MensagemRecebida>(storeMensagensRecebidasB);
+  return entriesList.map(([_, msg]) => msg);
+}
+
+export async function atualizarStatusMensagemRecebida(id: string, status: MensagemRecebida['status']): Promise<void> {
+  const mensagem = await buscarMensagemRecebida(id);
+  if (mensagem) {
+    mensagem.status = status;
+    if (status === 'lida') mensagem.lidaEm = Date.now();
+    if (status === 'notificada') mensagem.notificadaEm = Date.now();
+    await salvarMensagemRecebida(mensagem);
+  }
+}
+
+export async function removerMensagemRecebida(id: string): Promise<void> {
+  await removerChave(storeMensagensRecebidasB, id);
+}
+
+// ============================================================
+// Contatos
+// ============================================================
+
+async function sha256(message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object' && input !== null && 'kty' in input) {
+    return await serializarPublicKeyVapid(input);
+  }
+  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
+}
+
+export async function salvarContato(contato: Contato): Promise<void> {
+  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
+  await salvarChave(storeContatos, key, contato);
+}
+
+export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  return await buscarChave<Contato>(storeContatos, key);
+}
+
+export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
+  const key = await normalizarChaveContato(chaveOuJwk);
+  return await buscarChave<Contato>(storeContatos, key);
+}
+
+export async function listarContatos(): Promise<Contato[]> {
+  const entriesList = await listarChaves<Contato>(storeContatos);
+  return entriesList.map(([_, c]) => c);
+}
+
+export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  await removerChave(storeContatos, key);
+}
+
+// ============================================================
+// Handshakes (Utilizando idb-keyval)
+// ============================================================
+
+export async function salvarHandshake(handshake: Handshake): Promise<void> {
+  handshake.updatedAt = Date.now();
+  if (!handshake.createdAt) {
+    handshake.createdAt = Date.now();
+  }
+  await salvarChave(storeHandshakes, handshake.id, handshake);
+}
+
+export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
+  return buscarChave<Handshake>(storeHandshakes, id);
+}
+
+export async function listarHandshakes(): Promise<Handshake[]> {
+  return listarValores<Handshake>(storeHandshakes);
+}
+
+export async function atualizarStatusHandshake(id: string, statusInOrOut: string, flow: 'in' | 'out', erro?: string): Promise<void> {
+  const handshake = await buscarHandshake(id);
+  if (handshake && handshake[flow]) {
+    handshake[flow]!.status = statusInOrOut as any;
+    handshake.updatedAt = Date.now();
+    if (erro) handshake[flow]!.erro = erro;
+    await salvarHandshake(handshake);
+  }
+}
+
+export async function removerHandshake(id: string): Promise<void> {
+  await removerChave(storeHandshakes, id);
+}
+```
+
+---
+
+## Arquivo: `src/utils/debug-utils.ts`
+
+```ts
+// src/utils/debug-utils.ts
+
+const DEBUG_CHANNEL_NAME = "loco_debug_channel";
+
+// BroadcastChannel é suportado tanto na Window (UI) quanto no ServiceWorker
+let debugChannel: BroadcastChannel | null = null;
+if (typeof BroadcastChannel !== "undefined") {
+  debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
+}
+
+/**
+ * Emite logs desacoplados. Pode ser chamado de qualquer lugar.
+ */
+export function addDebugLog(msg: string, details?: any): void {
+  const timestamp = new Date().toLocaleTimeString();
+  let detailStr = "";
+  
+  if (details !== undefined) {
+     try {
+       detailStr = typeof details === 'object' ? JSON.stringify(details) : String(details);
+     } catch(e) {
+       detailStr = "[Objeto Complexo]";
+     }
+  }
+  
+  const logEntry = `[${timestamp}] ${msg}${detailStr ? ' | ' + detailStr : ''}`;
+  
+  // Imprime no console nativo (DevTools)
+  console.log(msg, details !== undefined ? details : "");
+
+  // Dispara o log para o canal onde o painel da UI está escutando
+  if (debugChannel) {
+    debugChannel.postMessage({ type: "LOCO_DEBUG_LOG", payload: logEntry });
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/utils/profile-utils.ts`
 
 ```ts
@@ -2597,7 +3284,7 @@ import { cifrarChaveVapid } from './push-utils.ts';
 import { registrarServiceWorker } from './sw-utils.ts';
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from '../signals/state.ts';
+import { addDebugLog } from './debug-utils.ts'; // 🔥 Alterado para não importar o state.ts
 
 export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   if ('storage' in navigator && 'persist' in navigator.storage) {
@@ -2628,11 +3315,11 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     addDebugLog("Step 1: Verificando permissão de notificação...");
     try {
       if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação foi negada pelo usuário. Continuando sem notificações...");
+        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
       } else if (Notification.permission === "default") {
         const permission = await Notification.requestPermission();
         if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida. Continuando sem notificações...");
+          addDebugLog("⚠️ Permissão de notificação não concedida.");
         }
       }
     } catch (notifErr: any) {
@@ -2661,18 +3348,8 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
       privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
       try {
         vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey(
-            "jwk", publicKeyJwk,
-            { name: "ECDSA", namedCurve: "P-256" },
-            true,
-            ["verify"]
-          ),
-          privateKey: await window.crypto.subtle.importKey(
-            "jwk", privateKeyJwk,
-            { name: "ECDSA", namedCurve: "P-256" },
-            true,
-            ["sign"]
-          )
+          publicKey: await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk", privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
         } as CryptoKeyPair;
       } catch {
         addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
@@ -2687,12 +3364,8 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     }
 
     addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) {
-      throw new Error("Service Worker registration é null/undefined");
-    }
-    if (!registration.pushManager) {
-      throw new Error("Web Push API (pushManager) não disponível.");
-    }
+    if (!registration) throw new Error("Service Worker registration é null/undefined");
+    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
     
     let existingSubscription = await registration.pushManager.getSubscription();
     let subscriptionValida = false;
@@ -2703,13 +3376,10 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
         subscriptionValida = true;
       } else {
         await existingSubscription.unsubscribe();
-        
-        // Remove a assinatura inválida do perfil local para mantê-lo limpo
         if (existingProfile) {
            delete (existingProfile as any).subscription;
            await salvarProfile(existingProfile);
         }
-        
         existingSubscription = null;
       }
     }
@@ -2744,13 +3414,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
       try {
-        await window.crypto.subtle.importKey(
-          "jwk",
-          e2ePrivateKeyJwk,
-          { name: "RSA-OAEP", hash: "SHA-256" },
-          true,
-          ["decrypt"]
-        );
+        await window.crypto.subtle.importKey("jwk", e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
       } catch {
         addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
         const newKeys = await generateE2EEKeys();
@@ -2767,16 +3431,9 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
     const profile: ProfileConfig = {
-      name: nome,
-      email: email,
-      vapidPublicKey: publicKeyJwk,
-      vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted,
-      e2ePublicKey: e2ePublicKey,
-      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription,
-      createdAt: existingProfile?.createdAt || Date.now(),
-      updatedAt: Date.now()
+      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
     };
 
     await salvarProfile(profile);
@@ -3569,6 +4226,159 @@ if (root) {
 
 ---
 
+## Arquivo: `src/handshakes/hand-mensagem.ts`
+
+```ts
+// src/handshakes/hand-mensagem.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { Handshake, MensagemRecebida, MensagemEnviada } from "../constants/db.ts";
+import { gerarId } from "../utils/id-utils.ts";
+import {
+  buscarHandshake,
+  salvarHandshake,
+  buscarMensagemEnviada,
+  salvarMensagemEnviada,
+  buscarMensagemRecebida,
+  salvarMensagemRecebida,
+  buscarContatoPorChave
+} from "../utils/db-helpers.ts";
+
+import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts"; // 🔥 Ajustado para Logger Puro
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
+  
+  // ==========================================
+  // 📥 FLUXO DE ENTRADA (IN)
+  // ==========================================
+  if (handshakeId) {
+    addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
+    const handshake = await buscarHandshake(handshakeId);
+    
+    if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
+    const msgReq = handshake.in.rotas.mensagem;
+
+    // 1. Recebemos uma SOLICITAÇÃO sobre uma mensagem que recebemos
+    if (msgReq.recebida && Array.isArray(msgReq.campos)) {
+      addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
+      const msgLocal = await buscarMensagemRecebida(msgReq.recebida);
+      const rotasMsgData: any = { recebida: msgReq.recebida };
+
+      if (msgLocal) {
+        const camposSet = new Set(msgReq.campos);
+        if (camposSet.has('status')) rotasMsgData.status = msgLocal.status;
+        if (camposSet.has('conteudo')) rotasMsgData.conteudo = msgLocal.conteudo;
+        if (camposSet.has('recebidoEm')) rotasMsgData.recebidoEm = msgLocal.recebidoEm;
+      }
+
+      handshake.out = { status: 'pendente', tentativas: 0, rotas: { mensagem: { data: rotasMsgData } } };
+      handshake.updatedAt = Date.now();
+      await salvarHandshake(handshake);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    // 2. Recebemos RESPOSTA de um pacote de status de leitura/entrega
+    else if (msgReq.data && msgReq.data.recebida && msgReq.data.status) {
+      addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. A mensagem ${msgReq.data.recebida} consta como ${msgReq.data.status} no destino.`);
+      
+      const msgEnviada = await buscarMensagemEnviada(msgReq.data.recebida);
+      
+      if (msgEnviada) {
+        msgEnviada.status = 'entregue';
+        msgEnviada.updatedAt = Date.now();
+        await salvarMensagemEnviada(msgEnviada);
+
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'MENSAGEM_ENTREGUE', payload: { mensagemId: msgEnviada.id } }));
+      }
+    }
+
+    // 3. Recebemos uma NOVA MENSAGEM de fato
+    else if (msgReq.enviada && msgReq.conteudo) {
+      addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
+      
+      const novaMsgRecebida: MensagemRecebida = {
+        id: msgReq.enviada,
+        contatoPublicKeyVapid: handshake.aud,
+        conteudo: msgReq.conteudo,
+        status: 'nao_lida',
+        recebidoEm: Date.now()
+      };
+      await salvarMensagemRecebida(novaMsgRecebida);
+
+      // Auto-Ack para bater o Double-Check lá no emisor!
+      const ackHandshake: Handshake = {
+        id: gerarId(),
+        aud: handshake.aud,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        out: {
+          status: 'pendente', tentativas: 0,
+          rotas: { mensagem: { data: { recebida: novaMsgRecebida.id, status: 'entregue' } } }
+        }
+      };
+      await salvarHandshake(ackHandshake);
+
+      const contato = await buscarContatoPorChave(handshake.aud);
+      const nomeExibicao = contato?.name?.trim() || "Anônimo";
+      
+      await self.registration.showNotification(`📥 Nova mensagem`, {
+        body: `${novaMsgRecebida.conteudo}\n\nDe: ${nomeExibicao}`,
+        icon: '/icon-192.png',
+        tag: novaMsgRecebida.id
+      });
+
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      clients.forEach(client => {
+        client.postMessage({ type: "PUSH_RECEIVED", payload: { id: novaMsgRecebida.id } });
+      });
+
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+  
+  // ==========================================
+  // 📤 FLUXO DE SAÍDA (OUT)
+  // ==========================================
+  if (outParams) {
+    if (outParams.function === 'confirmarEntrega') {
+      const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { recebida: mensagemId, campos } } }
+      };
+      await salvarHandshake(novoHandshake);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    else if (outParams.function === 'enviarMensagem') {
+      const { contato: contatoId, conteudo } = outParams;
+      const msgId = gerarId();
+
+      const msgEnviada: MensagemEnviada = {
+        id: msgId, contatoHash: contatoId, conteudo, status: 'pendente',
+        tentativas: 0, createdAt: Date.now(), updatedAt: Date.now()
+      };
+      await salvarMensagemEnviada(msgEnviada);
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: msgId, conteudo } } }
+      };
+
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${msgId} salva na fila do Service Worker.`);
+      
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/handshakes/hand-profile.ts`
 
 ```ts
@@ -3590,6 +4400,7 @@ import {
 
 // Importamos a função principal do roteador para forçar a fila a andar quando criamos uma saída
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
   
@@ -3597,11 +4408,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
   // 📥 FLUXO DE ENTRADA (IN)
   // ==========================================
   if (handshakeId) {
-    console.log(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
+    addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
     
     if (!handshake || !handshake.in || !handshake.in.rotas.profile) {
-      console.warn(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
+      addDebugLog(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
       return;
     }
 
@@ -3609,7 +4420,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 1. Recebemos uma SOLICITAÇÃO (campos array) -> Devemos gerar a Resposta (FluxoOut)
     if (Array.isArray(profileReq.campos)) {
-      console.log(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
+      addDebugLog(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
       
       const profile = await buscarProfile();
       if (!profile) throw new Error("Perfil local não encontrado para responder à requisição.");
@@ -3647,7 +4458,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 2. Recebemos uma RESPOSTA (data object) -> Devemos salvar no IndexedDB
     else if (profileReq.data && profileReq.data.id) {
-      console.log(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
+      addDebugLog(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
       
       const contatoId = profileReq.data.id;
       const contato = await buscarContatoPorChave(contatoId);
@@ -3665,7 +4476,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
         contato.updatedAt = Date.now();
         await salvarContato(contato);
-        console.log(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
+        addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
 
         // Notifica a Interface (UI) para se recarregar
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -3673,7 +4484,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
         });
       } else {
-        console.warn(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
+        addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
       }
     }
   }
@@ -3682,7 +4493,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
   // 📤 FLUXO DE SAÍDA (OUT - Acionado por nós)
   // ==========================================
   if (outParams) {
-    console.log(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
+    addDebugLog(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
     
     // Função: solicitarPerfil
     if (outParams.function === 'solicitarPerfil') {
@@ -3710,255 +4521,9 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
 
       await salvarHandshake(novoHandshake);
-      console.log(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
+      addDebugLog(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
       
       // Aciona a fila para processar o envio
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-  }
-}
-```
-
----
-
-## Arquivo: `src/handshakes/hand-mensagem.ts`
-
-```ts
-// src/handshakes/hand-mensagem.ts
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-import { Handshake, MensagemRecebida, MensagemEnviada } from "../constants/db.ts";
-import { gerarId } from "../utils/id-utils.ts";
-import {
-  buscarHandshake,
-  salvarHandshake,
-  buscarMensagemEnviada,
-  salvarMensagemEnviada,
-  buscarMensagemRecebida,
-  salvarMensagemRecebida,
-  buscarContatoPorChave
-} from "../utils/db-helpers.ts";
-
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
-  
-  // ==========================================
-  // 📥 FLUXO DE ENTRADA (IN)
-  // ==========================================
-  if (handshakeId) {
-    console.log(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
-    const handshake = await buscarHandshake(handshakeId);
-    
-    if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) {
-      console.warn(`[HAND-MENSAGEM] ⚠️ Handshake ${handshakeId} não contém rotas de mensagem.`);
-      return;
-    }
-
-    const msgReq = handshake.in.rotas.mensagem;
-
-    // 1. Recebemos uma SOLICITAÇÃO sobre uma mensagem que recebemos (campos array + recebida)
-    if (msgReq.recebida && Array.isArray(msgReq.campos)) {
-      console.log(`[HAND-MENSAGEM] 📩 Solicitação de status da mensagem ${msgReq.recebida}.`);
-      
-      const msgLocal = await buscarMensagemRecebida(msgReq.recebida);
-      const rotasMsgData: any = { recebida: msgReq.recebida };
-
-      if (msgLocal) {
-        const camposSet = new Set(msgReq.campos);
-        if (camposSet.has('status')) rotasMsgData.status = msgLocal.status;
-        if (camposSet.has('conteudo')) rotasMsgData.conteudo = msgLocal.conteudo;
-        if (camposSet.has('recebidoEm')) rotasMsgData.recebidoEm = msgLocal.recebidoEm;
-        if (camposSet.has('lidaEm')) rotasMsgData.lidaEm = msgLocal.lidaEm;
-        if (camposSet.has('notificadaEm')) rotasMsgData.notificadaEm = msgLocal.notificadaEm;
-      }
-
-      handshake.out = {
-        status: 'pendente',
-        tentativas: 0,
-        rotas: {
-          mensagem: { data: rotasMsgData }
-        }
-      };
-      
-      handshake.updatedAt = Date.now();
-      await salvarHandshake(handshake);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    // 2. Recebemos uma RESPOSTA de status de uma mensagem que nós enviamos (data object com recebida)
-    // Isso atualiza o nosso balão de mensagem para Entregue / Lida (Os "dois tiques" ✓✓)
-    else if (msgReq.data && msgReq.data.recebida && msgReq.data.status) {
-      console.log(`[HAND-MENSAGEM] 📩 Confirmação recebida para a mensagem enviada ${msgReq.data.recebida}: ${msgReq.data.status}`);
-      
-      const msgEnviada = await buscarMensagemEnviada(msgReq.data.recebida);
-      
-      if (msgEnviada) {
-        msgEnviada.status = 'entregue'; // Para expansão futura, mapear msgReq.data.status direto
-        msgEnviada.updatedAt = Date.now();
-        await salvarMensagemEnviada(msgEnviada);
-
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => {
-          client.postMessage({ type: 'MENSAGEM_ENTREGUE', payload: { mensagemId: msgEnviada.id, entregueEm: Date.now() } });
-        });
-      }
-    }
-
-    // 3. Recebemos uma NOVA MENSAGEM de um contato (🔥 CORRIGIDO: lendo direto da raiz de msgReq)
-    else if (msgReq.enviada && msgReq.conteudo) {
-      console.log(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do contato ${handshake.aud}: ${msgReq.enviada}`);
-      
-      // Cria a mensagem na Caixa de Entrada
-      const novaMsgRecebida: MensagemRecebida = {
-        id: msgReq.enviada,
-        contatoPublicKeyVapid: handshake.aud,
-        conteudo: msgReq.conteudo,
-        status: 'nao_lida',
-        recebidoEm: Date.now()
-      };
-      await salvarMensagemRecebida(novaMsgRecebida);
-
-      // Cria um NOVO handshake para enviar o Recibo de Entrega (Auto-Ack)
-      const ackHandshake: Handshake = {
-        id: gerarId(),
-        aud: handshake.aud,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        out: {
-          status: 'pendente',
-          tentativas: 0,
-          rotas: {
-            mensagem: {
-              data: {
-                recebida: novaMsgRecebida.id,
-                status: 'nao_lida'
-              }
-            }
-          }
-        }
-      };
-      await salvarHandshake(ackHandshake);
-
-      // Busca dados do contato para notificação visual
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const nomeExibicao = contato?.name?.trim() || "Anônimo";
-      const statusEmoji = contato?.trusted ? '✅' : '🔄';
-
-      // Mostra a notificação do Sistema Operacional
-      await self.registration.showNotification(`📥 Nova mensagem`, {
-        body: `${novaMsgRecebida.conteudo}\n\n${statusEmoji} De: ${nomeExibicao}`,
-        icon: '/icon.png',
-        data: {
-          mensagemId: novaMsgRecebida.id,
-          acao: 'ver_mensagem'
-        },
-        tag: novaMsgRecebida.id,
-        vibrate: [200, 100, 200]
-      });
-
-      // Avisa a Interface para renderizar o balão de chat (se o app estiver aberto)
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => {
-        client.postMessage({
-          type: "PUSH_RECEIVED",
-          payload: {
-            id: novaMsgRecebida.id,
-            body: novaMsgRecebida.conteudo,
-            remetente: nomeExibicao,
-            status: 'nao_lida'
-          }
-        });
-      });
-
-      // Aciona a fila para mandar o recibo de volta imediatamente
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-  }
-  
-  // ==========================================
-  // 📤 FLUXO DE SAÍDA (OUT - Acionado por nós)
-  // ==========================================
-  if (outParams) {
-    console.log(`[HAND-MENSAGEM] 📤 Preparando saída manual de mensagem:`, outParams);
-    
-    // Função: confirmarEntrega (Pedir o status de uma mensagem específica)
-    if (outParams.function === 'confirmarEntrega') {
-      const contatoId = outParams.contato;
-      const mensagemId = outParams.mensagem;
-      const campos = outParams.campos;
-
-      if (!contatoId || !mensagemId || !campos) {
-        throw new Error("Parâmetros inválidos. Exigido 'contato', 'mensagem' e 'campos'.");
-      }
-
-      const novoHandshake: Handshake = {
-        id: gerarId(),
-        aud: contatoId,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        out: {
-          status: 'pendente',
-          tentativas: 0,
-          rotas: {
-            mensagem: {
-              recebida: mensagemId,
-              campos: campos
-            }
-          }
-        }
-      };
-
-      await salvarHandshake(novoHandshake);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    // Função: enviarMensagem (O usuário digitou e apertou enviar)
-    else if (outParams.function === 'enviarMensagem') {
-      const contatoId = outParams.contato;
-      const conteudo = outParams.conteudo;
-
-      if (!contatoId || !conteudo) {
-        throw new Error("Parâmetros inválidos. Exigido 'contato' e 'conteudo'.");
-      }
-
-      const msgId = gerarId();
-
-      // 1. Salva a mensagem no histórico do usuário
-      const msgEnviada: MensagemEnviada = {
-        id: msgId,
-        contatoHash: contatoId,
-        conteudo: conteudo,
-        status: 'pendente',
-        tentativas: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-      await salvarMensagemEnviada(msgEnviada);
-
-      // 2. Cria o Handshake de transporte contendo a mensagem
-      const novoHandshake: Handshake = {
-        id: gerarId(),
-        aud: contatoId,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        out: {
-          status: 'pendente',
-          tentativas: 0,
-          rotas: {
-            mensagem: {
-              enviada: msgId,
-              conteudo: conteudo
-            }
-          }
-        }
-      };
-
-      await salvarHandshake(novoHandshake);
-      console.log(`[HAND-MENSAGEM] ✅ Handshake de envio de mensagem criado (ID Msg: ${msgId}).`);
-      
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
@@ -3987,6 +4552,7 @@ import {
 } from "../utils/db-helpers.ts";
 import { extrairDadosCompactos, expandirDadosCompactos } from "../utils/share-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: any }) {
   
@@ -3997,7 +4563,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 1. Recebemos um Pull (O contato quer saber se confiamos nele e se temos os dados certos)
     if (Array.isArray(contatoReq.campos) && contatoReq.id) {
-      console.log(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
+      addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
       const contato = await buscarContatoPorChave(handshake.aud);
       const rotasContatoData: any = { id: handshake.aud };
 
@@ -4022,7 +4588,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 2. Recebemos a Resposta do Pull (Avaliando a consistência)
     else if (contatoReq.data) {
-      console.log(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
+      addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
       const contato = await buscarContatoPorChave(handshake.aud);
       const profile = await buscarProfile();
 
@@ -4047,7 +4613,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           contato.me = novoMeStatus;
           contato.updatedAt = Date.now();
           await salvarContato(contato);
-          console.log(`[HAND-CONTATO] ✅ Status do contato atualizado para: ${novoMeStatus}`);
+          addDebugLog(`[HAND-CONTATO] ✅ Status do contato atualizado para: ${novoMeStatus}`);
           
           const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
           clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
@@ -4057,7 +4623,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
     // 3. Recebemos um Push (enviarSubscription/sync)
     else if (contatoReq.sync) {
-      console.log(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
+      addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
       
       const expanded = expandirDadosCompactos(contatoReq.sync);
       const contatoAntigo = await buscarContatoPorChave(handshake.aud);
@@ -4081,13 +4647,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
 
       await salvarContato(novoContato);
-      console.log(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
+      addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
 
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
 
       if (contatoReq.sync.req) {
-        console.log(`[HAND-CONTATO] 🔄 Devolvendo meus dados...`);
+        addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
         await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
       }
     }
@@ -4107,6 +4673,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
       };
       await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-CONTATO] ✅ Handshake de confirmação de inscrição (Pull) criado.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
@@ -4127,41 +4694,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
 
       await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-CONTATO] ✅ Handshake de sync de contato (Push) criado.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
 }
-```
-
----
-
-## Arquivo: `src/service-worker.ts`
-
-```ts
-// src/service-worker.ts
-import "./sw/cache.ts";
-import "./sw/push.ts";
-import "./sw/click.ts";
-import "./sw/sw-handshakes.ts";
-import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
-
-console.log("[SW] 🌌 Service Worker orquestrador carregado.");
-
-// Ativação: processar filas pendentes
-self.addEventListener('activate', (event) => {
-  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
-  event.waitUntil(
-    (async () => {
-      // Aguarda 1 segundo antes de iniciar
-      await new Promise(r => setTimeout(r, 1000));
-      try {
-        await processarFilaHandshake();
-      } catch (e) {
-        console.error("[SW] Erro ao processar fila de handshakes:", e);
-      }
-    })()
-  );
-});
 ```
 
 ---
@@ -4571,243 +5108,63 @@ if (root) {
 
 ---
 
-## Arquivo: `README.md`
+## Arquivo: `src/service-worker.ts`
 
-````md
+```ts
+// src/service-worker.ts
+import "./sw/cache.ts";
+import "./sw/push.ts";
+import "./sw/click.ts";
+import "./sw/sw-handshakes.ts";
 
-# 📡 Loco — Mensageiro PWA Descentralizado
+// 🔥 CORREÇÃO: Importando a função com o novo nome padronizado
+import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
 
-O **Loco** é um Progressive Web App (PWA) de mensagens instantâneas descentralizado, focado em privacidade absoluta, criptografia ponto a ponto (E2EE) e arquitetura *offline-first*. A aplicação opera sem um banco de dados centralizado de mensagens ou contatos, utilizando comunicação híbrida (**Web Push via FCM** e **WebRTC P2P**).
+// Importando os processadores de Handshake
+import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
+import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
+import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
 
----
+console.log("[SW] 🌌 Service Worker orquestrador carregado.");
 
-## 1. Visão Geral e Filosofia
+self.addEventListener('activate', (event: ExtendableEvent) => {
+  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
+  event.waitUntil(
+    (async () => {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        // 🔥 CORREÇÃO: Chamando a função com o novo nome
+        await processarFilaHandshake();
+      } catch (e) {
+        console.error("[SW] Erro ao processar fila de handshakes:", e);
+      }
+    })()
+  );
+});
 
-No Loco, **cada navegador é um nó autônomo** que mantém seu próprio histórico local e suas próprias chaves criptográficas.
+// Listener de mensagens para capturar os comandos da Interface (UI)
+self.addEventListener('message', (event: ExtendableMessageEvent) => {
+  if (!event.data) return;
 
-* **Sem Servidor de Mensagens:** O servidor backend (Deno) atua exclusivamente como um *proxy cego* de entrega de notificações Web Push e provedor de infraestrutura de chaves temporárias para envelopes.
-* **Privacidade por Design:** O servidor não armazena logs de conversas, lista de contatos ou conteúdo de mensagens.
-* **Resistência à Evicção:** Os dados do usuário residem unicamente no dispositivo local através do IndexedDB e Origin Private File System (OPFS).
+  const { type, payload } = event.data;
 
-```text
-+------------------+         +-------------------+         +------------------+
-|  Nó A (Emissor)  |         |   Servidor Proxy  |         |  Nó B (Receptor) |
-|  (IndexedDB/SW)  |         |   Deno + WebPush  |         |  (IndexedDB/SW)  |
-+--------+---------+         +---------+---------+         +--------+---------+
-         |                             |                            |
-         | --- 1. Envia JWT Cifrado -> |                            |
-         |    (com VAPID Envelope)     | --- 2. Repassa via FCM ->  |
-         |    (sub: "hand")            |    (Gateway WebPush)       |
-         |                             |                            | --- 3. Recebe Push
-         |                             |                            |     e Decifra E2E
-         |                             |                            |
-         | <--- 4. Handshake de Resposta (Auto-Ack) via Proxy ----- |
-
+  // Roteador de comandos de saída (Envio de Mensagens, Contatos, etc)
+  if (type === 'CRIAR_HANDSHAKE_OUT') {
+    const { rotasModulo, params } = payload;
+    console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);
+    
+    if (rotasModulo === 'profile') {
+      ProcessarProfile({ out: params }).catch(err => console.error("[SW] Erro no hand-profile:", err));
+    } else if (rotasModulo === 'mensagem') {
+      ProcessarMensagem({ out: params }).catch(err => console.error("[SW] Erro no hand-mensagem:", err));
+    } else if (rotasModulo === 'contato') {
+      ProcessarContato({ out: params }).catch(err => console.error("[SW] Erro no hand-contato:", err));
+    } else {
+      console.warn(`[SW] ⚠️ Módulo de rotas desconhecido ou não implementado: ${rotasModulo}`);
+    }
+  }
+});
 ```
-
----
-
-## 2. A Máquina de Estados (O Roteador de Handshakes)
-
-Na nova arquitetura, **toda e qualquer comunicação na rede é um Handshake** de sincronização de estados. Não existem fluxos separados para "mensagens" ou "comandos".
-
-O Roteador (`sw-handshakes.ts`) funciona como uma "Máquina de Estados" assíncrona baseada na arquitetura *Offline-First*, operando via IndexedDB (`Handshake_DB`):
-
-* **`FluxoIn` (Entrada):** O que o dispositivo recebeu, descriptografou e precisa processar localmente (via módulos especializados).
-* **`FluxoOut` (Saída):** O que o dispositivo preparou e precisa criptografar e enviar para a rede (com sistema de tentativas).
-
-### 2.1. Módulos Especializados (As Rotas)
-
-O Roteador distribui o trabalho para módulos em `src/handshakes/`:
-
-* 💬 **Rota Mensagem (`hand-mensagem.ts`):** Tráfego bidirecional de mensagens e recibos de leitura (Auto-Ack instantâneo com os "dois tiques ✓✓").
-* 👤 **Rota Profile (`hand-profile.ts`):** Exibição genérica de dados passivos sob demanda.
-* 🛡️ **Rota Contato (`hand-contato.ts`):** Núcleo de gestão de saúde criptográfica e confiança mútua.
-
-### 2.2. Injeção de Carona (Piggybacking)
-
-Para garantir que as mensagens nunca se percam se as rotas estiverem dessincronizadas, o Roteador usa *Piggybacking*. Se você enviar um texto para um contato que não tem seus dados (ou tem dados antigos), o Roteador **injeta silenciosamente o seu Cartão de Visitas no mesmo pacote da mensagem**. O celular receptor autoconserta a base de dados antes mesmo de exibir a mensagem na tela.
-
----
-
-## 3. Padrões e Regras de Desenvolvimento
-
-### 3.1. Diretrizes Principais
-
-1. **Runtime Único (Deno 2.x):** Proibido o uso de Node.js, `npm` ou pacotes com dependências C++ nativas.
-2. **Zero `localStorage`:** É terminantemente proibido utilizar `localStorage` por conta de limitações de performance e bloqueios síncronos da I/O thread. Utilize a camada IndexedDB (`src/utils/db-helpers.ts`) via `idb-keyval`.
-3. **Isolamento de Processamento:** Tarefas computacionalmente intensivas (compressão, geração de chaves, parsing de matrizes QR) não devem bloquear a thread principal da UI.
-
-### 3.2. Padrão Obrigatório de JSDoc Tático
-
-Todas as funções utilitárias em `src/utils/` e gerenciadores no Service Worker devem incluir documentação no padrão **JSDoc**, explicando **o porquê de decisões táticas**, limites de payload e precondições de segurança.
-
----
-
-## 4. Arquitetura de Segurança e Criptografia
-
-O Loco utiliza um modelo de criptografia Híbrida (Assimétrica + Simétrica) em múltiplas camadas:
-
-```text
-+-------------------------------------------------------------------------+
-|                        JWT PAYLOAD (Max 4096 bytes)                     |
-|                                                                         |
-|  +-------------------------------------------------------------------+  |
-|  | Assinatura Externa: ECDSA (VAPID P-256) - Autenticidade do Emissor  |  |
-|  +-------------------------------------------------------------------+  |
-|  | Envelope Cifrado (ct):                                            |  |
-|  |   - Dados Cifrados: AES-GCM-256 (Rotas + Mensagem + GZIP)          |  |
-|  |   - Chave AES Cifrada: RSA-OAEP-2048 (Chave Pública do Receptor)   |  |
-|  +-------------------------------------------------------------------+  |
-+-------------------------------------------------------------------------+
-
-```
-
-1. **Identidade / Assinatura (VAPID):** (ECDSA P-256) Usado para assinar os tokens JWT (`alg: "ES256"`) garantindo que o remetente é autêntico.
-2. **Criptografia Ponto a Ponto (E2E):** (RSA-OAEP-2048 + AES-GCM-256) A mensagem é comprimida com GZIP (`fflate`) e cifrada via AES. A chave AES é cifrada com a chave RSA do destinatário.
-3. **Blindagem do Servidor Proxy (VAPID Envelope):** O servidor proxy possui um par RSA estático. O cliente cifra sua própria chave VAPID Privada em um envelope, garantindo que o servidor proxy apenas a decifre na RAM por milissegundos para assinar a requisição de Push, descartando-a logo em seguida.
-
----
-
-## 5. Estrutura e Formato de Convites (Sincronização Compacta)
-
-Para não estourar o limite de 4.096 bytes do Web Push e das matrizes de QR Code (Versão 40), o Loco usa a interface `CompactContact` (`src/utils/share-utils.ts`).
-Ela converte objetos JWK extensos em siglas de 2 letras (Ex: `tr`: Trusted, `vx`: Vapid X, `en`: E2E N Modulus) e tokeniza endpoints do Google FCM (`1:`), derrubando o payload de ~2.5KB para menos de **750 bytes**.
-
-* **QR Code Binário Ultra-Compacto (`cqr`):** Matriz visual gerada na tela de perfil.
-* **Link Web Comprimido (`cjwt`):** Link seguro para WhatsApp/Telegram (`/share.html?cjwt=...`).
-
----
-
-## 6. Armazenamento Local (IndexedDB)
-
-Os dados são armazenados de forma isolada nos bancos de dados:
-
-| Nome do Banco (`DB_NAMES`) | Chave Primária | Tipo de Dado | Finalidade |
-| --- | --- | --- | --- |
-| `AppConfig_DB` | `"profile"` | `ProfileConfig` | Perfil do usuário local, chaves privadas/públicas e subscription. |
-| `BrowserB_Contatos_DB` | Hash SHA-256 | `Contato` | Lista de contatos, chaves E2E deles e status do ciclo de confiança (`me`). |
-| `BrowserB_MensagensRecebidas_DB` | ID da Mensagem | `MensagemRecebida` | Histórico local de mensagens recebidas e status de leitura. |
-| `BrowserA_MensagensEnviadas_DB` | ID da Mensagem | `MensagemEnviada` | Histórico e fila de mensagens enviadas (status: pendente/enviada/entregue). |
-| `Handshake_DB` | ID do Handshake | `Handshake` | Fila assíncrona (A Máquina de Estados) de sincronização PUSH/PULL. |
-
----
-
-## 7. Mapeamento Completo de Arquivos
-
-```text
-loco/
-├── src/
-│   ├── app.tsx                 # Ponto de entrada da SPA. Layout do chat e Header.
-│   ├── profile.tsx / .html     # Tela de edição de perfil, diagnósticos e QR Code.
-│   ├── share.tsx / .html       # Leitor de QR Code via câmera e parser de links.
-│   ├── logout.tsx / .html      # Expurgo completo do IndexedDB, Caches e OPFS.
-│   ├── service-worker.ts       # Orquestrador do SW.
-│   ├── styles.css              # Tema Material Design 3 e estilização responsiva.
-│   │
-│   ├── components/             # Componentes de interface do Preact
-│   │   ├── ChatSection.tsx     # Timeline unificada de mensagens e campo de input.
-│   │   ├── ContatosSection.tsx # Lista de contatos na Sidebar.
-│   │   ├── ContactDetailSection.tsx # Cartão do contato e Painel de Confiança Mútua.
-│   │   └── DebugPanel.tsx      # Painel de inspeção de logs em tempo real.
-│   │
-│   ├── signals/                # Estado reativo global
-│   │   └── state.ts            # Signals da UI (contatos, logs, viewports mobile).
-│   │
-│   ├── stores/                 # Sincronização entre IndexedDB e Signals
-│   │   ├── profileStore.ts     
-│   │   ├── contatosStore.ts    
-│   │   ├── mensagensStore.ts   
-│   │   └── index.ts            
-│   │
-│   ├── handshakes/             # Módulos Roteadores de Negócio (Worker)
-│   │   ├── hand-profile.ts     # Processador de requisições de perfil.
-│   │   ├── hand-contato.ts     # Avaliador do ciclo de confiança ('me' e 'trusted').
-│   │   └── hand-mensagem.ts    # Auto-Ack de leitura e injeção de mensagens no banco.
-│   │
-│   ├── utils/                  # Utilitários puros do sistema
-│   │   ├── share-utils.ts      # [NÚCLEO] Compressor CompactContact (cqr / cjwt).
-│   │   ├── jwt-helpers.ts      # Criação/validação de JWT ES256 e conversões Base64Url.
-│   │   ├── push-utils.ts       # Criptografia híbrida (AES-GCM + RSA-OAEP).
-│   │   ├── profile-utils.ts    # Gerador de chaves VAPID/RSA e registros PushManager.
-│   │   ├── db-helpers.ts       # Abstração de I/O no IndexedDB via idb-keyval.
-│   │   ├── id-utils.ts         # Gerador de IDs criptográficos seguros.
-│   │   └── sw-utils.ts         # Helper de registro e ativação de Service Workers.
-│   │
-│   └── sw/                     # Módulos internos do Service Worker
-│       ├── cache.ts            # Gerenciamento de cache offline (CacheStorage API).
-│       ├── push.ts             # Interceptador principal de notificações Push.
-│       ├── click.ts            # Captura de cliques em notificações do SO.
-│       └── sw-handshakes.ts    # [NÚCLEO] A Máquina de Estados e Filas de Sincronia.
-│
-├── main.ts                     # Servidor HTTP Deno (Proxy cego CORS e WebPush).
-├── build.ts                    # Script de compilação, injeção de cache e bundler.
-├── deno.json                   # Configurações do Deno 2.x, import maps e tasks.
-└── README.md                   # Documentação técnica do projeto.
-
-```
-
----
-
-## 8. Comandos e Execução
-
-Todos os comandos de automação estão configurados no `deno.json`:
-
-* **Gerar o Bundle de Produção:**
-
-```bash
-deno task build
-
-```
-
-*Executa a compilação TSX/JS, copia arquivos estáticos para `dist/` e injeta a lista de assets no Service Worker.*
-
-* **Iniciar o Servidor em Produção:**
-
-```bash
-deno task start
-
-```
-
-*Disponibiliza a aplicação na porta `http://localhost:8000`.*
-
-* **Modo de Desenvolvimento (Watch):**
-
-```bash
-deno task dev
-
-```
-
-*Recompila o projeto e reinicia o servidor automaticamente a cada alteração.*
-
-* **Limpar a Pasta de Saída:**
-
-```bash
-deno task clean
-
-```
-
----
-
-## 9. Diagnóstico de Problemas (Troubleshooting)
-
-* **O SW não processa novos comandos após um update:**
-* *Causa:* O navegador prendeu o Service Worker antigo no cache ("Waiting to activate").
-* *Solução:* Feche todas as abas do Loco, reabra e aperte `CTRL + F5`. Ou vá em F12 > Application > Service Workers e clique em "Update / Skip Waiting".
-
-
-* **Erro `code length overflow` no QR Code:**
-* *Causa:* O payload original ultrapassou a capacidade máxima de bits da matriz.
-* *Solução:* Certifique-se de que os dados estão passando pela interface `CompactContact` na função `extrairDadosCompactos()` em `src/utils/share-utils.ts`.
-
-
-* **Payload Excede Limite no Push (`HTTP 413` / `MAX_PAYLOAD_SIZE`):**
-* *Causa:* O tamanho do JWT assinado ultrapassou os 4.096 bytes permitidos pela especificação do Web Push (FCM).
-* *Solução:* Isso geralmente ocorre se chaves JWK inteiras forem enviadas. Utilize as rotas compactadas (`vx`, `en`, `se`, etc.).
-
-
-
-````
 
 ---
 
