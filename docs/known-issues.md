@@ -1,226 +1,71 @@
-# Problemas, Limitações e Melhorias Futuras do Loco
+# 🔮 Limitações Técnicas, Pendências e Roadmap do Loco
 
-Este documento consolida todas as lógicas que ainda não foram corrigidas, funcionalidades não implementadas, limitações técnicas e melhorias planejadas para o Loco. O conteúdo aqui foi reunido dos demais arquivos de documentação do projeto.
+Este documento consolida o estado atual das limitações técnicas, pendências de integração e o plano de desenvolvimento futuro (*Roadmap*) para o **Loco**, alinhado com a arquitetura atual baseada no **Roteador de Handshakes (`sw-handshakes.ts`)**, **Stores Modulares (`src/stores/`)**, **Preact Signals** e **Servidor Proxy Deno**.
 
-## Lógicas não corrigidas / não implementadas
+---
 
-### 1. WebRTC signaling não implementada
-- **Arquivos**: `src/store.ts`, `src/components/CallScreen.tsx`
-- **Descrição**: A variável `peerConnections` está comentada como `TODO`. O app não estabelece conexões WebRTC automaticamente, então o data channel P2P não é criado sem uma sinalização externa.
-- **Impacto**: O recurso "P2P primeiro" não funciona na prática. Mensagens e chamadas caem para Web Push ou não funcionam.
-- **Trabalho futuro**: Implementar troca de ofertas/answers SDP entre peers via Web Push, DataChannel existente ou outro canal de sinalização.
+## 1. O que JÁ FOI IMPLEMENTADO (Evolução da Arquitetura)
 
-### 2. Chamadas de voz/vídeo não conectam
-- **Arquivo**: `src/components/CallScreen.tsx`
-- **Descrição**: A tela cria uma `RTCPeerConnection`, gera oferta local e adiciona tracks, mas não troca SDP com o outro peer.
-- **Impacto**: Chamadas não saem do estado local. O usuário vê sua própria câmera, mas não conecta com ninguém.
-- **Trabalho futuro**: Implementar sinalização WebRTC e aceitação de chamadas no destinatário.
+Para referência técnica, os seguintes itens listados em rascunhos anteriores **já foram totalmente implementados e corrigidos** na base de código atual:
 
-### 3. P2P "primeiro" depende de data channel já aberto
-- **Arquivo**: `src/store.ts` (`smartSendMessage`)
-- **Descrição**: `smartSendMessage` tenta usar `dataChannels.get(contactId)`, mas o mapa `dataChannels` nunca é preenchido automaticamente.
-- **Impacto**: Mensagens nunca vão por P2P direto. Sempre usam Web Push (quando houver endpoint) ou falham.
-- **Trabalho futuro**: Criar função `openDataChannel(contactId)` que estabeleça conexão WebRTC e data channel.
+* ✅ **Criptografia E2E em Web Push (RFC 8291 / Híbrida):** Todas as mensagens trafegam cifradas via AES-GCM-256 + RSA-OAEP-2048 e comprimidas via GZIP (`fflate`). O Proxy Deno e o FCM recebem apenas o payload `ct` totalmente ilegível.
+* ✅ **Persistência no Service Worker com App Fechado:** Quando um push chega e a aba está fechada, o Service Worker (`sw/push.ts` e `sw-handshakes.ts`) decifra a mensagem E2E, grava no IndexedDB (`BrowserB_MensagensRecebidas_DB`), emite o Auto-Ack e dispara a notificação nativa do SO.
+* ✅ **Atualização Automática de Endpoints (*Piggybacking*):** Quando um contacto atualizou a sua subscrição ou foi adicionado, o Roteador de Handshakes detecta a divergência e injeta automaticamente o Cartão de Visitas (`hand-profile.ts`) no mesmo pacote da mensagem.
+* ✅ **Gargalo do Limite de 4KB do FCM:** Resolvido com a interface `CompactContact` (`vx`, `vy`, `en`, `se`, `sp`, `sa`, `ve`), tokenização de endpoints FCM e compressão GZIP universal (`fflate`).
+* ✅ **Arquitetura Reativa e Modular:** Substituição do antigo ficheiro monolítico `store.ts` por stores especializados em `src/stores/`, Signals de UI em `src/signals/state.ts` e bancos isolados no IndexedDB (`idb-keyval`).
 
-### 4. Web Push simplificado (sem criptografia RFC 8291)
-- **Arquivos**: `src/crypto.ts`, `src/store.ts`
-- **Descrição**: O payload é enviado como JSON plano para o endpoint do peer. Não há criptografia de ponta a ponta conforme RFC 8291.
-- **Impacto**: Servidores push intermediários podem ler o conteúdo. Requer relay server para criptografia correta.
-- **Trabalho futuro**: Implementar criptografia RFC 8291 ou usar um relay server confiável.
+---
 
-### 5. Endpoint do contato não é obtido automaticamente
-- **Arquivo**: `src/store.ts`
-- **Descrição**: Após adicionar um contato via QR Code (apenas `id` + `displayName`), não há mecanismo automático para obter/substituir a subscription push do peer.
-- **Impacto**: Push só funciona se o contato já tiver sido adicionado com subscription completa.
-- **Trabalho futuro**: Sincronizar subscriptions entre peers na primeira comunicação bem-sucedida.
+## 2. Pendências de Integração de Módulos Futuros
 
-### 6. Recebimento de push quando o app está fechado
-- **Arquivos**: `src/sw/sw.ts`, `src/components/App.tsx`
-- **Descrição**: O SW exibe notificações e envia mensagens para clients abertos via `postMessage`. Quando o app está completamente fechado, a mensagem pode ser perdida se o client não reabrir.
-- **Impacto**: Mensagens recebidas enquanto o app está fechado só aparecem após abrir e sincronizar.
-- **Trabalho futuro**: Persistir mensagens recebidas via push no IndexedDB a partir do SW, ou usar Background Sync para reenvio.
+### A. Sinalização WebRTC para Chamadas e DataChannel (`CallScreen.tsx`)
+* **Estado Atual:** O componente `CallScreen.tsx` instancia a `RTCPeerConnection` e captura a mídia local, mas as funções de troca de SDP (`offer` e `answer`) e `ICE Candidates` ainda não estão conectadas ao Roteador de Handshakes.
+* **Ação Necessária:** Criar o módulo especialista `src/handshakes/hand-webrtc.ts` para transportar o payload de sinalização `CompactSignaling` cifrado E2E via Web Push Proxy.
 
-### 7. Trocar SDP entre peers
-- **Arquivo**: `docs/webrtc-signaling.md`
-- **Descrição**: Não existe canal para trocar ofertas/answers WebRTC entre peers.
-- **Solução planejada**: Usar Web Push ou DataChannel existente para sinalização.
+### B. Transferência P2P de Arquivos Pesados (WebTorrent + OPFS)
+* **Estado Atual:** O gerenciamento de mídias leves já utiliza o OPFS. No entanto, o motor WebTorrent em Web Worker (`src/worker/p2p-transfer.worker.ts`) e o handshake especialista (`src/handshakes/hand-arquivo.ts`) estão especificados, mas aguardam integração final.
+* **Ação Necessária:** Conectar o Worker à API síncrona `FileSystemSyncAccessHandle` do OPFS para gravação e leitura de blocos em alta velocidade durante *seeding/download*.
 
-### 8. TURN server não implementado
-- **Arquivos**: `docs/offline-strategy.md`, `docs/webrtc-signaling.md`
-- **Descrição**: NATs restritivos podem bloquear conexões P2P. Atualmente o app usa apenas STUN do Google.
-- **Solução planejada**: Adicionar suporte a TURN server para redes restritas.
+### C. Servidor TURN de Emergência para NATs Restritivos
+* **Estado Atual:** A resolução de rotas P2P utiliza o servidor público STUN da Google (`stun:stun.l.google.com:19302`).
+* **Ação Necessária:** Adicionar suporte à configuração opcional de credenciais de servidor TURN para retransmissão de mídia cifrada quando ambos os nós estiverem sob firewalls ou NATs simétricos restritivos.
 
-## Funcionalidades não implementadas
+---
 
-### 9. Mensagens de voz
-- Gravar áudio e enviar via OPFS/P2P.
+## 3. Roadmap de Funcionalidades Futuras
 
-### 10. Chamadas em grupo
-- Mesh network para múltiplos participantes.
+### 💬 Funcionalidades de Mensageria e Interface
+1. **Mensagens de Áudio / Voz:** Gravação nativa no navegador via `MediaRecorder API`, compressão e armazenamento no OPFS.
+2. **Reações com Emojis:** Módulo handshake leve (`hand-reacao.ts`) para anexar reações a mensagens existentes.
+3. **Edição e Remoção Remota:** Handshake de retratação/substituição de mensagens enviadas.
+4. **Busca no Histórico e Paginação:** Indexação local de texto e virtualização de lista no `ChatSection.tsx` para suporte a conversas longas sem perda de quadros (60 FPS).
+5. **Indicadores de Presença ("Online" e "A escrever..."):** Sinalização de eventos efêmeros exclusivamente através do canal direto P2P ativo (`RTCDataChannel`) quando ambos os utilizadores estão online, sem recorrer ao Web Push (evitando desperdício de bateria, limites de quota e notificações indevidas no SO).
+6. **Seleção Rápida no Share Target (`ShareTargetPicker`):** Ao abrir o app via Web Share API de outro aplicativo, apresentar lista de contactos com busca para envio direto.
 
-### 11. Reações a mensagens
-- Emojis de reação.
+### 🛡️ Melhorias de Segurança e Criptografia
+1. **Forward Secrecy (Double Ratchet / Signal Protocol):** Evolução do handshake para renovação de chaves efêmeras a cada mensagem, garantindo que a quebra de uma chave não comprometa o histórico passado.
+2. **Bloqueio Biométrico (WebAuthn):** Exigir autenticação por biometria facial/digital antes de renderizar os sinais da UI e decifrar chaves do IndexedDB.
+3. **Verificação Presencial de Fingerprint:** Exibição do hash visual das chaves públicas para comparação mútua entre contactos, prevenindo ataques do tipo Man-in-the-Middle (MITM).
 
-### 12. Edição de mensagens
-- Editar mensagens enviadas recentemente.
+### 🎴 Melhorias em QR Code e Contactos
+1. **Convites Temporários e Protegidos:** Links `cjwt` com data de expiração e senha opcional para decodificação dos dados de contacto.
+2. **Deep Links Nativos:** Suporte ao esquema `web+loco:` para abertura automática da PWA ao clicar em convites na web.
 
-### 13. Apagar para todos
-- Retractar mensagens em ambos os lados.
+---
 
-### 14. Busca no histórico
-- Pesquisar mensagens e arquivos.
+## 4. Limitações Conhecidas de Navegadores e Mitigações
 
-### 15. Filtros de conversas
-- Filtrar por texto, mídia, localização, etc.
+| Recurso do PWA | Comportamento no Navegador | Mitigação Implementada / Planejada |
+| :--- | :--- | :--- |
+| **OPFS (FileSystem API)** | Suportado no Chrome, Edge e Safari. Suporte parcial ou desativado em algumas versões do Firefox. | Fallback para carregamento e persistência temporária em Blob URLs. |
+| **`BarcodeDetector API`** | Funciona nativamente no Chrome Android. Indisponível ou limitado no Safari iOS. | Fallback de captura continuada de quadros de imagem com biblioteca JS local em `share.html`. |
+| **`Web Share Target`** | Funcionamento pleno quando instalado como PWA no Android/Desktop. | Captura via parâmetros de busca URL (`?shared_title=...`) em `share.html`. |
+| **`View Transitions API`** | Animações fluidas entre seções no Chrome/Edge. Indisponível no Safari. | Transições suaves via fallback CSS em `src/styles.css`. |
+| **Armazenamento Persistente** | Sujeito a evicção pelo SO se o espaço em disco estiver crítico. | Chamada explícita de `navigator.storage.persist()` e alertas no `AdvancedSection.tsx` ao atingir 80% da quota. |
 
-### 16. Notificações customizadas por contato
-- Sons e vibrações diferentes por contato.
+---
 
-### 17. Status "online" e "digitando..."
-- Indicadores em tempo real de presença.
+## 5. Matriz de Cenários e Resiliência
 
-### 18. Sincronização multi-dispositivo
-- Sync entre dispositivos do mesmo usuário.
-
-### 19. Backup automático
-- Backup periódico para nuvem (opcional).
-
-### 20. Paginação/virtualização de listas
-- Listas longas de contatos/mensagens podem ter performance ruim.
-
-### 21. Snackbar / toast
-- Feedback visual para ações do usuário.
-
-### 22. Componente de seleção rápida de contato para Share Target
-- Ao abrir via Web Share Target, apresentar tela de seleção de contato com busca.
-
-## Melhorias futuras de segurança e privacidade
-
-### 23. Criptografia ponta-a-ponta com Signal Protocol
-- Cada dispositivo gera um par de chaves X3DH (X25519).
-- As chaves públicas são trocadas via QR Code ou primeiro contato P2P.
-- Mensagens criptografadas com chave pública do destinatário.
-- Forward secrecy com chaves efêmeras.
-
-### 24. Criptografia de payload Web Push (RFC 8291)
-- Payload criptografado com chave pública do subscriber (`p256dh`).
-- Relay server pode fazer a criptografia sem ler o conteúdo.
-
-### 25. Biometria para proteger a masterKey
-- Usar WebAuthn para exigir autenticação biométrica antes de decriptografar.
-
-### 26. Verificação de contato
-- Mostrar fingerprint da chave para evitar MITM.
-
-## Melhorias futuras de QR Code e contatos
-
-### 27. Links temporários
-- Gerar links que expiram após um tempo.
-
-### 28. Links com senha
-- Exigir palavra-passe para adicionar contato.
-
-### 29. QR Code com design
-- Permitir customização visual do QR Code.
-
-### 30. Deep links
-- Usar `web+loco:` para abrir o app nativamente em vez de hash.
-
-## Melhorias futuras de transferência P2P
-
-### 31. Compressão de arquivos antes do envio
-- Reduzir tamanho antes de seedar.
-
-### 32. Criptografia end-to-end de arquivos
-- Proteger arquivos transferidos via P2P.
-
-### 33. Preview de arquivos enquanto baixam
-- Mostrar progresso visual melhor.
-
-### 34. Sincronização de estado de transferência entre dispositivos
-- Manter estado consistente entre dispositivos do usuário.
-
-## Melhorias técnicas futuras
-
-### 35. Compressão de imagens
-- Converter para WebP/AVIF para reduzir tamanho.
-
-### 36. Streaming de vídeo via WebTorrent
-- Permitir streaming durante o download.
-
-### 37. Análise de storage
-- Gráficos de uso de espaço por tipo de arquivo.
-
-### 38. Limpeza automática
-- Apagar arquivos antigos automaticamente.
-
-### 39. Modo escuro
-- Tema escuro automático baseado em preferências do sistema.
-
-### 40. Internacionalização (i18n)
-- Suporte a múltiplos idiomas.
-
-## Integrações futuras
-
-### 41. Calendário
-- Compartilhar eventos de calendário.
-
-### 42. Contatos do sistema
-- Sync bidirecional com agenda do dispositivo.
-
-### 43. Notificações ricas
-- Ações em notificações (responder, marcar como lido).
-
-### 44. Widgets
-- Widgets para tela inicial (Android/iOS).
-
-### 45. Atalhos de teclado
-- Atalhos para desktop (Ctrl+N, Ctrl+F, etc.).
-
-### 46. Compartilhamento de tela
-- Screen sharing em chamadas.
-
-### 47. Anotações em imagens
-- Desenhar em imagens compartilhadas.
-
-### 48. OCR
-- Extrair texto de imagens compartilhadas.
-
-## Limitações técnicas conhecidas
-
-### OPFS no Firefox
-- O Origin Private File System não é suportado no Firefox. O app usa fallback para Blob URLs temporários, mas arquivos não persistem.
-
-### BarcodeDetector no Safari
-- Leitura de QR Code não funciona no Safari. Requer fallback ou compartilhamento manual.
-
-### Contact Picker
-- Limitado ao Chrome Android.
-
-### Web Share Target
-- Funcionalidade reduzida no Safari iOS e Firefox.
-
-### View Transitions
-- Não suportado no Safari.
-
-### Picture-in-Picture
-- Vídeo funciona em Chrome/Firefox/Safari; PiP de documento ainda é limitado.
-
-## Cenários que podem falhar
-
-- **Contato não recebe pushes**: endpoint expirou, permissão negada ou serviço de push indisponível.
-- **Navegador limpa dados**: perda de histórico e arquivos. Mitigação via `storage.persist()` e backups.
-- **Dispositivo sem internet por muito tempo**: mensagens pendentes acumulam. Retry automático e feedback de status.
-- **Dispositivo sem permissão de push**: não recebe notificações. Indicar status e permitir reenvio manual.
-- **WebRTC bloqueado em NATs restritivos**: fallback para Web Push e futuro TURN.
-- **QR Code não detectado**: navegador sem suporte a BarcodeDetector ou câmera sem permissão.
-- **Backup muito grande**: muitos arquivos no OPFS. Limpar arquivos antigos antes do backup.
-
-## Como contribuir
-
-Se desejar trabalhar em algum dos itens acima, abra uma issue ou pull request com:
-1. Descrição do problema
-2. Proposta de solução
-3. Testes que cubram o cenário
-
-Mantenha a arquitetura P2P primeiro e offline-first ao propor mudanças.
+* **Contacto sem Internet / Offline por Longos Períodos:** As mensagens compostas ficam retidas no `Handshake_DB` com status `'pendente'`. O Roteador executa retentativas automáticas ao restabelecer a rede (`online`) e sincroniza a fila retida no Deno Proxy (`POST /api/fallback-pull`).
+* **Incompatibilidade de Subscrição Push (HTTP 410 Gone):** Quando o gateway da Google/Apple rejeita um endpoint expirado, a mensagem é direcionada à Fila de Fallback Retida no Deno. Assim que o contacto reconecta, o *Piggybacking* re-alinha as chaves e restabelece o canal.

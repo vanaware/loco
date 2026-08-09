@@ -1,184 +1,137 @@
-# WebRTC e Sinalização P2P no Loco
+# 🌐 WebRTC e Sinalização P2P — Especificação Técnica (Funcionalidade Futura)
 
-## O que é comunicação P2P
+Este documento especifica o modelo arquitetural planejado para a integração de **WebRTC** (troca de áudio/vídeo em tempo real e canais diretos de dados via `RTCDataChannel`) ao ecossistema do **Loco**, detalhando o mecanismo de sinalização através da **Máquina de Estados de Handshakes**.
 
-P2P (peer-to-peer) significa comunicação direta entre dois dispositivos, sem que
-os dados passem por um servidor central. No Loco, o P2P é usado para:
+---
 
-- **Mensagens instantâneas**: quando ambos os contatos estão online, a mensagem
-  vai direto via `RTCDataChannel`.
-- **Chamadas de voz e vídeo**: usando `RTCPeerConnection`.
-- **Transferência de arquivos**: via WebTorrent, que também usa WebRTC por
-  baixo.
+## 1. Visão Geral e Filosofia P2P
 
-## WebRTC: o que é
+O **Loco** adota o paradigma *Local-First* e *Peer-to-Peer*. Atualmente, o Web Push atua como meio primário de transporte assíncrono. A evolução para **WebRTC** visa proporcionar:
 
-WebRTC (Web Real-Time Communication) é uma API de navegador que permite:
+1. **Latência Ultra-Baixa:** Comunicação direta ponto a ponto entre navegadores sem intermediários para mensagens em tempo real quando ambos os nós estão online.
+2. **Chamadas de Voz e Vídeo:** Streaming de mídia bidirecional via `RTCPeerConnection`.
+3. **Transferência de Arquivos de Alta Velocidade:** Envio direto de mídias pesadas gravadas no **OPFS** utilizando `RTCDataChannel`.
 
-- Capturar áudio e vídeo (`getUserMedia`).
-- Conectar dois navegadores diretamente (`RTCPeerConnection`).
-- Trocar dados arbitrários (`RTCDataChannel`).
+---
 
-Para conectar dois peers, o WebRTC precisa resolver dois problemas:
+## 2. O Desafio da Sinalização e a Solução do Loco
 
-1. **Sinalização**: como os peers descobrem um ao outro e trocam metadados de
-   conexão.
-2. **NAT traversal**: como fazer com que computadores atrás de
-   roteadores/firewalls se encontrem (usando STUN/TURN).
+O protocolo WebRTC não especifica como as propostas de conexão (**SDP Offers**, **SDP Answers**) e os candidatos de rede (**ICE Candidates**) devem ser trocados entre dois navegadores.
 
-## O problema da sinalização
+### A Solução: Sinalização Envelopada pelo Roteador de Handshakes
+Em vez de criar um servidor WebSocket centralizado ou um sinalizador inseguro, a sinalização do WebRTC no Loco **será 100% realizada através da Máquina de Estados de Handshakes (`sw-handshakes.ts`)**:
 
-WebRTC **não define** como os peers devem trocar as ofertas/answers. Esse canal
-de sinalização precisa ser implementado pelo aplicativo.
-
-No Loco, a sinalização pode acontecer por:
-
-- **Web Push**: enviar a oferta/answer como payload de push.
-- **Mensagens P2P já estabelecidas**: reutilizar o `RTCDataChannel` aberto.
-- **Link compartilhado via QR Code**: troca manual de SDP.
-
-## Como funciona a sinalização WebRTC
-
-Passos para estabelecer uma conexão P2P:
-
-```
-Peer A                          Peer B
-  |                               |
-  |-- createOffer()              |
-  |-- setLocalDescription()      |
-  |                               |
-  |========= SDP OFFER ==========>|
-  |          (via push/msg)       |
-  |                               |
-  |                          createAnswer()
-  |                          setLocalDescription()
-  |                          setRemoteDescription(offer)
-  |                               |
-  |<==== SDP ANSWER =============|
-  |      (via push/msg)          |
-  |                               |
-setRemoteDescription(answer)     |
-  |                               |
-  |=== ICE CANDIDATES (opc.) ====>|
-  |<== ICE CANDIDATES (opc.) ====|
-  |                               |
-  |       CONEXÃO P2P           |
+```text
++-------------------+                                               +-------------------+
+|   Nó A (Emissor)  |                                               |  Nó B (Receptor)  |
+| (RTCPeerConnection|                                               |(RTCPeerConnection)|
++---------+---------+                                               +---------+---------+
+          |                                                                   |
+          | --- 1. Gera SDP Offer ----------------------------------------->  |
+          |    (Enfileira em Handshake_DB -> FluxoOut)                       |
+          |    (Cifrado E2E: RSA-OAEP + AES-GCM + GZIP)                      |
+          |    (Transportado via /api/proxy-push -> Web Push FCM)            |
+          |                                                                   |
+          |                                                                   | --- 2. Acorda SW,
+          |                                                                   |      Decifra E2E,
+          |                                                                   |      Processa Offer
+          |                                                                   |
+          | <--- 3. Gera e Devolve SDP Answer ------------------------------  |
+          |    (Enfileira em Handshake_DB -> FluxoOut)                        |
+          |    (Transportado via /api/proxy-push -> Web Push FCM)             |
+          |                                                                   |
+          +=================== 4. CONEXÃO WEBRTC ATIVA =======================+
+          |                     (DataChannel / MediaStream)                   |
 ```
 
-### Termos importantes
+---
 
-- **SDP (Session Description Protocol)**: metadados da conexão, incluindo
-  codecs, endereços e portas.
-- **Offer**: proposta de conexão enviada pelo peer que inicia.
-- **Answer**: resposta do outro peer aceitando a oferta.
-- **ICE Candidate**: possíveis rotas para alcançar um peer (IP local, IP público
-  via STUN, TURN).
+## 3. Estrutura do Handshake de Sinalização (`hand-webrtc.ts`)
 
-## Sinalização no Loco: estado atual
-
-Atualmente, o `CallScreen.tsx` cria uma `RTCPeerConnection` e gera uma oferta
-local:
+Será criado o módulo dedicado `src/handshakes/hand-webrtc.ts` e estendida a interface `HandshakeRotas`:
 
 ```typescript
-const pc = new RTCPeerConnection({
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-});
+// Extensão da interface HandshakeRotas em src/types/
+export interface HandshakeRotas {
+  profile?: any;
+  mensagem?: any;
+  contato?: any;
+  webrtc?: WebRTCSignalingData; // Nova Rota de Sinalização P2P
+}
 
-stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-const offer = await pc.createOffer();
-await pc.setLocalDescription(offer);
+export interface WebRTCSignalingData {
+  type: 'offer' | 'answer' | 'candidate' | 'close';
+  sessionId: string;            // Identificador da sessão de chamada/canal
+  sdp?: string;                 // Session Description Protocol (comprimido)
+  candidate?: RTCIceCandidateInit; // Candidato ICE para descoberta de rota
+  media?: 'data' | 'audio' | 'video'; // Tipo de mídia negociada
+}
 ```
 
-**Problema**: a oferta gerada nunca é enviada para o contato. A sinalização
-ainda não está implementada. Portanto, as chamadas não conseguem conectar com o
-outro lado.
+### Garantia de Cifragem E2E
+Assim como todos os handshakes do Loco, o sinal WebRTC (`sdp` e `candidates`) viaja **totalmente cifrado** (RSA-OAEP-2048 + AES-GCM-256) e comprimido via `fflate`. Nem o Proxy Deno nem o Google FCM conseguem inspecionar os metadados da chamada ou IP local trocado.
 
-## Fluxo planejado para chamadas no Loco
+---
 
-### 1. Iniciar chamada
+## 4. Estrutura Compacta (`CompactSignaling`)
 
-- Peer A abre a tela de chamada (`CallScreen`).
-- Captura áudio/vídeo com `getUserMedia`.
-- Cria `RTCPeerConnection` e gera uma **offer**.
-- Envia a offer para o contato via **Web Push** ou **mensagem P2P**.
+Os pacotes SDP padrão podem ultrapassar 2.000 bytes. Para assegurar que o token JWT assinado não exceda o limite de **4.096 bytes** da RFC 8291 (FCM), os dados de sinalização passarão por minificação de atributos e remoção de linhas SDP redundantes via `src/utils/share-utils.ts`:
 
-### 2. Aceitar chamada
+| Atributo Original | Atributo Compactado | Descrição |
+| :--- | :--- | :--- |
+| `type` | `tp` | Tipo da mensagem (`o`: offer, `a`: answer, `c`: candidate). |
+| `sessionId` | `sid` | UUID de correlação do handshake de chamada. |
+| `sdp` | `s` | String SDP minificada e comprimida via GZIP (`fflate`). |
+| `candidate` | `cd` | Candidato ICE serializado. |
 
-- Peer B recebe a oferta via push ou DataChannel.
-- O Service Worker/notificação acorda o app e abre o `CallScreen`.
-- Peer B captura áudio/vídeo e cria sua `RTCPeerConnection`.
-- Define a oferta como `remoteDescription`.
-- Gera uma **answer** e envia de volta para Peer A.
+---
 
-### 3. Estabelecer conexão
+## 5. Fluxo de Execução de uma Chamada P2P
 
-- Peer A recebe a answer e define como `remoteDescription`.
-- Ambos os peers trocam **ICE candidates**.
-- Quando um candidato viável é encontrado, o `pc.ontrack` dispara e o
-  vídeo/áudio do outro lado aparece.
+### 1. Início da Chamada (Nó A)
+1. O usuário aciona "Iniciar Chamada" no componente `CallScreen.tsx`.
+2. A UI requisita permissões de mídia (`navigator.mediaDevices.getUserMedia`) e cria o objeto `RTCPeerConnection`.
+3. Invoca `pc.createOffer()`, define `pc.setLocalDescription(offer)`.
+4. Enfileira a oferta no `Handshake_DB` (`out.rotas.webrtc = { type: 'offer', ... }`).
+5. O Service Worker (`sw-handshakes.ts`) cifra e despacha o envelope via Web Push Proxy.
 
-## Exemplo de troca usando DataChannel já aberto
+### 2. Atendimento da Chamada (Nó B)
+1. O evento `push` desperta o Service Worker do Nó B.
+2. O Service Worker decifra o payload E2E e identifica `rotas.webrtc.type === 'offer'`.
+3. Dispara a notificação de chamada recebida no sistema operacional e atualiza os Signals de UI (`src/signals/state.ts`).
+4. Ao atender, o Nó B aceita a chamada, instancia sua `RTCPeerConnection`, registra a oferta como `remoteDescription` e gera uma `answer`.
+5. Enfileira a `answer` no `Handshake_DB` (`FluxoOut`), enviando de volta ao Nó A via Web Push Proxy.
 
-Se os peers já têm um `RTCDataChannel` aberto (para mensagens), a sinalização
-pode ser feita por ele mesmo:
+### 3. Estabelecimento e Troca de ICE Candidates
+1. Ambas as partes registram os `ICE Candidates` locais e os transmitem assincronamente como Handshakes do tipo `candidate`.
+2. Quando uma rota válida (Host, STUN ou TURN) é confirmada, o canal direto P2P é aberto (`iceConnectionState === 'connected'`).
+3. O áudio/vídeo passa a fluir diretamente entre as duas pontas sem consumir servidores externos.
 
-```typescript
-// Peer A
-const offer = await pc.createOffer();
-await pc.setLocalDescription(offer);
-dataChannel.send(JSON.stringify({ type: "call-offer", sdp: offer.sdp }));
-```
+---
 
-```typescript
-// Peer B
-pc.ondatachannel = (event) => {
-  const channel = event.channel;
-  channel.onmessage = async (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === "call-offer") {
-      await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      channel.send(JSON.stringify({ type: "call-answer", sdp: answer.sdp }));
-    }
-  };
-};
-```
+## 6. Travessia de NAT: STUN e TURN
 
-## NAT traversal e STUN/TURN
+Para garantir que a conexão P2P funcione em redes corporativas, roteadores móveis (4G/5G) e firewalls restritivos:
 
-### STUN
+* **Servidores STUN (Standard):** Utilizados por padrão para descobrir o endereço IP público refletido (`stun:stun.l.google.com:19302`). Funciona para a maioria das redes residenciais e móveis simples.
+* **Servidores TURN (Relay de Emergência):** Se ambos os nós estiverem sob NATs simétricos restritivos, o tráfego P2P direto é bloqueado. O Loco permitirá a configuração opcional de credenciais TURN efêmeras para retransmissão de mídia cifrada.
 
-O `stun:stun.l.google.com:19302` é um servidor público que ajuda os peers a
-descobrirem seus endereços IP públicos. Funciona para a maioria dos casos.
+---
 
-### TURN
+## 7. Tabela Comparativa: Rascunho Antigo vs. Arquitetura Atual
 
-Se ambos os peers estão em redes restritadas (NAT simétrico, firewalls
-corporativos), o STUN pode falhar. Nesse caso, um servidor **TURN** faz relay do
-tráfego. O Loco ainda não usa TURN.
+| Recurso / Aspecto | Especificação Antiga | Arquitetura Atual e Planejada |
+| :--- | :--- | :--- |
+| **Canal de Sinalização** | Métodos avulsos/indefinidos no `store.ts` | **Máquina de Estados de Handshakes (`sw-handshakes.ts`)** |
+| **Segurança da Sinalização** | SDP em texto claro ou indefinido | **Cifragem E2E Obrigatória (RSA-OAEP-2048 + AES-GCM)** |
+| **Limitação de Payload** | Risco de estouro de tamanho no Push | **Minificação + Compressão GZIP (`fflate`) em `share-utils.ts`** |
+| **Gerenciamento de Estado** | Funções soltas em `CallScreen.tsx` | **Stores reativos (`src/stores/`) e Preact Signals (`state.ts`)** |
+| **Persistência de Fila** | Perda de chamadas em falha de rede | **Retenção no `Handshake_DB` com retentativas automáticas** |
 
-```
-Peer A <----> TURN Server <----> Peer B
-```
+---
 
-Para chamadas em produção, é recomendado configurar TURN.
+## 8. Próximos Passos de Implementação
 
-## Resumo dos desafios
-
-| Problema                | Solução planejada                         |
-| ----------------------- | ----------------------------------------- |
-| Trocar SDP entre peers  | Web Push ou DataChannel existente         |
-| Descobrir endereços IP  | STUN server (já configurado)              |
-| Redes restritivas       | TURN server (futuro)                      |
-| Acordar contato offline | Web Push notification                     |
-| Persistir conexão       | Reconectar automaticamente quando offline |
-
-## Próximos passos para implementar
-
-1. Criar função `sendCallOffer(contactId, offer)` no `store.ts`.
-2. Criar função `handleCallOffer(sdp)` no `CallScreen`.
-3. Trocar ICE candidates por mensagens P2P ou push.
-4. Adicionar suporte a TURN para redes restritas.
-5. Tratar desconexão e reconexão automática.
+1. **Criar Módulo `src/handshakes/hand-webrtc.ts`:** Processador de rotas especializado em tratar mensagens de sinalização `offer`, `answer` e `candidate`.
+2. **Implementar Utilitário de Compactação de SDP:** Adicionar suporte a minificação de SDP no arquivo `src/utils/share-utils.ts`.
+3. **Evoluir Componente `CallScreen.tsx`:** Conectar a UI reativa de chamadas aos Stores da aplicação, gerenciando o ciclo de vida da `RTCPeerConnection` via Signals de estado.

@@ -1,122 +1,150 @@
-
 # 🤝 Arquitetura do Roteador de Handshakes (Loco)
 
-## 1. Visão Geral
+Este documento descreve a especificação técnica do **Roteador Genérico de Handshakes** do **Loco**, detalhando o funcionamento da máquina de estados assíncrona *Offline-First*, os módulos especializados de rotas, o mecanismo de injeção de carona (*Piggybacking*) e a auditoria de confiança mútua.
 
-O sistema de mensagens do Loco opera através de um **Roteador Genérico de Handshakes**.
+---
 
-Não existem fluxos separados na rede para "mensagens" ou "comandos". **Toda e qualquer comunicação na rede é um Handshake** de sincronização de estados.
+## 1. Visão Geral e Filosofia
 
-O Roteador funciona como uma "Máquina de Estados" assíncrona baseada na arquitetura *Offline-First*, composta por duas vias principais dentro de um único registro no IndexedDB:
+No **Loco**, não existem fluxos de rede isolados para mensagens de texto, imagens ou comandos de sistema. **Toda e qualquer comunicação na rede é um Handshake de sincronização de estados.**
 
-* **`FluxoIn` (Entrada):** O que o seu dispositivo recebeu, descriptografou e precisa processar localmente.
-* **`FluxoOut` (Saída):** O que o seu dispositivo preparou e precisa criptografar e enviar para a rede.
+O Roteador (`src/sw/sw-handshakes.ts`) opera dentro do Service Worker como uma **Máquina de Estados assíncrona** responsável por coordenar a persistência local e o transporte criptográfico E2E.
+
+A arquitetura organiza o ciclo de vida de cada interação em duas vias principais dentro da tabela `Handshake_DB`:
+
+* **`FluxoIn` (Entrada):** Pacotes recebidos da rede, descriptografados pelo Service Worker e enfileirados para processamento local por módulos especialistas.
+* **`FluxoOut` (Saída):** Pacotes preparados pela UI ou Service Worker, enfileirados, comprimidos e cifrados para envio assíncrono.
 
 ---
 
 ## 2. Estrutura de Dados no IndexedDB (`Handshake_DB`)
 
-Cada interação gera um registro na tabela `Handshake_DB` com a seguinte tipagem:
+Todas as interações criam ou atualizam registros na tabela `Handshake_DB` (gerenciada via `src/utils/db-helpers.ts` e `idb-keyval`):
 
 ```typescript
 export interface Handshake { 
-  id: string;          // ID único gerado localmente ou recebido (jti)
-  aud: string;         // Hash SHA-256 do contato alvo (Destinatário/Remetente)
-  in?: FluxoIn;        // Dados e status recebidos via Push
-  out?: FluxoOut;      // Dados e status preparados para envio
-  createdAt: number; 
-  updatedAt: number; 
+  id: string;          // ID único do handshake (jti / UUID)
+  aud: string;         // Hash SHA-256 do contato destinatário/remetente (vapidPublicKey)
+  in?: FluxoIn;        // Dados e estado do fluxo de recepção
+  out?: FluxoOut;      // Dados e estado do fluxo de emissão
+  createdAt: number;   // Timestamp de criação
+  updatedAt: number;   // Timestamp da última alteração de estado
 }
 
 export interface FluxoIn {
   status: 'recebido' | 'processando' | 'processado' | 'falha';
-  rotas: HandshakeRotas; // O "recheio" descriptografado recebido
-  tentativas: number; 
-  erro?: string;
+  rotas: HandshakeRotas; // Payload descriptografado e descompactado
+  tentativas: number;    // Contador de execuções
+  erro?: string;         // Descrição detalhada da falha, se houver
 }
 
 export interface FluxoOut {
   status: 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
-  rotas: HandshakeRotas; // O "recheio" que será criptografado e enviado
-  tentativas: number; 
+  rotas: HandshakeRotas; // Payload original a ser comprimido e cifrado
+  tentativas: number;    // Contador de retentativas
   erro?: string;
 }
 
-// O objeto centralizador de payloads
+// Contêiner central de payloads roteáveis
 export interface HandshakeRotas { 
-  profile?: any; 
-  mensagem?: any; 
-  contato?: any; 
+  profile?: any;   // Dados de perfil e cartão de visitas (hand-profile.ts)
+  mensagem?: any;  // Mensagens de texto e recibos de leitura (hand-mensagem.ts)
+  contato?: any;   // Sincronização compacta de confiança (hand-contato.ts)
 }
-
 ```
 
 ---
 
-## 3. O Roteador Central (`sw-handshakes.ts`)
+## 3. O Roteador Central (`src/sw/sw-handshakes.ts`)
 
-O Service Worker principal não conhece regras de negócio da UI. O trabalho dele é puramente logístico e de segurança E2E:
+O Service Worker principal atua como um orquestrador logístico e criptográfico neutro, desacoplado das regras visuais da interface:
 
-### A. Fluxo de Saída (Enviando para a rede)
+```text
+               +-----------------------------------+
+               |     Ações do Usuário / PUSH       |
+               +-----------------+-----------------+
+                                 |
+                                 v
+               +-----------------+-----------------+
+               |     IndexedDB: Handshake_DB       |
+               +--------+-----------------+--------+
+                        |                 |
+             +----------+                 +----------+
+             |                                       |
+             v                                       v
+   +-------------------+                   +-------------------+
+   |   FluxoIn (IN)    |                   |   FluxoOut (OUT)  |
+   | Status: recebido  |                   | Status: pendente  |
+   |   -> processado   |                   |   -> enviado      |
+   +---------+---------+                   +---------+---------+
+             |                                       |
+             v                                       v
+   +-------------------+                   +-------------------+
+   | Módulos Handshake |                   |  Proxy Web Push   |
+   | (mensagem,        |                   |  (AES-GCM +       |
+   |  contato,         |                   |   RSA + JWT)      |
+   |  profile)         |                   +-------------------+
+   +-------------------+
+```
 
-1. O Service Worker varre o banco buscando Handshakes com `out.status === 'pendente'` ou `'enviando'` (presos em falha).
-2. Ele altera o status para `'enviando'`.
-3. **PIGGYBACKING (Injeção de Carona) 🔥**: Antes de criptografar, o Roteador verifica o status local do destinatário. Se o contato alvo estiver classificado como `me: 'none'` (ele não tem nossos dados) ou `me: 'wrong'` (os dados dele estão corrompidos/desatualizados), o Roteador injeta **silenciosamente** os nossos dados de Perfil atualizados dentro do mesmo payload da mensagem!
-4. O objeto final de `handshake.out.rotas` é serializado, compactado com GZIP (`fflate`) e **criptografado ponta-a-ponta (E2E)** com a chave pública RSA do destinatário (`aud`).
-5. Um JWT externo é gerado (`sub: "hand"`) assinado pela chave VAPID privada do remetente e despachado via POST para o servidor Proxy (Deno).
+### A. Fluxo de Saída (Envio para a Rede)
+1. **Varredura:** O Service Worker consulta a tabela `Handshake_DB` buscando registros com `out.status === 'pendente'` ou `'enviando'`.
+2. **Atualização de Estado:** Transiciona o status para `'enviando'`.
+3. **Injeção de Carona (*Piggybacking*):**
+   * O Roteador inspeciona a agenda local (`BrowserB_Contatos_DB`) verificando o estado `me` do destinatário.
+   * Se o contato alvo estiver classificado como `me: 'none'` (ainda não possui nossos dados) ou `me: 'wrong'` (dados locais desatualizados), o Roteador **injeta automaticamente o Cartão de Visitas local (`rotas.profile`) no mesmo pacote da mensagem**.
+4. **Compressão e Cifragem E2E:**
+   * O objeto `handshake.out.rotas` é serializado em JSON e comprimido com GZIP (`fflate`).
+   * Cifra-se o bloco comprimido via AES-GCM-256 e a chave AES simétrica via RSA-OAEP-2048 (`e2ePublicKey` do receptor).
+5. **Assinatura e Despacho:**
+   * O envelope cifrado (`ct`) é empacotado em um token JWT (`sub: "hand"`), assinado via ECDSA P-256 (`alg: "ES256"`) com a chave VAPID privada local e despachado ao Proxy Deno (`/api/proxy-push`).
 
-### B. Fluxo de Entrada (Recebendo da rede)
+### B. Fluxo de Entrada (Recepção da Rede)
+1. O evento `push` é capturado em `src/sw/push.ts`.
+2. Valida-se a assinatura do JWT (`kid`) com a `vapidPublicKey` do emissor.
+3. Decifra-se o envelope `ct` com a `e2ePrivateKey` (RSA-OAEP) local e desfaz-se a compressão GZIP (`fflate`).
+4. Grava-se o registro em `Handshake_DB` com `in = { rotas: payloadObj, status: 'recebido', tentativas: 0 }`.
+5. Invoca-se o Despachante Interno.
 
-1. O Push chega ao dispositivo, o SW intercepta (`sub: "hand"`).
-2. A assinatura do JWT é validada matematicamente usando o cabeçalho (`kid`).
-3. O envelope (`ct`) é descriptografado usando a chave privada RSA local, e em seguida descompactado.
-4. Um registro de Handshake é salvo/atualizado contendo `handshake.in = { rotas: payloadObj, status: 'recebido' }`.
-5. O Processador de Fila Interno é invocado.
-
-### C. O Despachante Interno
-
-O Processador varre a fila de entrada (`in.status === 'recebido'`), marca como `'processando'` e distribui para os **Módulos Especializados** (Rotas) com base nas propriedades ativas no objeto. Como a execução é paralela, um único handshake que utilizou *Piggybacking* processará `rotas.contato` e `rotas.mensagem` no mesmo milissegundo.
-
----
-
-## 4. Módulos Especializados (As Rotas)
-
-Cada módulo reside em `src/handshakes/` e possui uma função `Processar({ in, out })`.
-
-### 💬 Rota Mensagem (`hand-mensagem.ts`)
-
-Responsável pelo tráfego bidirecional de mensagens e recibos de leitura (Auto-Ack).
-
-* **Nova Mensagem (`data.enviada`):** Salva no banco local, exibe a notificação Push do SO e gera *imediatamente* um `FluxoOut` de volta acusando o recebimento do pacote (`status: 'nao_lida'`).
-* **Recibo de Entrega (`data.recebida` + `status`):** Atualiza a mensagem na caixa de saída do remetente para `'entregue'` (desenhando os "dois tiques ✓✓" na UI).
-
-### 👤 Rota Profile (`hand-profile.ts`)
-
-Responsável pela exibição genérica de dados passivos. Utiliza arrays de `campos` (ex: `['name', 'email']`) para responder apenas com os dados solicitados, evitando expor chaves sem necessidade.
-
-### 🛡️ Rota Contato e Sincronização Compacta (`hand-contato.ts` & `share-utils.ts`)
-
-Este é o núcleo de gestão de saúde criptográfica do app. Para evitar o limite restrito de 4.096 bytes imposto pelas redes da Apple/Google (FCM), os contatos **não trocam objetos JWK inteiros**.
-
-A rota converte Perfis em **Sincronizações Compactas** usando siglas de 2 letras (Ex: `tr`: Trusted, `vx`: Vapid X, `en`: E2E N Modulus, `se`: Subscription Endpoint). Isso derruba o payload de ~2.5KB para menos de **750 bytes**.
-
-O Roteador avalia o "Ciclo de Confiança Mútua" em três frentes:
-
-* **PULL (Diagnóstico de Confiança - `confirmarSubscription`):** Um aparelho pergunta ao outro "Quais os dados que você tem salvos sobre mim?".
-* **PUSH (Injeção de Perfil - `enviarSubscription`):** Um aparelho "empurra" agressivamente seus próprios dados compactados para o outro salvar e passa a existir na rede do destinatário.
-* **AVALIAÇÃO DO STATUS (`me`):** Ao receber dados, a rota faz uma auditoria estrita, gerando 4 possíveis estados na interface:
-* `none`: O outro aparelho devolveu endpoint vazio. (Ele nos apagou ou não nos conhece).
-* `trusted`: O outro aparelho nos conhece e sua flag de verificação mútua é `tr: true`.
-* `saved`: O outro aparelho nos salvou organicamente, mas nunca clicou em "Verificar".
-* `wrong`: Auditoria Paranoica. O Roteador compara byte a byte as chaves VAPID, RSA e o Envelope recebido com os do nosso perfil. Se **qualquer byte diferir**, bloqueia a comunicação E2E e avisa que o dispositivo do parceiro está desatualizado.
-
-
+### C. O Despachante Interno (Processador de Fila)
+* O Processador varre as entradas com `in.status === 'recebido'`, altera o status para `'processando'` e aciona em paralelo os **Módulos Especializados** em `src/handshakes/`.
+* Como a execução é modular, um pacote que utilizou *Piggybacking* processa `rotas.profile` e `rotas.mensagem` no mesmo ciclo.
 
 ---
 
-## 5. Principais Vantagens da Nova Arquitetura
+## 4. Módulos Especializados de Rotas (`src/handshakes/`)
 
-1. **Imunidade ao Limite do Web Push (4KB):** Graças à padronização universal em `share-utils.ts` e à compressão `fflate`, os handshakes mais complexos ocupam menos de 20% do limite da rede FCM.
-2. **Reparação Silenciosa (Piggybacking):** Mensagens não se perdem se as rotas estiverem levemente dessincronizadas. O ato de enviar um texto automaticamente "pega carona" e autoconserta a base de dados do recebedor antes que ele leia a mensagem.
-3. **Extensibilidade Modular:** Para criar recursos futuros (ex: *Excluir foto, Transferência de Arquivos OPFS, Sinalizador de "Digitando..."*), basta criar um novo módulo `hand-*.ts`. O fluxo de criptografia, persistência e tentativas (retries) é absorvido gratuitamente.
-4. **Resistência Offline Absoluta:** O sistema de `tentativas` é universal. Se você mudar seu nome enquanto estiver num voo sem internet, a intenção será encapsulada num `FluxoOut`. Assim que o celular tocar numa rede Wi-Fi, a máquina de estados retomará o processo de envio perfeitamente.
+Cada módulo especialista implementa a função `processarHandshake({ in, out })`:
+
+### 💬 Rota Mensagem (`src/handshakes/hand-mensagem.ts`)
+Gerencia o fluxo bidirecional de mensagens e recibos de confirmação:
+* **Nova Mensagem Recebida (`data.enviada`):**
+  1. Salva a mensagem no banco local `BrowserB_MensagensRecebidas_DB`.
+  2. Aciona a notificação nativa do sistema operacional (`self.registration.showNotification`).
+  3. **Auto-Ack Instantâneo:** Gera imediatamente um `FluxoOut` de resposta acusando a entrega da mensagem (`data.recebida`).
+* **Recibo de Entrega Recebido (`data.recebida`):**
+  * Atualiza o registro correspondente em `BrowserA_MensagensEnviadas_DB` para o status `'entregue'`, desenhando os "dois tiques" (`✓✓`) na interface do emissor.
+
+### 👤 Rota Profile (`src/handshakes/hand-profile.ts`)
+Trata a troca e atualização sob demanda de atributos de perfil (nome, foto e e-mail). Permite solicitar apenas campos específicos (ex: `['name', 'email']`), otimizando o consumo de dados.
+
+### 🛡️ Rota Contato e Sincronização Compacta (`src/handshakes/hand-contato.ts` & `src/utils/share-utils.ts`)
+Sincroniza a saúde criptográfica da relação entre dois nós.
+
+Para respeitar o limite de **4.096 bytes** da RFC 8291 (FCM), os contatos utilizam a interface **`CompactContact`** (atributos de 2 letras como `vx`, `vy`, `en`, `se`, `sp`, `sa`, `ve`, `tr`), reduzindo o payload de ~2.5 KB para menos de **750 bytes**.
+
+#### Auditoria do Ciclo de Confiança Mútua (`me`):
+O módulo avalia o estado `me` do contato local comparando as credenciais recebidas:
+* **`none`:** O dispositivo do parceiro retornou endpoint/chaves vazias (não possui nossos dados salvos).
+* **`trusted`:** O parceiro possui nosso perfil salvo e homologou a relação (`tr: true`).
+* **`saved`:** O parceiro possui nosso perfil salvo, mas ainda não realizou a verificação explícita.
+* **`wrong` (Auditoria Paranoica):** O Roteador compara byte a byte as chaves VAPID, RSA e o Envelope recebido com o perfil local. Se **qualquer byte diferir**, sinaliza `wrong` e bloqueia a comunicação E2E até o re-alinhamento das chaves.
+
+---
+
+## 5. Vantagens Arquiteturais
+
+1. **Garantia de Enquadramento no Limite de 4KB:** Graças à padronização `CompactContact` e compressão GZIP (`fflate`), mesmo pacotes complexos utilizam menos de 20% do limite da rede FCM.
+2. **Autocura de Conexões por Piggybacking:** Se um contato atualizou sua subscrição Web Push, o envio de uma mensagem simples transporta o perfil atualizado em carona, reparando a base de dados do receptor antes da exibição da conversa.
+3. **Extensibilidade Sem Boilerplate:** A criação de novas funcionalidades (ex: apagar mensagens, reações, sinalizador de digitação) exige apenas a adição de um novo arquivo em `src/handshakes/hand-*.ts`, reaproveitando toda a infraestrutura de criptografia, filas e retentativas.
+4. **Resiliência Local-First:** Alterações realizadas sem conexão de rede ficam retidas com status `'pendente'` no `Handshake_DB` e são processadas automaticamente assim que o evento `online` for disparado.

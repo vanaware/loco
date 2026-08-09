@@ -1,330 +1,163 @@
-# Gerenciamento de Estado no Loco
+# 🧠 Gerenciamento de Estado no Loco — Especificação Técnica
 
-## Visão geral
+O **Loco** adota uma arquitetura de estado reativa e descentralizada baseada em **Preact Signals** (`@preact/signals`), combinada com persistência local não-bloqueante via **IndexedDB** (`idb-keyval`) e **OPFS (Origin Private File System)**.
 
-O Loco usa uma arquitetura de estado reativa baseada em **signals** do Preact. O
-estado centralizado vive no arquivo `src/store.ts` e é consumido pelos
-componentes da interface.
+---
 
-A principal vantagem dessa abordagem:
+## 1. Visão Geral e Filosofia
 
-- Estado global simples e previsível.
-- Componentes reagem automaticamente a mudanças.
-- Fácil persistir e restaurar dados do dispositivo.
-- Separação clara entre estado, UI e persistência.
+Para garantir alta performance (60 FPS em dispositivos móveis) e separação estrita de responsabilidades, o estado da aplicação é dividido em duas camadas principais:
 
-## O que são signals
+1. **Estado de Interface (UI Signals):** Mantido em `src/signals/state.ts`, controla a navegação entre visões, alternância de seções, responsividade mobile e depuração.
+2. **Estado de Negócio e Dados (Modular Stores):** Mantido no diretório `src/stores/`, abstrai a reatividade das entidades principais (Perfil, Contatos e Mensagens) e sincroniza automaticamente as alterações com o IndexedDB.
 
-Signals são unidades reativas de estado. No Preact, um signal é uma referência a
-um valor que, quando alterada, notifica automaticamente quem está usando esse
-valor.
+---
+
+## 2. Signals de UI Globais (`src/signals/state.ts`)
+
+Os Signals globais de interface gerenciam o fluxo visual da aplicação SPA (Single Page Application):
 
 ```typescript
 import { signal } from "@preact/signals";
 
-const count = signal(0);
+// Seção visível na SPA ('chat' | 'contatos' | 'contato-detalhe' | 'profile' | 'advanced')
+export const currentSection = signal<SectionType>("chat");
 
-// Leitura
-console.log(count.value); // 0
+// Hash SHA-256 da chave pública do contato em exibição na timeline
+export const selectedContactHash = signal<string | null>(null);
 
-// Atualização
-count.value = 1;
+// Alternador de visualização para dispositivos móveis ('list' | 'chat' | 'detail')
+export const mobileView = signal<MobileViewType>("list");
+
+// Coleção reativa de logs consumida pelo DebugPanel.tsx
+export const logs = signal<LogEntry[]>([]);
 ```
 
-Quando `count.value` muda, qualquer componente que leu `count.value` é
-re-renderizado automaticamente.
+---
 
-## Por que Preact Signals?
+## 3. Estrutura Modular de Stores (`src/stores/`)
 
-- **Leve**: o Preact é pequeno e rápido.
-- **Familiar**: sintaxe semelhante ao React.
-- **Reatividade fina**: apenas o componente que usa o signal atualiza, não toda
-  a árvore.
-- **Sem boilerplate**: não precisa de reducers, actions ou providers complexos.
+Diferente de arquiteturas legadas com arquivos monolíticos, a lógica de negócios e persistência do Loco é organizada em stores especializados:
 
-## Estado centralizado no `store.ts`
+```text
+src/stores/
+├── index.ts              # Orquestrador global de inicialização (initStores)
+├── profileStore.ts       # Gerencia o Perfil Local, Chaves VAPID e E2E
+├── contatosStore.ts      # Gerencia a Agenda e o Ciclo de Confiança ('me' / 'trusted')
+└── mensagensStore.ts     # Gerencia as Timelines de Envio e Recebimento
+```
 
-Todo o estado significativo do app está em `src/store.ts`:
+### A. Perfil Store (`src/stores/profileStore.ts`)
+* **Signal Exposto:** `profile = signal<ProfileConfig | null>(null)`
+* **Responsabilidade:** Mantém as chaves criptográficas (`VAPID ECDSA` e `RSA-OAEP`), foto de perfil em Base64, subscrição Web Push e o `vapidPrivateKeyEnvelope`.
+* **Persistência:** Armazenado sob a chave `"profile"` no banco `AppConfig_DB`.
+
+### B. Contatos Store (`src/stores/contatosStore.ts`)
+* **Signal Exposto:** `contatosMap = signal<Map<string, Contato>>(new Map())`
+* **Responsabilidade:** Mantém a lista de contatos indexada pelo Hash SHA-256 da `vapidPublicKey`. Gerencia o estado de confiança mútua (`me` e `trusted`).
+* **Persistência:** Cada contato é gravado como um registro individual no banco `BrowserB_Contatos_DB`.
+
+### C. Mensagens Store (`src/stores/mensagensStore.ts`)
+* **Signals Expostos:**
+  * `mensagensEnviadasMap = signal<Map<string, MensagemEnviada>>(new Map())`
+  * `mensagensRecebidasMap = signal<Map<string, MensagemRecebida>>(new Map())`
+* **Responsabilidade:** Controla a timeline de cada conversa, marcas de entrega (`✓` enviado, `✓✓` entregue/lido) e carimbos de data/hora.
+* **Persistência:** Dividido entre os bancos `BrowserA_MensagensEnviadas_DB` e `BrowserB_MensagensRecebidas_DB`.
+
+---
+
+## 4. Inicialização do Sistema (`initStores()`)
+
+Ao abrir o aplicativo, o ponto de entrada (`src/app.tsx`) invoca a função `initStores()` em `src/stores/index.ts`. O carregamento ocorre de forma assíncrona antes da renderização da interface:
 
 ```typescript
-// Identidade
-export const myId = signal<string | null>(null);
-export const myDisplayName = signal<string>("");
-export const myVapidKeys = signal<VapidKeys | null>(null);
+export async function initStores(): Promise<void> {
+  // 1. Carrega dados do Perfil e Chaves Criptográficas
+  await loadProfile();
 
-// Configurações
-export const appConfig = signal<AppConfig>({ ... });
+  // 2. Carrega a Lista de Contatos e Chaves Públicas
+  await loadContatos();
 
-// Contatos e conversas
-export const contacts = computed(() => new Map(contactsRaw.value));
-export const chatSessions = computed(() => new Map(chatSessionsRaw.value));
-
-// Navegação e UI
-export const currentView = signal<ViewType>("list");
-export const currentChatContact = signal<string | null>(null);
-export const menuOpen = signal(false);
-
-// Transferências e storage
-export const transferState = signal<TransferState>({ ... });
-export const storage = signal<StorageStatus>({ ... });
-```
-
-### Signals vs computed
-
-- **Signals**: armazenam o estado mutável.
-- **Computed**: derivam estado a partir de outros signals sem armazená-lo
-  duplicado.
-
-```typescript
-const contactsRaw = signal<[string, Contact][]>([]);
-export const contacts = computed(() => new Map(contactsRaw.value));
-```
-
-`contacts` é uma visualização em `Map` dos dados crus. Sempre que
-`contactsRaw.value` muda, `contacts.value` é recalculado.
-
-## Como os componentes usam o estado
-
-```tsx
-import { contacts, currentChatContact } from "../store.ts";
-
-export function ChatWindow() {
-  const id = currentChatContact.value;
-  const contact = id ? contacts.value.get(id) : null;
-
-  return (
-    <div>
-      <h1>{contact?.displayName}</h1>
-    </div>
-  );
+  // 3. Carrega o Histórico de Mensagens Enviadas e Recebidas
+  await loadMensagens();
 }
 ```
 
-Quando `currentChatContact.value` muda, o `ChatWindow` re-renderiza
-automaticamente.
+---
 
-## Mutabilidade controlada
+## 5. Persistência Estruturada no IndexedDB (`src/utils/db-helpers.ts`)
 
-O Loco evita mutar arrays e objetos diretamente. Sempre que precisa atualizar,
-cria uma cópia:
+O Loco proíbe o uso de `localStorage` para evitar bloqueios síncronos na thread principal do navegador. Todos os dados estruturados utilizam o IndexedDB através do utilitário `idb-keyval` em bancos de dados isolados (`DB_NAMES`):
+
+| Banco de Dados (`DB_NAMES`) | Chave Primária | Entidade Armazenada | Finalidade |
+| :--- | :--- | :--- | :--- |
+| `AppConfig_DB` | `"profile"` | `ProfileConfig` | Perfil local, pares de chaves e subscrição Push. |
+| `BrowserB_Contatos_DB` | Hash SHA-256 (`vapidPublicKey`) | `Contato` | Agenda de contatos, chaves E2E e estado de confiança (`me` / `trusted`). |
+| `BrowserB_MensagensRecebidas_DB` | ID da Mensagem | `MensagemRecebida` | Histórico de mensagens recebidas e timestamps de leitura. |
+| `BrowserA_MensagensEnviadas_DB` | ID da Mensagem | `MensagemEnviada` | Histórico e fila de envio de mensagens com status do ciclo de vida. |
+| `Handshake_DB` | ID do Handshake (`jti`) | `Handshake` | Fila assíncrona da Máquina de Estados (fluxos `in` e `out`). |
+
+---
+
+## 6. Padrão de Mutação e Reatividade de Signals
+
+Para garantir que o Preact Signals detecte alterações em coleções como `Map` e force a re-renderização dos componentes dependentes, os stores utilizam **imobilidade por substituição de referência**:
 
 ```typescript
-export function addContact(id: string, contact: Contact) {
-  const current = [...contactsRaw.value];
-  const idx = current.findIndex(([cid]) => cid === id);
-  if (idx !== -1) {
-    current[idx] = [id, contact];
-  } else {
-    current.push([id, contact]);
-  }
-  contactsRaw.value = current; // dispara reatividade
-  saveContacts(); // persiste
+// Exemplo de atualização reativa em contatosStore.ts
+export async function saveContato(contato: Contato): Promise<void> {
+  // 1. Grava no IndexedDB
+  await dbSet(DB_NAMES.CONTATOS, contato.hash, contato);
+
+  // 2. Cria uma nova instância de Map para disparar a reatividade do Signal
+  const novoMap = new Map(contatosMap.value);
+  novoMap.set(contato.hash, contato);
+  contatosMap.value = novoMap;
 }
 ```
 
-Isso garante que o Preact detecte a mudança e re-renderize os componentes.
+---
 
-## Persistência no IndexedDB
+## 7. Divisão de Responsabilidades: IndexedDB vs. OPFS
 
-A função `initApp()` no `store.ts` carrega todos os dados do IndexedDB na
-inicialização:
-
-```typescript
-export async function initApp() {
-  myVapidKeys.value = await loadFromIDB("myVapidKeys", null);
-  mySubscription.value = await loadFromIDB("mySubscription", null);
-  myId.value = await loadFromIDB("myId", null);
-  myDisplayName.value = await loadFromIDB("myDisplayName", "");
-  appConfig.value = await loadFromIDB("appConfig", appConfig.value);
-  contactsRaw.value = await loadFromIDB("contacts", []);
-  chatSessionsRaw.value = await loadFromIDB("chatSessions", []);
-
-  const filesMeta = await loadFromIDB<Record<string, StoredFile>>(
-    "storedFiles",
-    {},
-  );
-  storedFiles.value = new Map(Object.entries(filesMeta));
-}
+```text
+                               +----------------------------+
+                               |     Recursos de Dados      |
+                               +--------------+-------------+
+                                              |
+                       +----------------------+----------------------+
+                       |                                             |
+            (Dados Estruturados)                              (Arquivos Grandes)
+                       |                                             |
+                       v                                             v
+        +------------------------------+              +------------------------------+
+        |          IndexedDB           |              |             OPFS             |
+        |      (via idb-keyval)        |              | (Origin Private File System) |
+        +------------------------------+              +------------------------------+
+        | - Mensagens de texto         |              | - Imagens originais em alta  |
+        | - Atributos de Contatos      |              | - Áudios e Mensagens de Voz  |
+        | - Chaves Públicas / VAPID    |              | - Vídeos e Documentos P2P    |
+        | - Handshakes da Fila         |              | - Anexos da Timeline         |
+        +------------------------------+              +------------------------------+
 ```
 
-### O que é persistido
+---
 
-| Chave            | Tipo de dado | Onde é usado                 |
-| ---------------- | ------------ | ---------------------------- |
-| `myId`           | string       | Identidade do usuário        |
-| `myDisplayName`  | string       | Nome do perfil               |
-| `myVapidKeys`    | objeto       | Chaves VAPID para push       |
-| `mySubscription` | objeto       | Inscrição no serviço de push |
-| `appConfig`      | objeto       | Configurações gerais         |
-| `contacts`       | array        | Lista de contatos            |
-| `chatSessions`   | array        | Mensagens por contato        |
-| `storedFiles`    | objeto       | Metadados de arquivos        |
-| `masterKeyRaw`   | string       | Chave mestra de criptografia |
+## 8. Tabela Comparativa: Especificação Antiga vs. Arquitetura Atual
 
-### O que não é persistido
+| Recurso / Aspecto | Especificação Legada | Implementação Atual do Loco |
+| :--- | :--- | :--- |
+| **Organização do Estado** | Arquivo único `src/store.ts` | **Modularizado em `src/signals/state.ts` e `src/stores/`** |
+| **Bancos do IndexedDB** | Chaves soltas em tabela genérica | **Bancos isolados e fortemente tipados (`DB_NAMES`)** |
+| **Navegação Reativa** | Signal `currentView` | **`currentSection`, `selectedContactHash` e `mobileView`** |
+| **Gerenciamento de Logs** | Sem suporte nativo | **Signal `logs` integrado ao `DebugPanel.tsx`** |
+| **Histórico de Mensagens** | Array plano em `chatSessions` | **Mapeamento bidirecional (`BrowserA` e `BrowserB`)** |
 
-- Estado transitório da UI (menu aberto, view atual).
-- Dados de transferência P2P em andamento.
-- Streams de chamada WebRTC.
-- Cache de assets (gerenciado pela Cache API).
+---
 
-## Quando usar IndexedDB vs OPFS
+## 9. Resumo
 
-### IndexedDB
-
-Usado para dados estruturados e pequenos binários:
-
-- Textos de mensagens.
-- Configurações.
-- Metadados de contatos e arquivos.
-- Fotos de perfil (reduzidas a 200x200px).
-
-### OPFS
-
-Usado para arquivos grandes:
-
-- Fotos originais.
-- Vídeos.
-- Áudios.
-- Documentos PDF, DOC, etc.
-- Qualquer arquivo recebido por P2P.
-
-### Por que separar?
-
-| Característica               | IndexedDB          | OPFS                   |
-| ---------------------------- | ------------------ | ---------------------- |
-| Ideal para                   | Dados estruturados | Arquivos grandes       |
-| Performance de grandes blobs | Média              | Alta                   |
-| Limite de tamanho            | Menor              | Maior                  |
-| API                          | Key-value          | Sistema de arquivos    |
-| Acesso síncrono              | Não                | Sim (SyncAccessHandle) |
-
-## Sincronização entre signals e armazenamento
-
-Quando o estado muda, o Loco persiste automaticamente:
-
-```typescript
-export function addContact(id: string, contact: Contact) {
-  const current = [...contactsRaw.value];
-  // ...atualiza
-  contactsRaw.value = current;
-  saveContacts(); // salva no IndexedDB
-}
-
-async function saveContacts() {
-  await storageSet("contacts", contactsRaw.value);
-}
-```
-
-Esse padrão é repetido para contatos, mensagens, configurações e metadados de
-arquivos.
-
-## Estado de transferências P2P
-
-Transferências de arquivo são gerenciadas por um Web Worker, mas o estado é
-refletido em signals:
-
-```typescript
-export const transferState = signal<TransferState>({
-  isActive: false,
-  role: null,
-  fileName: "",
-  progress: 0,
-  speed: 0,
-  peers: 0,
-  status: "idle",
-});
-```
-
-O Worker envia mensagens de progresso e o `store.ts` atualiza o signal. O
-`TransferDock.tsx` lê esse signal para mostrar o progresso na UI.
-
-## Estado de navegação
-
-A navegação entre telas é simples:
-
-```typescript
-export function navigateTo(view: ViewType) {
-  navigateWithTransition(() => {
-    currentView.value = view;
-  });
-}
-```
-
-O componente `App.tsx` lê `currentView.value` e renderiza o componente correto.
-Transições de view são aplicadas via View Transitions API quando disponível.
-
-## Estado de notificações e badge
-
-```typescript
-export const unreadCount = signal(0);
-```
-
-Quando uma nova mensagem chega:
-
-1. A mensagem é adicionada à sessão do contato.
-2. `unreadCount` é atualizado.
-3. `setAppBadge(unreadCount)` atualiza o badge do app.
-
-## Estado de armazenamento
-
-```typescript
-export const storage = signal<StorageStatus>({ ... });
-```
-
-Esse signal reflete:
-
-- Se o armazenamento está persistido.
-- Quota total e usada.
-- Se o armazenamento está baixo (>80%).
-
-Um monitor periodicamente atualiza esse valor a cada 60 segundos.
-
-## Anti-padrões a evitar
-
-1. **Mutar signals diretamente**:
-
-```typescript
-// Ruim
-contactsRaw.value.push([id, contact]);
-
-// Bom
-contactsRaw.value = [...contactsRaw.value, [id, contact]];
-```
-
-2. **Ler signals dentro de efeitos sem dependências corretas**:
-
-```typescript
-// Ruim
-useEffect(() => {
-  console.log(currentView.value);
-}, []);
-
-// Bom
-useEffect(() => {
-  console.log(currentView.value);
-}, [currentView.value]);
-```
-
-3. **Armazenar derivados em signals**:
-
-```typescript
-// Ruim
-const totalContacts = signal(contacts.value.size);
-
-// Bom
-const totalContacts = computed(() => contacts.value.size);
-```
-
-## Resumo
-
-- O estado do Loco é gerenciado por **Preact Signals** no `store.ts`.
-- Signals são reativos e causam re-renderização automática.
-- `computed` é usado para derivar estado sem duplicação.
-- Dados estruturados são persistidos no **IndexedDB**.
-- Arquivos grandes são armazenados no **OPFS**.
-- Sempre que um signal muda, o app salva a mudança no armazenamento persistente.
-- A separação entre IndexedDB e OPFS otimiza performance e capacidade.
-
-Essa arquitetura torna o Loco rápido, reativo e capaz de funcionar offline com
-todos os dados essenciais disponíveis localmente.
+- O gerenciamento de estado do Loco utiliza **Preact Signals** divididos entre UI (`state.ts`) e Regras de Negócio (`src/stores/`).
+- Não existe arquivo monolítico `store.ts`; a lógica de negócios é modular e coesa.
+- A persistência é 100% assíncrona e não-bloqueante no **IndexedDB** (`idb-keyval`) e **OPFS**, utilizando bancos isolados para cada domínio de informação.
+- As atualizações de estado seguem o padrão imutável de substituição de referência de `Map` para assegurar a atualização reativa automática da interface.

@@ -1,181 +1,169 @@
-# Transferência P2P de Arquivos no Loco
+# 📁 Transferência P2P de Arquivos — Especificação Técnica (Funcionalidade Futura)
 
-## Visão geral
+Este documento especifica a arquitetura planejada para a **Transferência P2P de Arquivos de Grande Porte** (fotos em alta resolução, vídeos, áudios e documentos) no **Loco**, utilizando a biblioteca **WebTorrent**, processamento isolado em **Web Worker**, armazenamento no **OPFS (Origin Private File System)** e sinalização assíncrona via **Roteador de Handshakes**.
 
-O Loco permite enviar arquivos (fotos, vídeos, documentos) diretamente entre
-dois dispositivos, sem passar por servidor central. Para isso, usamos uma
-combinação de tecnologias:
+---
 
-- **WebTorrent**: biblioteca P2P que usa WebRTC para transferir arquivos via
-  protocolo BitTorrent.
-- **Web Worker**: thread separada que executa toda a lógica do WebTorrent, sem
-  bloquear a interface.
-- **OPFS (Origin Private File System)**: sistema de arquivos privativo do
-  navegador, usado para armazenar arquivos grandes.
-- **IndexedDB**: metadados dos arquivos e mensagens.
+## 1. Visão Geral e Filosofia
 
-## Por que WebTorrent?
+Como um mensageiro *Local-First* sem servidor central de mídia, o Loco não armazena anexos de usuários na nuvem. A transferência de arquivos pesados é realizada diretamente entre os navegadores (*Peer-to-Peer*), garantindo:
 
-WebTorrent é ideal para este cenário porque:
+1. **Privacidade Absoluta:** O arquivo trafega de nó para nó sem ser enviado a nenhum servidor intermediário.
+2. **Escalabilidade Sem Custos de Servidor:** Arquivos de centenas de megabytes não consomem banda nem armazenamento no backend Deno.
+3. **Isolamento de Performance:** Toda a computação pesada de *seeding*, *hashing* de blocos e montagem do BitTorrent é executada em segundo plano em um **Web Worker** (`src/worker/p2p-transfer.worker.ts`), sem travar a interface do usuário (60 FPS).
+4. **Persistência Imediata:** Arquivos baixados são gravados diretamente no **OPFS**, liberando a memória RAM.
 
-- Permite compartilhar um arquivo gerando apenas um **magnet link**.
-- O magnet link pode ser enviado por mensagem de texto (via Push ou
-  DataChannel).
-- O receptor inicia o download diretamente a partir do remetente.
-- Não precisa de tracker próprio: pode usar trackers públicos para descobrir
-  peers.
+---
 
-## Arquitetura isolada: Web Worker
+## 2. Arquitetura em Camadas
 
-Todo o processamento do WebTorrent roda dentro do arquivo
-`src/worker/p2p-transfer.worker.js`. Isso é importante porque:
-
-- Evita travamentos na thread principal.
-- Permite transferir arquivos grandes sem congelar a UI.
-- A comunicação com o app acontece via `postMessage`.
-
-### Tipos de mensagem trocadas
-
-| Origem | Destino | Evento                  | Propósito                            |
-| ------ | ------- | ----------------------- | ------------------------------------ |
-| App    | Worker  | `P2P_START_SEED`        | Inicia o envio de um arquivo         |
-| Worker | App     | `P2P_SEED_READY`        | Magnet link pronto para compartilhar |
-| App    | Worker  | `P2P_START_DOWNLOAD`    | Inicia o download de um magnet link  |
-| Worker | App     | `P2P_PROGRESS`          | Progresso em tempo real              |
-| Worker | App     | `P2P_DOWNLOAD_COMPLETE` | Download finalizado e salvo no OPFS  |
-| App    | Worker  | `P2P_CANCEL`            | Cancela transferência                |
-| Worker | App     | `P2P_SESSION_ENDED`     | Sessão encerrada                     |
-| Worker | App     | `P2P_ERROR`             | Erro na transferência                |
-
-## Fluxo de envio de arquivo
-
-```
-Usuário seleciona arquivo
-        |
-        v
-App envia File para o Worker
-        |
-        v
-Worker cria seed com WebTorrent
-        |
-        v
-Worker retorna magnetURI
-        |
-        v
-App envia magnetURI como mensagem de texto
-        |
-        v
-Contato recebe mensagem e inicia download
+```text
++-----------------------------------------------------------------------------------+
+|                                  THREAD PRINCIPAL                                 |
+|                                                                                   |
+|   +-----------------------+   Signals   +------------------------------------+   |
+|   |   ChatSection.tsx     | <---------> |   src/stores/mensagensStore.ts     |   |
+|   +-----------------------+             +-----------------+------------------+   |
++-----------------------------------------------------------|-----------------------+
+                                                            | postMessage / Events
+                                                            v
++-----------------------------------------------------------------------------------+
+|                        WEB WORKER (Worker Thread)                                 |
+|                        src/worker/p2p-transfer.worker.ts                          |
+|                                                                                   |
+|  +--------------------------------+       +------------------------------------+  |
+|  |     Motor WebTorrent (P2P)     | <---> |   OPFS (Origin Private File System)|  |
+|  |   (RTCDataChannel / Trackers)  |       |   chat_files/{fileHash}.bin        |  |
+|  +--------------------------------+       +------------------------------------+  |
++-----------------------------------------------------------------------------------+
+                                                            |
+                                                            v Handshake Cifrado E2E
+                                                    (sw-handshakes.ts)
 ```
 
-Detalhado:
+### A. Thread Principal (UI & Stores)
+* **`mensagensStore.ts` & `src/signals/state.ts`:** Gerenciam o progresso reativo da transferência (velocidade, porcentagem, peers), exibindo barras de progresso na timeline de conversas do `ChatSection.tsx`.
+* **Metadados em `BrowserA` / `BrowserB` (IndexedDB):** Registrarão as referências dos arquivos (hash, MIME type, tamanho original e caminho no OPFS).
 
-1. Usuário seleciona um arquivo no `ChatWindow`.
-2. `startFileSend(file)` é chamado no `store.ts`.
-3. O Worker recebe `P2P_START_SEED`, cria o torrent e começa a seedar.
-4. Quando o torrent está pronto, o Worker envia `P2P_SEED_READY` com o
-   `magnetURI`.
-5. O `store.ts` detecta o magnet link e envia como mensagem de texto para o
-   contato.
-6. O remetente continua seedando até que todos os peers desconectem.
+### B. Web Worker (`src/worker/p2p-transfer.worker.ts`)
+* Instancia a biblioteca WebTorrent em um contexto isolado de execução.
+* Comunica-se exclusivamente com a Thread Principal através de mensagens fortemente tipadas via `postMessage`.
 
-## Fluxo de recebimento de arquivo
+### C. Sistema de Arquivos Privativo (OPFS)
+* As operações de I/O de grande porte leem e escrevem dados síncronos através da API `FileSystemSyncAccessHandle` no OPFS.
+* Os arquivos são gravados sob a estrutura `chat_files/{fileHash}.bin`.
 
-```
-Mensagem com magnet link recebida
-        |
-        v
-App extrai o magnetURI
-        |
-        v
-App envia P2P_START_DOWNLOAD para o Worker
-        |
-        v
-Worker conecta no swarm e baixa o arquivo
-        |
-        v
-Worker salva o arquivo no OPFS
-        |
-        v
-Worker envia P2P_DOWNLOAD_COMPLETE
-        |
-        v
-App registra o arquivo no IndexedDB e mostra no chat
-```
+---
 
-## Armazenamento dos arquivos
+## 3. Mensagens do Web Worker (`postMessage`)
 
-### OPFS (Origin Private File System)
+A interface entre a Thread Principal e o Worker utiliza contratos tipados de dados:
 
-Arquivos grandes não são armazenados no IndexedDB. Eles vão para o OPFS, que
-oferece:
+| Origem | Destino | Evento (`type`) | Descrição do Payload |
+| :--- | :--- | :--- | :--- |
+| **App** | **Worker** | `P2P_START_SEED` | Envia referência de arquivo do OPFS/Blob para iniciar o *seeding*. |
+| **Worker** | **App** | `P2P_SEED_READY` | Retorna o `infoHash` e o `magnetURI` gerados para o torrent. |
+| **App** | **Worker** | `P2P_START_DOWNLOAD` | Inicia o download P2P a partir de um `magnetURI` recebido. |
+| **Worker** | **App** | `P2P_PROGRESS` | Retorna progresso (`progress`, `downloadSpeed`, `numPeers`). |
+| **Worker** | **App** | `P2P_DOWNLOAD_COMPLETE` | Confirma a gravação do arquivo completo no OPFS. |
+| **App** | **Worker** | `P2P_CANCEL` | Interrompe a sessão de envio/recebimento e limpa recursos. |
+| **Worker** | **App** | `P2P_ERROR` | Notifica exceções de rede ou falha na validação de hash. |
 
-- Melhor performance para leitura/escrita.
-- Limite de armazenamento maior que IndexedDB.
-- Acesso privativo à origem (apenas o app pode acessar).
+---
 
-Cada arquivo é salvo com o nome `chat_files/{messageId}.{ext}`.
+## 4. Sinalização e Transporte Cifrado via Handshakes (`hand-arquivo.ts`)
 
-### Metadados no IndexedDB
+No Loco, o `magnetURI` de um arquivo **jamais trafega em texto claro na rede**. O compartilhamento de mídias utiliza o Roteador de Handshakes da aplicação (`sw-handshakes.ts`):
 
-Informações sobre o arquivo (nome, tipo MIME, tamanho, caminho no OPFS) são
-armazenadas no IndexedDB na chave `storedFiles`.
+```typescript
+// Extensão da interface HandshakeRotas em src/types/
+export interface HandshakeRotas {
+  profile?: any;
+  mensagem?: any;
+  contato?: any;
+  arquivo?: HandshakeArquivoData; // Rota para arquivos e anexos P2P
+}
 
-## Widget de transferência: TransferDock
-
-O `TransferDock.tsx` mostra o progresso em tempo real:
-
-- Nome do arquivo.
-- Porcentagem de progresso.
-- Velocidade de transferência.
-- Número de peers conectados.
-- Botão para cancelar.
-
-O dock aparece automaticamente quando uma transferência está ativa e desaparece
-quando concluída.
-
-## Cancelamento de transferência
-
-Quando o usuário clica em cancelar:
-
-1. App envia `P2P_CANCEL` para o Worker.
-2. Worker destrói o torrent e o cliente.
-3. Worker notifica `P2P_SESSION_ENDED`.
-4. UI atualiza o estado para `cancelled`.
-
-## Auto-terminação do seed
-
-Após o envio completo e a desconexão de todos os peers, o seed é encerrado
-automaticamente. Isso economiza bateria e banda do dispositivo remetente.
-
-## Limitações e considerações
-
-| Aspecto                      | Situação                                              |
-| ---------------------------- | ----------------------------------------------------- |
-| WebTorrent precisa de WebRTC | Funciona na maioria dos navegadores modernos          |
-| NAT restritivo               | Pode bloquear conexões; TURN ajudaria                 |
-| Trackers públicos            | Podem ser bloqueados por firewalls corporativos       |
-| OPFS                         | Disponível em Chrome/Edge/Safari; Firefox não suporta |
-| Arquivos grandes             | Funcionam bem, mas podem consumir bateria             |
-
-## Resumo do fluxo de dados
-
-```
-┌─────────────┐     postMessage      ┌──────────────────┐
-│  Main Thread│ <------------------> │  Web Worker      │
-│  (store.ts) │                      │  (WebTorrent)    │
-└─────────────┘                      └──────────────────┘
-        |                                      |
-        | IndexedDB                            | OPFS
-        v                                      v
-   storedFiles                           chat_files/
-   (metadados)                           (arquivos)
+export interface HandshakeArquivoData {
+  fileHash: string;      // Hash SHA-256 do arquivo original
+  fileName: string;      // Nome do arquivo (ex: "documento.pdf")
+  fileSize: number;      // Tamanho total em bytes
+  mimeType: string;      // Tipo MIME (ex: "application/pdf")
+  magnetURI: string;     // Magnet Link de descoberta WebTorrent
+}
 ```
 
-## Próximos aprimoramentos
+### Garantias de Cifragem E2E:
+1. O objeto `HandshakeArquivoData` é serializado e comprimido com GZIP (`fflate`).
+2. O contêiner é cifrado via AES-GCM-256 e a chave simétrica é cifrada com a chave pública RSA do destinatário (`RSA-OAEP-2048`).
+3. O envelope E2E cifrado (`ct`) é assinado via ECDSA P-256 (`alg: "ES256"`) e transportado através do Web Push Proxy (`/api/proxy-push`).
 
-- Suporte a TURN para redes restritas.
-- Compressão de arquivos antes do envio.
-- Criptografia end-to-end dos arquivos.
-- Preview de arquivos enquanto baixam.
-- Sincronização de estado de transferência entre dispositivos do mesmo usuário.
+---
+
+## 5. Fluxo de Execução Ponta a Ponta
+
+```text
+               NÓ EMISSOR                                   NÓ RECEPTOR
+    +------------------------------+             +------------------------------+
+    | 1. Seleciona Arquivo        |             |                              |
+    | 2. Grava Cópia no OPFS       |             |                              |
+    | 3. Worker executa SEED       |             |                              |
+    | 4. Obtém magnetURI           |             |                              |
+    +--------------+---------------+             +------------------------------+
+                   |                                            |
+                   | --- 5. Handshake Cifrado E2E (Web Push) -> |
+                   |    (Cifrado com RSA-OAEP + AES-GCM)        |
+                   |                                            v
+    +--------------+---------------+             +------------------------------+
+    |              |                             | 6. Service Worker decifra E2E|
+    |              |                             | 7. Grava Metadados IndexedDB |
+    |              |                             | 8. Worker executa DOWNLOAD   |
+    |              | <====== 9. Conexão P2P =====> | 9. Grava no OPFS             |
+    |              |     (WebTorrent / DataChannel)| 10. Atualiza UI via Signals  |
+    +--------------+---------------+             +------------------------------+
+```
+
+### A. Fluxo de Envio (Emissor)
+1. O usuário anexa um arquivo no `ChatSection.tsx`.
+2. O arquivo é gravado no diretório OPFS local (`chat_files/`).
+3. O app envia a mensagem `P2P_START_SEED` para o Web Worker (`p2p-transfer.worker.ts`).
+4. O Worker inicia o *seeding* via WebTorrent e devolve o `magnetURI` gerado (`P2P_SEED_READY`).
+5. O `mensagensStore.ts` enfileira um Handshake de arquivo (`hand-arquivo.ts`) no `Handshake_DB` (`FluxoOut`).
+6. O Service Worker cifra o Handshake E2E e despacha via Proxy Web Push.
+
+### B. Fluxo de Recebimento (Receptor)
+1. O evento `push` desperta o Service Worker do receptor (`sw/push.ts`).
+2. O Service Worker decifra o payload E2E e valida a assinatura do remetente.
+3. Identifica a rota `rotas.arquivo` e passa para `hand-arquivo.ts`.
+4. Salva a mensagem no histórico (`BrowserB_MensagensRecebidas_DB`) com estado `'download_pendente'`.
+5. O aplicativo invoca o Web Worker enviando `P2P_START_DOWNLOAD` com o `magnetURI`.
+6. O Worker conecta-se aos *swarms* do WebTorrent e salva o conteúdo no OPFS.
+7. Ao concluir (`P2P_DOWNLOAD_COMPLETE`), o status da mensagem é atualizado para `'concluido'`, tornando a mídia disponível para visualização e download nativo.
+
+---
+
+## 6. Gerenciamento no OPFS e Prevenção de Evicção
+
+* **Isolamento de Origem:** Os arquivos no OPFS são mantidos de forma 100% privada e inacessíveis por outros sites ou scripts externos.
+* **Solicitação de Persistência:** A aplicação executa `navigator.storage.persist()` na inicialização do sistema para impedir que o navegador purgue mídias salvas durante escassez de disco.
+* **Exportação Manual:** O usuário pode clicar em "Salvar no Dispositivo" para transferir o arquivo armazenado no OPFS para a pasta de Downloads nativa do seu sistema operacional.
+
+---
+
+## 7. Tabela Comparativa: Especificação Antiga vs. Arquitetura Atual
+
+| Recurso / Aspecto | Especificação Antiga | Arquitetura Atual e Planejada |
+| :--- | :--- | :--- |
+| **Canal do Magnet Link** | Mensagem de texto em texto claro | **Handshake Cifrado E2E (`hand-arquivo.ts` via RSA-OAEP + AES-GCM)** |
+| **Gerenciamento de Estado** | Monolítico via `store.ts` | **Stores Modulares (`mensagensStore.ts`) e Preact Signals (`state.ts`)** |
+| **Processamento P2P** | Worker isolado sem tipagem clara | **`p2p-transfer.worker.ts` fortemente tipado com mensagens `postMessage`** |
+| **Armazenamento de Mídia** | Lógica simplificada | **Diretório OPFS (`chat_files/{hash}.bin`) com metadados no IndexedDB** |
+| **Resiliência de Rede** | Sem retentativas de envio de link | **Retenção no `Handshake_DB` com até 3 retentativas automáticas** |
+
+---
+
+## 8. Próximos Passos de Implementação
+
+1. **Criar Módulo Worker (`src/worker/p2p-transfer.worker.ts`):** Implementar o contexto de execução do WebTorrent integrado à API de escrita síncrona do OPFS.
+2. **Criar Processador de Rota (`src/handshakes/hand-arquivo.ts`):** Módulo do Service Worker encarregado de processar handshakes de mídias e anexos P2P.
+3. **Evoluir Stores de Mensagens (`src/stores/mensagensStore.ts`):** Adicionar suporte a estados de transferência (`'seeding'`, `'downloading'`, `'concluido'`) reativos para o `ChatSection.tsx`.

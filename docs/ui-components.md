@@ -1,378 +1,122 @@
-# Componentes e Fluxos da Interface do Loco
+# 🎨 Componentes e Fluxos da Interface do Loco
 
-## Visão geral
+## 1. Visão Geral e Filosofia de UI
 
-A interface do Loco é construída com **Preact** e **Material Design 3** via
-biblioteca `@material/web`. A navegação é baseada em uma única página (SPA) onde
-o componente raiz `App.tsx` gerencia qual view está sendo exibida.
+A interface do **Loco** é construída com **Preact** e componentes visuais do **Material Design 3** via biblioteca oficial `@material/web`. O gerenciamento de estado da interface é 100% reativo e baseado em **Preact Signals** (`@preact/signals`).
 
-O design é **mobile-first**, responsivo e segue os princípios do Material You
-com suporte a temas, transições e componentes acessíveis.
+O design é **mobile-first**, responsivo e adaptativo:
+* **Em telas grandes (Desktop):** Funciona como um painel multi-colunas unificado (lista de contatos, timeline de mensagens e detalhes do contato lado a lado).
+* **Em telas pequenas (Mobile):** Alterna dinamicamente entre as visões de Lista, Chat e Detalhes através do sinal reativo `mobileView`.
 
-## Componentes principais
+---
 
-### `App.tsx`
+## 2. Estrutura de Componentes Principais (`src/components/`)
 
-Componente raiz. Responsável por:
+### A. Shell e Roteador Principal (`src/app.tsx` & `src/index.html`)
+Ponto de entrada da Single Page Application (SPA). Responsável por:
+* Inicializar os stores do sistema (`initStores()`).
+* Registrar e auditar a saúde do Service Worker (`sw-utils.ts`).
+* Renderizar a estrutura de navegação Material 3 (`md-navigation-drawer`, `md-top-app-bar`).
+* Alternar dinamicamente a seção ativa com base no signal `currentSection.value`.
 
-- Inicializar o app (`initApp`).
-- Registrar o Service Worker.
-- Gerenciar a navegação entre views.
-- Processar hash `#add=` para adicionar contatos.
-- Processar hash `#action=` para app shortcuts.
-- Renderizar drawer de navegação e top bar.
-- Exibir o `TransferDock` de transferências ativas.
+### B. `ChatSection.tsx` — Conversas e Timeline
+Área central de interação com o contato selecionado (`selectedContactHash`). Contém:
+* **Header da Conversa:** Apresenta o nome do contato, avatar com foto/inicial, e botões de ação (diagnóstico do contato, atalho para detalhes).
+* **Timeline de Mensagens:** Exibe o histórico de mensagens enviadas e recebidas recuperadas do IndexedDB.
+* **Indicadores de Status:** Selos de entrega e leitura (`✓` enviado, `✓✓` entregue/lido) e identificador visual de mensagem cifrada E2E.
+* **Barra de Entrada de Mensagem:** Input de texto com suporte a envio por tecla `Enter`, seletor para anexo de imagens e compressão prévia.
 
-### `ContactList`
+### C. `ContatosSection.tsx` — Agenda Reativa
+Painel lateral de navegação e busca de contatos.
+* **Busca e Filtragem:** Campo de pesquisa por nome ou e-mail em tempo real.
+* **Ordenação Dinâmica:** Contatos ordenados pela data da última interação/mensagem.
+* **Badges de Estado de Confiança:** Indicadores visuais do ciclo de confiança mútua (`me` e `trusted`):
+  * `✓✓ Confiável` (Verde): Par de chaves auditado e confirmado mutualmente.
+  * `⏳ Pendente` (Laranja): Contato salvo localmente, mas aguardando homologação do receptor.
+  * `⚠️ Desatualizado` (Vermelho): Divergência de chaves detectada na auditoria E2E.
 
-Tela inicial. Exibe a lista de contatos/conversas ordenados por `lastContact`.
-Quando vazia, mostra um empty state com CTA para adicionar contato.
+### D. `ContactDetailSection.tsx` — Diagnóstico e Perfil do Contato
+Exibe as métricas de segurança do contato selecionado:
+* Detalhes das Chaves Públicas (`VAPID ECDSA` e `E2E RSA-OAEP`).
+* Status da subscrição Web Push (`endpoint` e chaves `p256dh`/`auth`).
+* Ações de auditoria: Homologar contato como confiável (`trusted`), solicitar re-sincronização de perfil via handshake ou remover contato.
 
-### `ChatWindow.tsx`
+### E. `ProfileSection.tsx` — Cartão de Visitas Local
+Gerenciamento de perfil e compartilhamento da própria identidade:
+* Edição do nome e e-mail local.
+* Upload e redimensionamento da foto de perfil.
+* Exibição do **QR Code Binário Compacto (`cqr`)** gerado localmente para escaneamento presencial.
+* Geração do **Link Comprimido Web (`cjwt`)** para compartilhamento remoto via Web Share API.
 
-Tela de conversa com um contato específico. Contém:
+### F. `AdvancedSection.tsx` — Painel de Diagnóstico do Sistema
+Painel técnico para inspeção do nó PWA:
+* **Armazenamento:** Métricas de cota utilizada/disponível no IndexedDB e status da permissão `navigator.storage.persist()`.
+* **Service Worker:** Estado da fila do roteador de handshakes (`FluxoIn` / `FluxoOut`).
+* **Cache e PWA:** Status dos ativos armazenados no CacheStorage e opção de re-sincronização forçada.
 
-- Header com foto/nome do contato e status.
-- Lista de mensagens.
-- Área de input com botões para localização e anexo.
-- Modal de edição de contato.
-- Banner de conteúdo compartilhado (Share Target).
+### G. `DebugPanel.tsx` — Terminal de Logs em Tempo Real
+Console visual embutido na interface que captura logs do sistema (`signals/state.ts` -> `logs`). Permite filtrar registros por categoria (SW, E2E, Push, DB) para depuração em dispositivos móveis sem necessidade de ferramentas de desenvolvedor do navegador.
 
-### `Profile.tsx`
+---
 
-Tela de perfil do usuário. Permite:
+## 3. Páginas de Suporte Autônomas (PWA Entrypoints)
 
-- Editar nome.
-- Alterar foto de perfil.
-- Ver e compartilhar QR Code.
-- Compartilhar link via PWA Share API.
+Além do `index.html` principal, a aplicação conta com pontos de entrada leves e dedicados para fluxos específicos:
 
-### `QRScanner.tsx`
+* 📷 **`share.html` / `share.tsx`:** Interface de escaneamento de QR Code via câmera do dispositivo e importador de convites recepcionados via parâmetro URL (`cjwt` ou `cqr`).
+* 👤 **`profile.html` / `profile.tsx`:** Exibição em tela cheia do QR Code do usuário para facilidade de apresentação presencial.
+* 🚪 **`logout.html` / `logout.tsx`:** Executa o expurgo completo e irreversível dos bancos IndexedDB, caches do Service Worker e diretórios do OPFS.
 
-Tela em tela cheia para escanear QR Code. Usa a câmera e a Barcode Detection
-API. Quando detecta um link `#add=`, adiciona o contato automaticamente.
+---
 
-### `Settings.tsx`
+## 4. Gerenciamento de Estado Reativo (`src/signals/state.ts`)
 
-Tela de configurações com:
+A UI reage imediatamente a alterações nos seguintes Signals globais:
 
-- Status de armazenamento.
-- Configurações gerais (DND, localização, criptografia).
-- Lista de capacidades PWA.
-- Backup e restauração.
-- Configurações por contato.
+| Signal | Tipo | Descrição / Função |
+| :--- | :--- | :--- |
+| `currentSection` | `'chat' \| 'contatos' \| 'contato-detalhe' \| 'profile' \| 'advanced'` | Define a seção principal visível na interface. |
+| `selectedContactHash` | `string \| null` | Hash SHA-256 da chave do contato com quem a conversa está aberta. |
+| `mobileView` | `'list' \| 'chat' \| 'detail'` | Alternador de tela para dispositivos móveis. |
+| `logs` | `LogEntry[]` | Array reativo consumido pelo `DebugPanel.tsx`. |
 
-### `CallScreen.tsx`
+---
 
-Tela de chamada de voz/vídeo. Exibe vídeo local e remoto e controles de chamada.
+## 5. Fluxos e Onboarding Contextual
 
-### `TransferDock.tsx`
-
-Widget flutuante no rodapé que mostra progresso de transferências P2P ativas.
-
-## Telas ao iniciar o aplicativo
-
-Quando o usuário abre o Loco, o fluxo é:
-
-```
-Splash/Loading (implícito na inicialização)
-    |
-    v
-ContactList
-    |
-    +--> Se não há contatos: empty state com CTA
-    +--> Se há contatos: lista de conversas
-```
-
-### Tela de carregamento
-
-Não existe uma tela de splash dedicada, mas a inicialização é rápida. O
-`initApp()` carrega os dados do IndexedDB e o app renderiza imediatamente.
-
-### Empty state
-
-Se `contacts.value.size === 0`, a `ContactList` exibe:
-
-- Ícone de caixa de entrada vazia (📭).
-- Texto "Nenhuma conversa".
-- Botão "Adicionar Contato" que leva à tela de Perfil.
-
-Isso é importante para o primeiro uso, pois orienta o usuário a criar seu perfil
-e adicionar contatos.
-
-### Lista de conversas
-
-Com contatos, a tela mostra:
-
-- Avatar com foto ou inicial do nome.
-- Nome do contato.
-- Última mensagem ou tipo de mídia.
-- Badge de não lidas, se houver.
-
-A lista é ordenada por `lastContact`, com os mais recentes no topo.
-
-## Onboarding
-
-O Loco não tem um fluxo de onboarding tradicional com vários passos. Em vez
-disso, o onboarding acontece de forma contextual:
-
-### Primeira abertura
-
-1. Usuário abre o app.
-2. App gera automaticamente `myId` e `myVapidKeys` (primeira execução).
-3. Tela `ContactList` aparece com empty state.
-4. Usuário é convidado a ir ao Perfil.
-
-### Criando o perfil
-
-1. Usuário navega para `Profile`.
-2. Insere o nome.
-3. Opcional: faz upload de foto de perfil.
-4. App gera QR Code e link de compartilhamento.
-
-### Adicionando o primeiro contato
-
-1. Usuário compartilha seu QR Code ou link.
-2. Outro usuário escaneia ou clica no link.
-3. Ambos aparecem na lista de contatos um do outro.
-
-### Permissões solicitadas sob demanda
-
-- **Câmera**: apenas ao abrir o QR Scanner.
-- **Localização**: apenas ao clicar em enviar localização.
-- **Notificações**: implicitamente quando o browser solicita para push.
-- **Microfone/câmera**: apenas ao iniciar uma chamada.
-
-Essa abordagem evita assustar o usuário com muitas permissões logo no início.
-
-## PWA Share Target: abrir para enviar direto
-
-### O que é
-
-O Loco implementa **Web Share Target**, permitindo que outros apps (navegador,
-galeria, etc.) compartilhem conteúdo diretamente com o Loco.
-
-### Manifesto do Share Target
-
-No `public/manifest.json`:
-
-```json
-"share_target": {
-  "action": "/share-target",
-  "method": "POST",
-  "enctype": "multipart/form-data",
-  "params": {
-    "title": "title",
-    "text": "text",
-    "url": "url",
-    "files": [
-      {
-        "name": "media",
-        "accept": ["image/*", "video/*", "audio/*"]
-      }
-    ]
-  }
-}
+```text
+       [ Primeira Abertura do Loco ]
+                     |
+                     v
+  Inicialização Automática do Nó (initApp)
+  - Gera chaves VAPID (ECDSA P-256) e E2E (RSA-OAEP-2048)
+  - Solicita Armazenamento Persistente
+                     |
+                     v
+         [ ContatosSection ]
+                     |
+       +-------------+-------------+
+       |                           |
+ (Sem Contatos)              (Com Contatos)
+       |                           |
+       v                           v
+Exibe Empty State          Exibe Lista Ordenada por
+com botão "Criar          última interação com
+Perfil / QR Code"          badges de confiança
 ```
 
-### Fluxo de compartilhamento
+### Adição de Contatos
+1. **Presencial:** O Usuário A exibe seu QR Code em `ProfileSection.tsx`. O Usuário B abre `share.html` e escaneia pela câmera.
+2. **Remoto:** O Usuário A envia seu link `cjwt`. O Usuário B clica no link, que abre a aplicação importando e validando automaticamente a assinatura do convite.
 
-```
-Usuário está em outro app (ex: navegador)
-    |
-    v
-Clica em "Compartilhar"
-    |
-    v
-Seleciona "Loco"
-    |
-    v
-Service Worker intercepta POST /share-target
-    |
-    v
-Redireciona para /?shared_title=...&shared_text=...
-    |
-    v
-App abre e detecta pendingShare
-    |
-    v
-Usuário escolhe contato
-    |
-    v
-Mensagem é enviada
-```
+---
 
-### Interface de Share no Loco
+## 6. Tabela Comparativa: Especificação Antiga vs. Implementação Atual
 
-Quando o app recebe um compartilhamento, exibe um banner na parte superior:
-
-```
-┌─────────────────────────────────────┐
-│ 📤 Conteúdo recebido                │
-│ Título do conteúdo compartilhado... │
-│ [Selecionar contato]                │
-└─────────────────────────────────────┘
-```
-
-Atualmente, o fluxo mostra o banner e permite que o usuário selecione um contato
-na lista.
-
-### Fluxo ideal planejado
-
-O objetivo é que, ao abrir via Share Target, o app já apresente uma tela de
-seleção de contato:
-
-```
-Compartilhamento recebido
-    |
-    v
-Mostra tela "Enviar para..."
-    |
-    v
-Lista de contatos com busca
-    |
-    v
-Usuário seleciona contato
-    |
-    v
-Abre ChatWindow com o conteúdo pré-preenchido
-    |
-    v
-Usuário clica em "Enviar"
-```
-
-### Componente de seleção rápida de contato
-
-Um componente futuro poderia ser:
-
-```typescript
-function ShareTargetContactPicker() {
-  const contactsList = [...contacts.value.entries()];
-
-  return (
-    <div class="share-picker">
-      <h3>Enviar para...</h3>
-      <md-list>
-        {contactsList.map(([id, c]) => (
-          <md-list-item onClick={() => openChatWithShare(id)}>
-            {c.displayName}
-          </md-list-item>
-        ))}
-      </md-list>
-    </div>
-  );
-}
-```
-
-### Tratamento do conteúdo compartilhado
-
-O `processIncomingShare()` em `webShareTarget.ts` lê os parâmetros da URL:
-
-```typescript
-export function processIncomingShare() {
-  const params = new URLSearchParams(location.search);
-  const sharedTitle = params.get("shared_title");
-  const sharedText = params.get("shared_text");
-  const sharedUrl = params.get("shared_url");
-
-  if (sharedTitle || sharedText || sharedUrl) {
-    pendingShare.value = {
-      title: sharedTitle,
-      text: sharedText,
-      url: sharedUrl,
-    };
-    history.replaceState(null, "", location.pathname);
-  }
-}
-```
-
-Esse conteúdo é armazenado no signal `pendingShare` e consumido pelo `App.tsx` e
-`ChatWindow.tsx`.
-
-### Banner no ChatWindow
-
-Dentro do `ChatWindow.tsx`, quando `pendingShare.value` existe e há um contato
-selecionado, mostra:
-
-```tsx
-{
-  pendingShare.value && (
-    <div class="share-banner">
-      <span>Enviar conteúdo compartilhado?</span>
-      <md-filled-tonal-button onClick={handleSendPendingShare}>
-        Enviar
-      </md-filled-tonal-button>
-      <md-icon-button onClick={() => (pendingShare.value = null)}>
-        <md-icon>close</md-icon>
-      </md-icon-button>
-    </div>
-  );
-}
-```
-
-### Compartilhamento de arquivos
-
-Além de texto/URL, o manifesto aceita compartilhamento de arquivos. O fluxo
-ideal seria:
-
-1. Recebe arquivos via Share Target.
-2. Armazena em `pendingFiles`.
-3. Usuário seleciona contato.
-4. Inicia transferência P2P do arquivo.
-5. Envia mensagem com magnet link para o contato.
-
-Esse fluxo ainda não está completamente implementado, mas a estrutura básica já
-existe.
-
-## Navegação e transições
-
-A navegação usa uma função simples:
-
-```typescript
-export function navigateTo(view: ViewType) {
-  navigateWithTransition(() => {
-    currentView.value = view;
-  });
-}
-```
-
-A `navigateWithTransition` usa a View Transitions API quando disponível para
-criar transições suaves entre telas.
-
-## Componentes de feedback visual
-
-O Loco usa consistentemente:
-
-- **Badges**: não lidas, status de criptografia.
-- **Snackbar/toast**: não implementado ainda, mas recomendado.
-- **Loading states**: `md-circular-progress` enquanto QR Code ou dados carregam.
-- **Empty states**: mensagens amigáveis quando não há dados.
-- **Confirm dialogs**: `confirm()` nativo para ações destrutivas.
-
-## Acessibilidade
-
-A interface considera:
-
-- Uso de componentes semânticos do Material Web.
-- Atributos ARIA em componentes customizados.
-- Contraste de cores do tema Material 3.
-- Tamanhos de toque adequados para mobile.
-
-## Próximos componentes planejados
-
-- **`ShareTargetPicker`**: seleção rápida de contato ao receber share.
-- **`ImageViewer`**: visualização em tela cheia de imagens.
-- **`AudioRecorder`**: gravação de mensagens de voz.
-- **`MessageSearch`**: busca no histórico.
-- **`ConversationArchive`**: arquivar conversas antigas.
-
-## Resumo
-
-- O Loco usa uma SPA com navegação baseada em signals.
-- O onboarding é contextual e minimalista.
-- Share Target permite receber conteúdo de outros apps.
-- O fluxo ideal de share envolve seleção rápida de contato e envio direto.
-- A UI prioriza mobile, Material Design 3 e feedback visual claro.
-
-A interface é projetada para ser simples, direta e alinhada com a filosofia do
-app: comunicação direta, sem servidor e sob controle do usuário.
+| Recurso / Componente | Documentação Legada | Implementação Atual |
+| :--- | :--- | :--- |
+| **Gerenciamento de Views** | Roteamento baseado em `App.tsx` monolítico | **Seções especializadas (`src/components/`) e Signals** |
+| **Seção de Conversas** | `ChatWindow.tsx` | **`ChatSection.tsx` (Preact + Material 3)** |
+| **Scanner de QR Code** | `QRScanner.tsx` modal | **Página dedicada `share.html` / `share.tsx`** |
+| **Layout Responsivo** | Transições CSS genéricas | **Signal `mobileView` com suporte a multi-coluna** |
+| **Depuração** | Ausente | **`DebugPanel.tsx` integrado com captura de logs** |

@@ -1,231 +1,130 @@
-# Estratégia de Funcionamento Offline do Loco
+# 📴 Estratégia de Funcionamento Offline e Resiliência no Loco
 
-## A filosofia
+Este documento especifica a arquitetura **Local-First / Offline-First** do **Loco**, detalhando o comportamento da aplicação em cenários de desconexão, a retenção de dados no dispositivo e os mecanismos automáticos de ressincronização.
 
-O Loco é um PWA de mensagens **sem servidor central**. Isso significa que o app
-deve continuar funcionando mesmo quando:
+---
 
-- O dispositivo está sem internet.
-- A internet é intermitente.
-- O servidor de push do navegador está indisponível.
-- O contato está offline no momento.
+## 1. Filosofia e Princípios Fundamentais
 
-A estratégia de offline do Loco é simples: **tudo que é essencial para o usuário
-deve estar no dispositivo dele**. Comunicação online acontece apenas quando
-possível, e sempre priorizando canais P2P.
+O **Loco** opera sob a premissa de que **cada navegador é um nó autônomo**. O aplicativo não depende de um banco de dados centralizado para ler ou escrever informações.
 
-## Princípios fundamentais
+1. **Local-First Absoluto:** Todo o histórico de mensagens, dados de perfil e mídias residem primariamente no dispositivo local. Nenhuma ação de interface (digitar mensagem, alterar perfil, adicionar contato) é bloqueada por ausência de rede.
+2. **Sincronização Assíncrona via Handshakes:** Operações externas são tratadas como intenções registradas em uma fila local no IndexedDB (`Handshake_DB`), processadas assincronamente pelo Service Worker (`sw-handshakes.ts`).
+3. **Resiliência em Três Níveis (Graceful Degradation):** A entrega de dados prioriza conexões diretas P2P, recorre ao Web Push como despertador e utiliza uma fila de retenção (*Polling Autenticado*) caso a infraestrutura de Push falhe.
+4. **Proteção Contra Evicção:** O nó solicita Armazenamento Persistente (`navigator.storage.persist()`) na inicialização para evitar que o sistema operacional purgue o histórico durante períodos de memória baixa.
 
-1. **Local-first**: os dados do usuário moram no dispositivo.
-2. **P2P primeiro**: sempre tentar comunicação direta entre os navegadores.
-3. **Push como fallback**: usar Web Push apenas quando o destinatário não está
-   online.
-4. **PWA como plataforma**: Service Worker, Cache API e armazenamento
-   persistente tornam o app resilientes.
-5. **Graceful degradation**: cada funcionalidade tem um fallback funcional.
+---
 
-## O que funciona 100% offline
+## 2. Divisão de Armazenamento Local
 
-Mesmo sem nenhuma conexão, o usuário pode:
+A persistência no dispositivo é estritamente setorizada por tipo de recurso para evitar gargalos na thread principal do navegador:
 
-- Ver todo o histórico de mensagens salvo no IndexedDB.
-- Ver arquivos armazenados no OPFS.
-- Ver informações de perfil e contatos.
-- Criar mensagens (que serão enviadas quando houver conexão).
-- Tirar fotos e selecionar arquivos locais para envio futuro.
-- Editar configurações, contatos e perfil.
-
-Tudo isso porque os dados estão armazenados localmente.
-
-## O que não funciona offline
-
-- Enviar mensagens para um contato.
-- Fazer chamadas de voz/vídeo.
-- Transferir arquivos via WebTorrent.
-- Receber notificações de push.
-- Adicionar contatos via link/QR Code (não há como entregar os dados).
-
-Essas operações dependem de conectividade, mas o app deve continuar funcional e
-sincronizar quando possível.
-
-## Arquitetura de armazenamento local
-
-### IndexedDB
-
-Guarda dados estruturados:
-
-- Perfil do usuário (`myId`, `myDisplayName`, `myVapidKeys`).
-- Contatos.
-- Conversas e mensagens.
-- Configurações (`appConfig`).
-- Metadados de arquivos (`storedFiles`).
-
-### OPFS (Origin Private File System)
-
-Guarda binários:
-
-- Fotos, vídeos, documentos.
-- Arquivos de mídia de chamadas (futuro).
-
-### Cache API
-
-Guarda recursos do app:
-
-- HTML, CSS, JavaScript.
-- Ícones, fontes, manifesto.
-- Recursos do Material Web.
-
-## Ciclo de vida de uma mensagem
-
-```
-Usuário digita mensagem
-        |
-        v
-Mensagem é salva localmente (IndexedDB)
-        |
-        v
-Tentativa P2P (DataChannel)
-        |
-        |-- sucesso --> mensagem entregue, status "delivered"
-        |
-        falha
-        |
-        v
-Tentativa Web Push
-        |
-        |-- sucesso --> mensagem enviada, status "sent"
-        |
-        falha
-        |
-        v
-Mensagem ficar├а pendente para retry
+```text
+                               +----------------------------+
+                               |     Recursos de Dados      |
+                               +--------------+-------------+
+                                              |
+       +--------------------------------------+--------------------------------------+
+       |                                      |                                      |
+(Dados Estruturados)                   (Arquivos Grandes)                   (Ativos PWA)
+       |                                      |                                      |
+       v                                      v                                      v
++------------------------------+       +------------------------------+       +------------------------------+
+|          IndexedDB           |       |             OPFS             |       |         Cache Storage        |
+|      (via idb-keyval)        |       | (Origin Private File System) |       |         (sw/cache.ts)        |
++------------------------------+       +------------------------------+       +------------------------------+
+| - AppConfig_DB               |       | - Fotos originais em alta    |       | - HTMLs (index, share, etc.) |
+| - BrowserB_Contatos_DB       |       | - Áudios e Mensagens de Voz  |       | - JS / TSX empacotados       |
+| - BrowserB_MensagensRecebidas|       | - Vídeos e Documentos P2P    |       | - Estilos CSS (Material 3)   |
+| - BrowserA_MensagensEnviadas |       | - Anexos da Timeline         |       | - Ícones e Fontes da PWA     |
+| - Handshake_DB               |       +------------------------------+       +------------------------------+
++------------------------------+
 ```
 
-O app nunca bloqueia o usuário. A mensagem é salva imediatamente e o envio
-tentado em background.
+> **Regra Arquitetural:** É terminantemente proibido o uso de `localStorage` para evitar bloqueios síncronos na thread de execução da UI.
 
-## Comunicação P2P como prioridade
+---
 
-### Por que P2P primeiro?
+## 3. O Ciclo de Vida do Handshake Offline (`Handshake_DB`)
 
-- **Privacidade**: os dados não passam por servidores.
-- **Velocidade**: conexão direta é mais rápida, especialmente na mesma rede.
-- **Independência**: não depende de serviços de push de terceiros.
-- **Funciona offline em LAN**: dois dispositivos na mesma rede podem se
-  comunicar via P2P mesmo sem internet.
+Na arquitetura do Loco, **todas as mensagens e ações de rede são Handshakes** submetidos à Máquina de Estados operada pelo Service Worker (`sw-handshakes.ts`):
 
-### Como o P2P é estabelecido
+```text
+               [ Usuário envia uma mensagem ]
+                             |
+                             v
+          Gravação Imediata na UI e Store Local
+         (Status: 'pendente' / Exibido na Timeline)
+                             |
+                             v
+           Enfileiramento em Handshake_DB (FluxoOut)
+                             |
+                             v
+                   [ Há Conexão de Rede? ]
+                   /                     \
+             (SIM)                         (NÃO)
+               /                             \
+              v                               v
+Processa Envio E2E                    Permanece Retido em FluxoOut
+- Tenta P2P (Nível 1)                 - Aguarda evento 'online'
+- Tenta Proxy FCM (Nível 2)           - Retentativas em background
+- Enfileira Deno Pull (Nível 3)       - Status visual: ⏳ (Pendente)
+```
 
-1. Dois dispositivos trocam ofertas/answers WebRTC.
-2. A conexão pode passar por STUN para encontrar rotas públicas.
-3. Se estiverem na mesma LAN, o WebRTC usa a rota local automaticamente.
-4. Um `RTCDataChannel` é aberto sobre a conexão.
-5. As mensagens trafegam por esse canal.
+### Otimização em Segundo Plano (Piggybacking)
+Se o nó do emissor ficou offline por um longo período e perdeu a sincronização do perfil do destinatário, o Roteador de Handshakes detecta a divergência e **injeta automaticamente o Cartão de Visitas atualizado (`hand-profile.ts`) no mesmo envelope cifrado da mensagem**. O receptor atualiza os dados criptográficos no exato instante em que recebe a mensagem, promovendo a autocura da base sem intervenção do usuário.
 
-### Retry P2P
+---
 
-O app tenta reconectar P2P automaticamente quando:
+## 4. Matriz de Capacidades Offline
 
-- O contato volta a ficar online.
-- O app retorna de segundo plano.
-- A rede muda (Wi-Fi para 4G, por exemplo).
+| Funcionalidade do Loco | Modo Offline (Sem Rede) | Com Conectividade (Online) |
+| :--- | :--- | :--- |
+| **Leitura do Histórico de Conversas** | ✅ **100% Funcional** (Leitura do IndexedDB) | ✅ **100% Funcional** |
+| **Visualização de Anexos/Mídia** | ✅ **100% Funcional** (Carregado do OPFS) | ✅ **100% Funcional** |
+| **Composição e Envio de Mensagens** | ⏳ **Enfileirado em `FluxoOut`** (Status `pendente`) | ⚡ **Disparo Imediato via E2E** |
+| **Gestão de Perfil e QR Code** | ✅ **100% Funcional** (Geração local do `cqr`) | ✅ **100% Funcional** |
+| **Adição Presencial de Contatos** | ✅ **100% Funcional** (Escaneamento câmera `cqr`) | ✅ **100% Funcional** |
+| **Recebimento de Novas Mensagens** | ❌ Indisponível (Requer canal ativo/Push) | ⚡ **Recebimento e Auto-Ack Instantâneo** |
+| **Sincronização de Fila Retida (PULL)**| ❌ Indisponível | ⚡ **Executa `POST /api/fallback-pull`** |
 
-Se após várias tentativas o P2P não for possível, o app usa Web Push.
+---
 
-## Web Push como fallback
+## 5. Estratégia de Cache e Ativos PWA (`sw/cache.ts`)
 
-Quando o P2P não funciona, o Web Push é usado para acordar o dispositivo do
-destinatário. Ele é considerado fallback porque:
+O Service Worker implementa estratégias de cache diferenciadas para garantir que a aplicação seja carregada sem atrasos, mesmo em redes intermitentes:
 
-- Depende de servidores de push de terceiros.
-- Pode ter latência variável.
-- Pode ser bloqueado por firewalls.
-- Requer permissões do usuário.
+* **Stale-While-Revalidate / Cache First (Ativos Estáticos):** JavaScripts, bibliotecas Web Components (`@material/web`), CSS e fontes são servidos instantaneamente do `CacheStorage`. Atualizações são baixadas em segundo plano para a execução seguinte.
+* **Network First / Fallback Local (Documentos HTML):** As entradas de página (`index.html`, `share.html`, `profile.html`, `logout.html`) tentam a versão mais recente na rede; caso falhe, utilizam a cópia gravada no cache.
 
-Mesmo assim, é essencial porque permite alcançar contatos que estão com o
-navegador fechado ou com o dispositivo inativo.
+---
 
-## Service Worker e cache
+## 6. Recuperação de Conexão e Ressincronização Automatizada
 
-O Service Worker (`src/sw/sw.ts`) é responsável por:
+Quando a conectividade é restabelecida no dispositivo (disparo do evento `online` do navegador ou ativação da PWA):
 
-- Cachear assets estáticos do app.
-- Servir o app offline.
-- Receber e exibir notificações push.
-- Interceptar requisições e responder do cache quando offline.
+1. **Descongelamento do Roteador (`sw-handshakes.ts`):** O Service Worker executa a varredura da tabela `Handshake_DB` buscando registros com `out.status === 'pendente'` ou `'enviando'` (interrompidos por falha de rede).
+2. **Re-execução de Tentativas:** O Roteador aplica uma política de até **3 retentativas** por pacote, com intervalo exponencial.
+3. **Resgate da Fila de Fallback (PULL):** O cliente dispara uma requisição autenticada ao servidor Deno Proxy (`POST /api/fallback-pull`) para recuperar eventuais envelopes cifrados que foram retidos enquanto o dispositivo esteve inacessível.
+4. **Atualização da Interface (Signals):** As alterações nos bancos do IndexedDB notificam os stores reativos (`mensagensStore.ts`, `contatosStore.ts`), atualizando as marcas de entrega (`✓` enviada, `✓✓` entregue/lida) sem recarregar a tela.
 
-### Estratégias de cache
+---
 
-- **Cache First**: scripts, estilos, imagens e fontes são servidos do cache se
-  disponíveis.
-- **Network First**: HTML sempre tenta a versão mais recente.
-- **Background Sync**: marca atualizações pendentes para sincronizar quando
-  online.
+## 7. Tabela Comparativa: Documentação Anterior vs. Arquitetura Atual
 
-## Sincronização quando volta a ficar online
+| Recurso / Aspecto | Especificação Legada | Implementação Atual no Loco |
+| :--- | :--- | :--- |
+| **Fila de Envio Offline** | Lógica genérica no frontend | **Roteador de Handshakes em Service Worker (`Handshake_DB`)** |
+| **Serviço de Cache PWA** | Referência a `sw.ts` genérico | **Módulo especializado `src/sw/cache.ts`** |
+| **Resiliência do Servidor** | Dependência exclusiva de Web Push | **Fila de Fallback retida no Deno com Polling Autenticado** |
+| **Retenção de Arquivos** | Sem especificação clara | **OPFS com monitoramento de quota e `storage.persist()`** |
+| **Sincronização de Estado** | Polling não estruturado | **Handshake Auto-Ack com injeção de carona (*Piggybacking*)** |
 
-Quando o dispositivo volta a ficar online:
+---
 
-1. O evento `online` do navegador é disparado.
-2. O app tenta reconectar P2P com todos os contatos.
-3. Mensagens pendentes são reenviadas.
-4. O app verifica se há atualizações de perfil para enviar/receber.
-5. Background Sync pode ser usado para sincronizar dados.
+## 8. Resumo
 
-## Exclusão granular e gestão de armazenamento
-
-Para garantir que o app continue funcionando offline sem ocupar todo o espaço:
-
-- O usuário pode excluir arquivos individuais do OPFS sem apagar o histórico.
-- O app monitora o uso de armazenamento e alerta quando passa de 80%.
-- Dados antigos podem ser arquivados via backup e removidos localmente.
-- `navigator.storage.persist()` é solicitado para reduzir risco de evicção.
-
-## Cenários de uso
-
-### Cenário 1: Avião
-
-- Usuário abre o Loco durante um voo.
-- Histórico de mensagens e arquivos estão disponíveis offline.
-- Ele escreve uma mensagem para um contato.
-- A mensagem é salva localmente e enviada automaticamente quando o avião pousar
-  e houver conexão.
-
-### Cenário 2: Festa sem internet
-
-- Duas pessoas na mesma LAN de um evento sem internet.
-- Ambos abrem o Loco.
-- WebRTC encontra a rota local e estabelece conexão P2P.
-- Mensagens e transferências funcionam sem sair da rede local.
-
-### Cenário 3: Contato offline
-
-- Usuário envia mensagem para contato que está offline.
-- P2P falha.
-- Web Push acorda o dispositivo do contato quando possível.
-- Contato recebe e responde.
-- Próximas mensagens podem já ir por P2P se ambos estiverem online.
-
-## Limitações e desafios
-
-| Desafio                                  | Impacto                       | Mitigação                                |
-| ---------------------------------------- | ----------------------------- | ---------------------------------------- |
-| Navegador pode limpar dados              | Perda de histórico e arquivos | `storage.persist()` e backups            |
-| OPFS não suportado no Firefox            | Arquivos não persistem        | Fallback para Blob URLs temporários      |
-| WebRTC pode falhar em NATs restritivos   | P2P não funciona              | Fallback para Web Push e futuro TURN     |
-| Dispositivo sem internet por muito tempo | Mensagens pendentes acumulam  | Retry automático e feedback de status    |
-| Dispositivo sem permissão de push        | Não recebe pushes             | Indicar status e permitir reenvio manual |
-
-## Resumo
-
-A estratégia offline do Loco segue a premissa de que o app é **independente e
-resiliente**:
-
-- Todos os dados essenciais estão no dispositivo.
-- P2P é sempre a primeira escolha de comunicação.
-- Web Push existe apenas como fallback para alcançar contatos offline.
-- Service Worker (empacotado via Deno.bundle()) e Cache API garantem que o app funcione sem internet.
-- Sincronização automática acontece quando a conectividade retorna.
-
-Esse design coloca o máximo de controle possível nas mãos do usuário, sem
-depender de infraestrutura central.
+- O Loco é projetado sob o paradigma **Local-First**: os dados residem unicamente no dispositivo do usuário.
+- Mídias e arquivos grandes utilizam o **OPFS**, enquanto mensagens e contatos usam o **IndexedDB** (`idb-keyval`).
+- O enfileiramento de Handshakes garante que mensagens compostas offline sejam transmitidas automaticamente assim que a conexão for restabelecida.
+- A combinação de **Cache API**, **Service Worker** e **Fallback Retido no Deno** garante operabilidade total do aplicativo mesmo sob conexões altamente instáveis.

@@ -1,330 +1,231 @@
-# Adicionar Contatos via QR Code e PWA Share no Loco
+# Estratégia de Funcionamento Offline do Loco
 
-## O problema
+## A filosofia
 
-Em um mensageiro descentralizado sem servidor central, não há uma base de dados
-centralizada com números de telefone, e-mails ou nomes de usuário. Cada
-dispositivo precisa descobrir como falar com outro. O Loco resolve isso
-permitindo que cada usuário compartilhe sua própria identidade de contato com
-outra pessoa.
+O Loco é um PWA de mensagens **sem servidor central**. Isso significa que o app
+deve continuar funcionando mesmo quando:
 
-Há duas formas principais de fazer isso:
+- O dispositivo está sem internet.
+- A internet é intermitente.
+- O servidor de push do navegador está indisponível.
+- O contato está offline no momento.
 
-1. **QR Code**: exibe um QR Code com os dados do perfil; o outro usuário
-   escaneia.
-2. **PWA Share API**: compartilha um link com os dados do perfil via outro app.
+A estratégia de offline do Loco é simples: **tudo que é essencial para o usuário
+deve estar no dispositivo dele**. Comunicação online acontece apenas quando
+possível, e sempre priorizando canais P2P.
 
-Ambas as abordagens transferem a mesma informação: quem é o usuário e como
-alcançá-lo.
+## Princípios fundamentais
 
-## O que é um contato no Loco
+1. **Local-first**: os dados do usuário moram no dispositivo.
+2. **P2P primeiro**: sempre tentar comunicação direta entre os navegadores.
+3. **Push como fallback**: usar Web Push apenas quando o destinatário não está
+   online.
+4. **PWA como plataforma**: Service Worker, Cache API e armazenamento
+   persistente tornam o app resilientes.
+5. **Graceful degradation**: cada funcionalidade tem um fallback funcional.
 
-Um contato no Loco não é apenas um nome. Ele precisa de dados técnicos para
-comunicação:
+## O que funciona 100% offline
 
-```typescript
-interface Contact {
-  id: string; // identificador único do usuário
-  endpoint: string; // URL do serviço de push do destinatário
-  keys: { p256dh: string; auth: string }; // chaves para criptografia do push
-  vapidPublicKey: string; // chave pública VAPID do remetente
-  displayName: string; // nome exibido localmente
-  theirDisplayName: string; // nome que o contato escolheu para si
-  photo?: string; // foto de perfil (opcional)
-}
-```
+Mesmo sem nenhuma conexão, o usuário pode:
 
-Sem essas informações, o Loco não consegue enviar mensagens ou push para o outro
-dispositivo.
+- Ver todo o histórico de mensagens salvo no IndexedDB.
+- Ver arquivos armazenados no OPFS.
+- Ver informações de perfil e contatos.
+- Criar mensagens (que serão enviadas quando houver conexão).
+- Tirar fotos e selecionar arquivos locais para envio futuro.
+- Editar configurações, contatos e perfil.
 
-## Por que QR Code?
+Tudo isso porque os dados estão armazenados localmente.
 
-O QR Code é ideal para encontros presenciais:
+## O que não funciona offline
 
-- **Rápido**: apontar a câmera e pronto.
-- **Não precisa de internet no momento**: o QR Code contém todos os dados; a
-  conexão só é necessária depois para enviar mensagens.
-- **Seguro em ambiente controlado**: funciona bem quando as duas pessoas estão
-  perto uma da outra.
-- **Sem compartilhamento com terceiros**: os dados não passam por nenhum
-  servidor intermediário.
+- Enviar mensagens para um contato.
+- Fazer chamadas de voz/vídeo.
+- Transferir arquivos via WebTorrent.
+- Receber notificações de push.
+- Adicionar contatos via link/QR Code (não há como entregar os dados).
 
-### Como funciona no Loco
+Essas operações dependem de conectividade, mas o app deve continuar funcional e
+sincronizar quando possível.
 
-1. Usuário A abre a tela de **Perfil**.
-2. O app gera um link especial:
+## Arquitetura de armazenamento local
 
-```
-https://loco.app/#add={dados_codificados}
-```
+### IndexedDB
 
-3. Os dados são codificados em Base64 e incluem:
-   - `id`
-   - `endpoint`
-   - `keys`
-   - `vapidPublicKey`
-   - `displayName`
+Guarda dados estruturados:
 
-4. O app transforma esse link em um QR Code usando a biblioteca `@libs/qrcode`.
-5. Usuário B abre a tela de **Escanear QR Code** (`QRScanner`).
-6. A câmera detecta o QR Code.
-7. O app decodifica o conteúdo e chama `addContact(...)`.
-8. O novo contato aparece na lista de conversas.
+- Perfil do usuário (`myId`, `myDisplayName`, `myVapidKeys`).
+- Contatos.
+- Conversas e mensagens.
+- Configurações (`appConfig`).
+- Metadados de arquivos (`storedFiles`).
 
-### Exemplo de fluxo
+### OPFS (Origin Private File System)
 
-```
-Usuário A abre Perfil
-    |
-    v
-Gera shareLink com #add=...
-    |
-    v
-Renderiza QR Code
-    |
-    v
-Usuário B escaneia
-    |
-    v
-Decodifica Base64 e JSON
-    |
-    v
-Adiciona contato automaticamente
-```
+Guarda binários:
 
-## Por que PWA Share API?
+- Fotos, vídeos, documentos.
+- Arquivos de mídia de chamadas (futuro).
 
-O PWA Share API é ideal quando as pessoas não estão perto uma da outra:
+### Cache API
 
-- **Compartilhamento remoto**: enviar por WhatsApp, e-mail, SMS ou qualquer app.
-- **Conveniente**: o usuário já conhece o fluxo de compartilhamento do celular.
-- **Não depende de câmera**: funciona em dispositivos sem câmera ou quando não é
-  possível escanear.
-- **Integração nativa**: abre o menu de compartilhamento do sistema operacional.
+Guarda recursos do app:
 
-### Como funciona no Loco
+- HTML, CSS, JavaScript.
+- Ícones, fontes, manifesto.
+- Recursos do Material Web.
 
-1. Usuário A abre a tela de **Perfil**.
-2. Clica em **Compartilhar Link**.
-3. O app gera o mesmo `shareLink` usado no QR Code.
-4. O navegador abre o diálogo nativo de compartilhamento.
-5. Usuário A escolhe o app (WhatsApp, e-mail, etc.).
-6. Usuário B recebe o link e clica.
-7. O navegador abre o Loco com `#add=...`.
-8. O app processa o hash e adiciona o contato.
-
-### Exemplo de código
-
-```typescript
-const handleShare = () => {
-  if (navigator.share) {
-    navigator.share({
-      title: "Meu ID P2P",
-      url: getShareLink(),
-    });
-  } else {
-    navigator.clipboard.writeText(getShareLink());
-    alert("Link copiado!");
-  }
-};
-```
-
-## Por que não usar apenas um campo de busca?
-
-Em apps tradicionais como WhatsApp ou Telegram, você busca um número de telefone
-ou @username. Isso funciona porque há um servidor central que sabe onde cada
-usuário está.
-
-No Loco, não há servidor central. Cada usuário é responsável por publicar seu
-próprio "endereço" (push subscription + VAPID). Por isso, o compartilhamento
-direto via QR Code ou Share API é a forma mais natural e sem servidor de
-adicionar contatos.
-
-## Segurança e privacidade
-
-### O que é compartilhado
-
-- `id`: identificador público do usuário.
-- `endpoint`: URL do serviço de push. Sem ele, não é possível enviar push.
-- `keys.p256dh` e `keys.auth`: chaves públicas para criptografia do payload Web
-  Push.
-- `vapidPublicKey`: chave pública do remetente para autenticação.
-- `displayName`: nome escolhido pelo usuário.
-
-### O que não é compartilhado
-
-- `privateKey` VAPID (permanece no dispositivo).
-- `masterKey` de criptografia local.
-- Histórico de mensagens.
-- Arquivos.
-
-### Considerações
-
-- O `endpoint` do Web Push é uma URL que pode revelar qual serviço de push o
-  destinatário usa (ex: FCM para Chrome).
-- Qualquer pessoa com o link pode adicionar o usuário. Não há convites
-  pendentes.
-- No futuro, pode-se adicionar **links temporários** ou **com senha** para maior
-  privacidade.
-
-## Formato do link
+## Ciclo de vida de uma mensagem
 
 ```
-https://loco.app/#add=<base64url>
+Usuário digita mensagem
+        |
+        v
+Mensagem é salva localmente (IndexedDB)
+        |
+        v
+Tentativa P2P (DataChannel)
+        |
+        |-- sucesso --> mensagem entregue, status "delivered"
+        |
+        falha
+        |
+        v
+Tentativa Web Push
+        |
+        |-- sucesso --> mensagem enviada, status "sent"
+        |
+        falha
+        |
+        v
+Mensagem ficar├а pendente para retry
 ```
 
-Onde `<base64url>` é:
+O app nunca bloqueia o usuário. A mensagem é salva imediatamente e o envio
+tentado em background.
 
-```typescript
-const data = {
-  endpoint: mySubscription.value?.endpoint,
-  keys: mySubscription.value?.keys,
-  vapidPublicKey: myVapidKeys.value?.publicKey,
-  id: myId.value,
-  displayName: myDisplayName.value,
-};
+## Comunicação P2P como prioridade
 
-const encoded = btoa(encodeURIComponent(JSON.stringify(data)));
-```
+### Por que P2P primeiro?
 
-## Fluxo completo de adição
+- **Privacidade**: os dados não passam por servidores.
+- **Velocidade**: conexão direta é mais rápida, especialmente na mesma rede.
+- **Independência**: não depende de serviços de push de terceiros.
+- **Funciona offline em LAN**: dois dispositivos na mesma rede podem se
+  comunicar via P2P mesmo sem internet.
 
-```
-Usuário A deseja adicionar Usuário B
-    |
-    v
-Perfil aberto no Loco
-    |
-    v
-Gera shareLink com dados do perfil
-    |
-    v
-Compartilha via QR Code ou Share API
-    |
-    v
-Usuário B recebe o link/escaneia
-    |
-    v
-Loco abre e detecta #add=...
-    |
-    v
-Decodifica e valida os dados
-    |
-    v
-addContact(data.id, { ...dados, addedAt: Date.now() })
-    |
-    v
-Contato aparece na lista
-```
+### Como o P2P é estabelecido
 
-## Implementação no código
+1. Dois dispositivos trocam ofertas/answers WebRTC.
+2. A conexão pode passar por STUN para encontrar rotas públicas.
+3. Se estiverem na mesma LAN, o WebRTC usa a rota local automaticamente.
+4. Um `RTCDataChannel` é aberto sobre a conexão.
+5. As mensagens trafegam por esse canal.
 
-### Geração do link (`store.ts`)
+### Retry P2P
 
-```typescript
-export function getShareLink() {
-  const data = {
-    endpoint: mySubscription.value?.endpoint,
-    keys: mySubscription.value?.keys,
-    vapidPublicKey: myVapidKeys.value?.publicKey,
-    id: myId.value,
-    displayName: myDisplayName.value,
-  };
-  return `${location.origin}#add=${
-    btoa(encodeURIComponent(JSON.stringify(data)))
-  }`;
-}
-```
+O app tenta reconectar P2P automaticamente quando:
 
-### Geração do QR Code (`Profile.tsx`)
+- O contato volta a ficar online.
+- O app retorna de segundo plano.
+- A rede muda (Wi-Fi para 4G, por exemplo).
 
-```typescript
-export async function generateQRCode() {
-  if (typeof document === "undefined") return;
-  const canvas = document.createElement("canvas");
-  await toCanvas(canvas, getShareLink(), { width: 256 });
-  qrCodeDataUrl.value = canvas.toDataURL("image/png");
-}
-```
+Se após várias tentativas o P2P não for possível, o app usa Web Push.
 
-### Leitura do QR Code (`QRScanner.tsx`)
+## Web Push como fallback
 
-```typescript
-const handleResult = (value: string) => {
-  if (value.includes("#add=")) {
-    const encoded = value.split("#add=")[1];
-    const data = JSON.parse(decodeURIComponent(atob(encoded)));
-    addContact(data.id, {
-      ...data,
-      displayName: data.displayName || "Novo Contato",
-      theirDisplayName: data.displayName || "",
-      addedAt: Date.now(),
-      lastContact: null,
-    });
-  }
-};
-```
+Quando o P2P não funciona, o Web Push é usado para acordar o dispositivo do
+destinatário. Ele é considerado fallback porque:
 
-### Processamento do hash na inicialização (`App.tsx`)
+- Depende de servidores de push de terceiros.
+- Pode ter latência variável.
+- Pode ser bloqueado por firewalls.
+- Requer permissões do usuário.
 
-```typescript
-if (location.hash.startsWith("#add=")) {
-  const encoded = location.hash.split("#add=")[1];
-  const data = JSON.parse(decodeURIComponent(atob(encoded)));
-  addContact(data.id, {
-    ...data,
-    displayName: data.displayName || "Novo Contato",
-    theirDisplayName: data.displayName || "",
-    addedAt: Date.now(),
-    lastContact: null,
-  });
-  history.replaceState(null, "", "/");
-}
-```
+Mesmo assim, é essencial porque permite alcançar contatos que estão com o
+navegador fechado ou com o dispositivo inativo.
 
-## Quando usar cada abordagem
+## Service Worker e cache
 
-| Situação               | QR Code        | Share API                             |
-| ---------------------- | -------------- | ------------------------------------- |
-| Pessoalmente           | ✅ Ideal       | ⚠️ Possível                           |
-| Remotamente            | ❌ Não prático | ✅ Ideal                              |
-| Dispositivo sem câmera | ❌             | ✅                                    |
-| Compartilhar em grupo  | ⚠️ Difícil     | ✅ Fácil                              |
-| Ambiente sem internet  | ✅ Funciona    | ⚠️ Precisa de rede para enviar o link |
+O Service Worker (`src/sw/sw.ts`) é responsável por:
 
-## Problemas comuns
+- Cachear assets estáticos do app.
+- Servir o app offline.
+- Receber e exibir notificações push.
+- Interceptar requisições e responder do cache quando offline.
 
-### QR Code não é detectado
+### Estratégias de cache
 
-- Navegador não suporta `BarcodeDetector`.
-- Câmera sem permissão.
-- QR Code muito pequeno ou fora de foco.
+- **Cache First**: scripts, estilos, imagens e fontes são servidos do cache se
+  disponíveis.
+- **Network First**: HTML sempre tenta a versão mais recente.
+- **Background Sync**: marca atualizações pendentes para sincronizar quando
+  online.
 
-### Link de compartilhamento não abre
+## Sincronização quando volta a ficar online
 
-- Navegador não tem o Loco instalado como PWA.
-- Outro app abre o link em um webview que não processa o hash.
-- Dados do link corrompidos ou incompletos.
+Quando o dispositivo volta a ficar online:
 
-### Contato não recebe pushes
+1. O evento `online` do navegador é disparado.
+2. O app tenta reconectar P2P com todos os contatos.
+3. Mensagens pendentes são reenviadas.
+4. O app verifica se há atualizações de perfil para enviar/receber.
+5. Background Sync pode ser usado para sincronizar dados.
 
-- `endpoint` pode ter expirado.
-- Permissão de notificações negada.
-- Serviço de push do destinatário indisponível.
+## Exclusão granular e gestão de armazenamento
 
-## Melhorias futuras
+Para garantir que o app continue funcionando offline sem ocupar todo o espaço:
 
-- **Links temporários**: gerar links que expiram após um tempo.
-- **Links com senha**: exigir uma palavra-passe para adicionar.
-- **QR Code com design**: permitir customização visual do QR Code.
-- **Deep links**: usar `web+loco:` para abrir o app nativamente em vez de hash.
-- **Verificação de contato**: mostrar fingerprint da chave para evitar MITM.
+- O usuário pode excluir arquivos individuais do OPFS sem apagar o histórico.
+- O app monitora o uso de armazenamento e alerta quando passa de 80%.
+- Dados antigos podem ser arquivados via backup e removidos localmente.
+- `navigator.storage.persist()` é solicitado para reduzir risco de evicção.
+
+## Cenários de uso
+
+### Cenário 1: Avião
+
+- Usuário abre o Loco durante um voo.
+- Histórico de mensagens e arquivos estão disponíveis offline.
+- Ele escreve uma mensagem para um contato.
+- A mensagem é salva localmente e enviada automaticamente quando o avião pousar
+  e houver conexão.
+
+### Cenário 2: Festa sem internet
+
+- Duas pessoas na mesma LAN de um evento sem internet.
+- Ambos abrem o Loco.
+- WebRTC encontra a rota local e estabelece conexão P2P.
+- Mensagens e transferências funcionam sem sair da rede local.
+
+### Cenário 3: Contato offline
+
+- Usuário envia mensagem para contato que está offline.
+- P2P falha.
+- Web Push acorda o dispositivo do contato quando possível.
+- Contato recebe e responde.
+- Próximas mensagens podem já ir por P2P se ambos estiverem online.
+
+## Limitações e desafios
+
+| Desafio                                  | Impacto                       | Mitigação                                |
+| ---------------------------------------- | ----------------------------- | ---------------------------------------- |
+| Navegador pode limpar dados              | Perda de histórico e arquivos | `storage.persist()` e backups            |
+| OPFS não suportado no Firefox            | Arquivos não persistem        | Fallback para Blob URLs temporários      |
+| WebRTC pode falhar em NATs restritivos   | P2P não funciona              | Fallback para Web Push e futuro TURN     |
+| Dispositivo sem internet por muito tempo | Mensagens pendentes acumulam  | Retry automático e feedback de status    |
+| Dispositivo sem permissão de push        | Não recebe pushes             | Indicar status e permitir reenvio manual |
 
 ## Resumo
 
-- **QR Code** é rápido e seguro para encontros presenciais.
-- **PWA Share API** é conveniente para compartilhamento remoto.
-- Ambos transferem os mesmos dados técnicos necessários para comunicação P2P e
-  Web Push.
-- A adição de contatos no Loco reflete a filosofia do app: **descentralizado,
-  sem servidor e sob controle do usuário**.
+A estratégia offline do Loco segue a premissa de que o app é **independente e
+resiliente**:
+
+- Todos os dados essenciais estão no dispositivo.
+- P2P é sempre a primeira escolha de comunicação.
+- Web Push existe apenas como fallback para alcançar contatos offline.
+- Service Worker (empacotado via Deno.bundle()) e Cache API garantem que o app funcione sem internet.
+- Sincronização automática acontece quando a conectividade retorna.
+
+Esse design coloca o máximo de controle possível nas mãos do usuário, sem
+depender de infraestrutura central.
