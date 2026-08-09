@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { processarQualquerConvite } from './utils/share-utils.ts';
 import { adicionarContato, initContatosStore } from './stores/contatosStore.ts';
+import { serializarPublicKeyVapid } from './utils/db-helpers.ts';
 import type { Contato } from './constants/db.ts';
 
 import "@material/web/all.js";
@@ -18,22 +19,19 @@ declare global {
 }
 
 function ShareApp() {
-  const preview = useSignal<any | null>(null);
+  const preview = useSignal<Partial<Contato> | null>(null);
   const error = useSignal<string | null>(null);
   const isScanning = useSignal<boolean>(false);
   const manualInput = useSignal<string>('');
-  
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     initContatosStore();
-    
     if (window.location.search.length > 3) {
       handleProcessar(window.location.href);
     } else {
       iniciarCamera();
     }
-
     return () => pararCamera();
   }, []);
 
@@ -52,7 +50,6 @@ function ShareApp() {
       error.value = "Seu navegador não suporta a API nativa de leitura de QR Code. Tente colar o link manual abaixo.";
       return;
     }
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       if (videoRef.current) {
@@ -79,11 +76,9 @@ function ShareApp() {
       if (isScanning.value) requestAnimationFrame(scanLoop);
       return;
     }
-
     try {
       const detector = new BarcodeDetector({ formats: ['qr_code'] });
       const barcodes = await detector.detect(videoRef.current);
-      
       if (barcodes.length > 0) {
         pararCamera();
         handleProcessar(barcodes[0].rawValue);
@@ -92,7 +87,6 @@ function ShareApp() {
     } catch (e) {
       console.warn("Erro no BarcodeDetector:", e);
     }
-
     if (isScanning.value) requestAnimationFrame(scanLoop);
   };
 
@@ -105,26 +99,37 @@ function ShareApp() {
   const confirmar = async () => {
     if (!preview.value) return;
     try {
-      const { header, payload } = preview.value;
-      const rawNome = payload.nm ? payload.nm.trim() : '';
+      const p = preview.value;
+      const contatoId = await serializarPublicKeyVapid(p.vapidPublicKey!);
 
       const novoContato: Contato = {
-        publicKeyVapid: header.kid,
-        email: payload.iss || '',
-        nome: rawNome, // Salva exatamente em branco se não houver nome
-        publicKeyRSA: payload.p,
-        subscription: {
-          endpoint: payload.s.endpoint,
-          keys: payload.s.keys
-        },
-        vapidPrivateKey: payload.s.k,
-        homologado: true, 
+        id: contatoId,
+        vapidPublicKey: p.vapidPublicKey!,
+        email: p.email || '',
+        name: p.name || '', 
+        e2ePublicKey: p.e2ePublicKey!,
+        subscription: p.subscription!,
+        vapidPrivateKeyEnvelope: p.vapidPrivateKeyEnvelope!,
+        trusted: true, 
+        me: 'none', 
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
       
       await adicionarContato(novoContato);
-      alert("✅ Contato adicionado com sucesso!");
+      
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'CRIAR_HANDSHAKE_OUT',
+          payload: {
+            rotasModulo: 'contato',
+            params: { function: 'enviarSubscription', contato: contatoId, responder: false }
+          }
+        });
+      }
+
+      alert("✅ Contato adicionado! Um pacote de sincronização invisível foi enviado para ele.");
       window.location.href = '/'; 
     } catch (e: any) {
       alert("❌ Erro ao adicionar contato: " + e.message);
@@ -166,8 +171,8 @@ function ShareApp() {
             
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
               <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
-              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.payload.nm?.trim() || "Anônimo"}</h3>
-              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.payload.iss || "Sem e-mail"}</p>
+              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
+              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.email || "Sem e-mail"}</p>
             </div>
 
             <div style="display: flex; gap: 8px; flex-direction: column;">

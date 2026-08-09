@@ -4,9 +4,7 @@ import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicK
 import { showToast, contatoSelecionado, contatoCompartilharHash, currentMobileView } from '../signals/state.ts';
 
 export function ContatosSection() {
-  useEffect(() => {
-    // Stores inicializadas no App.tsx
-  }, []);
+  useEffect(() => {}, []);
 
   const abrirChat = (hash: string) => {
     contatoCompartilharHash.value = null;
@@ -36,49 +34,49 @@ export function ContatosSection() {
         ) : (
           <md-list>
             {contatosComHash.value.map(({ contato, hash }) => {
-              const nomeExibicao = contato.nome?.trim() || "Anônimo";
+              const nomeExibicao = contato.name?.trim() || "Anônimo";
               return (
                 <md-list-item 
-                  key={contato.email || hash} 
+                  key={hash} 
                   onClick={() => abrirChat(hash)}
                   style="cursor: pointer;"
                 >
                   <md-icon slot="start">person</md-icon>
-                  <span slot="headline" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: block;">
-                    <strong>{nomeExibicao}</strong>
+                  
+                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
+                      <strong>{nomeExibicao}</strong>
+                    </span>
+                    {contato.trusted && (
+                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                    )}
+                  </div>
+                  
+                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
+                    {contato.email || 'Sem e-mail'}
                   </span>
-                  <span slot="supporting-text">{contato.homologado ? '✅ Homologado' : '🔄 Não homologado'}</span>
                   
                   <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
-                    <md-icon-button 
-                      onClick={(e) => abrirDetalhesContato(e, hash)}
-                      title={`Ver QR Code / Indicar ${nomeExibicao}`}
-                    >
+                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
                       <md-icon>qr_code_2</md-icon>
                     </md-icon-button>
 
-                    {!contato.homologado && (
-                      <md-icon-button 
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          await homologarContatoPorPublicKey(contato.publicKeyVapid);
-                          showToast("Contato homologado!", "success");
-                        }}
-                        title="Homologar contato"
-                      >
+                    {!contato.trusted && (
+                      <md-icon-button onClick={async (e) => {
+                        e.stopPropagation();
+                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
+                        showToast("Contato marcado como confiável!", "success");
+                      }}>
                         <md-icon>verified</md-icon>
                       </md-icon-button>
                     )}
 
-                    <md-icon-button 
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (confirm(`Remover ${nomeExibicao} dos contatos?`)) {
-                          await removerContatoPorPublicKey(contato.publicKeyVapid);
-                        }
-                      }}
-                      title="Excluir contato"
-                    >
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remover ${nomeExibicao} dos contatos?`)) {
+                        await removerContatoPorPublicKey(contato.vapidPublicKey);
+                      }
+                    }}>
                       <md-icon>delete</md-icon>
                     </md-icon-button>
                   </div>

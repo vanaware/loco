@@ -42,8 +42,8 @@ function App() {
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
   const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
 
-  const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.nome?.trim() || "Anônimo") : "";
-  const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.nome?.trim() || "Anônimo") : "";
+  const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
+  const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
 
   const fecharChatOuDetalhes = () => {
     currentMobileView.value = 'list';
@@ -114,6 +114,12 @@ function App() {
                 {contatoCompartilharHash.value 
                   ? `Cartão de ${nomeDetalhesAtivo}`
                   : (contatoAtivo ? nomeContatoAtivo : "Selecione um contato")}
+                
+                {/* Ícone de Verificado no Header do Chat */}
+                {((contatoCompartilharHash.value && contatoDetalhesAtivo?.trusted) || 
+                  (!contatoCompartilharHash.value && contatoAtivo?.trusted)) && (
+                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                )}
               </h2>
               <span style="font-size: 0.8rem; color: #666;">
                 {contatoCompartilharHash.value 

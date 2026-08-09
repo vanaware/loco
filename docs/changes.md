@@ -816,3 +816,7 @@ Terá função Processar({in?:handshake.id, out?:any})
         }
         }
         ```
+
+-------
+
+Como são varias e longas mudanças crie um plano de ação com tarefas e execute uma tarefa por vez

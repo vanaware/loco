@@ -25,7 +25,7 @@ export function ContactDetailSection() {
       return;
     }
 
-    editNome.value = contato.nome || '';
+    editNome.value = contato.name || '';
     editEmail.value = contato.email || '';
 
     try {
@@ -42,7 +42,7 @@ export function ContactDetailSection() {
 
   if (!contato || !hash) return null;
 
-  const nomeExibicao = contato.nome?.trim() || "Anônimo";
+  const nomeExibicao = contato.name?.trim() || "Anônimo";
 
   const handleCopiarLink = async () => {
     const p = profile.value;
@@ -57,19 +57,51 @@ export function ContactDetailSection() {
     }
   };
 
+  // 🔥 NOVO: Envia agressivamente os dados locais (Push) para o celular do contato salvar
+  const handleEnviarMeusDados = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'enviarSubscription',
+            contato: hash,
+            responder: false // false significa que queremos que ele acuse recebimento mandando os dados dele
+          }
+        }
+      });
+      
+      showToast("🚀 Meus dados foram enviados para o contato!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
+    }
+  };
+
+  // Mantido: Faz o Pull para diagnosticar a consistência sem sobrescrever nada
   const handleSolicitarAtualizacao = async () => {
     try {
       const reg = await navigator.serviceWorker.ready;
       if (!reg.active) throw new Error("Service Worker inativo.");
       
       reg.active.postMessage({
-        type: 'SOLICITAR_DADOS_CONTATO',
-        payload: { contatoPublicKeyVapid: hash }
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'confirmarSubscription',
+            contato: hash,
+            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
+          }
+        }
       });
       
-      showToast("🔄 Solicitação de dados enviada ao contato!", "info");
+      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
     } catch (err: any) {
-      showToast(`❌ Erro ao solicitar dados: ${err.message}`, "error");
+      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
     }
   };
 
@@ -77,7 +109,7 @@ export function ContactDetailSection() {
     try {
       const contatoAtualizado = {
         ...contato,
-        nome: editNome.value.trim(),
+        name: editNome.value.trim(),
         email: editEmail.value.trim(),
         updatedAt: Date.now(),
       };
@@ -91,7 +123,7 @@ export function ContactDetailSection() {
   };
 
   const handleCancelarEdicao = () => {
-    editNome.value = contato.nome || '';
+    editNome.value = contato.name || '';
     editEmail.value = contato.email || '';
     isEditing.value = false;
   };
@@ -157,13 +189,54 @@ export function ContactDetailSection() {
           </div>
         ) : (
           <>
-            <h2 style="justify-content: center; margin-bottom: 4px;">{nomeExibicao}</h2>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {nomeExibicao}
+            </h2>
+
+            {contato.trusted && (
+              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
+                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
+              </div>
+            )}
+
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">{contato.email || 'Sem e-mail'}</p>
           </>
         )}
 
         {!isEditing.value && (
           <>
+            {/* PAINEL DE STATUS DE CONFIANÇA MÚTUA */}
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
+              
+              {/* Como EU vejo ele (trusted) */}
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO VOCÊ VÊ ESTE CONTATO:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.trusted ? (
+                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
+                  ) : (
+                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
+                  )}
+                </div>
+              </div>
+
+              {/* Como ELE me vê (me) */}
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO ESTE CONTATO VÊ VOCÊ:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
+                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
+                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
+                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
+                </div>
+              </div>
+
+            </div>
+
             {qrCodeDataUrl.value && (
               <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
                 <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
@@ -176,12 +249,19 @@ export function ContactDetailSection() {
             <div style="display: flex; flex-direction: column; gap: 8px;">
               <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
                 <md-icon slot="icon">share</md-icon>
-                Copiar Link de Convite / Indicação
+                Copiar Link de Indicação
               </md-filled-button>
 
+              {/* 🔥 NOVO BOTÃO: Enviar/Forçar meus dados para ele */}
+              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
+                <md-icon slot="icon">send_to_mobile</md-icon>
+                Enviar meus dados ao contato
+              </md-outlined-button>
+
+              {/* Botão Antigo de Diagnóstico */}
               <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
                 <md-icon slot="icon">sync</md-icon>
-                Atualizar informações do contato
+                Verificar Status de Confiança
               </md-outlined-button>
 
               <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">

@@ -2,9 +2,8 @@
 declare const self: ServiceWorkerGlobalScope;
 
 import { verificarJWT } from "../utils/jwt-helpers.ts";
-import { processarMensagemRecebida } from "./sw-mensagens.ts";
 import { processarHandshakeRecebido } from "./sw-handshakes.ts";
-import type { PayloadMensagem, PayloadHandshake } from "../constants/db.ts";
+import type { PayloadHandshake } from "../constants/db.ts";
 
 console.log("[SW-PUSH-ROUTER] 🔀 Router de push carregado.");
 
@@ -32,22 +31,15 @@ self.addEventListener('push', function (event) {
           return;
         }
 
+        // Tudo agora é Handshake!
         if (payload.sub === "hand") {
           await processarHandshakeRecebido(payload as PayloadHandshake, header, rawText);
           return;
         }
 
-        if (payload.sub === "msg") {
-          await processarMensagemRecebida(payload as PayloadMensagem, header, rawText);
-          return;
-        }
-
-        await self.registration.showNotification("⚠️ Tipo de mensagem inválido", {
-          body: `Esperado 'msg' ou 'hand', recebido '${payload.sub}'`,
-          icon: '/icon.png',
-        });
-        console.warn(`[SW-PUSH-ROUTER] ⚠️ JWT com sub inválido: ${payload.sub}`);
-      } catch (err) {
+        // Se uma mensagem do modelo MUITO ANTIGO ("msg") chegar, ignoramos ou logamos
+        console.warn(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
+      } catch (err: any) {
         console.error("[SW-PUSH-ROUTER] ❌ Erro no router:", err);
         await self.registration.showNotification("⚠️ Erro ao processar push", {
           body: err.message || "Falha no processamento.",

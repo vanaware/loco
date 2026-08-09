@@ -256,7 +256,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos
+// Contatos (Com Migração Automática Legada)
 // ============================================================
 
 async function sha256(message: string): Promise<string> {
@@ -267,6 +267,7 @@ async function sha256(message: string): Promise<string> {
 }
 
 export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
   const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
   return await sha256(raw);
 }
@@ -279,38 +280,72 @@ export async function normalizarChaveContato(input: string | JsonWebKey): Promis
   throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
 }
 
+/**
+ * MIGRATOR: Converte contatos salvos no IndexedDB antigo para o formato novo.
+ */
+async function migrarContatoLegado(c: any): Promise<Contato> {
+  let modificado = false;
+
+  if (c.publicKeyVapid) { c.vapidPublicKey = c.publicKeyVapid; delete c.publicKeyVapid; modificado = true; }
+  if (c.nome !== undefined) { c.name = c.nome; delete c.nome; modificado = true; }
+  if (c.publicKeyRSA) { c.e2ePublicKey = c.publicKeyRSA; delete c.publicKeyRSA; modificado = true; }
+  if (c.vapidPrivateKey) { c.vapidPrivateKeyEnvelope = c.vapidPrivateKey; delete c.vapidPrivateKey; modificado = true; }
+  if (c.homologado !== undefined) { c.trusted = c.homologado; delete c.homologado; modificado = true; }
+  
+  if (!c.me) { c.me = c.trusted ? 'saved' : 'none'; modificado = true; }
+  
+  if (!c.id && c.vapidPublicKey) {
+    c.id = await serializarPublicKeyVapid(c.vapidPublicKey);
+    modificado = true;
+  }
+
+  // Se o objeto era antigo, a gente salva ele atualizado silenciosamente
+  if (modificado && c.id) {
+    await salvarChave(storeContatos, c.id, c);
+  }
+
+  return c as Contato;
+}
+
 export async function salvarContato(contato: Contato): Promise<void> {
-  const key = await serializarPublicKeyVapid(contato.publicKeyVapid);
+  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
   await salvarChave(storeContatos, key, contato);
 }
 
-export async function buscarContatoPorPublicKey(publicKeyVapid: JsonWebKey): Promise<Contato | undefined> {
-  const key = await serializarPublicKeyVapid(publicKeyVapid);
-  return buscarChave<Contato>(storeContatos, key);
+export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  const c = await buscarChave<any>(storeContatos, key);
+  return c ? await migrarContatoLegado(c) : undefined;
 }
 
 export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
   const key = await normalizarChaveContato(chaveOuJwk);
-  return buscarChave<Contato>(storeContatos, key);
+  const c = await buscarChave<any>(storeContatos, key);
+  return c ? await migrarContatoLegado(c) : undefined;
 }
 
 export async function listarContatos(): Promise<Contato[]> {
-  const entries = await listarChaves<Contato>(storeContatos);
-  return entries.map(([_, c]) => c);
+  const entries = await listarChaves<any>(storeContatos);
+  const contatos: Contato[] = [];
+  for (const [_, c] of entries) {
+    contatos.push(await migrarContatoLegado(c));
+  }
+  return contatos;
 }
 
-export async function homologarContato(publicKeyVapid: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(publicKeyVapid);
-  const contato = await buscarChave<Contato>(storeContatos, key);
+export async function homologarContato(vapidPublicKey: JsonWebKey): Promise<void> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  const contato = await buscarChave<any>(storeContatos, key);
   if (contato) {
-    contato.homologado = true;
-    contato.updatedAt = Date.now();
-    await salvarChave(storeContatos, key, contato);
+    const cFormatado = await migrarContatoLegado(contato);
+    cFormatado.trusted = true;
+    cFormatado.updatedAt = Date.now();
+    await salvarChave(storeContatos, key, cFormatado);
   }
 }
 
-export async function removerContato(publicKeyVapid: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(publicKeyVapid);
+export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
   await removerChave(storeContatos, key);
 }
 
@@ -335,31 +370,16 @@ export async function listarHandshakes(): Promise<Handshake[]> {
   return entries.map(([_, h]) => h);
 }
 
-export async function listarHandshakesPorStatus(status: Handshake['status']): Promise<Handshake[]> {
-  const todos = await listarHandshakes();
-  return todos.filter(h => h.status === status);
-}
-
-export async function listarHandshakesPendentesPorTipo(tipo: Handshake['tipo']): Promise<Handshake[]> {
-  const todos = await listarHandshakes();
-  return todos.filter(h => h.status === 'pendente' && h.tipo === tipo && h.direcao === 'out');
-}
-
-export async function atualizarStatusHandshake(id: string, status: Handshake['status'], erro?: string): Promise<void> {
+export async function atualizarStatusHandshake(id: string, statusInOrOut: string, flow: 'in' | 'out', erro?: string): Promise<void> {
   const handshake = await buscarHandshake(id);
-  if (handshake) {
-    handshake.status = status;
+  if (handshake && handshake[flow]) {
+    handshake[flow]!.status = statusInOrOut as any;
     handshake.updatedAt = Date.now();
-    if (erro) handshake.erro = erro;
+    if (erro) handshake[flow]!.erro = erro;
     await salvarHandshake(handshake);
   }
 }
 
 export async function removerHandshake(id: string): Promise<void> {
   await removerChave(storeHandshakes, id);
-}
-
-export async function listarHandshakesPorMensagemId(mensagemId: string): Promise<Handshake[]> {
-  const todos = await listarHandshakes();
-  return todos.filter(h => h.mensagemId === mensagemId);
 }

@@ -22,6 +22,9 @@ export const KEY_NAMES = {
 export const MAX_TENTATIVAS = 3;
 export const MAX_PAYLOAD_SIZE = 4096;
 
+// =======================================================
+// PERFIL LOCAL
+// =======================================================
 export interface ProfileConfig {
   name: string;
   email: string;
@@ -41,6 +44,9 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
+// =======================================================
+// MENSAGENS
+// =======================================================
 export interface MensagemEnviada {
   id: string;
   contatoHash: string;
@@ -62,64 +68,69 @@ export interface MensagemRecebida {
   notificadaEm?: number;
 }
 
+// =======================================================
+// CONTATOS (Agenda Criptográfica)
+// =======================================================
+export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
+
 export interface Contato {
-  publicKeyVapid: JsonWebKey;
+  id: string; // Hash SHA-256 da vapidPublicKey
   email: string;
-  nome: string;
-  publicKeyRSA: JsonWebKey;
+  name: string;
+  vapidPublicKey: JsonWebKey;
+  e2ePublicKey: JsonWebKey;
   subscription: {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   };
-  vapidPrivateKey: string;
-  homologado: boolean;
+  vapidPrivateKeyEnvelope: string;
+  trusted: boolean;
+  me: MeStatus;
   createdAt: number;
   updatedAt: number;
 }
 
-export interface Handshake {
-  id: string;
-  mensagemId: string;
-  tipo: 'confirmacao_entrega' | 'solicitar_dados' | 'resposta_dados';
-  direcao: 'out' | 'in';
-  status: 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
-  tentativas: number;
-  payload: any;
-  createdAt: number;
-  updatedAt: number;
+// =======================================================
+// HANDSHAKE (Máquina de Estados de Sincronização)
+// =======================================================
+export interface HandshakeRotas { 
+  profile?: any; 
+  mensagem?: any; 
+  contato?: any; 
+  [key: string]: any; // Permite extensibilidade para o roadmap
+}
+
+export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
+export type StatusOut = 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
+
+export interface FluxoIn {
+  status: StatusIn;
+  rotas: HandshakeRotas;
+  tentativas: number; 
   erro?: string;
 }
 
-export interface PayloadMensagem {
-  sub: "msg";
-  aud: string;
-  jti: string;
-  ct: string;
-  iat?: number;
+export interface FluxoOut {
+  status: StatusOut;
+  rotas: HandshakeRotas;
+  tentativas: number; 
+  erro?: string;
 }
 
-export interface PayloadHandshake {
-  sub: "hand";
-  aud: string;
-  jti: string;
-  ct: string;
+export interface Handshake { 
+  id: string; 
+  aud: string; // id do contato (hash da chave publica vapid do destinatário)
+  in?: FluxoIn; 
+  out?: FluxoOut; 
+  createdAt: number; 
+  updatedAt: number; 
 }
 
-export interface ConteudoMensagem {
-  c: string;
-  e: {
-    s?: {
-      e?: string;
-      endpoint?: string;
-      k?: { p256dh: string; auth: string };
-      keys?: { p256dh: string; auth: string };
-      v?: string;
-    };
-    p?: JsonWebKey;
-  };
-}
-
-export interface ConteudoHandshake {
-  tipo: 'confirmacao_entrega' | 'solicitar_dados' | 'resposta_dados';
-  [key: string]: any;
+// =======================================================
+// PAYLOADS DE REDE E CRIPTOGRAFIA
+// =======================================================
+export interface EnvelopeCifrado {
+  i: string;
+  d: string;
+  k: string;
 }
