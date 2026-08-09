@@ -1,16 +1,11 @@
 // src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile, salvarIdentidadeA, removerSubscriptionB } from './db-helpers.ts';
+import { salvarProfile, buscarProfile } from './db-helpers.ts';
 import { cifrarChaveVapid } from './push-utils.ts';
 import { registrarServiceWorker } from './sw-utils.ts';
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from '../signals/state.ts';
 
-/**
- * Tenta solicitar a persistência de armazenamento ao navegador para evitar evicção automática.
- * 
- * @returns {Promise<boolean>} True se concedido o armazenamento persistente.
- */
 export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   if ('storage' in navigator && 'persist' in navigator.storage) {
     try {
@@ -29,13 +24,6 @@ export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   return false;
 }
 
-/**
- * Orquestra a criação ou atualização completa do perfil do usuário.
- * 
- * @param {string} nome - Nome do usuário.
- * @param {string} email - E-mail/identificador do usuário.
- * @returns {Promise<ProfileConfig>} Perfil criado e salvo no IndexedDB.
- */
 export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
   addDebugLog("📦 Gerando/Atualizando perfil unificado...");
 
@@ -122,10 +110,17 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
         subscriptionValida = true;
       } else {
         await existingSubscription.unsubscribe();
-        await removerSubscriptionB();
+        
+        // Remove a assinatura inválida do perfil local para mantê-lo limpo
+        if (existingProfile) {
+           delete (existingProfile as any).subscription;
+           await salvarProfile(existingProfile);
+        }
+        
         existingSubscription = null;
       }
     }
+    
     if (!existingSubscription || !subscriptionValida) {
       addDebugLog("📝 Criando nova subscription...");
       const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair!.publicKey);
@@ -192,15 +187,6 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     };
 
     await salvarProfile(profile);
-
-    const identidadeTemporaria = {
-      name: nome,
-      email: email,
-      privateKey: vapidKeyPair!.privateKey
-    };
-    await salvarIdentidadeA(identidadeTemporaria);
-
-    // Solicita a proteção de armazenamento persistente
     await solicitarArmazenamentoPersistente();
 
     addDebugLog("✅ Perfil salvo com sucesso.");

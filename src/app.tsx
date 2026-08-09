@@ -5,16 +5,14 @@ import { useSignal } from '@preact/signals';
 import { ContatosSection } from './components/ContatosSection.tsx';
 import { ChatSection } from './components/ChatSection.tsx'; 
 import { ContactDetailSection } from './components/ContactDetailSection.tsx';
-import { DebugPanel } from './components/DebugPanel.tsx';
-import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash } from './signals/state.ts';
+import { AdvancedSection } from './components/AdvancedSection.tsx'; // 🔥 Importação Nova
+import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
 
 import "@material/web/all.js";
 import './styles.css';
 
 function App() {
-  const isDebugOpen = useSignal<boolean>(false);
-
   useEffect(() => {
     const init = async () => {
       await initProfileStore();
@@ -49,12 +47,22 @@ function App() {
     currentMobileView.value = 'list';
     contatoSelecionado.value = '';
     contatoCompartilharHash.value = null;
+    showAdvanced.value = false; // 🔥 Desliga a aba avançada ao voltar
   };
 
   const handleAbrirDetalhesDoContato = () => {
-    if (contatoSelecionado.value) {
+    if (contatoSelecionado.value && !showAdvanced.value) {
       contatoCompartilharHash.value = contatoSelecionado.value;
     }
+  };
+
+  const abrirAvancado = () => {
+    const menu: any = document.getElementById('main-menu');
+    if (menu) menu.open = false;
+    showAdvanced.value = true;
+    contatoSelecionado.value = '';
+    contatoCompartilharHash.value = null;
+    currentMobileView.value = 'chat'; // Força a tela principal abrir no mobile
   };
 
   return (
@@ -72,9 +80,9 @@ function App() {
               </md-icon-button>
               
               <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
-                <md-menu-item onClick={() => isDebugOpen.value = true}>
-                  <div slot="headline">Logs de Debug</div>
-                  <md-icon slot="start">bug_report</md-icon>
+                <md-menu-item onClick={abrirAvancado}>
+                  <div slot="headline">Avançado</div>
+                  <md-icon slot="start">settings_suggest</md-icon>
                 </md-menu-item>
                 <md-menu-item onClick={() => window.location.href = '/logout.html'}>
                   <div slot="headline">Sair do App (Logout)</div>
@@ -104,37 +112,44 @@ function App() {
           </md-icon-button>
           
           <div 
-            onClick={handleAbrirDetalhesDoContato}
-            style={`display: flex; align-items: center; gap: 12px; ${contatoAtivo ? 'cursor: pointer;' : ''}`}
-            title={contatoAtivo ? `Ver QR Code / Cartão de ${nomeContatoAtivo}` : ''}
+            onClick={!showAdvanced.value ? handleAbrirDetalhesDoContato : undefined}
+            style={`display: flex; align-items: center; gap: 12px; ${contatoAtivo && !showAdvanced.value ? 'cursor: pointer;' : ''}`}
+            title={contatoAtivo && !showAdvanced.value ? `Ver QR Code / Cartão de ${nomeContatoAtivo}` : ''}
           >
-            <md-icon style="font-size: 2rem; color: #555;">account_circle</md-icon>
+            <md-icon style="font-size: 2rem; color: #555;">
+              {showAdvanced.value ? 'settings_suggest' : 'account_circle'}
+            </md-icon>
             <div>
               <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
-                {contatoCompartilharHash.value 
-                  ? `Cartão de ${nomeDetalhesAtivo}`
-                  : (contatoAtivo ? nomeContatoAtivo : "Selecione um contato")}
+                {showAdvanced.value 
+                  ? "Opções Avançadas"
+                  : contatoCompartilharHash.value 
+                    ? `Cartão de ${nomeDetalhesAtivo}`
+                    : (contatoAtivo ? nomeContatoAtivo : "Selecione um contato")}
                 
-                {/* Ícone de Verificado no Header do Chat */}
-                {((contatoCompartilharHash.value && contatoDetalhesAtivo?.trusted) || 
+                {!showAdvanced.value && ((contatoCompartilharHash.value && contatoDetalhesAtivo?.trusted) || 
                   (!contatoCompartilharHash.value && contatoAtivo?.trusted)) && (
                   <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
                 )}
               </h2>
               <span style="font-size: 0.8rem; color: #666;">
-                {contatoCompartilharHash.value 
-                  ? "Aponte a câmera ou copie o link para indicar este contato"
-                  : (contatoAtivo ? (contatoAtivo.email || "Sem e-mail") : "Inicie uma conversa na barra lateral")}
+                {showAdvanced.value 
+                  ? "Diagnóstico do sistema e logs de operação"
+                  : contatoCompartilharHash.value 
+                    ? "Aponte a câmera ou copie o link para indicar este contato"
+                    : (contatoAtivo ? (contatoAtivo.email || "Sem e-mail") : "Inicie uma conversa na barra lateral")}
               </span>
             </div>
 
-            {contatoAtivo && !contatoCompartilharHash.value && (
+            {contatoAtivo && !contatoCompartilharHash.value && !showAdvanced.value && (
               <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-primary); opacity: 0.8; margin-left: 4px;">qr_code_2</md-icon>
             )}
           </div>
         </header>
 
-        {contatoCompartilharHash.value ? (
+        {showAdvanced.value ? (
+          <AdvancedSection />
+        ) : contatoCompartilharHash.value ? (
           <ContactDetailSection />
         ) : contatoSelecionado.value ? (
           <ChatSection /> 
@@ -147,19 +162,6 @@ function App() {
           </div>
         )}
       </main>
-
-      <md-dialog open={isDebugOpen.value || undefined} onClose={() => isDebugOpen.value = false}>
-        <div slot="headline" style="display: flex; align-items: center; gap: 8px;">
-          <md-icon>bug_report</md-icon>
-          Painel de Inspeção & Logs
-        </div>
-        <div slot="content" style="padding-top: 8px;">
-          <DebugPanel />
-        </div>
-        <div slot="actions">
-          <md-text-button onClick={() => isDebugOpen.value = false}>Fechar</md-text-button>
-        </div>
-      </md-dialog>
 
     </div>
   );

@@ -63,9 +63,6 @@ export async function removerProfile(): Promise<void> {
   await removerChave(storeConfig, KEY_NAMES.PROFILE);
 }
 
-// ============================================================
-// 🔥 Função para buscar e importar a chave privada RSA (decodificação)
-// ============================================================
 export async function buscarChaveDecript(): Promise<CryptoKey | null> {
   try {
     const profile = await buscarProfile();
@@ -90,101 +87,6 @@ export async function buscarChaveDecript(): Promise<CryptoKey | null> {
   } catch (err) {
     console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
     return null;
-  }
-}
-
-// ============================================================
-// Funções de Conveniência (operam sobre o ProfileConfig)
-// ============================================================
-
-export async function buscarIdentidadeA(): Promise<{ name: string; email: string; privateKey: CryptoKey } | undefined> {
-  const profile = await buscarProfile();
-  if (!profile) return undefined;
-  try {
-    const privateKey = await crypto.subtle.importKey(
-      "jwk",
-      profile.vapidPrivateKeyJwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"]
-    );
-    return {
-      name: profile.name,
-      email: profile.email,
-      privateKey,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-export async function salvarIdentidadeA(identidade: { name: string; email: string; privateKey: CryptoKey }): Promise<void> {
-  const profile = await buscarProfile() || {} as ProfileConfig;
-  profile.name = identidade.name;
-  profile.email = identidade.email;
-  profile.vapidPrivateKeyJwk = await crypto.subtle.exportKey("jwk", identidade.privateKey);
-  await salvarProfile(profile);
-}
-
-export async function buscarChavesE2EB(): Promise<{ privateDecrypt: CryptoKey; publicEncrypt: JsonWebKey } | undefined> {
-  const profile = await buscarProfile();
-  if (!profile || !profile.e2ePublicKey || !profile.e2ePrivateKeyJwk) return undefined;
-  try {
-    const privateDecrypt = await crypto.subtle.importKey(
-      "jwk",
-      profile.e2ePrivateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["decrypt"]
-    );
-    return {
-      privateDecrypt,
-      publicEncrypt: profile.e2ePublicKey,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-export async function salvarChavesE2EB(chaves: { privateDecrypt: CryptoKey; publicEncrypt: JsonWebKey }): Promise<void> {
-  const profile = await buscarProfile() || {} as ProfileConfig;
-  profile.e2ePublicKey = chaves.publicEncrypt;
-  profile.e2ePrivateKeyJwk = await crypto.subtle.exportKey("jwk", chaves.privateDecrypt);
-  await salvarProfile(profile);
-}
-
-export async function buscarChavesVapidB(): Promise<{ publicKey: JsonWebKey; privateKey: JsonWebKey } | undefined> {
-  const profile = await buscarProfile();
-  if (!profile) return undefined;
-  return {
-    publicKey: profile.vapidPublicKey,
-    privateKey: profile.vapidPrivateKeyJwk,
-  };
-}
-
-export async function salvarChavesVapidB(chaves: { publicKey: JsonWebKey; privateKey: JsonWebKey }): Promise<void> {
-  const profile = await buscarProfile() || {} as ProfileConfig;
-  profile.vapidPublicKey = chaves.publicKey;
-  profile.vapidPrivateKeyJwk = chaves.privateKey;
-  await salvarProfile(profile);
-}
-
-export async function buscarSubscriptionB(): Promise<{ endpoint: string; keys: { p256dh: string; auth: string } } | undefined> {
-  const profile = await buscarProfile();
-  return profile?.subscription;
-}
-
-export async function salvarSubscriptionB(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<void> {
-  const profile = await buscarProfile() || {} as ProfileConfig;
-  profile.subscription = subscription;
-  await salvarProfile(profile);
-}
-
-export async function removerSubscriptionB(): Promise<void> {
-  const profile = await buscarProfile();
-  if (profile) {
-    delete profile.subscription;
-    await salvarProfile(profile);
   }
 }
 
@@ -256,7 +158,7 @@ export async function removerMensagemRecebida(id: string): Promise<void> {
 }
 
 // ============================================================
-// Contatos (Com Migração Automática Legada)
+// Contatos (Limpo - Sem Lógica Legada)
 // ============================================================
 
 async function sha256(message: string): Promise<string> {
@@ -280,33 +182,6 @@ export async function normalizarChaveContato(input: string | JsonWebKey): Promis
   throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
 }
 
-/**
- * MIGRATOR: Converte contatos salvos no IndexedDB antigo para o formato novo.
- */
-async function migrarContatoLegado(c: any): Promise<Contato> {
-  let modificado = false;
-
-  if (c.publicKeyVapid) { c.vapidPublicKey = c.publicKeyVapid; delete c.publicKeyVapid; modificado = true; }
-  if (c.nome !== undefined) { c.name = c.nome; delete c.nome; modificado = true; }
-  if (c.publicKeyRSA) { c.e2ePublicKey = c.publicKeyRSA; delete c.publicKeyRSA; modificado = true; }
-  if (c.vapidPrivateKey) { c.vapidPrivateKeyEnvelope = c.vapidPrivateKey; delete c.vapidPrivateKey; modificado = true; }
-  if (c.homologado !== undefined) { c.trusted = c.homologado; delete c.homologado; modificado = true; }
-  
-  if (!c.me) { c.me = c.trusted ? 'saved' : 'none'; modificado = true; }
-  
-  if (!c.id && c.vapidPublicKey) {
-    c.id = await serializarPublicKeyVapid(c.vapidPublicKey);
-    modificado = true;
-  }
-
-  // Se o objeto era antigo, a gente salva ele atualizado silenciosamente
-  if (modificado && c.id) {
-    await salvarChave(storeContatos, c.id, c);
-  }
-
-  return c as Contato;
-}
-
 export async function salvarContato(contato: Contato): Promise<void> {
   const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
   await salvarChave(storeContatos, key, contato);
@@ -314,34 +189,17 @@ export async function salvarContato(contato: Contato): Promise<void> {
 
 export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
   const key = await serializarPublicKeyVapid(vapidPublicKey);
-  const c = await buscarChave<any>(storeContatos, key);
-  return c ? await migrarContatoLegado(c) : undefined;
+  return await buscarChave<Contato>(storeContatos, key);
 }
 
 export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
   const key = await normalizarChaveContato(chaveOuJwk);
-  const c = await buscarChave<any>(storeContatos, key);
-  return c ? await migrarContatoLegado(c) : undefined;
+  return await buscarChave<Contato>(storeContatos, key);
 }
 
 export async function listarContatos(): Promise<Contato[]> {
-  const entries = await listarChaves<any>(storeContatos);
-  const contatos: Contato[] = [];
-  for (const [_, c] of entries) {
-    contatos.push(await migrarContatoLegado(c));
-  }
-  return contatos;
-}
-
-export async function homologarContato(vapidPublicKey: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  const contato = await buscarChave<any>(storeContatos, key);
-  if (contato) {
-    const cFormatado = await migrarContatoLegado(contato);
-    cFormatado.trusted = true;
-    cFormatado.updatedAt = Date.now();
-    await salvarChave(storeContatos, key, cFormatado);
-  }
+  const entries = await listarChaves<Contato>(storeContatos);
+  return entries.map(([_, c]) => c);
 }
 
 export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {

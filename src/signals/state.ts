@@ -1,11 +1,11 @@
 // src/signals/state.ts
 import { signal } from '@preact/signals';
 
-// Define qual visualização está ativa no layout mobile ('list' | 'chat' | 'profile')
 export const currentMobileView = signal<'list' | 'chat' | 'profile'>('list');
 
 export const contatoSelecionado = signal<string>('');
-export const contatoCompartilharHash = signal<string | null>(null); // 🔥 Contato em exibição no cartão de compartilhamento
+export const contatoCompartilharHash = signal<string | null>(null); 
+export const showAdvanced = signal<boolean>(false); // 🔥 Controle da nova aba Avançado
 export const mensagemEnvio = signal<string>('');
 
 export const profileInput = signal<string>('');

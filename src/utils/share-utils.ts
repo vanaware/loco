@@ -5,24 +5,20 @@ import type { ProfileConfig, Contato } from '../constants/db.ts';
 
 const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
 
-// A interface unificada de compressão (usada no QR Code, Link e Handshake)
 export interface CompactContact {
-  req?: boolean; // Pede resposta?
-  tr?: boolean;  // Confia?
-  em: string;    // email
-  nm: string;    // name
-  vx: string;    // vapid X
-  vy: string;    // vapid Y
-  en: string;    // e2e N (RSA modulus)
-  se: string;    // sub endpoint
-  sp: string;    // sub p256dh
-  sa: string;    // sub auth
-  ve: string;    // vapid envelope
+  req?: boolean;
+  tr?: boolean;
+  em: string;
+  nm: string;
+  vx: string;
+  vy: string;
+  en: string;
+  se: string;
+  sp: string;
+  sa: string;
+  ve: string;
 }
 
-/**
- * Pega um Profile ou Contato e espreme no menor formato possível.
- */
 export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
   let ep = target.subscription.endpoint;
   if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
@@ -42,9 +38,6 @@ export function extrairDadosCompactos(target: ProfileConfig | Contato, req = fal
   };
 }
 
-/**
- * Pega o pacote espremido da rede/qr code e reconstrói as chaves JWK completas.
- */
 export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
   let ep = c.se;
   if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
@@ -57,7 +50,7 @@ export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
     subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa } },
     vapidPrivateKeyEnvelope: c.ve,
     trusted: c.tr,
-    me: 'saved' // Status base de recepção
+    me: 'saved' 
   };
 }
 
@@ -103,7 +96,7 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
 
   let compactData: CompactContact | null = null;
 
-  // Tenta ler binário do QR Code (cqr ou string pura sem pontos)
+  // 1. Tenta ler binário do QR Code (cqr ou string pura sem pontos)
   if (cqr) {
     try {
       const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
@@ -111,18 +104,14 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
       const jsonText = new TextDecoder().decode(decompressed);
       const parsed = JSON.parse(jsonText);
       
-      // Compatibilidade retroativa com o Array de 11 posições antigo
-      if (Array.isArray(parsed)) {
-        let [email, name, vapidX, vapidY, rsaN, endpoint, p256dh, auth, b64Iv, b64Dados, b64Chave] = parsed;
-        const b64ToHex = (b64: string) => Array.from(new Uint8Array(base64UrlToArrayBuffer(b64))).map(b => b.toString(16).padStart(2, '0')).join('');
-        const envelope = { iv: b64ToHex(b64Iv), dadosCifrados: b64ToHex(b64Dados), chaveAesCifrada: b64ToHex(b64Chave) };
-        compactData = { em: email, nm: name, vx: vapidX, vy: vapidY, en: rsaN, se: endpoint, sp: p256dh, sa: auth, ve: btoa(JSON.stringify(envelope)) };
-      } else if (parsed.vx && parsed.vy) {
+      // Validação básica do novo formato
+      if (parsed.vx && parsed.vy) {
         compactData = parsed as CompactContact;
       }
-    } catch (e) { /* fallback silêncioso */ }
+    } catch (e) { /* fallback silêncioso para testar os outros formatos */ }
   }
 
+  // 2. Tenta ler o Token Comprimido (cjwt)
   const targetCjwt = cjwt || cqr;
   if (!compactData && targetCjwt) {
     const compressed = new Uint8Array(base64UrlToArrayBuffer(targetCjwt));
@@ -133,6 +122,7 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
     compactData = payload as CompactContact;
   }
 
+  // 3. Tenta ler o Token Legado Sem Compressão (jwt)
   if (!compactData && jwt) {
     const { payload, valid } = await verificarJWT(jwt);
     if (!valid) throw new Error("Assinatura do convite inválida.");
