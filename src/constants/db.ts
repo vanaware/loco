@@ -19,15 +19,8 @@ export const KEY_NAMES = {
   MENSAGENS_RECEBIDAS: "mensagens_recebidas",
 } as const;
 
-// ============================================================
-// Constantes
-// ============================================================
 export const MAX_TENTATIVAS = 3;
 export const MAX_PAYLOAD_SIZE = 4096;
-
-// ============================================================
-// INTERFACES PRINCIPAIS (UNIFICADAS)
-// ============================================================
 
 export interface ProfileConfig {
   name: string;
@@ -47,10 +40,6 @@ export interface ProfileConfig {
   createdAt: number;
   updatedAt: number;
 }
-
-// ============================================================
-// INTERFACES DE DADOS
-// ============================================================
 
 export interface MensagemEnviada {
   id: string;
@@ -91,9 +80,9 @@ export interface Contato {
 export interface Handshake {
   id: string;
   mensagemId: string;
-  tipo: 'confirmacao_entrega';
+  tipo: 'confirmacao_entrega' | 'solicitar_dados' | 'resposta_dados';
   direcao: 'out' | 'in';
-  status: 'pendente' | 'enviado' | 'falha' | 'entregue';
+  status: 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
   tentativas: number;
   payload: any;
   createdAt: number;
@@ -101,62 +90,36 @@ export interface Handshake {
   erro?: string;
 }
 
-// ============================================================
-// 🔥 PAYLOADS DE JWT (CORREÇÃO)
-// ============================================================
-
 export interface PayloadMensagem {
-  iss: string;
   sub: "msg";
   aud: string;
   jti: string;
-  ct: string;          // envelope JSON
-  nm: string;
+  ct: string;
   iat?: number;
 }
 
 export interface PayloadHandshake {
-  iss: string;
   sub: "hand";
-  aud: string;         // mensagemId
+  aud: string;
   jti: string;
-  ct: string;          // envelope JSON
-}
-
-export interface PayloadContato {
-  iss: string;
-  sub: "contact";
-  nm: string;
-  p: JsonWebKey;
-  s: {
-    endpoint: string;
-    keys: { p256dh: string; auth: string };
-    k: string;         // envelope VAPID privada
-  };
-  iat: number;
-}
-
-export interface EnvelopeCifrado {
-  i: string;  // iv base64
-  d: string;  // dados cifrados base64
-  k: string;  // chave AES cifrada base64
+  ct: string;
 }
 
 export interface ConteudoMensagem {
-  c: string;  // texto
+  c: string;
   e: {
     s?: {
-      e?: string;  // endpoint (alternativo)
+      e?: string;
       endpoint?: string;
       k?: { p256dh: string; auth: string };
       keys?: { p256dh: string; auth: string };
-      v?: string;  // envelope VAPID privada
+      v?: string;
     };
     p?: JsonWebKey;
   };
 }
 
 export interface ConteudoHandshake {
-  htype: 'confirmacao_entrega';
-  // outros campos opcionais
+  tipo: 'confirmacao_entrega' | 'solicitar_dados' | 'resposta_dados';
+  [key: string]: any;
 }

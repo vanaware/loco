@@ -47,3 +47,11 @@ export async function buscarContatoPorHash(hash: string): Promise<Contato | unde
 export async function initContatosStore() {
   await carregarContatos();
 }
+
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'CONTATO_ATUALIZADO') {
+      carregarContatos();
+    }
+  });
+}

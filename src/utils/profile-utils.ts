@@ -6,6 +6,36 @@ import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './cry
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from '../signals/state.ts';
 
+/**
+ * Tenta solicitar a persistência de armazenamento ao navegador para evitar evicção automática.
+ * 
+ * @returns {Promise<boolean>} True se concedido o armazenamento persistente.
+ */
+export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const concedido = await navigator.storage.persist();
+      if (concedido) {
+        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
+      } else {
+        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
+      }
+      return concedido;
+    } catch (err: any) {
+      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Orquestra a criação ou atualização completa do perfil do usuário.
+ * 
+ * @param {string} nome - Nome do usuário.
+ * @param {string} email - E-mail/identificador do usuário.
+ * @returns {Promise<ProfileConfig>} Perfil criado e salvo no IndexedDB.
+ */
 export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
   addDebugLog("📦 Gerando/Atualizando perfil unificado...");
 
@@ -68,7 +98,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
         existingProfile = undefined;
       }
     }
-    if (!existingProfile || !vapidKeyPair) {
+    if (!existingProfile || !vapidKeyPair!) {
       addDebugLog("🔑 Gerando novas chaves VAPID...");
       vapidKeyPair = await generateVAPIDKeys();
       publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
@@ -98,7 +128,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     }
     if (!existingSubscription || !subscriptionValida) {
       addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair!.publicKey);
       existingSubscription = await registration.pushManager.subscribe({
         applicationServerKey: new Uint8Array(rawPublicKey),
         userVisibleOnly: true
@@ -120,14 +150,13 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
 
     let e2ePublicKey: JsonWebKey;
     let e2ePrivateKeyJwk: JsonWebKey;
-    let e2ePrivateKeyCrypto: CryptoKey;
 
     if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
       addDebugLog("📂 Chaves E2E encontradas no perfil.");
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
       try {
-        e2ePrivateKeyCrypto = await window.crypto.subtle.importKey(
+        await window.crypto.subtle.importKey(
           "jwk",
           e2ePrivateKeyJwk,
           { name: "RSA-OAEP", hash: "SHA-256" },
@@ -139,14 +168,12 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
         const newKeys = await generateE2EEKeys();
         e2ePublicKey = newKeys.publicEncrypt;
         e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-        e2ePrivateKeyCrypto = newKeys.privateDecrypt;
       }
     } else {
       addDebugLog("🔑 Gerando novas chaves E2E...");
       const newKeys = await generateE2EEKeys();
       e2ePublicKey = newKeys.publicEncrypt;
       e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      e2ePrivateKeyCrypto = newKeys.privateDecrypt;
     }
 
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
@@ -169,9 +196,12 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     const identidadeTemporaria = {
       name: nome,
       email: email,
-      privateKey: vapidKeyPair.privateKey
+      privateKey: vapidKeyPair!.privateKey
     };
     await salvarIdentidadeA(identidadeTemporaria);
+
+    // Solicita a proteção de armazenamento persistente
+    await solicitarArmazenamentoPersistente();
 
     addDebugLog("✅ Perfil salvo com sucesso.");
     return profile;

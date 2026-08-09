@@ -61,7 +61,7 @@ function ShareApp() {
         isScanning.value = true;
         scanLoop();
       }
-    } catch (err) {
+    } catch {
       error.value = "Não foi possível acessar a câmera. Verifique as permissões do navegador.";
     }
   };
@@ -106,10 +106,12 @@ function ShareApp() {
     if (!preview.value) return;
     try {
       const { header, payload } = preview.value;
+      const rawNome = payload.nm ? payload.nm.trim() : '';
+
       const novoContato: Contato = {
         publicKeyVapid: header.kid,
-        email: payload.iss,
-        nome: payload.nm || payload.iss,
+        email: payload.iss || '',
+        nome: rawNome, // Salva exatamente em branco se não houver nome
         publicKeyRSA: payload.p,
         subscription: {
           endpoint: payload.s.endpoint,
@@ -164,8 +166,8 @@ function ShareApp() {
             
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
               <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
-              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.payload.nm}</h3>
-              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.payload.iss}</p>
+              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.payload.nm?.trim() || "Anônimo"}</h3>
+              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.payload.iss || "Sem e-mail"}</p>
             </div>
 
             <div style="display: flex; gap: 8px; flex-direction: column;">

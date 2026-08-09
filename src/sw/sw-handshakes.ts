@@ -3,11 +3,11 @@ declare const self: ServiceWorkerGlobalScope;
 
 import { get, createStore } from "idb-keyval";
 import { gunzipSync } from "fflate";
-import { DB_NAMES, STORE_NAMES, KEY_NAMES, MAX_TENTATIVAS } from "../constants/db.ts";
-import { base64UrlToArrayBuffer } from "../utils/jwt-helpers.ts";
+import { DB_NAMES, STORE_NAMES, MAX_TENTATIVAS, Handshake } from "../constants/db.ts";
+import { base64UrlToArrayBuffer, criarJWT } from "../utils/jwt-helpers.ts";
+import { gerarIdMensagem } from "../utils/id-utils.ts";
 import {
   salvarHandshake,
-  listarHandshakesPendentesPorTipo,
   atualizarStatusHandshake,
   buscarMensagemEnviada,
   atualizarStatusMensagemEnviada,
@@ -17,19 +17,16 @@ import {
   buscarProfile,
   buscarChaveDecript,
   listarHandshakes,
+  salvarContato,
+  serializarPublicKeyVapid,
 } from "../utils/db-helpers.ts";
-import { criarJWT } from "../utils/jwt-helpers.ts";
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 
-// ============================================================
-// FUNÇÃO PARA PROCESSAR HANDSHAKE RECEBIDO (sub: "hand")
-// ============================================================
 export async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
   console.log("[SW-HANDSHAKE] 🤝 Processando handshake recebido...");
 
   try {
     if (!payload.jti) throw new Error("Handshake sem jti");
-    if (!payload.aud) throw new Error("Handshake sem aud (mensagemId esperada)");
     if (!payload.ct) throw new Error("Handshake sem ct (envelope cifrado)");
 
     const privateDecryptKey = await buscarChaveDecript();
@@ -37,8 +34,7 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
       throw new Error("Chave privada RSA não disponível para decifrar handshake.");
     }
 
-    const envelopeJson = payload.ct;
-    const envelope = JSON.parse(envelopeJson);
+    const envelope = JSON.parse(payload.ct);
     const iv = envelope.i || envelope.iv;
     const dados = envelope.d || envelope.dadosCifrados;
     const chaveAesCifrada = envelope.k || envelope.chaveAesCifrada;
@@ -66,17 +62,19 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
       dadosBytes
     );
     const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
-    const textoDecifrado = new TextDecoder().decode(decompressed);
-    const payloadObj = JSON.parse(textoDecifrado);
+    const payloadObj = JSON.parse(new TextDecoder().decode(decompressed));
 
-    if (!payloadObj.htype) throw new Error("Handshake sem htype no envelope");
+    // Validação unificada pela propriedade `tipo`
+    const tipoHandshake = payloadObj.tipo;
+    if (!tipoHandshake) throw new Error("Handshake sem tipo no envelope");
 
-    const mensagemId = payload.aud;
+    const senderPublicKeyVapid = header.kid;
+    const senderHash = senderPublicKeyVapid ? await serializarPublicKeyVapid(senderPublicKeyVapid) : '';
 
-    const handshake = {
+    const handshake: Handshake = {
       id: payload.jti,
-      mensagemId: mensagemId,
-      tipo: payloadObj.htype,
+      mensagemId: payload.aud || '',
+      tipo: tipoHandshake,
       direcao: 'in',
       status: 'entregue',
       tentativas: 0,
@@ -85,30 +83,58 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
       updatedAt: Date.now(),
     };
     await salvarHandshake(handshake);
-    console.log(`[SW-HANDSHAKE] ✅ Handshake ${handshake.id} (tipo: ${handshake.tipo}) recebido para mensagem ${mensagemId}.`);
 
-    if (payloadObj.htype === 'confirmacao_entrega') {
-      try {
-        const mensagemEnviada = await buscarMensagemEnviada(mensagemId);
-        if (mensagemEnviada) {
-          await atualizarStatusMensagemEnviada(mensagemId, 'entregue');
-          console.log(`[SW-HANDSHAKE] ✅ Mensagem enviada ${mensagemId} marcada como entregue.`);
+    // 1. Tratamento de Confirmação de Entrega
+    if (tipoHandshake === 'confirmacao_entrega') {
+      const mensagemEnviada = await buscarMensagemEnviada(payload.aud);
+      if (mensagemEnviada) {
+        await atualizarStatusMensagemEnviada(payload.aud, 'entregue');
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => {
+          client.postMessage({ type: 'MENSAGEM_ENTREGUE', payload: { mensagemId: payload.aud, entregueEm: Date.now() } });
+        });
+      }
+    }
 
-          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-          clients.forEach(client => {
-            client.postMessage({
-              type: 'MENSAGEM_ENTREGUE',
-              payload: {
-                mensagemId: mensagemId,
-                entregueEm: Date.now(),
-              }
-            });
-          });
-        } else {
-          console.warn(`[SW-HANDSHAKE] ⚠️ Mensagem enviada ${mensagemId} não encontrada.`);
-        }
-      } catch (err) {
-        console.error(`[SW-HANDSHAKE] ❌ Erro ao marcar mensagem enviada ${mensagemId} como entregue:`, err);
+    // 2. Tratamento de Solicitação de Dados
+    if (tipoHandshake === 'solicitar_dados' && senderHash) {
+      console.log(`[SW-HANDSHAKE] 📩 Solicitação de dados recebida de ${senderHash}. Respondendo com perfil...`);
+      const profile = await buscarProfile();
+      if (profile) {
+        const respostaHandshakeId = gerarIdMensagem();
+        const respostaHandshake: Handshake = {
+          id: respostaHandshakeId,
+          mensagemId: senderHash,
+          tipo: 'resposta_dados',
+          direcao: 'out',
+          status: 'pendente',
+          tentativas: 0,
+          payload: {
+            iss: profile.email || '',
+            nm: profile.name || ''
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        await salvarHandshake(respostaHandshake);
+        await processarFilaHandshake();
+      }
+    }
+
+    // 3. Tratamento de Resposta de Dados
+    if (tipoHandshake === 'resposta_dados' && senderHash) {
+      console.log(`[SW-HANDSHAKE] 📩 Resposta de dados recebida de ${senderHash}:`, payloadObj);
+      const contato = await buscarContatoPorChave(senderHash);
+      if (contato) {
+        contato.email = payloadObj.iss !== undefined ? payloadObj.iss : contato.email;
+        contato.nome = payloadObj.nm !== undefined ? payloadObj.nm : contato.nome;
+        contato.updatedAt = Date.now();
+        await salvarContato(contato);
+
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => {
+          client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: senderHash } });
+        });
       }
     }
 
@@ -118,65 +144,64 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
   }
 }
 
-// ============================================================
-// FUNÇÃO PARA PROCESSAR FILA DE HANDSHAKES (envio)
-// ============================================================
+export async function criarHandshakeSolicitarDados(contatoPublicKeyVapid: string) {
+  console.log(`[SW-HANDSHAKE] 🔄 Criando solicitação de dados para contato ${contatoPublicKeyVapid}`);
+  try {
+    const handshakeId = gerarIdMensagem();
+    const handshake: Handshake = {
+      id: handshakeId,
+      mensagemId: contatoPublicKeyVapid,
+      tipo: 'solicitar_dados',
+      direcao: 'out',
+      status: 'pendente',
+      tentativas: 0,
+      payload: { campos: ['iss', 'nm'] },
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    await salvarHandshake(handshake);
+    await processarFilaHandshake();
+  } catch (err) {
+    console.error("[SW-HANDSHAKE] ❌ Erro ao criar solicitação de dados:", err);
+  }
+}
+
 export async function processarFilaHandshake() {
   console.log("[SW-HANDSHAKE] 🔄 Processando fila de handshakes...");
 
   try {
-    const pendentes = await listarHandshakesPendentesPorTipo('confirmacao_entrega');
     const todos = await listarHandshakes();
+    const pendentes = todos.filter(h => h.direcao === 'out' && h.status === 'pendente');
     const enviandoAntigos = todos.filter(
-      h => h.tipo === 'confirmacao_entrega' &&
-           h.direcao === 'out' &&
-           h.status === 'enviando' &&
-           (Date.now() - h.updatedAt) > 30000
+      h => h.direcao === 'out' && h.status === 'enviando' && (Date.now() - h.updatedAt) > 30000
     );
 
     const paraProcessar = [...pendentes, ...enviandoAntigos];
-
-    if (paraProcessar.length === 0) {
-      console.log("[SW-HANDSHAKE] ℹ️ Nenhum handshake pendente.");
-      return;
-    }
-
-    console.log(`[SW-HANDSHAKE] 📦 ${paraProcessar.length} handshakes para processar (${pendentes.length} pendentes, ${enviandoAntigos.length} reenfileirados)`);
+    if (paraProcessar.length === 0) return;
 
     for (const handshake of paraProcessar) {
       await atualizarStatusHandshake(handshake.id, 'enviando');
 
       try {
-        const storeMensagensRecebidas = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
-        const mensagemRecebida = await get(handshake.mensagemId, storeMensagensRecebidas);
-        if (!mensagemRecebida) {
-          throw new Error(`Mensagem ${handshake.mensagemId} não encontrada no banco.`);
+        let contato = await buscarContatoPorChave(handshake.mensagemId);
+        if (!contato) {
+          const storeMensagensRecebidas = createStore(DB_NAMES.MENSAGENS_RECEBIDAS_B, STORE_NAMES.KEYVAL);
+          const mensagemRecebida = await get(handshake.mensagemId, storeMensagensRecebidas);
+          if (mensagemRecebida) {
+            contato = await buscarContatoPorChave(mensagemRecebida.contatoPublicKeyVapid);
+          }
         }
 
-        const contato = await buscarContatoPorChave(mensagemRecebida.contatoPublicKeyVapid);
         if (!contato) {
-          throw new Error(`Contato para a mensagem ${handshake.mensagemId} não encontrado.`);
+          throw new Error(`Contato para handshake ${handshake.id} não encontrado.`);
         }
 
         let profile = await buscarProfile();
         if (!profile) throw new Error("Perfil não encontrado");
 
-        if (!profile.e2ePublicKey || !profile.vapidPublicKey || !profile.vapidPrivateKeyJwk) {
-          throw new Error("Usuário não logado (sem Chaves)");
-        }
-        if (!profile.subscription) {
-          throw new Error("Web Push não configurado (sem Subscription)");
-        }
-        if (!contato.publicKeyRSA || !contato.publicKeyVapid || !contato.vapidPrivateKey) {
-          throw new Error("Contato sem Chaves");
-        }
-        if (!contato.subscription) {
-          throw new Error("Contato sem Subscription");
-        }
-
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
-          console.warn("[SW-HANDSHAKE] ⚠️ Envelope VAPID não encontrado. Cifrando...");
           const res = await fetch("/api/server-public-key");
           if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor.");
           const serverPublicKeyJwk = await res.json();
@@ -185,15 +210,16 @@ export async function processarFilaHandshake() {
           await salvarProfile(profile);
         }
 
+        // Payload sem o de/para htype: repassa `tipo` diretamente
         const payloadObj = {
-          htype: handshake.tipo,
+          tipo: handshake.tipo,
+          ...handshake.payload,
         };
 
         const envelope = await cifrarPayloadObj(payloadObj, contato.publicKeyRSA);
         const envelopeJson = JSON.stringify(envelope);
 
         const payloadJwt = {
-          iss: profile.email,
           sub: "hand",
           aud: handshake.mensagemId,
           jti: handshake.id,
@@ -201,36 +227,29 @@ export async function processarFilaHandshake() {
         };
 
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+        const MAX_PAYLOAD_SIZE = 4096;
+        if (jwt.length > MAX_PAYLOAD_SIZE) {
+          throw new Error(`Payload excede limite de ${MAX_PAYLOAD_SIZE} bytes (tamanho atual: ${jwt.length})`);
+        }
 
-        console.log(`[SW-HANDSHAKE] 📤 Enviando handshake ${handshake.id} para ${contato.email}`);
-const MAX_PAYLOAD_SIZE = 4096;
-if (jwt.length > MAX_PAYLOAD_SIZE) {
-  throw new Error(`Payload excede limite de ${MAX_PAYLOAD_SIZE} bytes (tamanho atual: ${jwt.length})`);
-}
         await enviarParaProxy(
           contato.subscription,
           jwt,
           {
-            subject: `mailto:${contato.email}`,
+            subject: `mailto:${contato.email || profile.email}`,
             publicKey: contato.publicKeyVapid,
             privateKey: contato.vapidPrivateKey,
           }
         );
 
         await atualizarStatusHandshake(handshake.id, 'enviado');
-        console.log(`[SW-HANDSHAKE] ✅ Handshake ${handshake.id} enviado com sucesso!`);
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[SW-HANDSHAKE] ❌ Erro ao enviar handshake ${handshake.id}:`, err);
         const handshakeAtual = await buscarHandshake(handshake.id);
         if (handshakeAtual) {
           handshakeAtual.tentativas++;
           handshakeAtual.erro = err.message;
-          if (handshakeAtual.tentativas >= MAX_TENTATIVAS) {
-            handshakeAtual.status = 'falha';
-            console.log(`[SW-HANDSHAKE] ⛔ Handshake ${handshake.id} excedeu tentativas máximas.`);
-          } else {
-            handshakeAtual.status = 'pendente';
-          }
+          handshakeAtual.status = handshakeAtual.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
           handshakeAtual.updatedAt = Date.now();
           await salvarHandshake(handshakeAtual);
         }
@@ -241,26 +260,22 @@ if (jwt.length > MAX_PAYLOAD_SIZE) {
   }
 }
 
-// ============================================================
-// LISTENERS DE EVENTOS
-// ============================================================
 self.addEventListener('message', async (event) => {
   const data = event.data;
   if (data.type === 'PROCESSAR_FILA_HANDSHAKE') {
-    console.log("[SW-HANDSHAKE] 📩 Recebido comando para processar fila de handshakes.");
     await processarFilaHandshake();
+  }
+  if (data.type === 'SOLICITAR_DADOS_CONTATO' && data.payload?.contatoPublicKeyVapid) {
+    await criarHandshakeSolicitarDados(data.payload.contatoPublicKeyVapid);
   }
 });
 
-self.addEventListener('sync', async function (event) {
+self.addEventListener('sync', async function (event: any) {
   if (event.tag === 'sync-envio-handshakes') {
     event.waitUntil(processarFilaHandshake());
   }
 });
 
 self.addEventListener('online', async function () {
-  console.log("[SW-HANDSHAKE] 🌐 Conexão restaurada, processando handshakes...");
   await processarFilaHandshake();
 });
-
-console.log("[SW-HANDSHAKE] 📦 Módulo de handshakes carregado.");

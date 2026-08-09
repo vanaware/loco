@@ -42,6 +42,9 @@ function App() {
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
   const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
 
+  const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.nome?.trim() || "Anônimo") : "";
+  const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.nome?.trim() || "Anônimo") : "";
+
   const fecharChatOuDetalhes = () => {
     currentMobileView.value = 'list';
     contatoSelecionado.value = '';
@@ -100,27 +103,25 @@ function App() {
             <md-icon>arrow_back</md-icon>
           </md-icon-button>
           
-          {/* 🔥 BLOCO DO CABEÇALHO CLICÁVEL PARA ABRIR CARTÃO DO CONTATO */}
           <div 
             onClick={handleAbrirDetalhesDoContato}
             style={`display: flex; align-items: center; gap: 12px; ${contatoAtivo ? 'cursor: pointer;' : ''}`}
-            title={contatoAtivo ? `Ver QR Code / Cartão de ${contatoAtivo.nome}` : ''}
+            title={contatoAtivo ? `Ver QR Code / Cartão de ${nomeContatoAtivo}` : ''}
           >
             <md-icon style="font-size: 2rem; color: #555;">account_circle</md-icon>
             <div>
               <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
                 {contatoCompartilharHash.value 
-                  ? `Cartão de ${contatoDetalhesAtivo?.nome || 'Contato'}`
-                  : (contatoAtivo ? contatoAtivo.nome : "Selecione um contato")}
+                  ? `Cartão de ${nomeDetalhesAtivo}`
+                  : (contatoAtivo ? nomeContatoAtivo : "Selecione um contato")}
               </h2>
               <span style="font-size: 0.8rem; color: #666;">
                 {contatoCompartilharHash.value 
                   ? "Aponte a câmera ou copie o link para indicar este contato"
-                  : (contatoAtivo ? contatoAtivo.email : "Inicie uma conversa na barra lateral")}
+                  : (contatoAtivo ? (contatoAtivo.email || "Sem e-mail") : "Inicie uma conversa na barra lateral")}
               </span>
             </div>
 
-            {/* Ícone discreto indicando que o cabeçalho é interativo */}
             {contatoAtivo && !contatoCompartilharHash.value && (
               <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-primary); opacity: 0.8; margin-left: 4px;">qr_code_2</md-icon>
             )}
