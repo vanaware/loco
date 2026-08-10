@@ -1,0 +1,14 @@
+#:schema node_modules/wrangler/config-schema.json
+
+name = "@vanaware/loco"
+   main = "dist/worker.js"
+   compatibility_date = "2026-06-01"
+   workers_dev = true
+   # compatibility_flags = ["nodejs_compat"]
+   # routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
+
+   [observability]
+   enabled = true
+
+   [vars]
+   # Se preferir colocar chaves públicas não sensíveis aqui, ou use `wrangler secret put` para a privada

@@ -64,7 +64,7 @@ function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): bool
     return arquivosDocsRaiz.includes(caminhoMinusculo);
   } else {
     // Modo MAIN (Padrão): Pega arquivos da raiz e pastas src/ e public/
-    const arquivosRaizPermitidos = ["main.ts", "build.ts", "deno.json", "deno.jsonc"];
+    const arquivosRaizPermitidos = ["main.ts", "worker.ts", "build.ts", "deno.json", "deno.jsonc", "wrangler.toml"];
     
     if (arquivosRaizPermitidos.includes(caminhoRelativo)) {
       return true;

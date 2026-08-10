@@ -179,7 +179,7 @@ async function listarAssetsParaCache(): Promise<string[]> {
 }
 
 async function build() {
-  console.log("\n🚀 Iniciando build do protótipo...\n");
+  console.log("\n🚀 Iniciando build Loco ...\n");
   const start = performance.now();
 
   const appVersion = await incrementVersion();
@@ -187,7 +187,7 @@ async function build() {
   await clean();
   await copyStaticAndSyncManifest(appVersion);
 
-  console.log("📦 Compilando página HTML (browser-b)...");
+  console.log("📦 Compilando página HTML ...");
   await runBundle("HTML", {
     entrypoints: [
       join(SRC_DIR, "index.html"), 
@@ -206,6 +206,20 @@ async function build() {
     jsxFactory: "h",
     jsxFragment: "Fragment",
   });
+
+ console.log("📦 Compilando Cloudflare Worker ...");
+  await runBundle("worker", {
+    entrypoints: [
+      "./worker.ts"
+    ],
+    outputDir: DIST_DIR,
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    write: true,
+    sourcemap: "inline",
+  }); 
   
   console.log("📦 Compilando Service Worker em memória...");
   const swResult = await runBundle("ServiceWorker", {
