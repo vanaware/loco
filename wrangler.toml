@@ -1,9 +1,8 @@
 #:schema node_modules/wrangler/config-schema.json
 
-name = "@vanaware/loco"
+name = "vanaware-loco"
    main = "dist/worker.js"
    compatibility_date = "2026-06-01"
-   workers_dev = true
    # compatibility_flags = ["nodejs_compat"]
    # routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
 
@@ -11,4 +10,5 @@ name = "@vanaware/loco"
    enabled = true
 
    [vars]
-   # Se preferir colocar chaves públicas não sensíveis aqui, ou use `wrangler secret put` para a privada
+   # use `wrangler secret put` para a privada
+   SERVER_PUBLIC_KEY = '{"kty":"RSA","alg":"RSA-OAEP-256","n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ","e":"AQAB","key_ops":["encrypt"],"ext":true}'
