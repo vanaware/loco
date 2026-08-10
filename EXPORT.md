@@ -1,299 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.18-msmjzxnn** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.20-msmk6qjq** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.18-msmjzxnn] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.20-msmk6qjq] - Modo: MAIN
 
-Gerado automaticamente em: 8/9/2026, 10:29:33 PM
-
----
-
-## Arquivo: `src/components/ContactDetailSection.tsx`
-
-```tsx
-// src/components/ContactDetailSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
-import { profile } from '../stores/profileStore.ts';
-import { contatoSelecionado, contatoCompartilharHash, currentMobileView, showToast } from '../signals/state.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-
-export function ContactDetailSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-  const editNome = useSignal<string>('');
-  const editEmail = useSignal<string>('');
-
-  const hash = contatoCompartilharHash.value;
-  const item = contatosComHash.value.find(c => c.hash === hash);
-  const contato = item?.contato;
-
-  useEffect(() => {
-    if (!contato) {
-      qrCodeDataUrl.value = null;
-      isEditing.value = false;
-      return;
-    }
-
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-
-    try {
-      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
-      const qr = qrcode(0, 'L');
-      qr.addData(payloadBinario);
-      qr.make();
-      qrCodeDataUrl.value = qr.createDataURL(5, 0);
-    } catch (e) {
-      console.error("Erro ao gerar QR Code do contato:", e);
-      qrCodeDataUrl.value = null;
-    }
-  }, [contato]);
-
-  if (!contato || !hash) return null;
-
-  const nomeExibicao = contato.name?.trim() || "Anônimo";
-
-  const handleCopiarLink = async () => {
-    const p = profile.value;
-    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
-
-    try {
-      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
-    } catch (err: any) {
-      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
-    }
-  };
-
-  // 🔥 NOVO: Envia agressivamente os dados locais (Push) para o celular do contato salvar
-  const handleEnviarMeusDados = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'enviarSubscription',
-            contato: hash,
-            responder: false // false significa que queremos que ele acuse recebimento mandando os dados dele
-          }
-        }
-      });
-      
-      showToast("🚀 Meus dados foram enviados para o contato!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
-    }
-  };
-
-  // Mantido: Faz o Pull para diagnosticar a consistência sem sobrescrever nada
-  const handleSolicitarAtualizacao = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'confirmarSubscription',
-            contato: hash,
-            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
-          }
-        }
-      });
-      
-      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
-    } catch (err: any) {
-      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
-    }
-  };
-
-  const handleSalvarEdicao = async () => {
-    try {
-      const contatoAtualizado = {
-        ...contato,
-        name: editNome.value.trim(),
-        email: editEmail.value.trim(),
-        updatedAt: Date.now(),
-      };
-
-      await adicionarContato(contatoAtualizado);
-      isEditing.value = false;
-      showToast("✅ Dados do contato atualizados!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-    isEditing.value = false;
-  };
-
-  const handleIniciarChat = () => {
-    contatoSelecionado.value = hash;
-    contatoCompartilharHash.value = null;
-    currentMobileView.value = 'chat';
-  };
-
-  const handleFechar = () => {
-    contatoCompartilharHash.value = null;
-    if (!contatoSelecionado.value) {
-      currentMobileView.value = 'list';
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>badge</md-icon> Cartão de Contato
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {!isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-            <md-icon-button onClick={handleFechar} title="Fechar">
-              <md-icon>close</md-icon>
-            </md-icon-button>
-          </div>
-        </div>
-
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
-            <md-outlined-text-field
-              label="Nome do Contato"
-              value={editNome.value}
-              onInput={(e: any) => editNome.value = e.target.value}
-            ></md-outlined-text-field>
-
-            <md-outlined-text-field
-              label="E-mail do Contato"
-              value={editEmail.value}
-              onInput={(e: any) => editEmail.value = e.target.value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 4px;">
-              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
-                💾 Salvar
-              </md-filled-button>
-              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
-                Cancelar
-              </md-outlined-button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {nomeExibicao}
-            </h2>
-
-            {contato.trusted && (
-              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
-                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
-              </div>
-            )}
-
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">{contato.email || 'Sem e-mail'}</p>
-          </>
-        )}
-
-        {!isEditing.value && (
-          <>
-            {/* PAINEL DE STATUS DE CONFIANÇA MÚTUA */}
-            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
-              
-              {/* Como EU vejo ele (trusted) */}
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO VOCÊ VÊ ESTE CONTATO:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.trusted ? (
-                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
-                  ) : (
-                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
-                  )}
-                </div>
-              </div>
-
-              {/* Como ELE me vê (me) */}
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO ESTE CONTATO VÊ VOCÊ:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
-                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
-                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
-                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
-                </div>
-              </div>
-
-            </div>
-
-            {qrCodeDataUrl.value && (
-              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
-                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
-                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
-                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
-                </span>
-              </div>
-            )}
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Copiar Link de Indicação
-              </md-filled-button>
-
-              {/* 🔥 NOVO BOTÃO: Enviar/Forçar meus dados para ele */}
-              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
-                <md-icon slot="icon">send_to_mobile</md-icon>
-                Enviar meus dados ao contato
-              </md-outlined-button>
-
-              {/* Botão Antigo de Diagnóstico */}
-              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
-                <md-icon slot="icon">sync</md-icon>
-                Verificar Status de Confiança
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
-                <md-icon slot="icon">chat</md-icon>
-                Iniciar Conversa
-              </md-outlined-button>
-            </div>
-          </>
-        )}
-
-      </div>
-
-    </div>
-  );
-}
-```
+Gerado automaticamente em: 8/9/2026, 10:37:01 PM
 
 ---
 
@@ -390,158 +104,6 @@ export function ContatosSection() {
           </md-list>
         )}
       </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ProfileSection.tsx`
-
-```tsx
-// src/components/ProfileSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto } from '../utils/profile-utils.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-
-export function ProfileSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const p = profile.value;
-  // A existência destas duas chaves assegura que o perfil está gerado
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
-
-  useEffect(() => {
-    const renderQrCode = () => {
-      if (!p) return;
-      try {
-        const payloadBinario = gerarPayloadQrCodeCompacto(p);
-        const qr = qrcode(0, 'L');
-        qr.addData(payloadBinario);
-        qr.make();
-        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
-      } catch (e) {
-        console.error("Falha ao gerar QR Code:", e);
-        qrCodeDataUrl.value = null;
-      }
-    };
-
-    if (temChaveVapid) {
-      renderQrCode();
-    } else {
-      qrCodeDataUrl.value = null;
-    }
-  }, [p, temChaveVapid]);
-
-  const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
-    try {
-      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(pNovo);
-      
-      if (eraNovo) {
-        showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        window.location.href = '/';
-      } else {
-        showToast(`✅ Perfil atualizado!`, "success");
-      }
-    } catch (err: any) {
-      addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
-    }
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      if (!p) return showToast("Salve o perfil primeiro.", "error");
-
-      const resServerKey = await fetch("/api/server-public-key");
-      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
-      const serverPublicKeyJwk = await resServerKey.json();
-      
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
-
-      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      
-      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
-
-  const labelBotaoPrincipal = !temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Atualizar Perfil";
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      
-      <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
-        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
-        <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
-          Este nome será visível para os contatos que você convidar.
-        </p>
-        
-        <md-outlined-text-field
-          label="Seu Nome"
-          placeholder="Ex: João da Silva"
-          value={profileName.value}
-          onInput={(e: any) => profileName.value = e.target.value}
-          style="margin-bottom: 12px;"
-        ></md-outlined-text-field>
-        
-        <md-outlined-text-field
-          label="Seu E-mail"
-          placeholder="Ex: joao@email.com"
-          value={profileEmail.value}
-          onInput={(e: any) => profileEmail.value = e.target.value}
-          style="margin-bottom: 16px;"
-        ></md-outlined-text-field>
-
-        <div style="display: flex; gap: 8px; flex-direction: column;">
-          <md-filled-button 
-            onClick={handleGerarOuCorrigir} 
-            style="width: 100%;"
-            disabled={!profileName.value.trim() || !profileEmail.value.trim() ? true : undefined}
-          >
-            {labelBotaoPrincipal}
-          </md-filled-button>
-          
-          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={!temChaveVapid ? true : undefined}>
-            🔗 Compartilhar Perfil
-          </md-outlined-button>
-        </div>
-      </div>
-
-      {qrCodeDataUrl.value && temChaveVapid && (
-        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
-            Seu QR Code de Convite
-          </h3>
-          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
-            Mostre isso para um amigo escanear pelo App Loco.
-          </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
-        </div>
-      )}
-
     </div>
   );
 }
@@ -1065,6 +627,212 @@ export function AdvancedSection() {
 
 ---
 
+## Arquivo: `src/components/ToastSnackbar.tsx`
+
+```tsx
+// src/components/ToastSnackbar.tsx
+import { toastState } from '../signals/state.ts';
+
+export function ToastSnackbar() {
+  const state = toastState.value;
+  if (!state.visible) return null;
+
+  // Cores adaptadas ao padrão MD3 com base no tipo de mensagem
+  let background = 'var(--md-sys-color-inverse-surface, #2e312e)';
+  let color = 'var(--md-sys-color-inverse-on-surface, #eff1ed)';
+  let iconName = 'info';
+
+  if (state.type === 'success') {
+    background = 'var(--md-sys-color-primary-container, #8cf0cf)';
+    color = 'var(--md-sys-color-on-primary-container, #002114)';
+    iconName = 'check_circle';
+  } else if (state.type === 'error') {
+    background = 'var(--md-sys-color-error-container, #ffdad6)';
+    color = 'var(--md-sys-color-on-error-container, #410002)';
+    iconName = 'error';
+  }
+
+  return (
+    <div style={`
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: ${background};
+      color: ${color};
+      padding: 12px 20px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 9999;
+      font-size: 0.9rem;
+      max-width: 90vw;
+      width: auto;
+      animation: fadeIn 0.25s cubic-bezier(0.2, 0, 0, 1);
+    `}>
+      <md-icon style="font-size: 1.2rem; flex-shrink: 0;">{iconName}</md-icon>
+      <span style="word-break: break-word; line-height: 1.3;">{state.message}</span>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
+// src/components/ProfileSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { gerarProfileCompleto } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+
+export function ProfileSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+
+  useEffect(() => {
+    carregarProfile();
+  }, []);
+
+  const p = profile.value;
+  // A existência destas duas chaves assegura que o perfil está gerado
+  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+
+  useEffect(() => {
+    const renderQrCode = () => {
+      if (!p) return;
+      try {
+        const payloadBinario = gerarPayloadQrCodeCompacto(p);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (temChaveVapid) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [p, temChaveVapid]);
+
+  const handleGerarOuCorrigir = async () => {
+    const eraNovo = !temChaveVapid;
+    try {
+      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(pNovo);
+      
+      if (eraNovo) {
+        showToast(`✅ Perfil inicializado com sucesso!`, "success");
+        window.location.href = '/';
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+    }
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+
+      const resServerKey = await fetch("/api/server-public-key");
+      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
+      const serverPublicKeyJwk = await resServerKey.json();
+      
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  const labelBotaoPrincipal = !temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Atualizar Perfil";
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      
+      <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
+        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
+        <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
+          Este nome será visível para os contatos que você convidar.
+        </p>
+        
+        <md-outlined-text-field
+          label="Seu Nome"
+          placeholder="Ex: João da Silva"
+          value={profileName.value}
+          onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+          style="margin-bottom: 12px;"
+        ></md-outlined-text-field>
+        
+        <md-outlined-text-field
+          label="Seu E-mail"
+          placeholder="Ex: joao@email.com"
+          value={profileEmail.value}
+          onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+          style="margin-bottom: 16px;"
+        ></md-outlined-text-field>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+          <md-filled-button 
+            onClick={handleGerarOuCorrigir} 
+            style="width: 100%;"
+            disabled={!profileName.value.trim() || !profileEmail.value.trim() ? true : undefined}
+          >
+            {labelBotaoPrincipal}
+          </md-filled-button>
+          
+          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={!temChaveVapid ? true : undefined}>
+            🔗 Compartilhar Perfil
+          </md-outlined-button>
+        </div>
+      </div>
+
+      {qrCodeDataUrl.value && temChaveVapid && (
+        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+            Seu QR Code de Convite
+          </h3>
+          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
+            Mostre isso para um amigo escanear pelo App Loco.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
+        </div>
+      )}
+
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/components/ChatSection.tsx`
 
 ```tsx
@@ -1290,53 +1058,278 @@ export function ChatSection() {
 
 ---
 
-## Arquivo: `src/components/ToastSnackbar.tsx`
+## Arquivo: `src/components/ContactDetailSection.tsx`
 
 ```tsx
-// src/components/ToastSnackbar.tsx
-import { toastState } from '../signals/state.ts';
+// src/components/ContactDetailSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
 
-export function ToastSnackbar() {
-  const state = toastState.value;
-  if (!state.visible) return null;
+import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
+import { profile } from '../stores/profileStore.ts';
+import { contatoSelecionado, contatoCompartilharHash, currentMobileView, showToast } from '../signals/state.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
 
-  // Cores adaptadas ao padrão MD3 com base no tipo de mensagem
-  let background = 'var(--md-sys-color-inverse-surface, #2e312e)';
-  let color = 'var(--md-sys-color-inverse-on-surface, #eff1ed)';
-  let iconName = 'info';
+export function ContactDetailSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+  const editNome = useSignal<string>('');
+  const editEmail = useSignal<string>('');
 
-  if (state.type === 'success') {
-    background = 'var(--md-sys-color-primary-container, #8cf0cf)';
-    color = 'var(--md-sys-color-on-primary-container, #002114)';
-    iconName = 'check_circle';
-  } else if (state.type === 'error') {
-    background = 'var(--md-sys-color-error-container, #ffdad6)';
-    color = 'var(--md-sys-color-on-error-container, #410002)';
-    iconName = 'error';
-  }
+  const hash = contatoCompartilharHash.value;
+  const item = contatosComHash.value.find(c => c.hash === hash);
+  const contato = item?.contato;
+
+  useEffect(() => {
+    if (!contato) {
+      qrCodeDataUrl.value = null;
+      isEditing.value = false;
+      return;
+    }
+
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+
+    try {
+      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
+      const qr = qrcode(0, 'L');
+      qr.addData(payloadBinario);
+      qr.make();
+      qrCodeDataUrl.value = qr.createDataURL(5, 0);
+    } catch (e) {
+      console.error("Erro ao gerar QR Code do contato:", e);
+      qrCodeDataUrl.value = null;
+    }
+  }, [contato]);
+
+  if (!contato || !hash) return null;
+
+  const nomeExibicao = contato.name?.trim() || "Anônimo";
+
+  const handleCopiarLink = async () => {
+    const p = profile.value;
+    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
+
+    try {
+      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
+    } catch (err: any) {
+      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
+    }
+  };
+
+  const handleEnviarMeusDados = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'enviarSubscription',
+            contato: hash,
+            responder: false
+          }
+        }
+      });
+      
+      showToast("🚀 Meus dados foram enviados para o contato!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
+    }
+  };
+
+  const handleSolicitarAtualizacao = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'confirmarSubscription',
+            contato: hash,
+            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
+          }
+        }
+      });
+      
+      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
+    } catch (err: any) {
+      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
+    }
+  };
+
+  const handleSalvarEdicao = async () => {
+    try {
+      const contatoAtualizado = {
+        ...contato,
+        name: editNome.value.trim(),
+        email: editEmail.value.trim(),
+        updatedAt: Date.now(),
+      };
+
+      await adicionarContato(contatoAtualizado);
+      isEditing.value = false;
+      showToast("✅ Dados do contato atualizados!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+    isEditing.value = false;
+  };
+
+  const handleIniciarChat = () => {
+    contatoSelecionado.value = hash;
+    contatoCompartilharHash.value = null;
+    currentMobileView.value = 'chat';
+  };
+
+  const handleFechar = () => {
+    contatoCompartilharHash.value = null;
+    if (!contatoSelecionado.value) {
+      currentMobileView.value = 'list';
+    }
+  };
 
   return (
-    <div style={`
-      position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      background-color: ${background};
-      color: ${color};
-      padding: 12px 20px;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 9999;
-      font-size: 0.9rem;
-      max-width: 90vw;
-      width: auto;
-      animation: fadeIn 0.25s cubic-bezier(0.2, 0, 0, 1);
-    `}>
-      <md-icon style="font-size: 1.2rem; flex-shrink: 0;">{iconName}</md-icon>
-      <span style="word-break: break-word; line-height: 1.3;">{state.message}</span>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>badge</md-icon> Cartão de Contato
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {!isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+            <md-icon-button onClick={handleFechar} title="Fechar">
+              <md-icon>close</md-icon>
+            </md-icon-button>
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
+            <md-outlined-text-field
+              label="Nome do Contato"
+              value={editNome.value}
+              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <md-outlined-text-field
+              label="E-mail do Contato"
+              value={editEmail.value}
+              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 4px;">
+              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
+                💾 Salvar
+              </md-filled-button>
+              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                Cancelar
+              </md-outlined-button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {nomeExibicao}
+            </h2>
+
+            {contato.trusted && (
+              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
+                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
+              </div>
+            )}
+
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">{contato.email || 'Sem e-mail'}</p>
+          </>
+        )}
+
+        {!isEditing.value && (
+          <>
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
+              
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO VOCÊ VÊ ESTE CONTATO:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.trusted ? (
+                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
+                  ) : (
+                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO ESTE CONTATO VÊ VOCÊ:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
+                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
+                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
+                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
+                </div>
+              </div>
+
+            </div>
+
+            {qrCodeDataUrl.value && (
+              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
+                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
+                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
+                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
+                </span>
+              </div>
+            )}
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Copiar Link de Indicação
+              </md-filled-button>
+
+              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
+                <md-icon slot="icon">send_to_mobile</md-icon>
+                Enviar meus dados ao contato
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
+                <md-icon slot="icon">sync</md-icon>
+                Verificar Status de Confiança
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
+                <md-icon slot="icon">chat</md-icon>
+                Iniciar Conversa
+              </md-outlined-button>
+            </div>
+          </>
+        )}
+
+      </div>
+
     </div>
   );
 }
@@ -1348,7 +1341,7 @@ export function ToastSnackbar() {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.18-msmjzxnn";
+export const APP_VERSION = "0.2.20-msmk6qjq";
 
 ```
 
@@ -5941,7 +5934,7 @@ console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.18-msmjzxnn",
+  "version": "0.2.20-msmk6qjq",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
