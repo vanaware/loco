@@ -44,11 +44,14 @@ export async function carregarContatos(): Promise<void> {
   }
 }
 
+let isContatosListenerInitialized = false;
+
 export async function initContatosStore(): Promise<void> {
   await carregarContatos();
 
-  // 🔥 Ouve mensagens do Service Worker para sincronizar atualizações em background
-  if ('serviceWorker' in navigator) {
+  // 🔥 Ouve mensagens do Service Worker para sincronizar atualizações em background (com trava de duplicidade)
+  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
+    isContatosListenerInitialized = true;
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data?.type === 'CONTATO_ATUALIZADO') {
         carregarContatos();

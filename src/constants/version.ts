@@ -1,2 +1,2 @@
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.20-msmk6qjq";
+export const APP_VERSION = "0.2.21-msmkgjqw";

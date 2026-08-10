@@ -1,5 +1,5 @@
 // src/stores/mensagensStore.ts
-import { signal, computed } from '@preact/signals';
+import { signal } from '@preact/signals';
 import { listarChatPaginado, salvarChat, buscarChat } from '../utils/db-helpers.ts';
 import type { Chat } from '../constants/db.ts';
 import { contatoSelecionado } from '../signals/state.ts';
@@ -11,11 +11,13 @@ export const hasMoreMessages = signal<boolean>(true);
 const PAGE_SIZE = 30;
 let currentOffset = 0;
 let isFetching = false;
+let activeChatHash: string | null = null; // 🔥 Trava de segurança contra Race Condition
 
 /**
  * Reseta e carrega a primeira página de mensagens do contato selecionado.
  */
 export async function inicializarChat(contatoHash: string) {
+  activeChatHash = contatoHash; // Define o chat atual ativo
   currentOffset = 0;
   hasMoreMessages.value = true;
   mensagensAtivas.value = [];
@@ -26,11 +28,15 @@ export async function inicializarChat(contatoHash: string) {
  * Lazy Loader: Busca a próxima fatia do IndexedDB e empurra para a RAM.
  */
 export async function carregarMaisMensagens(contatoHash: string) {
-  if (isFetching || !hasMoreMessages.value) return;
+  // 🔥 Impede fetch se já estiver buscando, se acabaram as msgs ou se o usuário trocou de chat no meio do await
+  if (isFetching || !hasMoreMessages.value || contatoHash !== activeChatHash) return;
   isFetching = true;
 
   try {
     const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
+    
+    // Validação pós-await: se o usuário mudou de chat enquanto o disco respondia, descarta o resultado obsoleto
+    if (contatoHash !== activeChatHash) return;
     
     if (novas.length < PAGE_SIZE) {
       hasMoreMessages.value = false;
@@ -52,8 +58,8 @@ export async function carregarMaisMensagens(contatoHash: string) {
  * Atualização Otimista O(1): Insere/Atualiza diretamente na memória sem engasgar o app
  */
 export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
-  // 1. Atualiza memória (se o chat pertencer à tela atual)
-  if (chat.contatoHash === contatoSelecionado.value) {
+  // 1. Atualiza memória (se o chat pertencer estritamente à tela atual)
+  if (chat.contatoHash === contatoSelecionado.value && chat.contatoHash === activeChatHash) {
     const atual = mensagensAtivas.value;
     const index = atual.findIndex(m => m.id === chat.id);
     
