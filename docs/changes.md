@@ -1,99 +1,76 @@
-Analisando o código-fonte da versão **v0.2.2-msmdcc54**, percebe-se que o projeto já possui uma arquitetura muito sólida (Preact + Signals, criptografia E2E com WebCrypto, Service Workers para background sync e push).
-
-No entanto, antes de partirmos para novas funcionalidades, identifiquei **5 áreas cruciais de refinamento (débitos técnicos e gargalos de performance)** que precisam ser resolvidas para garantir que o app escale sem travar o navegador do usuário.
-
-Aqui estão os pontos que precisamos refinar. Dê uma olhada e me diga por qual você prefere começar:
-
-### 1. Gargalo de Memória e Má Prática no Chat (`ChatSection.tsx`)
-
-Atualmente, o `ChatSection.tsx` está ignorando o seu store de mensagens e indo direto no banco de dados.
-
-* **O Problema:** A função `carregarMensagens` usa `listarMensagensEnviadas()` e `listarMensagensRecebidas()`, que carregam **todo o histórico de todos os contatos** para a RAM e depois filtram com `.filter(m => m.contatoHash === hashAtivo)`. Conforme o histórico crescer, o app vai engasgar ou travar.
-* **Solução:** O arquivo `src/stores/mensagensStore.ts` já existe e tem lógica de Signals, mas não está sendo usado pelo `ChatSection`. Precisamos refatorar o `ChatSection` para consumir os Signals computados do `mensagensStore` ou implementar uma busca paginada/indexada no `db-helpers.ts`.
-
-O ideal é chatsession consumir signals computados.
-Mas temos dois indexdb de mensagens, um para mensagens recebidas e outro para mensagens enviadas
-Podemos aproveitar e unificar em um só indexdb = chat.
-
-```js
-export interface Chat { // Substitui mensagens enviadas e recebidas
-  id: string;
-  contatoHash: string; //contatoPublicKeyVapid: string;
-  conteudo: string;
-  tipo: "in" | "out" // Indica se é mensagem recebida ou enviada
-  // status: 'nao_lida' | 'lida' | 'notificada'; substituido por datas
-  // status: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue'; substituido por datas
-  readAt?: number; // substitui lidaEm?: number; // se foi lida existe data, se não foi lida não existe  = status lida ou não lida
-  notifiedAt?: number; // substitui notificadaEm?: number; // se foi notificada existe data, se não foi notificada não existe  = status notificada
-  receivedAt?: number; // se foi confirmada recepção existe data, se não foi confirmado não existe - aguardando confirmação de envio  = status entregue
-  sentAt?: number; // se foi enviada existe data, se não foi enviada não existe - aguardando envio = status enviada
-  createdAt: number; //subustitui a data recebidoEm: number; informa a data que foi recebida ou pendente de envio  = status pendente ou enviando
-  updatedAt?: number;
-  errorAt?: number; // se teve erro de envio existe data, se não teve erro não existe = status falha
-  // tentativas: number; não será mais necessário o controle de envio esta em handshake
-  handshake: string; //id do handshake responsavel pelo envio ou recebimento do chat (mensagem)
-}
-```
-
-As mesnsagens mais antigas também podem ser carregadas apenas sob demanda lazy laoding
-
-
-### 2. Condição de Corrida (Race Condition) no envio de mensagens
-
-Ainda no `ChatSection.tsx`, ao enviar uma mensagem:
-
-```typescript
-// O SW fará a inserção no banco e processará a fila, 
-// então disparamos uma recarga visual rápida
-setTimeout(() => carregarMensagens(), 300);
-
-```
-
-* **O Problema:** Usar `setTimeout` de 300ms é uma "gambiarra" temporal. Se o dispositivo estiver lento e o Service Worker demorar 400ms para salvar, a mensagem enviada não vai aparecer na tela até a próxima recarga.
-* **Solução:** Fazer a **Atualização Otimista** imediata na interface inserindo o objeto direto no Signal de mensagens assim que o usuário apertar Enter, ou escutar um evento de `BroadcastChannel` do SW confirmando que o pacote foi para a fila.
-
-### 3. UX Bloqueante: Toasts usando `alert()`
-
-No arquivo `src/signals/state.ts`, o sistema de notificações para o usuário está assim:
-
-```typescript
-export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
-  alert(`${type.toUpperCase()}: ${msg}`);
-}
-
-```
-
-* **O Problema:** A função `alert()` nativa do navegador pausa a execução da thread principal (o JavaScript congela até o usuário clicar em "OK"). Isso mata a experiência de um aplicativo descentralizado e PWA.
-* **Solução:** Como você está usando o Material Design 3 (`@material/web`), devemos criar um componente `<md-snackbar>` (ou uma `div` flutuante customizada com animação CSS) vinculada a um Signal, para exibir toasts não-bloqueantes no rodapé da tela.
-
-
-resolução escolhida: o prototipo atual não necessita de nenhum chamada que pausa a execução e o alert() já estava incomodando
-gostei da solução `<md-snackbar>` com signals para enviar toasts informativos e não bloqueantes no rodapé da tela.
-a preferencia é sempre dar preferencia para soluções do material design 3
-
-outra coisa, não preciso de notificação de mensagem caso o navegador esteja aberto, apenas se estiver fechado e o service-worker estiver rodando sozinho com a tela UI fechada
-
-
-### 4. Risco de "QuotaExceededError" (Falta de Limpeza de Lixo)
-
-No Service Worker (`src/sw/sw-handshakes.ts`), no método `salvarHandshakeTransacional`, você mesmo deixou um aviso:
-
-```typescript
-if (e.name === 'QuotaExceededError') {
-  addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida ao salvar handshake...");
-  // TODO: Implementar estratégia de eviction (limpeza) de handshakes muito antigos
-}
-
-```
-
-* **O Problema:** Handshakes de sincronização e recibos de entrega estão sendo acumulados para sempre no IndexedDB. Com o tempo, o celular do usuário vai estourar a cota de armazenamento e o app vai parar de enviar/receber mensagens.
-* **Solução:** Criar uma função de *Garbage Collection* no `sw-utils` ou `sw-handshakes` que, toda vez que rodar a fila, delete handshakes processados e entregues (status `'processado'` ou `'entregue'`) que tenham mais de 7 dias de vida.
-
-### 5. Tipagem "Any" em Eventos React/Preact
-
-Embora você tenha removido vários `any` da camada de banco de dados, arquivos como `ProfileSection.tsx`, `ChatSection.tsx` e `ShareApp.tsx` estão cheios de `onInput={(e: any) => ...}`.
-
-* **O Problema:** Isso anula o propósito do TypeScript no Frontend.
-* **Solução:** Tipar corretamente os eventos como `(e: Event)` e o target como `(e.target as HTMLInputElement).value`. É um ajuste rápido, mas que evita bugs bizarros de digitação.
+Uma análise aprofundada e estendida do código-fonte do **Loco v0.2.20-msmk6qjq** revela pontos específicos de melhoria, pequenas divergências lógicas e comportamentos não harmoniosos que podem causar *bugs* sutis de concorrência, perda de sincronia visual ou *memory leaks*.
 
 ---
+
+### 1. Concorrência Crítica e *Race Condition* no Carregamento de Mensagens (`src/stores/mensagensStore.ts`)
+
+* **O Problema:** A função `carregarMaisMensagens` valida o `activeChatHash` no início e logo após o `await listarChatPaginado`. Contudo, o ponteiro global `currentOffset` e o *signal* reativo `mensagensAtivas.value` sofrem mutação sem trava atômica. Se o usuário rolar a tela rapidamente para o topo (disparando múltiplos eventos de scroll simultâneos), chamadas concorrentes a `carregarMaisMensagens` podem ler o mesmo `currentOffset`, duplicando fatias ou corrompendo a ordem temporal das mensagens após o `.sort()`.
+* **Solução Proposta:** Proteger a função de lazy loader com uma variável de guarda de paginação específica para o chat ativo ou bloquear o gatilho de scroll enquanto uma requisição de paginação estiver pendente.
+
+---
+
+### 2. Vazamento de Ouve-Eventos (Listeners) de Service Worker no Mount do Chat (`src/components/ChatSection.tsx`)
+
+* **O Problema:** No componente `ChatSection`, o `useEffect` adiciona um listener global de `message` ao `navigator.serviceWorker` toda vez que o sinal `contatoSelecionado.value` muda:
+```tsx
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', handleMessage);
+}
+
+```
+
+
+Embora exista a função de limpeza (`removeEventListener`), se o componente sofrer re-renderizações rápidas com trocas de contato, o listener pode ser anexado múltiplas vezes de forma redundante antes que a desmontagem ocorra, duplicando o processamento de atualizações (`CHAT_ATUALIZADO`).
+* **Solução Proposta:** Isolar a inicialização do listener de mensagens do Service Worker em um ganho de ciclo de vida único (montagem global do app ou em uma store dedicada, similar ao que já é feito em `contatosStore.ts`).
+
+---
+
+### 3. Falta de Tratamento de Erro e Bloqueio Visual na Injeção de Perfis (`src/handshakes/hand-profile.ts`)
+
+* **O Problema:** Na rota de entrada de perfil (`hand-profile.ts`), quando um pacote de dados chega e o contato é atualizado no banco local:
+```ts
+const contato = await buscarContatoPorChave(contatoId);
+if (contato) {
+  // ... mutações e salvamento ...
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  clients.forEach(client => {
+    client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
+  });
+}
+
+```
+
+
+Se a operação de escrita no IndexedDB (`salvarContato`) falhar por estouro de cota ou concorrência de transação, a interface enviará o sinal `CONTATO_ATUALIZADO` via `postMessage` informando um estado que nunca foi gravado em disco com sucesso.
+* **Solução Proposta:** Envolver a mutação de dados e o despacho do `postMessage` em blocos de salvamento transacional rigorosos, garantindo que a UI só seja notificada após a persistência física ser confirmada.
+
+---
+
+### 4. Coerência de Tipagem e Incompatibilidade no Payload do Cache do Service Worker (`src/sw/cache.ts`)
+
+* **O Problema:** No arquivo `src/sw/cache.ts`, a linha de injeção automática de assets do build (`build.ts`) substitui a tag `__GENERATED_ASSETS__` por uma string JSON:
+```ts
+const ASSETS_TO_CACHE = [__GENERATED_ASSETS__];
+
+```
+
+
+No entanto, em `build.ts`, o array gerado é injetado diretamente sem os colchetes externos se a formatação do script não alinhar perfeitamente com os colchetes literais do arquivo `.ts` original, o que pode gerar erros de sintaxe silenciosos na execução em background do Service Worker caso o array fique malformado (`[, , ]`).
+* **Solução Proposta:** Garantir que o array gerado no script de build substitua a declaração inteira da constante `ASSETS_TO_CACHE` em vez de depender de interpolação parcial de strings.
+
+---
+
+### 5. Inconsistência no Estado de Erro de Rede do Push Proxy (`main.ts`)
+
+* **O Problema:** No servidor Deno (`main.ts`), quando o envio de uma mensagem via webpush falha com um erro que não é uma instância de `PushMessageError`, o bloco `catch` genérico formata a resposta:
+```ts
+return new Response(
+  JSON.stringify({ success: false, error: errorMessage, type: "InternalError" }),
+  { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+);
+
+```
+
+
+Retornar um status HTTP `400 (Bad Request)` para falhas internas genéricas ou de rede do servidor de push mascara erros reais de infraestrutura (como falhas de DNS ou indisponibilidade do FCM), que deveriam retornar `500 (Internal Server Error)` ou `503`.
+* **Solução Proposta:** Mapear os códigos de erro do Deno/Fetch adequadamente para evitar falsos positivos de requisição malformada no cliente.
