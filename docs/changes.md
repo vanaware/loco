@@ -97,5 +97,3 @@ Embora você tenha removido vários `any` da camada de banco de dados, arquivos 
 * **Solução:** Tipar corretamente os eventos como `(e: Event)` e o target como `(e.target as HTMLInputElement).value`. É um ajuste rápido, mas que evita bugs bizarros de digitação.
 
 ---
-
-**Como vamos proceder?** Podemos atacar a refatoração do **Chat e Stores (Pontos 1 e 2)** primeiro, pois é o coração do mensageiro, ou focar no **Garbage Collector (Ponto 4)** para garantir a estabilidade térmica. Qual a sua preferência?

@@ -100,7 +100,7 @@ export function ProfileSection() {
           label="Seu Nome"
           placeholder="Ex: João da Silva"
           value={profileName.value}
-          onInput={(e: any) => profileName.value = e.target.value}
+          onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
           style="margin-bottom: 12px;"
         ></md-outlined-text-field>
         
@@ -108,7 +108,7 @@ export function ProfileSection() {
           label="Seu E-mail"
           placeholder="Ex: joao@email.com"
           value={profileEmail.value}
-          onInput={(e: any) => profileEmail.value = e.target.value}
+          onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
           style="margin-bottom: 16px;"
         ></md-outlined-text-field>
 

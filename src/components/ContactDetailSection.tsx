@@ -57,7 +57,6 @@ export function ContactDetailSection() {
     }
   };
 
-  // 🔥 NOVO: Envia agressivamente os dados locais (Push) para o celular do contato salvar
   const handleEnviarMeusDados = async () => {
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -70,7 +69,7 @@ export function ContactDetailSection() {
           params: {
             function: 'enviarSubscription',
             contato: hash,
-            responder: false // false significa que queremos que ele acuse recebimento mandando os dados dele
+            responder: false
           }
         }
       });
@@ -81,7 +80,6 @@ export function ContactDetailSection() {
     }
   };
 
-  // Mantido: Faz o Pull para diagnosticar a consistência sem sobrescrever nada
   const handleSolicitarAtualizacao = async () => {
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -169,13 +167,13 @@ export function ContactDetailSection() {
             <md-outlined-text-field
               label="Nome do Contato"
               value={editNome.value}
-              onInput={(e: any) => editNome.value = e.target.value}
+              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
             ></md-outlined-text-field>
 
             <md-outlined-text-field
               label="E-mail do Contato"
               value={editEmail.value}
-              onInput={(e: any) => editEmail.value = e.target.value}
+              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
             ></md-outlined-text-field>
 
             <div style="display: flex; gap: 8px; margin-top: 4px;">
@@ -205,10 +203,8 @@ export function ContactDetailSection() {
 
         {!isEditing.value && (
           <>
-            {/* PAINEL DE STATUS DE CONFIANÇA MÚTUA */}
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
               
-              {/* Como EU vejo ele (trusted) */}
               <div>
                 <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
                   COMO VOCÊ VÊ ESTE CONTATO:
@@ -222,7 +218,6 @@ export function ContactDetailSection() {
                 </div>
               </div>
 
-              {/* Como ELE me vê (me) */}
               <div>
                 <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
                   COMO ESTE CONTATO VÊ VOCÊ:
@@ -252,13 +247,11 @@ export function ContactDetailSection() {
                 Copiar Link de Indicação
               </md-filled-button>
 
-              {/* 🔥 NOVO BOTÃO: Enviar/Forçar meus dados para ele */}
               <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
                 <md-icon slot="icon">send_to_mobile</md-icon>
                 Enviar meus dados ao contato
               </md-outlined-button>
 
-              {/* Botão Antigo de Diagnóstico */}
               <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
                 <md-icon slot="icon">sync</md-icon>
                 Verificar Status de Confiança
