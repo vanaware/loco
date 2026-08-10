@@ -16,8 +16,8 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
     return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
   }
 
-  const publicKeyStr = env?.SERVER_PUBLIC_KEY ?? (typeof Deno !== "undefined" ? Deno.env.get('SERVER_PUBLIC_KEY') : undefined);
-  const privateKeyStr = env?.SERVER_PRIVATE_KEY ?? (typeof Deno !== "undefined" ? Deno.env.get('SERVER_PRIVATE_KEY') : undefined);
+  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
+  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
 
   if (!publicKeyStr || !privateKeyStr) {
     throw new Error("Chaves de infraestrutura do servidor (SERVER_PUBLIC_KEY / SERVER_PRIVATE_KEY) não encontradas!");
