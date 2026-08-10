@@ -1,16 +1,12 @@
+// worker.ts
 /// <reference lib="deno.ns" />
 
-import { serveDir } from "@std/http/file-server";
 import * as webpush from "@negrel/webpush";
 import { deleteCookie } from "@std/http/cookie";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
 
-/**
- * Carrega e inicializa as chaves RSA de infraestrutura do servidor de forma segura.
- * Suporta tanto o objeto `env` do Cloudflare Workers quanto o `Deno.env` local/Deno Deploy.
- */
 async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
   if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
     return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
@@ -143,7 +139,7 @@ const workerHandler = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    if (!isAllowedOrigin && url.pathname.startsWith("/api/")) {
+    if (!isAllowedOrigin && (url.pathname.startsWith("/api/") || url.pathname === "/")) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
       return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
         status: 403,
@@ -154,14 +150,16 @@ const workerHandler = {
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
 
-      if (request.method === "GET" && url.pathname === "/api/server-public-key") {
+      // 🔑 Rota GET na raiz para entregar a chave pública do servidor
+      if (request.method === "GET" && url.pathname === "/" && url.searchParams.get("file") === "server-public-key") {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
 
-      if (url.pathname === "/api/logout" && request.method === "POST") {
+      // 🚪 Rota GET na raiz com parâmetro ?logout=true para limpeza e destruição de sessão
+      if (request.method === "GET" && url.pathname === "/" && url.searchParams.get("logout") === "true") {
         const headers = new Headers(corsHeaders);
         deleteCookie(headers, "session_token", { path: "/" });
         headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
@@ -172,8 +170,8 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && url.pathname === "/api/proxy-push") {
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida!`);
+      if (request.method === "POST" && url.pathname === "/") {
+        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida na raiz!`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;
@@ -187,19 +185,19 @@ const workerHandler = {
 
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (jwtClaims) {
-          console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         }
 
         let privateKeyFinal = vapid.privateKey;
 
         if (typeof privateKeyFinal === "string") {
-          console.log("   - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
+          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
           try {
             const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
             privateKeyFinal = decryptedPrivateKeyObj;
-            console.log("   - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
           } catch (decryptErr) {
-            console.error("   - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
+            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
             return new Response(
               JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -219,7 +217,7 @@ const workerHandler = {
         const subscriber = appServer.subscribe(subscription);
         await subscriber.pushTextMessage(payloadText, {});
         
-        console.log("   ✅ [SUCESSO] Push despachado com sucesso!");
+        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
 
         return new Response(JSON.stringify({ success: true }), {
           status: 200,
@@ -227,16 +225,8 @@ const workerHandler = {
         });
       }
 
-      if (typeof Deno !== "undefined" && typeof serveDir === "function") {
-        return serveDir(request, {
-          fsRoot: "./dist",
-          showDirListing: false,
-          quiet: true,
-        });
-      }
-
       return new Response(
-        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy." }),
+        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
 

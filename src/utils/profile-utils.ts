@@ -4,7 +4,7 @@ import { cifrarChaveVapid } from './push-utils.ts';
 import { registrarServiceWorker } from './sw-utils.ts';
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts'; // 🔥 Alterado para não importar o state.ts
+import { addDebugLog } from './debug-utils.ts';
 
 export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   if ('storage' in navigator && 'persist' in navigator.storage) {
@@ -50,7 +50,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     const registration = await registrarServiceWorker();
 
     addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const resServerKey = await fetch("/api/server-public-key");
+    const resServerKey = await fetch("/?file=server-public-key");
     if (!resServerKey.ok) {
       throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
     }

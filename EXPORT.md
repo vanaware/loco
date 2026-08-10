@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.34-msmog8mm** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.40-msnt8hoo** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.34-msmog8mm] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.40-msnt8hoo] - Modo: MAIN
 
-Gerado automaticamente em: 8/10/2026, 6:49:46 PM
+Gerado automaticamente em: 8/10/2026, 7:35:47 PM
 
 ---
 
@@ -681,158 +681,6 @@ export function ToastSnackbar() {
 
 ---
 
-## Arquivo: `src/components/ProfileSection.tsx`
-
-```tsx
-// src/components/ProfileSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto } from '../utils/profile-utils.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-
-export function ProfileSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const p = profile.value;
-  // A existência destas duas chaves assegura que o perfil está gerado
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
-
-  useEffect(() => {
-    const renderQrCode = () => {
-      if (!p) return;
-      try {
-        const payloadBinario = gerarPayloadQrCodeCompacto(p);
-        const qr = qrcode(0, 'L');
-        qr.addData(payloadBinario);
-        qr.make();
-        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
-      } catch (e) {
-        console.error("Falha ao gerar QR Code:", e);
-        qrCodeDataUrl.value = null;
-      }
-    };
-
-    if (temChaveVapid) {
-      renderQrCode();
-    } else {
-      qrCodeDataUrl.value = null;
-    }
-  }, [p, temChaveVapid]);
-
-  const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
-    try {
-      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(pNovo);
-      
-      if (eraNovo) {
-        showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        window.location.href = '/';
-      } else {
-        showToast(`✅ Perfil atualizado!`, "success");
-      }
-    } catch (err: any) {
-      addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
-    }
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      if (!p) return showToast("Salve o perfil primeiro.", "error");
-
-      const resServerKey = await fetch("/api/server-public-key");
-      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
-      const serverPublicKeyJwk = await resServerKey.json();
-      
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
-
-      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      
-      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
-
-  const labelBotaoPrincipal = !temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Atualizar Perfil";
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      
-      <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
-        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
-        <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
-          Este nome será visível para os contatos que você convidar.
-        </p>
-        
-        <md-outlined-text-field
-          label="Seu Nome"
-          placeholder="Ex: João da Silva"
-          value={profileName.value}
-          onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-          style="margin-bottom: 12px;"
-        ></md-outlined-text-field>
-        
-        <md-outlined-text-field
-          label="Seu E-mail"
-          placeholder="Ex: joao@email.com"
-          value={profileEmail.value}
-          onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-          style="margin-bottom: 16px;"
-        ></md-outlined-text-field>
-
-        <div style="display: flex; gap: 8px; flex-direction: column;">
-          <md-filled-button 
-            onClick={handleGerarOuCorrigir} 
-            style="width: 100%;"
-            disabled={!profileName.value.trim() || !profileEmail.value.trim() ? true : undefined}
-          >
-            {labelBotaoPrincipal}
-          </md-filled-button>
-          
-          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={!temChaveVapid ? true : undefined}>
-            🔗 Compartilhar Perfil
-          </md-outlined-button>
-        </div>
-      </div>
-
-      {qrCodeDataUrl.value && temChaveVapid && (
-        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
-            Seu QR Code de Convite
-          </h3>
-          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
-            Mostre isso para um amigo escanear pelo App Loco.
-          </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
-        </div>
-      )}
-
-    </div>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/ChatSection.tsx`
 
 ```tsx
@@ -1337,11 +1185,162 @@ export function ContactDetailSection() {
 
 ---
 
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
+// src/components/ProfileSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { gerarProfileCompleto } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+
+export function ProfileSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+
+  useEffect(() => {
+    carregarProfile();
+  }, []);
+
+  const p = profile.value;
+  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+
+  useEffect(() => {
+    const renderQrCode = () => {
+      if (!p) return;
+      try {
+        const payloadBinario = gerarPayloadQrCodeCompacto(p);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (temChaveVapid) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [p, temChaveVapid]);
+
+  const handleGerarOuCorrigir = async () => {
+    const eraNovo = !temChaveVapid;
+    try {
+      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(pNovo);
+      
+      if (eraNovo) {
+        showToast(`✅ Perfil inicializado com sucesso!`, "success");
+        window.location.href = '/';
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+    }
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+
+      const resServerKey = await fetch("/?file=server-public-key");
+      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
+      const serverPublicKeyJwk = await resServerKey.json();
+      
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  const labelBotaoPrincipal = !temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Atualizar Perfil";
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      
+      <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
+        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
+        <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
+          Este nome será visível para os contatos que você convidar.
+        </p>
+        
+        <md-outlined-text-field
+          label="Seu Nome"
+          placeholder="Ex: João da Silva"
+          value={profileName.value}
+          onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+          style="margin-bottom: 12px;"
+        ></md-outlined-text-field>
+        
+        <md-outlined-text-field
+          label="Seu E-mail"
+          placeholder="Ex: joao@email.com"
+          value={profileEmail.value}
+          onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+          style="margin-bottom: 16px;"
+        ></md-outlined-text-field>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+          <md-filled-button 
+            onClick={handleGerarOuCorrigir} 
+            style="width: 100%;"
+            disabled={!profileName.value.trim() || !profileEmail.value.trim() ? true : undefined}
+          >
+            {labelBotaoPrincipal}
+          </md-filled-button>
+          
+          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={!temChaveVapid ? true : undefined}>
+            🔗 Compartilhar Perfil
+          </md-outlined-button>
+        </div>
+      </div>
+
+      {qrCodeDataUrl.value && temChaveVapid && (
+        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+            Seu QR Code de Convite
+          </h3>
+          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
+            Mostre isso para um amigo escanear pelo App Loco.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
+        </div>
+      )}
+
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/version.ts`
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.34-msmog8mm";
+export const APP_VERSION = "0.2.40-msnt8hoo";
 
 ```
 
@@ -2118,7 +2117,7 @@ import {
   salvarHandshake,
   buscarHandshake,
   listarHandshakes,
-  removerHandshake, // 🔥 NOVO: Importado para o Garbage Collection
+  removerHandshake,
   buscarContatoPorChave,
   buscarProfile,
   buscarChaveDecript,
@@ -2130,19 +2129,15 @@ import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/pu
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 
-// Importa os roteadores especializados
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
 
-// 🔥 NOVO: Motor de Garbage Collection para evitar QuotaExceededError no IndexedDB
 async function realizarGarbageCollection(emergencia = false) {
   try {
     const todos = await listarHandshakes();
     const agora = Date.now();
     
-    // Na operação padrão: remove finalizados há mais de 7 dias.
-    // Na emergência (Cota Estourada): remove finalizados há mais de 1 hora para forçar espaço imediato.
     const LIMITE_MS = emergencia ? (60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000); 
 
     let removidos = 0;
@@ -2150,11 +2145,9 @@ async function realizarGarbageCollection(emergencia = false) {
       const idade = agora - (h.updatedAt || h.createdAt);
       
       if (idade > LIMITE_MS) {
-        // Verifica se ambas as pontas do handshake (Entrada e Saída) não estão mais pendentes
         const inConcluido = !h.in || ['processado', 'falha'].includes(h.in.status);
         const outConcluido = !h.out || ['enviado', 'entregue', 'falha'].includes(h.out.status);
 
-        // Em caso de emergência, se a transação estiver travada há mais de 3 dias, apagamos sem piedade
         const apagarForcado = emergencia && (idade > 3 * 24 * 60 * 60 * 1000);
 
         if ((inConcluido && outConcluido) || apagarForcado) {
@@ -2172,7 +2165,6 @@ async function realizarGarbageCollection(emergencia = false) {
   }
 }
 
-// Wrapper transacional para o salvamento de Handshakes (Mitiga QuotaExceededError)
 async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso?: string) {
   try {
     await salvarHandshake(handshake);
@@ -2180,11 +2172,9 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
   } catch (e: any) {
     if (e.name === 'QuotaExceededError') {
       addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida. Disparando GC de emergência...");
-      // 🔥 NOVO: Roda a limpeza agressiva de emergência
       await realizarGarbageCollection(true);
       
       try {
-        // Tenta salvar o pacote novamente após liberar espaço
         await salvarHandshake(handshake);
         addDebugLog("[SW-ROUTER] ✅ Espaço liberado. Handshake salvo com sucesso após emergência.");
       } catch (e2: any) {
@@ -2202,7 +2192,6 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
   addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
-    // Early returns para proteger contra payloads malformados ou lixo de rede
     if (!payload?.jti) {
       addDebugLog("[SW-ROUTER] ⚠️ Handshake rejeitado precocemente: Ausência de 'jti'");
       return;
@@ -2214,7 +2203,7 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
 
     const privateDecryptKey = await buscarChaveDecript();
     if (!privateDecryptKey) {
-      throw new Error("Chave privada RSA não disponível para decifrar handshake.");
+      throw new Error("Chave privada RSA não japonesa para decifrar handshake.");
     }
 
     let envelope;
@@ -2269,21 +2258,18 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
 
     await salvarHandshakeTransacional(handshake, `[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
     
-    // Inicia o processamento da fila sem usar await aqui, deixando rodar em background
     processarFilaHandshake().catch(err => console.error(err));
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro ao decifrar handshake recebido: ${err.message}`);
-    throw err; // Repassa o erro caso seja falha criptográfica crítica
+    throw err;
   }
 }
 
-// 🔥 Variável de Trava (Mutex) para evitar que a fila seja processada duas vezes simultaneamente
 let isProcessingFila = false;
 
 export async function processarFilaHandshake() {
   if (isProcessingFila) {
-    // Fila já está sendo processada. Ignora chamadas concorrentes para não enviar mensagens duplicadas.
     return;
   }
   
@@ -2293,7 +2279,6 @@ export async function processarFilaHandshake() {
   try {
     const todos = await listarHandshakes();
 
-    // 1. PROCESSAR ENTRADA (O que recebemos)
     const pendentesIn = todos.filter(h => h.in && (h.in.status === 'recebido' || (h.in.status === 'processando' && (Date.now() - h.updatedAt) > 60000)) && h.in.tentativas < MAX_TENTATIVAS);
 
     for (const h of pendentesIn) {
@@ -2325,7 +2310,6 @@ export async function processarFilaHandshake() {
       }
     }
 
-    // 2. PROCESSAR SAIDA (O que vamos enviar)
     if (!navigator.onLine) {
       addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
       return;
@@ -2350,7 +2334,8 @@ export async function processarFilaHandshake() {
 
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
-          const res = await fetch("/api/server-public-key");
+          // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
+          const res = await fetch("/?file=server-public-key");
           if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor para cifrar envelope VAPID.");
           const serverPublicKeyJwk = await res.json();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
@@ -2358,7 +2343,6 @@ export async function processarFilaHandshake() {
           await salvarProfile(profile);
         }
 
-        // INJEÇÃO/CARONA (Piggybacking): Adiciona dados de confiança no pacote caso desatualizado
         const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
         const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
         
@@ -2368,7 +2352,6 @@ export async function processarFilaHandshake() {
           h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true);
         }
 
-        // Criptografia e Disparo para a Rede Proxy
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
@@ -2397,19 +2380,15 @@ export async function processarFilaHandshake() {
       }
     }
     
-    // 3. GARBAGE COLLECTION PASSSIVA 🔥
-    // Executa no final da fila normal para matar sujeiras muito velhas
     await realizarGarbageCollection(false);
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
   } finally {
-    // 🔥 Libera a trava independente de erro ou sucesso
     isProcessingFila = false;
   }
 }
 
-// Escuta a volta de conectividade ou tarefas agendadas em Background (com waitUntil)
 self.addEventListener('sync', function (event: any) {
   if (event.tag === 'sync-envio-handshakes') {
     event.waitUntil(processarFilaHandshake());
@@ -2417,7 +2396,6 @@ self.addEventListener('sync', function (event: any) {
 });
 
 self.addEventListener('online', function (event: Event) {
-  // Envelopando a execução para o SW não morrer no meio do caminho
   if ('waitUntil' in event) {
     (event as ExtendableEvent).waitUntil(processarFilaHandshake());
   } else {
@@ -2508,181 +2486,6 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
   } catch (error: any) {
     logSwError("INIT", "Falha ao registrar Service Worker", error);
     throw error;
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/profile-utils.ts`
-
-```ts
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from './db-helpers.ts';
-import { cifrarChaveVapid } from './push-utils.ts';
-import { registrarServiceWorker } from './sw-utils.ts';
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts'; // 🔥 Alterado para não importar o state.ts
-
-export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
-  if ('storage' in navigator && 'persist' in navigator.storage) {
-    try {
-      const concedido = await navigator.storage.persist();
-      if (concedido) {
-        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
-      } else {
-        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
-      }
-      return concedido;
-    } catch (err: any) {
-      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
-      return false;
-    }
-  }
-  return false;
-}
-
-export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
-  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
-  if (!nome || !email) {
-    throw new Error("Preencha Nome e E-mail primeiro.");
-  }
-
-  try {
-    addDebugLog("Step 1: Verificando permissão de notificação...");
-    try {
-      if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida.");
-        }
-      }
-    } catch (notifErr: any) {
-      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
-    }
-
-    addDebugLog("Step 2: Registrando Service Worker...");
-    const registration = await registrarServiceWorker();
-
-    addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const resServerKey = await fetch("/api/server-public-key");
-    if (!resServerKey.ok) {
-      throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
-    }
-    const serverPublicKeyJwk = await resServerKey.json();
-    addDebugLog("Step 3.5: Chave do servidor recebida");
-
-    let vapidKeyPair: CryptoKeyPair;
-    let publicKeyJwk: JsonWebKey;
-    let privateKeyJwk: JsonWebKey;
-
-    let existingProfile = await buscarProfile();
-    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
-      publicKeyJwk = existingProfile.vapidPublicKey;
-      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
-      try {
-        vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk", privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
-        } as CryptoKeyPair;
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
-        existingProfile = undefined;
-      }
-    }
-    if (!existingProfile || !vapidKeyPair!) {
-      addDebugLog("🔑 Gerando novas chaves VAPID...");
-      vapidKeyPair = await generateVAPIDKeys();
-      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
-      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
-    }
-
-    addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) throw new Error("Service Worker registration é null/undefined");
-    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
-    let subscriptionValida = false;
-
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        if (existingProfile) {
-           delete (existingProfile as any).subscription;
-           await salvarProfile(existingProfile);
-        }
-        existingSubscription = null;
-      }
-    }
-    
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair!.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
-
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    const subscription = {
-      endpoint: existingSubscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      }
-    };
-
-    let e2ePublicKey: JsonWebKey;
-    let e2ePrivateKeyJwk: JsonWebKey;
-
-    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      addDebugLog("📂 Chaves E2E encontradas no perfil.");
-      e2ePublicKey = existingProfile.e2ePublicKey;
-      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
-      try {
-        await window.crypto.subtle.importKey("jwk", e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
-        const newKeys = await generateE2EEKeys();
-        e2ePublicKey = newKeys.publicEncrypt;
-        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      }
-    } else {
-      addDebugLog("🔑 Gerando novas chaves E2E...");
-      const newKeys = await generateE2EEKeys();
-      e2ePublicKey = newKeys.publicEncrypt;
-      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-    }
-
-    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
-    const profile: ProfileConfig = {
-      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
-    };
-
-    await salvarProfile(profile);
-    await solicitarArmazenamentoPersistente();
-
-    addDebugLog("✅ Perfil salvo com sucesso.");
-    return profile;
-  } catch (err) {
-    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
-    throw err;
   }
 }
 ```
@@ -3168,189 +2971,6 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
 
 ---
 
-## Arquivo: `src/utils/push-utils.ts`
-
-```ts
-// src/utils/push-utils.ts
-import { gzipSync } from "fflate";
-import { addDebugLog } from "./debug-utils.ts";
-
-// ============================================================
-// UTILITÁRIOS DE CRIPTOGRAFIA PARA PUSH
-// ============================================================
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
-  }
-}
-
-/**
- * Cifra um payloadObj (objeto JavaScript) usando AES-GCM e a chave E2EE RSA do destinatário.
- * Retorna envelope blindado: { i: ivBase64, d: dadosCifradosBase64, k: chaveAesCifradaBase64 }
- */
-export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
-  i: string;
-  d: string;
-  k: string;
-}> {
-  try {
-    const encoder = new TextEncoder();
-    const jsonString = JSON.stringify(payloadObj);
-    const bytes = encoder.encode(jsonString);
-    
-    // Otimização: Compressão Deflate para poupar tráfego e respeitar a cota Web Push
-    const compressed = gzipSync(bytes);
-    
-    // Avaliação Proativa de Gargalos de Rede (WebPush limita FCM a 4096 bytes)
-    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
-    if (compressed.length > 3000) {
-       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
-    }
-
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      compressed
-    );
-
-    const cryptoKeyDestino = await crypto.subtle.importKey(
-      "jwk",
-      publicKeyRSA,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyEncrypted = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      cryptoKeyDestino,
-      aesKeyRaw
-    );
-
-    return {
-      i: arrayBufferToBase64(iv.buffer),
-      d: arrayBufferToBase64(encryptedBuffer),
-      k: arrayBufferToBase64(aesKeyEncrypted)
-    };
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
-    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
-  }
-}
-
-/**
- * Envia um payload JWT pronto para o servidor proxy.
- * Retorna true se sucesso, lança erro detalhado em caso de falha.
- */
-export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  payloadText: string,
-  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
-): Promise<void> {
-  // Apenas Blob consegue medir strings com caracteres multi-byte UTF-8 corretamente no Client Side
-  const payloadSize = new Blob([payloadText]).size;
-  if (payloadSize > 4096) {
-    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
-    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
-  }
-
-  try {
-    const response = await fetch("/api/proxy-push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscription,
-        payloadText,
-        vapid: {
-          subject: vapid.subject,
-          publicKey: vapid.publicKey,
-          privateKey: vapid.privateKey // Pode ser o envelope RSA para o servidor ou a JWK exposta
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err: any) {
-     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
-     throw err;
-  }
-}
-
-/**
- * Cifra a chave privada VAPID (JWK) com a chave pública do servidor usando Hybrid Crypto.
- * Retorna string Base64 estruturada.
- */
-export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
-  try {
-    const serverKey = await crypto.subtle.importKey(
-      "jwk",
-      serverPublicKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoder = new TextEncoder();
-    const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
-    
-    const vapidCifrado = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      vapidBytes
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyCifrado = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      serverKey,
-      aesKeyRaw
-    );
-
-    // NOTA TÉCNICA: Mantemos Hex encoding temporariamente para retrocompatibilidade
-    // estrutural com a leitura da API do Servidor (main.ts).
-    const toHex = (buf: ArrayBuffer) =>
-      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    const envelope = {
-      iv: toHex(iv.buffer),
-      dadosCifrados: toHex(vapidCifrado),
-      chaveAesCifrada: toHex(aesKeyCifrado)
-    };
-    
-    return btoa(JSON.stringify(envelope));
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
-    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/db-helpers.ts`
 
 ```ts
@@ -3758,6 +3378,369 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
 
 ---
 
+## Arquivo: `src/utils/push-utils.ts`
+
+```ts
+// src/utils/push-utils.ts
+import { gzipSync } from "fflate";
+import { addDebugLog } from "./debug-utils.ts";
+
+// ============================================================
+// CONFIGURAÇÃO DO PROXY DE PUSH (DESACOPLADO)
+// ============================================================
+// Deixe vazio ("") se o proxy rodar na mesma origem (ex: desenvolvimento local unificado).
+// Defina a URL completa (ex: "https://vanaware-loco.workers.dev") quando o PWA estiver no GitHub Pages.
+const PROXY_URL = "";
+
+// ============================================================
+// UTILITÁRIOS DE CRIPTOGRAFIA PARA PUSH
+// ============================================================
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
+  }
+}
+
+/**
+ * Cifra um payloadObj (objeto JavaScript) usando AES-GCM e a chave E2EE RSA do destinatário.
+ * Retorna envelope blindado: { i: ivBase64, d: dadosCifradosBase64, k: chaveAesCifradaBase64 }
+ */
+export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
+  i: string;
+  d: string;
+  k: string;
+}> {
+  try {
+    const encoder = new TextEncoder();
+    const jsonString = JSON.stringify(payloadObj);
+    const bytes = encoder.encode(jsonString);
+    
+    // Otimização: Compressão Deflate para poupar tráfego e respeitar a cota Web Push
+    const compressed = gzipSync(bytes);
+    
+    // Avaliação Proativa de Gargalos de Rede (WebPush limita FCM a 4096 bytes)
+    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
+    if (compressed.length > 3000) {
+       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
+    }
+
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      compressed
+    );
+
+    const cryptoKeyDestino = await crypto.subtle.importKey(
+      "jwk",
+      publicKeyRSA,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyEncrypted = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoKeyDestino,
+      aesKeyRaw
+    );
+
+    return {
+      i: arrayBufferToBase64(iv.buffer),
+      d: arrayBufferToBase64(encryptedBuffer),
+      k: arrayBufferToBase64(aesKeyEncrypted)
+    };
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
+    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
+  }
+}
+
+/**
+ * Envia um payload JWT pronto para o servidor proxy na raiz (/).
+ * Retorna true se sucesso, lança erro detalhado em caso de falha.
+ */
+export async function enviarParaProxy(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payloadText: string,
+  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
+): Promise<void> {
+  // Apenas Blob consegue medir strings com caracteres multi-byte UTF-8 corretamente no Client Side
+  const payloadSize = new Blob([payloadText]).size;
+  if (payloadSize > 4096) {
+    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
+    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
+  }
+
+  try {
+    const response = await fetch(`${PROXY_URL}/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription,
+        payloadText,
+        vapid: {
+          subject: vapid.subject,
+          publicKey: vapid.publicKey,
+          privateKey: vapid.privateKey
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
+    }
+  } catch (err: any) {
+     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
+     throw err;
+  }
+}
+
+/**
+ * Cifra a chave privada VAPID (JWK) com a chave pública do servidor usando Hybrid Crypto.
+ * Retorna string Base64 estruturada.
+ */
+export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  try {
+    const serverKey = await crypto.subtle.importKey(
+      "jwk",
+      serverPublicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+    
+    const vapidCifrado = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      vapidBytes
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyCifrado = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      serverKey,
+      aesKeyRaw
+    );
+
+    const toHex = (buf: ArrayBuffer) =>
+      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    const envelope = {
+      iv: toHex(iv.buffer),
+      dadosCifrados: toHex(vapidCifrado),
+      chaveAesCifrada: toHex(aesKeyCifrado)
+    };
+    
+    return btoa(JSON.stringify(envelope));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
+    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/profile-utils.ts`
+
+```ts
+// src/utils/profile-utils.ts
+import { salvarProfile, buscarProfile } from './db-helpers.ts';
+import { cifrarChaveVapid } from './push-utils.ts';
+import { registrarServiceWorker } from './sw-utils.ts';
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { addDebugLog } from './debug-utils.ts';
+
+export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const concedido = await navigator.storage.persist();
+      if (concedido) {
+        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
+      } else {
+        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
+      }
+      return concedido;
+    } catch (err: any) {
+      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
+  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
+
+  if (!nome || !email) {
+    throw new Error("Preencha Nome e E-mail primeiro.");
+  }
+
+  try {
+    addDebugLog("Step 1: Verificando permissão de notificação...");
+    try {
+      if (Notification.permission === "denied") {
+        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
+      } else if (Notification.permission === "default") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          addDebugLog("⚠️ Permissão de notificação não concedida.");
+        }
+      }
+    } catch (notifErr: any) {
+      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
+    }
+
+    addDebugLog("Step 2: Registrando Service Worker...");
+    const registration = await registrarServiceWorker();
+
+    addDebugLog("Step 3: Buscando chave pública do servidor...");
+    const resServerKey = await fetch("/?file=server-public-key");
+    if (!resServerKey.ok) {
+      throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
+    }
+    const serverPublicKeyJwk = await resServerKey.json();
+    addDebugLog("Step 3.5: Chave do servidor recebida");
+
+    let vapidKeyPair: CryptoKeyPair;
+    let publicKeyJwk: JsonWebKey;
+    let privateKeyJwk: JsonWebKey;
+
+    let existingProfile = await buscarProfile();
+    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
+      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
+      publicKeyJwk = existingProfile.vapidPublicKey;
+      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
+      try {
+        vapidKeyPair = {
+          publicKey: await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk", privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+        } as CryptoKeyPair;
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
+        existingProfile = undefined;
+      }
+    }
+    if (!existingProfile || !vapidKeyPair!) {
+      addDebugLog("🔑 Gerando novas chaves VAPID...");
+      vapidKeyPair = await generateVAPIDKeys();
+      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+    }
+
+    addDebugLog("Step 4: Obtendo subscription...");
+    if (!registration) throw new Error("Service Worker registration é null/undefined");
+    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
+    
+    let existingSubscription = await registration.pushManager.getSubscription();
+    let subscriptionValida = false;
+
+    if (existingSubscription) {
+      const profileSub = existingProfile?.subscription;
+      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
+        subscriptionValida = true;
+      } else {
+        await existingSubscription.unsubscribe();
+        if (existingProfile) {
+           delete (existingProfile as any).subscription;
+           await salvarProfile(existingProfile);
+        }
+        existingSubscription = null;
+      }
+    }
+    
+    if (!existingSubscription || !subscriptionValida) {
+      addDebugLog("📝 Criando nova subscription...");
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair!.publicKey);
+      existingSubscription = await registration.pushManager.subscribe({
+        applicationServerKey: new Uint8Array(rawPublicKey),
+        userVisibleOnly: true
+      });
+    }
+
+    const p256dhBuffer = existingSubscription.getKey('p256dh');
+    const authBuffer = existingSubscription.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) {
+      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
+    }
+    const subscription = {
+      endpoint: existingSubscription.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      }
+    };
+
+    let e2ePublicKey: JsonWebKey;
+    let e2ePrivateKeyJwk: JsonWebKey;
+
+    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
+      addDebugLog("📂 Chaves E2E encontradas no perfil.");
+      e2ePublicKey = existingProfile.e2ePublicKey;
+      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
+      try {
+        await window.crypto.subtle.importKey("jwk", e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
+        const newKeys = await generateE2EEKeys();
+        e2ePublicKey = newKeys.publicEncrypt;
+        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+      }
+    } else {
+      addDebugLog("🔑 Gerando novas chaves E2E...");
+      const newKeys = await generateE2EEKeys();
+      e2ePublicKey = newKeys.publicEncrypt;
+      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+    }
+
+    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
+
+    const profile: ProfileConfig = {
+      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
+    };
+
+    await salvarProfile(profile);
+    await solicitarArmazenamentoPersistente();
+
+    addDebugLog("✅ Perfil salvo com sucesso.");
+    return profile;
+  } catch (err) {
+    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/styles.d.ts`
 
 ```ts
@@ -3852,120 +3835,6 @@ declare module "preact" {
   <script src="./logout.tsx" type="module"></script>
 </body>
 </html>
-```
-
----
-
-## Arquivo: `src/logout.tsx`
-
-```tsx
-// src/logout.tsx
-import { render } from 'preact';
-import { useSignal } from '@preact/signals';
-
-import "@material/web/all.js";
-import './styles.css';
-
-function LogoutApp() {
-  const status = useSignal('Aguardando confirmação...');
-  const executando = useSignal(false);
-
-  const handleLogout = async () => {
-    executando.value = true;
-    try {
-      status.value = "1/5 Limpando Web Storage...";
-      window.localStorage.clear();
-      window.sessionStorage.clear();
-
-      status.value = "2/5 Apagando Cookies...";
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const parts = cookies[i].split("=");
-        const name = parts[0].trim();
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
-      }
-
-      status.value = "3/5 Apagando bancos IndexedDB...";
-      if (window.indexedDB?.databases) {
-        const dbs = await window.indexedDB.databases();
-        for (const db of dbs) if (db.name) window.indexedDB.deleteDatabase(db.name);
-      }
-
-      status.value = "4/5 Cancelando Push e Service Workers...";
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          if (registration.pushManager) {
-            const subscription = await registration.pushManager.getSubscription();
-            if (subscription) await subscription.unsubscribe();
-          }
-          await registration.unregister();
-        }
-      }
-
-      status.value = "5/5 Limpando disco virtual (OPFS) e Cache...";
-      if (window.caches) {
-        const cacheNames = await window.caches.keys();
-        for (const name of cacheNames) await window.caches.delete(name);
-      }
-      if (navigator.storage?.getDirectory) {
-        const root = await navigator.storage.getDirectory();
-        for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
-      }
-
-      status.value = "Concluindo no servidor...";
-      const resposta = await fetch('./api/logout', { method: 'POST' });
-
-      if (resposta.ok) {
-        status.value = "✅ Logout e Destruição de Chaves Concluídos!";
-        setTimeout(() => {
-          window.location.href = '/'; 
-        }, 1500);
-      } else {
-        throw new Error("Falha no servidor ao deslogar.");
-      }
-    } catch (erro: any) {
-      status.value = `❌ Erro: ${erro.message}`;
-      executando.value = false;
-    }
-  };
-
-  return (
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px;">
-      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
-        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
-        <h2 style="justify-content: center;">Sair do Sistema</h2>
-        
-        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
-          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
-        </p>
-
-        {executando.value ? (
-          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
-            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
-            <br />
-            {status.value}
-          </div>
-        ) : (
-          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
-            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
-              ⚠️ Sim, Apagar Meus Dados e Sair
-            </md-filled-button>
-            <md-outlined-button onClick={() => window.location.href = '/'} style="width: 100%;">
-              Cancelar e Voltar
-            </md-outlined-button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const root = document.getElementById('app-logout');
-if (root) {
-  render(<LogoutApp />, root);
-}
 ```
 
 ---
@@ -5509,6 +5378,120 @@ if (root) {
 
 ---
 
+## Arquivo: `src/logout.tsx`
+
+```tsx
+// src/logout.tsx
+import { render } from 'preact';
+import { useSignal } from '@preact/signals';
+
+import "@material/web/all.js";
+import './styles.css';
+
+function LogoutApp() {
+  const status = useSignal('Aguardando confirmação...');
+  const executando = useSignal(false);
+
+  const handleLogout = async () => {
+    executando.value = true;
+    try {
+      status.value = "1/5 Limpando Web Storage...";
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+
+      status.value = "2/5 Apagando Cookies...";
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const parts = cookies[i].split("=");
+        const name = parts[0].trim();
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
+      }
+
+      status.value = "3/5 Apagando bancos IndexedDB...";
+      if (window.indexedDB?.databases) {
+        const dbs = await window.indexedDB.databases();
+        for (const db of dbs) if (db.name) window.indexedDB.deleteDatabase(db.name);
+      }
+
+      status.value = "4/5 Cancelando Push e Service Workers...";
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          if (registration.pushManager) {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) await subscription.unsubscribe();
+          }
+          await registration.unregister();
+        }
+      }
+
+      status.value = "5/5 Limpando disco virtual (OPFS) e Cache...";
+      if (window.caches) {
+        const cacheNames = await window.caches.keys();
+        for (const name of cacheNames) await window.caches.delete(name);
+      }
+      if (navigator.storage?.getDirectory) {
+        const root = await navigator.storage.getDirectory();
+        for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+      }
+
+      status.value = "Concluindo no servidor...";
+      const resposta = await fetch('/?logout=true', { method: 'GET' });
+
+      if (resposta.ok) {
+        status.value = "✅ Logout e Destruição de Chaves Concluídos!";
+        setTimeout(() => {
+          window.location.href = '/'; 
+        }, 1500);
+      } else {
+        throw new Error("Falha no servidor ao deslogar.");
+      }
+    } catch (erro: any) {
+      status.value = `❌ Erro: ${erro.message}`;
+      executando.value = false;
+    }
+  };
+
+  return (
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px;">
+      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
+        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
+        <h2 style="justify-content: center;">Sair do Sistema</h2>
+        
+        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
+          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
+        </p>
+
+        {executando.value ? (
+          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
+            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
+            <br />
+            {status.value}
+          </div>
+        ) : (
+          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
+            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
+              ⚠️ Sim, Apagar Meus Dados e Sair
+            </md-filled-button>
+            <md-outlined-button onClick={() => window.location.href = '/'} style="width: 100%;">
+              Cancelar e Voltar
+            </md-outlined-button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const root = document.getElementById('app-logout');
+if (root) {
+  render(<LogoutApp />, root);
+}
+```
+
+---
+
 ## Arquivo: `public/manifest.json`
 
 ```json
@@ -5550,7 +5533,7 @@ if (root) {
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.34-msmog8mm",
+  "version": "0.2.40-msnt8hoo",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -5599,7 +5582,6 @@ if (root) {
     "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
     "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
     "dev": "deno task build && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "worker": "deno task build && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
     "clean": "rm -rf dist && mkdir -p dist",
     "export": "deno run --allow-read --allow-write export.ts"
   },
@@ -5871,22 +5853,89 @@ await build();
 
 ---
 
-## Arquivo: `worker.ts`
+## Arquivo: `wrangler.toml`
+
+```toml
+#:schema node_modules/wrangler/config-schema.json
+
+name = "vanaware-loco"
+   main = "dist/worker.js"
+   compatibility_date = "2026-06-01"
+   # compatibility_flags = ["nodejs_compat"]
+   # routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
+
+   [observability]
+   enabled = true
+
+   [vars]
+   # use `wrangler secret put` para a privada
+   SERVER_PUBLIC_KEY = '{"kty":"RSA","alg":"RSA-OAEP-256","n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ","e":"AQAB","key_ops":["encrypt"],"ext":true}'
+```
+
+---
+
+## Arquivo: `main.ts`
 
 ```ts
 /// <reference lib="deno.ns" />
 
 import { serveDir } from "@std/http/file-server";
+import workerHandler from "./worker.ts";
+
+const env = Deno.env.toObject()
+Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {    
+    const url = new URL(req.url);
+    const ctx = {
+        waitUntil: (p: Promise<any>) => { p.catch(console.error); },
+        passThroughOnException: () => {}
+    };
+
+// 1. Tenta processar a requisição através do workerHandler (APIs e Proxy Push)
+    const workerResponse = await workerHandler.fetch(req, env, ctx);
+
+    // 2. Se o worker processou com sucesso ou retornou erro de API (ex: 400, 403, 500), retorna o resultado dele
+    if (workerResponse.status !== 404) {
+        return workerResponse;
+    }
+
+    // 3. Se o worker retornou 404 (Endpoint não encontrado), significa que não é uma API.
+    // Deixamos o serveDir processar para entregar o arquivo estático correspondente (HTML, JS, CSS, Ícones) do ./dist.
+    try {
+        const staticResponse = await serveDir(req, {
+            fsRoot: "./dist",
+            showDirListing: false,
+            quiet: true,
+        });
+
+        // Se o arquivo estático foi encontrado e servido com sucesso, retorna-o
+        if (staticResponse.status !== 404) {
+            return staticResponse;
+        }
+    } catch {
+        // Silencia erros de IO do disco
+    }
+
+    // 4. Se nem a API nem o disco possuíam o recurso, retorna o 404 limpo do worker
+    return workerResponse; 
+
+});
+
+```
+
+---
+
+## Arquivo: `worker.ts`
+
+```ts
+// worker.ts
+/// <reference lib="deno.ns" />
+
 import * as webpush from "@negrel/webpush";
 import { deleteCookie } from "@std/http/cookie";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
 
-/**
- * Carrega e inicializa as chaves RSA de infraestrutura do servidor de forma segura.
- * Suporta tanto o objeto `env` do Cloudflare Workers quanto o `Deno.env` local/Deno Deploy.
- */
 async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
   if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
     return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
@@ -6019,7 +6068,7 @@ const workerHandler = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    if (!isAllowedOrigin && url.pathname.startsWith("/api/")) {
+    if (!isAllowedOrigin && (url.pathname.startsWith("/api/") || url.pathname === "/")) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
       return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
         status: 403,
@@ -6030,14 +6079,16 @@ const workerHandler = {
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
 
-      if (request.method === "GET" && url.pathname === "/api/server-public-key") {
+      // 🔑 Rota GET na raiz para entregar a chave pública do servidor
+      if (request.method === "GET" && url.pathname === "/" && url.searchParams.get("file") === "server-public-key") {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
 
-      if (url.pathname === "/api/logout" && request.method === "POST") {
+      // 🚪 Rota GET na raiz com parâmetro ?logout=true para limpeza e destruição de sessão
+      if (request.method === "GET" && url.pathname === "/" && url.searchParams.get("logout") === "true") {
         const headers = new Headers(corsHeaders);
         deleteCookie(headers, "session_token", { path: "/" });
         headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
@@ -6048,8 +6099,8 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && url.pathname === "/api/proxy-push") {
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida!`);
+      if (request.method === "POST" && url.pathname === "/") {
+        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida na raiz!`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;
@@ -6063,19 +6114,19 @@ const workerHandler = {
 
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (jwtClaims) {
-          console.log(`   - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         }
 
         let privateKeyFinal = vapid.privateKey;
 
         if (typeof privateKeyFinal === "string") {
-          console.log("   - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
+          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
           try {
             const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
             privateKeyFinal = decryptedPrivateKeyObj;
-            console.log("   - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
           } catch (decryptErr) {
-            console.error("   - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
+            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
             return new Response(
               JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -6095,7 +6146,7 @@ const workerHandler = {
         const subscriber = appServer.subscribe(subscription);
         await subscriber.pushTextMessage(payloadText, {});
         
-        console.log("   ✅ [SUCESSO] Push despachado com sucesso!");
+        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
 
         return new Response(JSON.stringify({ success: true }), {
           status: 200,
@@ -6103,16 +6154,8 @@ const workerHandler = {
         });
       }
 
-      if (typeof Deno !== "undefined" && typeof serveDir === "function") {
-        return serveDir(request, {
-          fsRoot: "./dist",
-          showDirListing: false,
-          quiet: true,
-        });
-      }
-
       return new Response(
-        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy." }),
+        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
 
@@ -6128,47 +6171,6 @@ const workerHandler = {
 };
 
 export default workerHandler;
-```
-
----
-
-## Arquivo: `wrangler.toml`
-
-```toml
-#:schema node_modules/wrangler/config-schema.json
-
-name = "vanaware-loco"
-   main = "dist/worker.js"
-   compatibility_date = "2026-06-01"
-   # compatibility_flags = ["nodejs_compat"]
-   # routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
-
-   [observability]
-   enabled = true
-
-   [vars]
-   # use `wrangler secret put` para a privada
-   SERVER_PUBLIC_KEY = '{"kty":"RSA","alg":"RSA-OAEP-256","n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ","e":"AQAB","key_ops":["encrypt"],"ext":true}'
-```
-
----
-
-## Arquivo: `main.ts`
-
-```ts
-/// <reference lib="deno.ns" />
-
-import workerHandler from "./worker.ts";
-
-const env = Deno.env.toObject()
-Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {    
-    const ctx = {
-        waitUntil: (p: Promise<any>) => { p.catch(console.error); },
-        passThroughOnException: () => {}
-    };
-    return await workerHandler.fetch(req, env, ctx);
-});
-
 ```
 
 ---

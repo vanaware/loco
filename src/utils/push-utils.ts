@@ -3,6 +3,13 @@ import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
 
 // ============================================================
+// CONFIGURAÇÃO DO PROXY DE PUSH (DESACOPLADO)
+// ============================================================
+// Deixe vazio ("") se o proxy rodar na mesma origem (ex: desenvolvimento local unificado).
+// Defina a URL completa (ex: "https://vanaware-loco.workers.dev") quando o PWA estiver no GitHub Pages.
+const PROXY_URL = "";
+
+// ============================================================
 // UTILITÁRIOS DE CRIPTOGRAFIA PARA PUSH
 // ============================================================
 
@@ -80,7 +87,7 @@ export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey
 }
 
 /**
- * Envia um payload JWT pronto para o servidor proxy.
+ * Envia um payload JWT pronto para o servidor proxy na raiz (/).
  * Retorna true se sucesso, lança erro detalhado em caso de falha.
  */
 export async function enviarParaProxy(
@@ -96,7 +103,7 @@ export async function enviarParaProxy(
   }
 
   try {
-    const response = await fetch("/api/proxy-push", {
+    const response = await fetch(`${PROXY_URL}/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -105,7 +112,7 @@ export async function enviarParaProxy(
         vapid: {
           subject: vapid.subject,
           publicKey: vapid.publicKey,
-          privateKey: vapid.privateKey // Pode ser o envelope RSA para o servidor ou a JWK exposta
+          privateKey: vapid.privateKey
         }
       })
     });
@@ -157,8 +164,6 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
       aesKeyRaw
     );
 
-    // NOTA TÉCNICA: Mantemos Hex encoding temporariamente para retrocompatibilidade
-    // estrutural com a leitura da API do Servidor (main.ts).
     const toHex = (buf: ArrayBuffer) =>
       Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
     

@@ -18,7 +18,6 @@ export function ProfileSection() {
   }, []);
 
   const p = profile.value;
-  // A existência destas duas chaves assegura que o perfil está gerado
   const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
 
   useEffect(() => {
@@ -65,7 +64,7 @@ export function ProfileSection() {
     try {
       if (!p) return showToast("Salve o perfil primeiro.", "error");
 
-      const resServerKey = await fetch("/api/server-public-key");
+      const resServerKey = await fetch("/?file=server-public-key");
       if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
       const serverPublicKeyJwk = await resServerKey.json();
       

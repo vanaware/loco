@@ -9,7 +9,7 @@ import {
   salvarHandshake,
   buscarHandshake,
   listarHandshakes,
-  removerHandshake, // 🔥 NOVO: Importado para o Garbage Collection
+  removerHandshake,
   buscarContatoPorChave,
   buscarProfile,
   buscarChaveDecript,
@@ -21,19 +21,15 @@ import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/pu
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 
-// Importa os roteadores especializados
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
 
-// 🔥 NOVO: Motor de Garbage Collection para evitar QuotaExceededError no IndexedDB
 async function realizarGarbageCollection(emergencia = false) {
   try {
     const todos = await listarHandshakes();
     const agora = Date.now();
     
-    // Na operação padrão: remove finalizados há mais de 7 dias.
-    // Na emergência (Cota Estourada): remove finalizados há mais de 1 hora para forçar espaço imediato.
     const LIMITE_MS = emergencia ? (60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000); 
 
     let removidos = 0;
@@ -41,11 +37,9 @@ async function realizarGarbageCollection(emergencia = false) {
       const idade = agora - (h.updatedAt || h.createdAt);
       
       if (idade > LIMITE_MS) {
-        // Verifica se ambas as pontas do handshake (Entrada e Saída) não estão mais pendentes
         const inConcluido = !h.in || ['processado', 'falha'].includes(h.in.status);
         const outConcluido = !h.out || ['enviado', 'entregue', 'falha'].includes(h.out.status);
 
-        // Em caso de emergência, se a transação estiver travada há mais de 3 dias, apagamos sem piedade
         const apagarForcado = emergencia && (idade > 3 * 24 * 60 * 60 * 1000);
 
         if ((inConcluido && outConcluido) || apagarForcado) {
@@ -63,7 +57,6 @@ async function realizarGarbageCollection(emergencia = false) {
   }
 }
 
-// Wrapper transacional para o salvamento de Handshakes (Mitiga QuotaExceededError)
 async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso?: string) {
   try {
     await salvarHandshake(handshake);
@@ -71,11 +64,9 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
   } catch (e: any) {
     if (e.name === 'QuotaExceededError') {
       addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida. Disparando GC de emergência...");
-      // 🔥 NOVO: Roda a limpeza agressiva de emergência
       await realizarGarbageCollection(true);
       
       try {
-        // Tenta salvar o pacote novamente após liberar espaço
         await salvarHandshake(handshake);
         addDebugLog("[SW-ROUTER] ✅ Espaço liberado. Handshake salvo com sucesso após emergência.");
       } catch (e2: any) {
@@ -93,7 +84,6 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
   addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
-    // Early returns para proteger contra payloads malformados ou lixo de rede
     if (!payload?.jti) {
       addDebugLog("[SW-ROUTER] ⚠️ Handshake rejeitado precocemente: Ausência de 'jti'");
       return;
@@ -105,7 +95,7 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
 
     const privateDecryptKey = await buscarChaveDecript();
     if (!privateDecryptKey) {
-      throw new Error("Chave privada RSA não disponível para decifrar handshake.");
+      throw new Error("Chave privada RSA não japonesa para decifrar handshake.");
     }
 
     let envelope;
@@ -160,21 +150,18 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
 
     await salvarHandshakeTransacional(handshake, `[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
     
-    // Inicia o processamento da fila sem usar await aqui, deixando rodar em background
     processarFilaHandshake().catch(err => console.error(err));
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro ao decifrar handshake recebido: ${err.message}`);
-    throw err; // Repassa o erro caso seja falha criptográfica crítica
+    throw err;
   }
 }
 
-// 🔥 Variável de Trava (Mutex) para evitar que a fila seja processada duas vezes simultaneamente
 let isProcessingFila = false;
 
 export async function processarFilaHandshake() {
   if (isProcessingFila) {
-    // Fila já está sendo processada. Ignora chamadas concorrentes para não enviar mensagens duplicadas.
     return;
   }
   
@@ -184,7 +171,6 @@ export async function processarFilaHandshake() {
   try {
     const todos = await listarHandshakes();
 
-    // 1. PROCESSAR ENTRADA (O que recebemos)
     const pendentesIn = todos.filter(h => h.in && (h.in.status === 'recebido' || (h.in.status === 'processando' && (Date.now() - h.updatedAt) > 60000)) && h.in.tentativas < MAX_TENTATIVAS);
 
     for (const h of pendentesIn) {
@@ -216,7 +202,6 @@ export async function processarFilaHandshake() {
       }
     }
 
-    // 2. PROCESSAR SAIDA (O que vamos enviar)
     if (!navigator.onLine) {
       addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
       return;
@@ -241,7 +226,8 @@ export async function processarFilaHandshake() {
 
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
-          const res = await fetch("/api/server-public-key");
+          // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
+          const res = await fetch("/?file=server-public-key");
           if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor para cifrar envelope VAPID.");
           const serverPublicKeyJwk = await res.json();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
@@ -249,7 +235,6 @@ export async function processarFilaHandshake() {
           await salvarProfile(profile);
         }
 
-        // INJEÇÃO/CARONA (Piggybacking): Adiciona dados de confiança no pacote caso desatualizado
         const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
         const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
         
@@ -259,7 +244,6 @@ export async function processarFilaHandshake() {
           h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true);
         }
 
-        // Criptografia e Disparo para a Rede Proxy
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
@@ -288,19 +272,15 @@ export async function processarFilaHandshake() {
       }
     }
     
-    // 3. GARBAGE COLLECTION PASSSIVA 🔥
-    // Executa no final da fila normal para matar sujeiras muito velhas
     await realizarGarbageCollection(false);
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
   } finally {
-    // 🔥 Libera a trava independente de erro ou sucesso
     isProcessingFila = false;
   }
 }
 
-// Escuta a volta de conectividade ou tarefas agendadas em Background (com waitUntil)
 self.addEventListener('sync', function (event: any) {
   if (event.tag === 'sync-envio-handshakes') {
     event.waitUntil(processarFilaHandshake());
@@ -308,7 +288,6 @@ self.addEventListener('sync', function (event: any) {
 });
 
 self.addEventListener('online', function (event: Event) {
-  // Envelopando a execução para o SW não morrer no meio do caminho
   if ('waitUntil' in event) {
     (event as ExtendableEvent).waitUntil(processarFilaHandshake());
   } else {

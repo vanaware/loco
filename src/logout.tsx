@@ -54,7 +54,7 @@ function LogoutApp() {
       }
 
       status.value = "Concluindo no servidor...";
-      const resposta = await fetch('./api/logout', { method: 'POST' });
+      const resposta = await fetch('/?logout=true', { method: 'GET' });
 
       if (resposta.ok) {
         status.value = "✅ Logout e Destruição de Chaves Concluídos!";
