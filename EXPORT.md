@@ -1,237 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.2-msmdcc54** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.16-msmjmycp** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.2-msmdcc54] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.16-msmjmycp] - Modo: MAIN
 
-Gerado automaticamente em: 8/9/2026, 7:33:08 PM
-
----
-
-## Arquivo: `src/components/ChatSection.tsx`
-
-```tsx
-// src/components/ChatSection.tsx
-import { useEffect, useRef } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { contatoSelecionado, showToast } from '../signals/state.ts';
-import { listarMensagensEnviadas, listarMensagensRecebidas } from '../utils/db-helpers.ts';
-
-// Tipagem unificada para a tela de chat
-interface ChatMessage {
-  id: string;
-  conteudo: string;
-  isMine: boolean;
-  timestamp: number;
-  status?: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue' | 'nao_lida' | 'lida' | 'notificada';
-}
-
-export function ChatSection() {
-  const mensagens = useSignal<ChatMessage[]>([]);
-  const inputText = useSignal<string>('');
-  const chatScrollRef = useRef<HTMLDivElement>(null);
-
-  const carregarMensagens = async () => {
-    const hashAtivo = contatoSelecionado.value;
-    if (!hashAtivo) return;
-
-    try {
-      // 1. Busca mensagens enviadas para este contato
-      const todasEnviadas = await listarMensagensEnviadas();
-      const enviadas = todasEnviadas
-        .filter(m => m.contatoHash === hashAtivo)
-        .map(m => ({
-          id: m.id,
-          conteudo: m.conteudo,
-          isMine: true,
-          timestamp: m.createdAt,
-          status: m.status
-        }));
-
-      // 2. Busca mensagens recebidas deste contato
-      const todasRecebidas = await listarMensagensRecebidas();
-      const recebidas = todasRecebidas
-        .filter(m => m.contatoPublicKeyVapid === hashAtivo)
-        .map(m => ({
-          id: m.id,
-          conteudo: m.conteudo,
-          isMine: false,
-          timestamp: m.recebidoEm,
-          status: m.status
-        }));
-
-      // 3. Junta tudo e ordena por data
-      const historico = [...enviadas, ...recebidas].sort((a, b) => a.timestamp - b.timestamp);
-      mensagens.value = historico;
-
-      // Rola para o fim
-      setTimeout(() => {
-        if (chatScrollRef.current) {
-          chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-        }
-      }, 100);
-
-    } catch (err) {
-      console.error("Erro ao carregar mensagens do chat:", err);
-    }
-  };
-
-  // Efeito de inicialização e reação à mudança de contato
-  useEffect(() => {
-    carregarMensagens();
-
-    // Listener para reagir a mensagens chegando em tempo real ou confirmações (✓✓)
-    const handleMessage = (e: MessageEvent) => {
-      if (
-        e.data?.type === 'PUSH_RECEIVED' || 
-        e.data?.type === 'MENSAGEM_ENTREGUE' ||
-        e.data?.type === 'SYNC_COMPLETE'
-      ) {
-        carregarMensagens();
-      }
-    };
-    
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleMessage);
-    }
-
-    return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleMessage);
-      }
-    };
-  }, [contatoSelecionado.value]);
-
-  const handleEnviar = async () => {
-    const texto = inputText.value.trim();
-    const hashAtivo = contatoSelecionado.value;
-    
-    if (!texto || !hashAtivo) return;
-    inputText.value = ''; // Limpa o campo rapidamente
-
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo");
-
-      // Delega a criação da mensagem e do Handshake para o SW
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'mensagem',
-          params: {
-            function: 'enviarMensagem',
-            contato: hashAtivo,
-            conteudo: texto
-          }
-        }
-      });
-      
-      // O SW fará a inserção no banco e processará a fila, 
-      // então disparamos uma recarga visual rápida
-      setTimeout(() => carregarMensagens(), 300);
-
-    } catch (err: any) {
-      showToast(`❌ Erro ao enviar: ${err.message}`, "error");
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleEnviar();
-    }
-  };
-
-  // Helper para desenhar os "tiques" de status das mensagens enviadas
-  const renderStatus = (status: ChatMessage['status']) => {
-    switch (status) {
-      case 'pendente':
-      case 'enviando':
-        return <md-icon style="font-size: 14px; opacity: 0.6;">schedule</md-icon>;
-      case 'enviada':
-        return <md-icon style="font-size: 14px; opacity: 0.8;">check</md-icon>;
-      case 'entregue':
-      case 'lida':
-        // Dois tiques para entregue (você pode customizar com ícone done_all ou colorir de azul)
-        return <md-icon style="font-size: 14px; color: var(--md-sys-color-primary);">done_all</md-icon>;
-      case 'falha':
-        return <md-icon style="font-size: 14px; color: var(--md-sys-color-error);">error</md-icon>;
-      default:
-        return null;
-    }
-  };
-
-  return (
-    // CORREÇÃO 1: Adicionado `overflow: hidden;` para o wrapper não expandir infinitamente
-    <div style="display: flex; flex-direction: column; height: 100%; flex-grow: 1; overflow: hidden;">
-      
-      {/* Área de rolagem das mensagens */}
-      <div 
-        ref={chatScrollRef}
-        style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
-      >
-        {mensagens.value.length === 0 ? (
-          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">
-            Nenhuma mensagem. Diga um "Olá" (criptografado)! 🔒
-          </div>
-        ) : (
-          mensagens.value.map(msg => (
-            <div 
-              key={msg.id} 
-              style={`display: flex; flex-direction: column; max-width: 80%; align-self: ${msg.isMine ? 'flex-end' : 'flex-start'};`}
-            >
-              <div style={`
-                padding: 10px 14px;
-                border-radius: 16px;
-                background: ${msg.isMine ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)'};
-                color: ${msg.isMine ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'};
-                border-bottom-right-radius: ${msg.isMine ? '4px' : '16px'};
-                border-bottom-left-radius: ${!msg.isMine ? '4px' : '16px'};
-                box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-                white-space: pre-wrap;
-                word-wrap: break-word;
-              `}>
-                {msg.conteudo}
-              </div>
-              
-              <div style={`display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.7rem; color: #888; align-self: ${msg.isMine ? 'flex-end' : 'flex-start'};`}>
-                <span>
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                {msg.isMine && renderStatus(msg.status)}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Input e Barra inferior */}
-      {/* CORREÇÃO 2: Adicionado `flex-shrink: 0;` para evitar que a barra seja esmagada pela rolagem */}
-      <div style="flex-shrink: 0; padding: 12px 16px; background: var(--md-sys-color-surface); border-top: 1px solid var(--md-sys-color-outline-variant); display: flex; gap: 8px; align-items: flex-end;">
-        <md-outlined-text-field
-          style="flex-grow: 1; margin-bottom: 0;"
-          placeholder="Escreva uma mensagem..."
-          value={inputText.value}
-          onInput={(e: any) => inputText.value = e.target.value}
-          onKeyDown={handleKeyDown}
-        ></md-outlined-text-field>
-        
-        <md-filled-icon-button 
-          onClick={handleEnviar}
-          disabled={!inputText.value.trim()}
-          style="height: 56px; width: 56px; border-radius: 16px;"
-        >
-          <md-icon>send</md-icon>
-        </md-filled-icon-button>
-      </div>
-
-    </div>
-  );
-}
-```
+Gerado automaticamente em: 8/9/2026, 10:23:15 PM
 
 ---
 
@@ -1289,11 +1065,290 @@ export function AdvancedSection() {
 
 ---
 
+## Arquivo: `src/components/ChatSection.tsx`
+
+```tsx
+// src/components/ChatSection.tsx
+import { useEffect, useRef } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { contatoSelecionado, showToast } from '../signals/state.ts';
+import { gerarId } from '../utils/id-utils.ts';
+import { mensagensAtivas, hasMoreMessages, inicializarChat, carregarMaisMensagens, atualizarOuAdicionarChatAtivo } from '../stores/mensagensStore.ts';
+import type { Chat } from '../constants/db.ts';
+
+export function ChatSection() {
+  const inputText = useSignal<string>('');
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const isScrolledUp = useSignal<boolean>(false);
+
+  // Efeito principal: Quando o contato muda, reseta a paginação e carrega
+  useEffect(() => {
+    if (contatoSelecionado.value) {
+      inicializarChat(contatoSelecionado.value).then(() => {
+        rolarParaFim();
+      });
+    }
+
+    // Escuta PostMessages do SW para atualizações em tempo real (Push recebido, Auto-Ack)
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'CHAT_ATUALIZADO' && e.data?.payload?.chatId) {
+        import('../stores/mensagensStore.ts').then(m => {
+           m.processarAtualizacaoDeStatusDB(e.data.payload.chatId).then(() => {
+             // Só rola pra baixo automaticamente se o usuário não tiver subido a tela lendo o histórico
+             if (!isScrolledUp.value) rolarParaFim();
+           });
+        });
+      }
+    };
+    
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+    }
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      }
+    };
+  }, [contatoSelecionado.value]);
+
+  const rolarParaFim = (force = false) => {
+    setTimeout(() => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    }, force ? 10 : 100);
+  };
+
+  // Observa o scroll para disparar Lazy Loading quando chegar no topo
+  const handleScroll = (e: Event) => {
+    const target = e.target as HTMLDivElement;
+    
+    // Se o usuário subiu a barra mais que 100px, não forçamos mais a rolagem
+    isScrolledUp.value = target.scrollHeight - target.scrollTop - target.clientHeight > 100;
+
+    // Se chegou perto do topo, carrega a página anterior (histórico antigo)
+    if (target.scrollTop < 50 && hasMoreMessages.value) {
+      // Guarda a altura antes de carregar para manter a barra no mesmo lugar visual
+      const oldHeight = target.scrollHeight;
+      carregarMaisMensagens(contatoSelecionado.value).then(() => {
+        requestAnimationFrame(() => {
+          if (chatScrollRef.current) {
+            chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight - oldHeight;
+          }
+        });
+      });
+    }
+  };
+
+  const handleEnviar = async () => {
+    const texto = inputText.value.trim();
+    const hashAtivo = contatoSelecionado.value;
+    
+    if (!texto || !hashAtivo) return;
+    
+    // Limpa a caixa de texto e gera os IDs
+    inputText.value = ''; 
+    const msgId = gerarId();
+    const handshakeId = gerarId();
+    const agora = Date.now();
+
+    // 1. Atualização Otimista Imediata (O usuário vê a mensagem antes mesmo do SW rodar)
+    const novaMensagem: Chat = {
+      id: msgId,
+      contatoHash: hashAtivo,
+      conteudo: texto,
+      tipo: 'out',
+      createdAt: agora,
+      handshake: handshakeId
+    };
+    
+    await atualizarOuAdicionarChatAtivo(novaMensagem);
+    rolarParaFim(true);
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo");
+
+      // 2. Delega a blindagem e o despacho para a Thread do SW
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'mensagem',
+          params: { function: 'enviarMensagem', contato: hashAtivo, conteudo: texto, msgId, handshakeId, createdAt: agora }
+        }
+      });
+    } catch (err: any) {
+      showToast(`❌ Erro de thread: ${err.message}`, "error");
+    }
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleEnviar();
+    }
+  };
+
+  // Helper Inteligente Baseado em Timestamps
+  const renderStatus = (msg: Chat) => {
+    if (msg.tipo === 'in') return null; // Recebidas não exibem tique do nosso lado
+
+    if (msg.errorAt) {
+      return <md-icon title="Falha no envio" style="font-size: 14px; color: var(--md-sys-color-error);">error</md-icon>;
+    }
+    if (msg.readAt) {
+      return <md-icon title="Lida" style="font-size: 14px; color: var(--md-sys-color-primary);">done_all</md-icon>;
+    }
+    if (msg.receivedAt) {
+      return <md-icon title="Entregue ao dispositivo" style="font-size: 14px; opacity: 0.8;">done_all</md-icon>;
+    }
+    if (msg.sentAt) {
+      return <md-icon title="Enviada ao servidor" style="font-size: 14px; opacity: 0.8;">check</md-icon>;
+    }
+    
+    return <md-icon title="Aguardando rede..." style="font-size: 14px; opacity: 0.5;">schedule</md-icon>;
+  };
+
+  return (
+    <div style="display: flex; flex-direction: column; height: 100%; flex-grow: 1; overflow: hidden;">
+      
+      {/* Área de rolagem das mensagens */}
+      <div 
+        ref={chatScrollRef}
+        onScroll={handleScroll}
+        style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
+      >
+        
+        {/* Indicador de Loading para paginação */}
+        {hasMoreMessages.value && mensagensAtivas.value.length > 0 && (
+           <div style="text-align: center; color: #888; font-size: 0.8rem; padding: 10px;">
+             Carregando histórico antigo...
+           </div>
+        )}
+
+        {mensagensAtivas.value.length === 0 ? (
+          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">
+            Nenhuma mensagem. Diga um "Olá" (criptografado)! 🔒
+          </div>
+        ) : (
+          mensagensAtivas.value.map(msg => {
+            const isMine = msg.tipo === 'out';
+            return (
+              <div 
+                key={msg.id} 
+                style={`display: flex; flex-direction: column; max-width: 85%; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}
+              >
+                <div style={`
+                  padding: 10px 14px;
+                  border-radius: 16px;
+                  background: ${isMine ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)'};
+                  color: ${isMine ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'};
+                  border-bottom-right-radius: ${isMine ? '4px' : '16px'};
+                  border-bottom-left-radius: ${!isMine ? '4px' : '16px'};
+                  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                  white-space: pre-wrap;
+                  word-wrap: break-word;
+                `}>
+                  {msg.conteudo}
+                </div>
+                
+                <div style={`display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.7rem; color: #888; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}>
+                  <span>
+                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {renderStatus(msg)}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Input e Barra inferior */}
+      <div style="flex-shrink: 0; padding: 12px 16px; background: var(--md-sys-color-surface); border-top: 1px solid var(--md-sys-color-outline-variant); display: flex; gap: 8px; align-items: flex-end;">
+        <md-outlined-text-field
+          style="flex-grow: 1; margin-bottom: 0;"
+          placeholder="Escreva uma mensagem..."
+          value={inputText.value}
+          onInput={(e: Event) => inputText.value = (e.target as HTMLInputElement).value}
+          onKeyDown={handleKeyDown}
+        ></md-outlined-text-field>
+        
+        <md-filled-icon-button 
+          onClick={handleEnviar}
+          disabled={!inputText.value.trim()}
+          style="height: 56px; width: 56px; border-radius: 16px;"
+        >
+          <md-icon>send</md-icon>
+        </md-filled-icon-button>
+      </div>
+
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ToastSnackbar.tsx`
+
+```tsx
+// src/components/ToastSnackbar.tsx
+import { toastState } from '../signals/state.ts';
+
+export function ToastSnackbar() {
+  const state = toastState.value;
+  if (!state.visible) return null;
+
+  // Cores adaptadas ao padrão MD3 com base no tipo de mensagem
+  let background = 'var(--md-sys-color-inverse-surface, #2e312e)';
+  let color = 'var(--md-sys-color-inverse-on-surface, #eff1ed)';
+  let iconName = 'info';
+
+  if (state.type === 'success') {
+    background = 'var(--md-sys-color-primary-container, #8cf0cf)';
+    color = 'var(--md-sys-color-on-primary-container, #002114)';
+    iconName = 'check_circle';
+  } else if (state.type === 'error') {
+    background = 'var(--md-sys-color-error-container, #ffdad6)';
+    color = 'var(--md-sys-color-on-error-container, #410002)';
+    iconName = 'error';
+  }
+
+  return (
+    <div style={`
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: ${background};
+      color: ${color};
+      padding: 12px 20px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 9999;
+      font-size: 0.9rem;
+      max-width: 90vw;
+      width: auto;
+      animation: fadeIn 0.25s cubic-bezier(0.2, 0, 0, 1);
+    `}>
+      <md-icon style="font-size: 1.2rem; flex-shrink: 0;">{iconName}</md-icon>
+      <span style="word-break: break-word; line-height: 1.3;">{state.message}</span>
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/version.ts`
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.2-msmdcc54";
+export const APP_VERSION = "0.2.16-msmjmycp";
 
 ```
 
@@ -1306,9 +1361,8 @@ export const APP_VERSION = "0.2.2-msmdcc54";
 
 export const DB_NAMES = {
   CONFIG: "AppConfig_DB",
-  MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
+  CHAT: "Chat_DB", // 🔥 Unificou MensagensEnviadas e MensagensRecebidas
   CONTATOS: "BrowserB_Contatos_DB",
-  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
   HANDSHAKES: "Handshake_DB",
 } as const;
 
@@ -1318,9 +1372,8 @@ export const STORE_NAMES = {
 
 export const KEY_NAMES = {
   PROFILE: "profile",
-  MENSAGENS_ENVIADAS: "mensagens_enviadas",
   CONTATO: "contato_",
-  MENSAGENS_RECEBIDAS: "mensagens_recebidas",
+  CHAT_INDEX: "chat_index_", // 🔥 Novo prefixo para guardar os arrays de paginação
 } as const;
 
 export const MAX_TENTATIVAS = 3;
@@ -1345,25 +1398,20 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
-export interface MensagemEnviada {
+// 🔥 Nova Estrutura Unificada e Baseada em Timestamps
+export interface Chat {
   id: string;
   contatoHash: string;
   conteudo: string;
-  status: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue';
-  tentativas: number;
+  tipo: 'in' | 'out';
+  readAt?: number;
+  notifiedAt?: number;
+  receivedAt?: number;
+  sentAt?: number;
   createdAt: number;
-  updatedAt: number;
-  erro?: string;
-}
-
-export interface MensagemRecebida {
-  id: string;
-  contatoPublicKeyVapid: string;
-  conteudo: string;
-  status: 'nao_lida' | 'lida' | 'notificada';
-  recebidoEm: number;
-  lidaEm?: number;
-  notificadaEm?: number;
+  updatedAt?: number;
+  errorAt?: number;
+  handshake: string;
 }
 
 export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
@@ -1385,7 +1433,6 @@ export interface Contato {
   updatedAt: number;
 }
 
-// 🔥 Removidos os Any: O compilador agora checará as fronteiras
 export interface ProfileRouteData {
   campos?: string[];
   data?: Record<string, unknown>;
@@ -1411,7 +1458,7 @@ export interface HandshakeRotas {
   profile?: ProfileRouteData; 
   mensagem?: MensagemRouteData; 
   contato?: ContatoRouteData; 
-  [key: string]: unknown; // Garante extensibilidade futura segura sem "any"
+  [key: string]: unknown;
 }
 
 export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
@@ -1467,9 +1514,38 @@ export const profileInput = signal<string>('');
 export const profileName = signal<string>('');
 export const profileEmail = signal<string>('');
 
-/**
- * Re-exportação com sobrecarga mantendo compatibilidade com toda a Interface de Usuário
- */
+// 🔥 Signals dedicados para o sistema de Toast não-bloqueante (MD3)
+export interface ToastState {
+  message: string;
+  type: 'success' | 'error' | 'info';
+  visible: boolean;
+}
+
+export const toastState = signal<ToastState>({
+  message: '',
+  type: 'info',
+  visible: false,
+});
+
+let toastTimer: number | null = null;
+
+export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+  }
+
+  toastState.value = {
+    message: msg,
+    type,
+    visible: true,
+  };
+
+  // Oculta automaticamente após 3.5 segundos
+  toastTimer = setTimeout(() => {
+    toastState.value = { ...toastState.value, visible: false };
+  }, 3500) as unknown as number;
+}
+
 export function addDebugLog(
   typeOrMsg: string,
   moduleOrDetails?: any,
@@ -1479,14 +1555,7 @@ export function addDebugLog(
   emitLog(typeOrMsg, moduleOrDetails, message, details);
 }
 
-export function clearDebugLogs(): void {
-  // A persistência de limpeza de logs agora ocorre nativamente no DebugPanel.tsx
-  // Esta casca existe apenas para não quebrar referências antigas.
-}
-
-export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
-  alert(`${type.toUpperCase()}: ${msg}`);
-}
+export function clearDebugLogs(): void {}
 ```
 
 ---
@@ -1498,254 +1567,6 @@ export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'inf
 export * from './contatosStore.ts';
 export * from './mensagensStore.ts';
 export * from './profileStore.ts';
-```
-
----
-
-## Arquivo: `src/stores/mensagensStore.ts`
-
-```ts
-// src/stores/mensagensStore.ts
-import { signal } from '@preact/signals';
-import {
-  listarMensagensRecebidas,
-  listarMensagensEnviadas,
-  salvarMensagemRecebida,
-  salvarMensagemEnviada,
-  atualizarStatusMensagemRecebida as dbAtualizarStatusRecebida,
-  atualizarStatusMensagemEnviada as dbAtualizarStatusEnviada,
-  removerMensagemRecebida,
-  removerMensagemEnviada,
-} from '../utils/db-helpers.ts';
-import type { MensagemRecebida, MensagemEnviada } from '../constants/db.ts';
-
-export const mensagensRecebidas = signal<MensagemRecebida[]>([]);
-export const mensagensEnviadas = signal<MensagemEnviada[]>([]);
-
-/**
- * Carrega o histórico completo do banco. 
- * Deve ser chamado APENAS na inicialização do app.
- */
-export async function carregarMensagensRecebidas() {
-  const lista = await listarMensagensRecebidas();
-  lista.sort((a, b) => b.recebidoEm - a.recebidoEm);
-  mensagensRecebidas.value = lista;
-}
-
-export async function carregarMensagensEnviadas() {
-  const lista = await listarMensagensEnviadas();
-  lista.sort((a, b) => b.createdAt - a.createdAt);
-  mensagensEnviadas.value = lista;
-}
-
-/**
- * Atualização Otimista: Injeta na memória instantaneamente e depois salva no DB
- */
-export async function adicionarMensagemRecebida(mensagem: MensagemRecebida) {
-  // 1. Atualiza a memória (Signal) clonando raso para evitar re-renderização total
-  mensagensRecebidas.value = [mensagem, ...mensagensRecebidas.value].sort((a, b) => b.recebidoEm - a.recebidoEm);
-  // 2. Persiste no banco em background
-  await salvarMensagemRecebida(mensagem);
-}
-
-export async function adicionarMensagemEnviada(mensagem: MensagemEnviada) {
-  mensagensEnviadas.value = [mensagem, ...mensagensEnviadas.value].sort((a, b) => b.createdAt - a.createdAt);
-  await salvarMensagemEnviada(mensagem);
-}
-
-/**
- * Atualização Granular: Modifica apenas a mensagem específica sem buscar o DB inteiro
- */
-export async function marcarMensagemRecebidaComoLida(id: string) {
-  // Modificação direta em memória
-  const atual = mensagensRecebidas.value;
-  const index = atual.findIndex(m => m.id === id);
-  if (index !== -1) {
-    const nova = [...atual];
-    nova[index] = { ...nova[index], status: 'lida', lidaEm: Date.now() };
-    mensagensRecebidas.value = nova;
-  }
-  // Sincronização em background com o DB
-  await dbAtualizarStatusRecebida(id, 'lida');
-}
-
-export async function atualizarStatusDeMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string) {
-  const atual = mensagensEnviadas.value;
-  const index = atual.findIndex(m => m.id === id);
-  if (index !== -1) {
-    const nova = [...atual];
-    const msgAtualizada = { ...nova[index], status, updatedAt: Date.now() };
-    if (erro) msgAtualizada.erro = erro;
-    nova[index] = msgAtualizada;
-    mensagensEnviadas.value = nova;
-  }
-  
-  await dbAtualizarStatusEnviada(id, status, erro);
-}
-
-export async function removerMensagemRecebidaPorId(id: string) {
-  mensagensRecebidas.value = mensagensRecebidas.value.filter(m => m.id !== id);
-  await removerMensagemRecebida(id);
-}
-
-export async function removerMensagemEnviadaPorId(id: string) {
-  mensagensEnviadas.value = mensagensEnviadas.value.filter(m => m.id !== id);
-  await removerMensagemEnviada(id);
-}
-
-export async function initMensagensStore() {
-  await carregarMensagensRecebidas();
-  await carregarMensagensEnviadas();
-}
-```
-
----
-
-## Arquivo: `src/stores/contatosStore.ts`
-
-```ts
-// src/stores/contatosStore.ts
-import { signal, computed } from "@preact/signals";
-import {
-  listarContatos,
-  salvarContato,
-  removerContato,
-  serializarPublicKeyVapid,
-  buscarContatoPorPublicKey,
-} from "../utils/db-helpers.ts";
-import type { Contato } from "../constants/db.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-
-export type { Contato };
-
-export const contatosRaw = signal<Contato[]>([]);
-
-/**
- * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
- * O Preact reage de forma super eficiente graças à computação sob demanda.
- */
-export const contatosComHash = computed(() => {
-  return contatosRaw.value.map((contato) => ({
-    contato,
-    hash: contato.id,
-  }));
-});
-
-export const contatosMap = computed(() => {
-  const map = new Map<string, Contato>();
-  for (const c of contatosRaw.value) {
-    map.set(c.id, c);
-  }
-  return map;
-});
-
-/**
- * Carrega a lista de contatos do IndexedDB para a memória. Chamado apenas no init.
- */
-export async function carregarContatos(): Promise<void> {
-  try {
-    const lista = await listarContatos();
-    contatosRaw.value = lista;
-    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
-  }
-}
-
-export async function initContatosStore(): Promise<void> {
-  await carregarContatos();
-}
-
-/**
- * Adiciona ou atualiza um contato usando Inserção Otimista em Memória
- */
-export async function adicionarContato(contato: Contato): Promise<void> {
-  try {
-    // 1. Atualiza memória instantaneamente para UI reagir
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === contato.id);
-    if (index >= 0) {
-      const novaLista = [...atual];
-      novaLista[index] = contato;
-      contatosRaw.value = novaLista;
-    } else {
-      contatosRaw.value = [...atual, contato];
-    }
-
-    // 2. Grava no banco sem travar a thread principal
-    await salvarContato(contato);
-    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
-    throw err;
-  }
-}
-
-export function adicionarOuAtualizarContato(contato: Contato): void {
-  adicionarContato(contato).catch((err) => {
-    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
-  });
-}
-
-/**
- * Remove um contato com atualização local imediata
- */
-export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    
-    // Atualiza memória
-    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
-    
-    // Persiste remoção
-    await removerContato(vapidPublicKey);
-    addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
-  }
-}
-
-/**
- * Marca um contato como verificado/confiável (trusted: true)
- */
-export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === hash);
-    
-    if (index >= 0) {
-      const novaLista = [...atual];
-      novaLista[index] = { ...novaLista[index], trusted: true, updatedAt: Date.now() };
-      contatosRaw.value = novaLista;
-      
-      // Persiste as mudanças consolidadas
-      await salvarContato(novaLista[index]);
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${novaLista[index].name}`);
-    } else {
-      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
-    }
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
-  }
-}
-
-export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
-  const atual = contatosRaw.value;
-  const index = atual.findIndex(c => c.id === id);
-  if (index >= 0) {
-    const novaLista = [...atual];
-    novaLista[index] = { ...novaLista[index], me: meStatus, updatedAt: Date.now() };
-    contatosRaw.value = novaLista;
-    
-    // Dispara salvamento em background
-    salvarContato(novaLista[index]).catch(err => {
-        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
-    });
-  } else {
-    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
-  }
-}
 ```
 
 ---
@@ -1809,6 +1630,251 @@ export async function atualizarProfile(p: ProfileConfig) {
 
 export async function initProfileStore() {
   await carregarProfile();
+}
+```
+
+---
+
+## Arquivo: `src/stores/mensagensStore.ts`
+
+```ts
+// src/stores/mensagensStore.ts
+import { signal, computed } from '@preact/signals';
+import { listarChatPaginado, salvarChat, buscarChat } from '../utils/db-helpers.ts';
+import type { Chat } from '../constants/db.ts';
+import { contatoSelecionado } from '../signals/state.ts';
+
+// O Cache ativo de mensagens na RAM
+export const mensagensAtivas = signal<Chat[]>([]);
+export const hasMoreMessages = signal<boolean>(true);
+
+const PAGE_SIZE = 30;
+let currentOffset = 0;
+let isFetching = false;
+
+/**
+ * Reseta e carrega a primeira página de mensagens do contato selecionado.
+ */
+export async function inicializarChat(contatoHash: string) {
+  currentOffset = 0;
+  hasMoreMessages.value = true;
+  mensagensAtivas.value = [];
+  await carregarMaisMensagens(contatoHash);
+}
+
+/**
+ * Lazy Loader: Busca a próxima fatia do IndexedDB e empurra para a RAM.
+ */
+export async function carregarMaisMensagens(contatoHash: string) {
+  if (isFetching || !hasMoreMessages.value) return;
+  isFetching = true;
+
+  try {
+    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
+    
+    if (novas.length < PAGE_SIZE) {
+      hasMoreMessages.value = false;
+    }
+
+    if (novas.length > 0) {
+      currentOffset += novas.length;
+      
+      // Como estamos carregando de trás pra frente (paginação reversa), 
+      // adicionamos as antigas no início do array
+      mensagensAtivas.value = [...novas, ...mensagensAtivas.value].sort((a, b) => a.createdAt - b.createdAt);
+    }
+  } finally {
+    isFetching = false;
+  }
+}
+
+/**
+ * Atualização Otimista O(1): Insere/Atualiza diretamente na memória sem engasgar o app
+ */
+export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
+  // 1. Atualiza memória (se o chat pertencer à tela atual)
+  if (chat.contatoHash === contatoSelecionado.value) {
+    const atual = mensagensAtivas.value;
+    const index = atual.findIndex(m => m.id === chat.id);
+    
+    if (index !== -1) {
+      const nova = [...atual];
+      nova[index] = chat;
+      mensagensAtivas.value = nova;
+    } else {
+      // É nova, empurra pro final da fila e soma no offset
+      mensagensAtivas.value = [...atual, chat];
+      currentOffset += 1;
+    }
+  }
+
+  // 2. Persiste assincronamente no DB
+  await salvarChat(chat);
+}
+
+/**
+ * Helper chamado pelos Handshakes no SW (via Broadcast/PostMessage)
+ */
+export async function processarAtualizacaoDeStatusDB(chatId: string) {
+  // Busca a versão consolidada que o SW acabou de gravar no DB
+  const chatAtualizado = await buscarChat(chatId);
+  if (chatAtualizado) {
+    await atualizarOuAdicionarChatAtivo(chatAtualizado);
+  }
+}
+
+export async function initMensagensStore() {
+  // A inicialização inicial agora é vazia, pois carregamos sob demanda na UI
+}
+```
+
+---
+
+## Arquivo: `src/stores/contatosStore.ts`
+
+```ts
+// src/stores/contatosStore.ts
+import { signal, computed } from "@preact/signals";
+import {
+  listarContatos,
+  salvarContato,
+  removerContato,
+  serializarPublicKeyVapid,
+} from "../utils/db-helpers.ts";
+import type { Contato } from "../constants/db.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+
+export type { Contato };
+
+export const contatosRaw = signal<Contato[]>([]);
+
+/**
+ * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
+ */
+export const contatosComHash = computed(() => {
+  return contatosRaw.value.map((contato) => ({
+    contato,
+    hash: contato.id,
+  }));
+});
+
+export const contatosMap = computed(() => {
+  const map = new Map<string, Contato>();
+  for (const c of contatosRaw.value) {
+    map.set(c.id, c);
+  }
+  return map;
+});
+
+/**
+ * Carrega a lista de contatos do IndexedDB para a memória.
+ */
+export async function carregarContatos(): Promise<void> {
+  try {
+    const lista = await listarContatos();
+    contatosRaw.value = lista;
+    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
+  }
+}
+
+export async function initContatosStore(): Promise<void> {
+  await carregarContatos();
+
+  // 🔥 Ouve mensagens do Service Worker para sincronizar atualizações em background
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'CONTATO_ATUALIZADO') {
+        carregarContatos();
+      }
+    });
+  }
+}
+
+/**
+ * Adiciona ou atualiza um contato usando Inserção Otimista em Memória
+ */
+export async function adicionarContato(contato: Contato): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === contato.id);
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = contato;
+      contatosRaw.value = novaLista;
+    } else {
+      contatosRaw.value = [...atual, contato];
+    }
+
+    await salvarContato(contato);
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
+    throw err;
+  }
+}
+
+export function adicionarOuAtualizarContato(contato: Contato): void {
+  adicionarContato(contato).catch((err) => {
+    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
+  });
+}
+
+/**
+ * Remove um contato com atualização local imediata
+ */
+export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    
+    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
+    
+    await removerContato(vapidPublicKey);
+    addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
+  }
+}
+
+/**
+ * Marca um contato como verificado/confiável (trusted: true)
+ */
+export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === hash);
+    
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = { ...novaLista[index], trusted: true, updatedAt: Date.now() };
+      contatosRaw.value = novaLista;
+      
+      await salvarContato(novaLista[index]);
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${novaLista[index].name}`);
+    } else {
+      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
+    }
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
+  }
+}
+
+export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
+  const atual = contatosRaw.value;
+  const index = atual.findIndex(c => c.id === id);
+  if (index >= 0) {
+    const novaLista = [...atual];
+    novaLista[index] = { ...novaLista[index], me: meStatus, updatedAt: Date.now() };
+    contatosRaw.value = novaLista;
+    
+    salvarContato(novaLista[index]).catch(err => {
+        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
+    });
+  } else {
+    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
+  }
 }
 ```
 
@@ -2348,148 +2414,6 @@ export function validarId(id: string): boolean {
 
 ---
 
-## Arquivo: `src/utils/share-utils.ts`
-
-```ts
-// src/utils/share-utils.ts
-import { gzipSync, gunzipSync } from 'fflate';
-import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
-import type { ProfileConfig, Contato } from '../constants/db.ts';
-
-const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
-
-export interface CompactContact {
-  req?: boolean;
-  tr?: boolean;
-  em: string;
-  nm: string;
-  vx: string;
-  vy: string;
-  en: string;
-  se: string;
-  sp: string;
-  sa: string;
-  ve: string;
-}
-
-export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
-  let ep = target.subscription.endpoint;
-  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
-
-  return {
-    req,
-    tr,
-    em: target.email || '',
-    nm: target.name || '',
-    vx: target.vapidPublicKey.x!,
-    vy: target.vapidPublicKey.y!,
-    en: target.e2ePublicKey.n!,
-    se: ep,
-    sp: target.subscription.keys.p256dh,
-    sa: target.subscription.keys.auth,
-    ve: target.vapidPrivateKeyEnvelope
-  };
-}
-
-export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
-  let ep = c.se;
-  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
-
-  return {
-    email: c.em,
-    name: c.nm,
-    vapidPublicKey: { kty: "EC", crv: "P-256", x: c.vx, y: c.vy, ext: true },
-    e2ePublicKey: { kty: "RSA", e: "AQAB", n: c.en, alg: "RSA-OAEP-256", ext: true },
-    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa } },
-    vapidPrivateKeyEnvelope: c.ve,
-    trusted: c.tr,
-    me: 'saved' 
-  };
-}
-
-export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
-  const compact = extrairDadosCompactos(target);
-  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
-  const compressed = gzipSync(jsonBytes);
-  return arrayBufferToBase64Url(compressed.buffer);
-}
-
-export async function gerarLinkConviteWeb(
-  target: ProfileConfig | Contato,
-  myVapidPrivateKeyJwk: JsonWebKey,
-  myVapidPublicKeyJwk: JsonWebKey
-): Promise<string> {
-  const compact = extrairDadosCompactos(target);
-  const payload = {
-    sub: "contact",
-    ...compact,
-    iat: Math.floor(Date.now() / 1000)
-  };
-
-  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
-  const jwtBytes = new TextEncoder().encode(jwt);
-  const compressed = gzipSync(jwtBytes);
-  const cjwt = arrayBufferToBase64Url(compressed.buffer);
-
-  return `${window.location.origin}/share.html?cjwt=${cjwt}`;
-}
-
-export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {
-  let cqr = null, cjwt = null, jwt = null;
-
-  try {
-    const url = new URL(input);
-    cqr = url.searchParams.get('cqr');
-    cjwt = url.searchParams.get('cjwt');
-    jwt = url.searchParams.get('jwt');
-  } catch {
-    if (!input.includes('.')) cqr = input;
-    else jwt = input;
-  }
-
-  let compactData: CompactContact | null = null;
-
-  // 1. Tenta ler binário do QR Code (cqr ou string pura sem pontos)
-  if (cqr) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      const parsed = JSON.parse(jsonText);
-      
-      // Validação básica do novo formato
-      if (parsed.vx && parsed.vy) {
-        compactData = parsed as CompactContact;
-      }
-    } catch (e) { /* fallback silêncioso para testar os outros formatos */ }
-  }
-
-  // 2. Tenta ler o Token Comprimido (cjwt)
-  const targetCjwt = cjwt || cqr;
-  if (!compactData && targetCjwt) {
-    const compressed = new Uint8Array(base64UrlToArrayBuffer(targetCjwt));
-    const decompressed = gunzipSync(compressed);
-    const jsonText = new TextDecoder().decode(decompressed);
-    const { payload, valid } = await verificarJWT(jsonText);
-    if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
-    compactData = payload as CompactContact;
-  }
-
-  // 3. Tenta ler o Token Legado Sem Compressão (jwt)
-  if (!compactData && jwt) {
-    const { payload, valid } = await verificarJWT(jwt);
-    if (!valid) throw new Error("Assinatura do convite inválida.");
-    compactData = payload as CompactContact;
-  }
-
-  if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
-
-  return expandirDadosCompactos(compactData);
-}
-```
-
----
-
 ## Arquivo: `src/utils/sw-utils.ts`
 
 ```ts
@@ -2531,259 +2455,6 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
     logSwError("INIT", "Falha ao registrar Service Worker", error);
     throw error;
   }
-}
-```
-
----
-
-## Arquivo: `src/utils/db-helpers.ts`
-
-```ts
-// src/utils/db-helpers.ts
-import { get, set, createStore, del, entries, values } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type {
-  ProfileConfig,
-  MensagemEnviada,
-  MensagemRecebida,
-  Contato,
-  Handshake,
-} from "../constants/db.ts";
-
-// ============================================================
-// Criação de Stores
-// ============================================================
-
-export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
-  return createStore(nome, storeName);
-}
-
-const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
-export const storeContatos = criarStore(DB_NAMES.CONTATOS);
-export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
-export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
-
-// ============================================================
-// Funções Genéricas
-// ============================================================
-
-export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
-  return set(key, value, store);
-}
-
-export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
-  return get(key, store);
-}
-
-export async function removerChave(store: any, key: string): Promise<void> {
-  return del(key, store);
-}
-
-export async function listarChaves<T>(store: any): Promise<[string, T][]> {
-  return entries(store) as Promise<[string, T][]>;
-}
-
-export async function listarValores<T>(store: any): Promise<T[]> {
-  return values(store) as Promise<T[]>;
-}
-
-// ============================================================
-// Gerenciamento do Perfil (ProfileConfig)
-// ============================================================
-
-export async function salvarProfile(profile: ProfileConfig): Promise<void> {
-  profile.updatedAt = Date.now();
-  if (!profile.createdAt) {
-    profile.createdAt = Date.now();
-  }
-  await salvarChave(storeConfig, KEY_NAMES.PROFILE, profile);
-}
-
-export async function buscarProfile(): Promise<ProfileConfig | undefined> {
-  return buscarChave<ProfileConfig>(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function removerProfile(): Promise<void> {
-  await removerChave(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function buscarChaveDecript(): Promise<CryptoKey | null> {
-  try {
-    const profile = await buscarProfile();
-    if (!profile) {
-      console.warn("[DB-HELPERS] ⚠️ Perfil não encontrado.");
-      return null;
-    }
-    if (!profile.e2ePrivateKeyJwk) {
-      console.warn("[DB-HELPERS] ⚠️ Chave privada RSA não encontrada no perfil.");
-      return null;
-    }
-
-    const privateDecrypt = await crypto.subtle.importKey(
-      "jwk",
-      profile.e2ePrivateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["decrypt"]
-    );
-    console.log("[DB-HELPERS] 🔑 Chave de decodificação RSA encontrada e importada.");
-    return privateDecrypt;
-  } catch (err) {
-    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
-    return null;
-  }
-}
-
-// ============================================================
-// Mensagens Enviadas
-// ============================================================
-
-export async function salvarMensagemEnviada(mensagem: MensagemEnviada): Promise<void> {
-  await salvarChave(storeMensagensEnviadasA, mensagem.id, mensagem);
-}
-
-export async function buscarMensagemEnviada(id: string): Promise<MensagemEnviada | undefined> {
-  return buscarChave<MensagemEnviada>(storeMensagensEnviadasA, id);
-}
-
-export async function listarMensagensEnviadas(): Promise<MensagemEnviada[]> {
-  const entriesList = await listarChaves<MensagemEnviada>(storeMensagensEnviadasA);
-  return entriesList.map(([_, msg]) => msg);
-}
-
-export async function listarMensagensEnviadasPorStatus(status: MensagemEnviada['status']): Promise<MensagemEnviada[]> {
-  const todas = await listarMensagensEnviadas();
-  return todas.filter(m => m.status === status);
-}
-
-export async function atualizarStatusMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string): Promise<void> {
-  const mensagem = await buscarMensagemEnviada(id);
-  if (mensagem) {
-    mensagem.status = status;
-    mensagem.updatedAt = Date.now();
-    if (erro) mensagem.erro = erro;
-    await salvarMensagemEnviada(mensagem);
-  }
-}
-
-export async function removerMensagemEnviada(id: string): Promise<void> {
-  await removerChave(storeMensagensEnviadasA, id);
-}
-
-// ============================================================
-// Mensagens Recebidas
-// ============================================================
-
-export async function salvarMensagemRecebida(mensagem: MensagemRecebida): Promise<void> {
-  await salvarChave(storeMensagensRecebidasB, mensagem.id, mensagem);
-}
-
-export async function buscarMensagemRecebida(id: string): Promise<MensagemRecebida | undefined> {
-  return buscarChave<MensagemRecebida>(storeMensagensRecebidasB, id);
-}
-
-export async function listarMensagensRecebidas(): Promise<MensagemRecebida[]> {
-  const entriesList = await listarChaves<MensagemRecebida>(storeMensagensRecebidasB);
-  return entriesList.map(([_, msg]) => msg);
-}
-
-export async function atualizarStatusMensagemRecebida(id: string, status: MensagemRecebida['status']): Promise<void> {
-  const mensagem = await buscarMensagemRecebida(id);
-  if (mensagem) {
-    mensagem.status = status;
-    if (status === 'lida') mensagem.lidaEm = Date.now();
-    if (status === 'notificada') mensagem.notificadaEm = Date.now();
-    await salvarMensagemRecebida(mensagem);
-  }
-}
-
-export async function removerMensagemRecebida(id: string): Promise<void> {
-  await removerChave(storeMensagensRecebidasB, id);
-}
-
-// ============================================================
-// Contatos
-// ============================================================
-
-async function sha256(message: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
-  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
-  return await sha256(raw);
-}
-
-export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
-  if (typeof input === 'string') return input;
-  if (typeof input === 'object' && input !== null && 'kty' in input) {
-    return await serializarPublicKeyVapid(input);
-  }
-  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
-}
-
-export async function salvarContato(contato: Contato): Promise<void> {
-  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
-  await salvarChave(storeContatos, key, contato);
-}
-
-export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  return await buscarChave<Contato>(storeContatos, key);
-}
-
-export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
-  const key = await normalizarChaveContato(chaveOuJwk);
-  return await buscarChave<Contato>(storeContatos, key);
-}
-
-export async function listarContatos(): Promise<Contato[]> {
-  const entriesList = await listarChaves<Contato>(storeContatos);
-  return entriesList.map(([_, c]) => c);
-}
-
-export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  await removerChave(storeContatos, key);
-}
-
-// ============================================================
-// Handshakes (Utilizando idb-keyval)
-// ============================================================
-
-export async function salvarHandshake(handshake: Handshake): Promise<void> {
-  handshake.updatedAt = Date.now();
-  if (!handshake.createdAt) {
-    handshake.createdAt = Date.now();
-  }
-  await salvarChave(storeHandshakes, handshake.id, handshake);
-}
-
-export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
-  return buscarChave<Handshake>(storeHandshakes, id);
-}
-
-export async function listarHandshakes(): Promise<Handshake[]> {
-  return listarValores<Handshake>(storeHandshakes);
-}
-
-export async function atualizarStatusHandshake(id: string, statusInOrOut: string, flow: 'in' | 'out', erro?: string): Promise<void> {
-  const handshake = await buscarHandshake(id);
-  if (handshake && handshake[flow]) {
-    handshake[flow]!.status = statusInOrOut as any;
-    handshake.updatedAt = Date.now();
-    if (erro) handshake[flow]!.erro = erro;
-    await salvarHandshake(handshake);
-  }
-}
-
-export async function removerHandshake(id: string): Promise<void> {
-  await removerChave(storeHandshakes, id);
 }
 ```
 
@@ -3626,6 +3297,399 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
 
 ---
 
+## Arquivo: `src/utils/db-helpers.ts`
+
+```ts
+// src/utils/db-helpers.ts
+import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
+import type {
+  ProfileConfig,
+  Chat,
+  Contato,
+  Handshake,
+} from "../constants/db.ts";
+
+// ============================================================
+// Criação de Stores
+// ============================================================
+
+export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
+  return createStore(nome, storeName);
+}
+
+const storeConfig = criarStore(DB_NAMES.CONFIG);
+export const storeChat = criarStore(DB_NAMES.CHAT); // 🔥 Unificado
+export const storeContatos = criarStore(DB_NAMES.CONTATOS);
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
+
+// ============================================================
+// Funções Genéricas
+// ============================================================
+
+export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
+  return set(key, value, store);
+}
+
+export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
+  return get(key, store);
+}
+
+export async function removerChave(store: any, key: string): Promise<void> {
+  return del(key, store);
+}
+
+export async function listarChaves<T>(store: any): Promise<[string, T][]> {
+  return entries(store) as Promise<[string, T][]>;
+}
+
+export async function listarValores<T>(store: any): Promise<T[]> {
+  return values(store) as Promise<T[]>;
+}
+
+// ============================================================
+// Gerenciamento do Perfil (ProfileConfig)
+// ============================================================
+
+export async function salvarProfile(profile: ProfileConfig): Promise<void> {
+  profile.updatedAt = Date.now();
+  if (!profile.createdAt) {
+    profile.createdAt = Date.now();
+  }
+  await salvarChave(storeConfig, KEY_NAMES.PROFILE, profile);
+}
+
+export async function buscarProfile(): Promise<ProfileConfig | undefined> {
+  return buscarChave<ProfileConfig>(storeConfig, KEY_NAMES.PROFILE);
+}
+
+export async function removerProfile(): Promise<void> {
+  await removerChave(storeConfig, KEY_NAMES.PROFILE);
+}
+
+export async function buscarChaveDecript(): Promise<CryptoKey | null> {
+  try {
+    const profile = await buscarProfile();
+    if (!profile) return null;
+    if (!profile.e2ePrivateKeyJwk) return null;
+
+    return await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+  } catch (err) {
+    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
+    return null;
+  }
+}
+
+// ============================================================
+// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
+// ============================================================
+
+/**
+ * Salva a mensagem e adiciona seu ID ao índice de paginação do contato.
+ */
+export async function salvarChat(chat: Chat): Promise<void> {
+  chat.updatedAt = Date.now();
+  await salvarChave(storeChat, chat.id, chat);
+
+  // Mantém um índice ordenado por data para não precisar carregar o DB inteiro
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  if (!index.includes(chat.id)) {
+    index.push(chat.id);
+    await salvarChave(storeChat, indexKey, index);
+  }
+}
+
+export async function buscarChat(id: string): Promise<Chat | undefined> {
+  return buscarChave<Chat>(storeChat, id);
+}
+
+/**
+ * 🔥 Lazy Loading Paginado: Carrega apenas uma fatia de mensagens de um contato.
+ * O `offset` dita de onde começar de baixo para cima (mais recentes primeiro).
+ */
+export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+
+  // Pega do final do array (mais recentes) para o começo
+  const total = index.length;
+  if (total === 0 || offset >= total) return [];
+
+  const startIndex = Math.max(0, total - offset - limit);
+  const endIndex = total - offset;
+  
+  // Pega os IDs da fatia solicitada
+  const sliceIds = index.slice(startIndex, endIndex);
+
+  // Busca os dados físicos desses IDs em batch
+  const records = await getMany(sliceIds, storeChat);
+  return records.filter(Boolean) as Chat[];
+}
+
+export async function removerChat(id: string, contatoHash: string): Promise<void> {
+  await removerChave(storeChat, id);
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  index = index.filter(x => x !== id);
+  await salvarChave(storeChat, indexKey, index);
+}
+
+// ============================================================
+// Contatos
+// ============================================================
+
+async function sha256(message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object' && input !== null && 'kty' in input) {
+    return await serializarPublicKeyVapid(input);
+  }
+  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
+}
+
+export async function salvarContato(contato: Contato): Promise<void> {
+  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
+  await salvarChave(storeContatos, key, contato);
+}
+
+export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  return await buscarChave<Contato>(storeContatos, key);
+}
+
+export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
+  const key = await normalizarChaveContato(chaveOuJwk);
+  return await buscarChave<Contato>(storeContatos, key);
+}
+
+export async function listarContatos(): Promise<Contato[]> {
+  const entriesList = await listarChaves<Contato>(storeContatos);
+  return entriesList.map(([_, c]) => c);
+}
+
+export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  await removerChave(storeContatos, key);
+}
+
+// ============================================================
+// Handshakes
+// ============================================================
+
+export async function salvarHandshake(handshake: Handshake): Promise<void> {
+  handshake.updatedAt = Date.now();
+  if (!handshake.createdAt) {
+    handshake.createdAt = Date.now();
+  }
+  await salvarChave(storeHandshakes, handshake.id, handshake);
+}
+
+export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
+  return buscarChave<Handshake>(storeHandshakes, id);
+}
+
+export async function listarHandshakes(): Promise<Handshake[]> {
+  return listarValores<Handshake>(storeHandshakes);
+}
+
+export async function removerHandshake(id: string): Promise<void> {
+  await removerChave(storeHandshakes, id);
+}
+```
+
+---
+
+## Arquivo: `src/utils/share-utils.ts`
+
+```ts
+// src/utils/share-utils.ts
+import { gzipSync, gunzipSync } from 'fflate';
+import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
+import type { ProfileConfig, Contato } from '../constants/db.ts';
+
+const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
+
+export interface CompactContact {
+  req?: boolean;
+  tr?: boolean;
+  em: string;
+  nm: string;
+  vx: string;
+  vy: string;
+  en: string;
+  se: string;
+  sp: string;
+  sa: string;
+  ve: string;
+}
+
+export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
+  let ep = target.subscription.endpoint;
+  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
+
+  return {
+    req,
+    tr,
+    em: target.email || '',
+    nm: target.name || '',
+    vx: target.vapidPublicKey.x!,
+    vy: target.vapidPublicKey.y!,
+    en: target.e2ePublicKey.n!,
+    se: ep,
+    sp: target.subscription.keys.p256dh,
+    sa: target.subscription.keys.auth,
+    ve: target.vapidPrivateKeyEnvelope
+  };
+}
+
+export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
+  let ep = c.se;
+  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
+
+  return {
+    email: c.em,
+    name: c.nm,
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: c.vx, y: c.vy, ext: true },
+    e2ePublicKey: { kty: "RSA", e: "AQAB", n: c.en, alg: "RSA-OAEP-256", ext: true },
+    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa } },
+    vapidPrivateKeyEnvelope: c.ve,
+    trusted: c.tr,
+    me: 'saved' 
+  };
+}
+
+export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
+  const compact = extrairDadosCompactos(target);
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
+  const compressed = gzipSync(jsonBytes);
+  return arrayBufferToBase64Url(compressed.buffer);
+}
+
+export async function gerarLinkConviteWeb(
+  target: ProfileConfig | Contato,
+  myVapidPrivateKeyJwk: JsonWebKey,
+  myVapidPublicKeyJwk: JsonWebKey
+): Promise<string> {
+  const compact = extrairDadosCompactos(target);
+  const payload = {
+    sub: "contact",
+    ...compact,
+    iat: Math.floor(Date.now() / 1000)
+  };
+
+  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
+  const jwtBytes = new TextEncoder().encode(jwt);
+  const compressed = gzipSync(jwtBytes);
+  const cjwt = arrayBufferToBase64Url(compressed.buffer);
+
+  return `${window.location.origin}/share.html?cjwt=${cjwt}`;
+}
+
+export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {
+  let cqr = null, cjwt = null, jwt = null;
+
+  try {
+    const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
+      ? input 
+      : `http://localhost/?${input}`;
+    const url = new URL(fullUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    cqr = url.searchParams.get('cqr');
+    cjwt = url.searchParams.get('cjwt');
+    jwt = url.searchParams.get('jwt');
+  } catch {
+    if (input.includes('cjwt=')) {
+      const parts = input.split('cjwt=');
+      if (parts[1]) cjwt = parts[1].split('&')[0];
+    } else if (input.includes('cqr=')) {
+      const parts = input.split('cqr=');
+      if (parts[1]) cqr = parts[1].split('&')[0];
+    } else if (input.includes('jwt=')) {
+      const parts = input.split('jwt=');
+      if (parts[1]) jwt = parts[1].split('&')[0];
+    }
+  }
+
+  // Se nenhum parâmetro específico foi encontrado, infere pelo formato
+  if (!cqr && !cjwt && !jwt && input) {
+    if (input.includes('.')) {
+      jwt = input.trim();
+    } else {
+      cjwt = input.trim(); // Assume cjwt por padrão para links gerados
+    }
+  }
+
+  let compactData: CompactContact | null = null;
+
+  // 1. Tenta ler o Token Comprimido (cjwt)
+  if (!compactData && cjwt) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      // 🔥 CORREÇÃO: Desestruturação correta do retorno da função verificarJWT
+      const { payload, valid } = await verificarJWT(jsonText); 
+      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar cjwt:", e);
+    }
+  }
+
+  // 2. Tenta ler binário do QR Code (cqr)
+  if (!compactData && cqr) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      const parsed = JSON.parse(jsonText);
+      if (parsed.vx && parsed.vy) {
+        compactData = parsed as CompactContact;
+      }
+    } catch (e) {
+      console.warn("Falha ao ler cqr:", e);
+    }
+  }
+
+  // 3. Tenta ler o Token Legado Sem Compressão (jwt)
+  if (!compactData && jwt) {
+    try {
+      // 🔥 CORREÇÃO: Desestruturação correta
+      const { payload, valid } = await verificarJWT(jwt);
+      if (!valid) throw new Error("Assinatura do convite inválida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar jwt:", e);
+    }
+  }
+
+  if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
+
+  return expandirDadosCompactos(compactData);
+}
+```
+
+---
+
 ## Arquivo: `src/styles.d.ts`
 
 ```ts
@@ -4340,57 +4404,6 @@ label {
 
 ---
 
-## Arquivo: `src/profile.tsx`
-
-```tsx
-// src/profile.tsx
-import { render } from 'preact';
-import { useEffect } from 'preact/hooks';
-import { profile, carregarProfile } from './stores/profileStore.ts';
-import { ProfileSection } from './components/ProfileSection.tsx';
-
-import "@material/web/all.js";
-import './styles.css';
-
-function ProfileApp() {
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const isExistingUser = profile.value !== null;
-
-  return (
-    <div style="display: flex; flex-direction: column; align-items: center; min-height: 100vh; height: 100%; overflow-y: auto; padding-bottom: 40px; box-sizing: border-box;">
-      
-      <header class="sidebar-header" style="width: 100%; max-width: 600px; background: transparent; border: none; padding-top: 24px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          {isExistingUser && (
-            <md-icon-button onClick={() => window.location.href = '/'}>
-              <md-icon>arrow_back</md-icon>
-            </md-icon-button>
-          )}
-          <h1 style="margin: 0; font-size: 1.5rem; color: var(--md-sys-color-primary);">
-            {isExistingUser ? "Meu Perfil" : "Configurar Conta"}
-          </h1>
-        </div>
-      </header>
-
-      <div style="width: 100%; max-width: 600px; padding: 16px; box-sizing: border-box;">
-        <ProfileSection />
-      </div>
-
-    </div>
-  );
-}
-
-const root = document.getElementById('app-profile');
-if (root) {
-  render(<ProfileApp />, root);
-}
-```
-
----
-
 ## Arquivo: `src/handshakes/hand-profile.ts`
 
 ```ts
@@ -4727,15 +4740,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-import { Handshake, MensagemRecebida, MensagemEnviada } from "../constants/db.ts";
+import { Handshake, Chat } from "../constants/db.ts";
 import { gerarId } from "../utils/id-utils.ts";
 import {
   buscarHandshake,
   salvarHandshake,
-  buscarMensagemEnviada,
-  salvarMensagemEnviada,
-  buscarMensagemRecebida,
-  salvarMensagemRecebida,
+  buscarChat,
+  salvarChat,
   buscarContatoPorChave
 } from "../utils/db-helpers.ts";
 
@@ -4748,10 +4759,19 @@ interface MensagemOutParams {
   conteudo?: string;
   mensagem?: string;
   campos?: string[];
+  msgId?: string;       
+  handshakeId?: string; 
+  createdAt?: number;
+}
+
+async function notificarUI(chatId: string) {
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
 }
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
   
+  // 📥 LÓGICA DE ENTRADA (Recebendo Push Criptografado da Rede)
   if (handshakeId) {
     addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
@@ -4759,16 +4779,16 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
     const msgReq = handshake.in.rotas.mensagem;
 
+    // Cenário 1: Solicitação PULL de status
     if (msgReq.recebida && Array.isArray(msgReq.campos)) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
-      const msgLocal = await buscarMensagemRecebida(msgReq.recebida);
+      const msgLocal = await buscarChat(msgReq.recebida);
       const rotasMsgData: Record<string, unknown> = { recebida: msgReq.recebida };
 
       if (msgLocal) {
         const camposSet = new Set(msgReq.campos);
-        if (camposSet.has('status')) rotasMsgData.status = msgLocal.status;
-        if (camposSet.has('conteudo')) rotasMsgData.conteudo = msgLocal.conteudo;
-        if (camposSet.has('recebidoEm')) rotasMsgData.recebidoEm = msgLocal.recebidoEm;
+        if (camposSet.has('readAt')) rotasMsgData.readAt = msgLocal.readAt;
+        if (camposSet.has('receivedAt')) rotasMsgData.receivedAt = msgLocal.receivedAt;
       }
 
       handshake.out = { status: 'pendente', tentativas: 0, rotas: { mensagem: { data: rotasMsgData } } };
@@ -4777,33 +4797,37 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
+    // Cenário 2: Auto-Ack Recebido (Confirmação de chegada física no destino)
     else if (msgReq.data && typeof msgReq.data.recebida === 'string' && typeof msgReq.data.status === 'string') {
-      addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. A mensagem ${msgReq.data.recebida} consta como ${msgReq.data.status} no destino.`);
+      addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. Status: ${msgReq.data.status}`);
       
-      const msgEnviada = await buscarMensagemEnviada(msgReq.data.recebida);
+      const msgLocal = await buscarChat(msgReq.data.recebida);
       
-      if (msgEnviada) {
-        msgEnviada.status = 'entregue';
-        msgEnviada.updatedAt = Date.now();
-        await salvarMensagemEnviada(msgEnviada);
-
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => client.postMessage({ type: 'MENSAGEM_ENTREGUE', payload: { mensagemId: msgEnviada.id } }));
+      if (msgLocal && msgLocal.tipo === 'out') {
+        if (msgReq.data.status === 'entregue') msgLocal.receivedAt = Date.now();
+        if (msgReq.data.status === 'lida') msgLocal.readAt = Date.now();
+        
+        await salvarChat(msgLocal);
+        notificarUI(msgLocal.id);
       }
     }
 
+    // Cenário 3: Recebendo uma MENSAGEM NOVA
     else if (msgReq.enviada && msgReq.conteudo) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
       
-      const novaMsgRecebida: MensagemRecebida = {
+      const novaMsgRecebida: Chat = {
         id: msgReq.enviada,
-        contatoPublicKeyVapid: handshake.aud,
+        contatoHash: handshake.aud,
         conteudo: msgReq.conteudo,
-        status: 'nao_lida',
-        recebidoEm: Date.now()
+        tipo: 'in',
+        createdAt: Date.now(),
+        receivedAt: Date.now(),
+        handshake: handshakeId
       };
-      await salvarMensagemRecebida(novaMsgRecebida);
+      await salvarChat(novaMsgRecebida);
 
+      // Devolve Auto-Ack de recebimento físico para o remetente
       const ackHandshake: Handshake = {
         id: gerarId(),
         aud: handshake.aud,
@@ -4816,24 +4840,30 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
       await salvarHandshake(ackHandshake);
 
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const nomeExibicao = contato?.name?.trim() || "Anônimo";
-      
-      await self.registration.showNotification(`📥 Nova mensagem`, {
-        body: `${novaMsgRecebida.conteudo}\n\nDe: ${nomeExibicao}`,
-        icon: '/icon-192.png',
-        tag: novaMsgRecebida.id
-      });
+      // 🔍 VERIFICAÇÃO DE CLIENTES ABERTOS
+      const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const appEstaAberto = windowClients.length > 0;
 
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => {
-        client.postMessage({ type: "PUSH_RECEIVED", payload: { id: novaMsgRecebida.id } });
-      });
+      // 🔥 Só exibe notificação nativa do sistema se o aplicativo estiver totalmente fechado
+      if (!appEstaAberto) {
+        const contato = await buscarContatoPorChave(handshake.aud);
+        const nomeExibicao = contato?.name?.trim() || "Anônimo";
+        
+        await self.registration.showNotification(`📥 Nova mensagem`, {
+          body: `${novaMsgRecebida.conteudo}\n\nDe: ${nomeExibicao}`,
+          icon: '/icon-192.png',
+          tag: novaMsgRecebida.id
+        });
+      } else {
+        addDebugLog(`[HAND-MENSAGEM] 👁️ O app está aberto (${windowClients.length} janela(s)). Notificação nativa suprimida.`);
+      }
 
+      notificarUI(novaMsgRecebida.id);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
   
+  // 📤 LÓGICA DE SAÍDA (Criando pacotes Push para enviar)
   if (outParams) {
     if (outParams.function === 'confirmarEntrega') {
       const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
@@ -4846,253 +4876,32 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     }
 
     else if (outParams.function === 'enviarMensagem') {
-      const { contato: contatoId, conteudo } = outParams;
+      const { contato: contatoId, conteudo, msgId, handshakeId, createdAt } = outParams;
       if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
 
-      const msgId = gerarId();
-
-      const msgEnviada: MensagemEnviada = {
-        id: msgId, contatoHash: contatoId, conteudo, status: 'pendente',
-        tentativas: 0, createdAt: Date.now(), updatedAt: Date.now()
-      };
-      await salvarMensagemEnviada(msgEnviada);
+      const idReal = msgId || gerarId();
+      const handIdReal = handshakeId || gerarId();
+      
+      const chatExistente = await buscarChat(idReal);
+      if (!chatExistente) {
+        const chatOut: Chat = {
+          id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
+          createdAt: createdAt || Date.now(), handshake: handIdReal
+        };
+        await salvarChat(chatOut);
+      }
 
       const novoHandshake: Handshake = {
-        id: gerarId(), aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: msgId, conteudo } } }
+        id: handIdReal, aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: idReal, conteudo } } }
       };
 
       await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${msgId} salva na fila do Service Worker.`);
+      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} posta na fila de saída do SW.`);
       
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
-}
-```
-
----
-
-## Arquivo: `src/share.tsx`
-
-```tsx
-// src/share.tsx
-import { render } from 'preact';
-import { useEffect, useRef } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { processarQualquerConvite } from './utils/share-utils.ts';
-import { adicionarContato, initContatosStore } from './stores/contatosStore.ts';
-import { serializarPublicKeyVapid } from './utils/db-helpers.ts';
-import type { Contato } from './constants/db.ts';
-
-import "@material/web/all.js";
-import './styles.css';
-
-declare global {
-  class BarcodeDetector {
-    constructor(options?: { formats: string[] });
-    detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
-    static getSupportedFormats(): Promise<string[]>;
-  }
-}
-
-function ShareApp() {
-  const preview = useSignal<Partial<Contato> | null>(null);
-  const error = useSignal<string | null>(null);
-  const isScanning = useSignal<boolean>(false);
-  const manualInput = useSignal<string>('');
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    initContatosStore();
-    if (window.location.search.length > 3) {
-      handleProcessar(window.location.href);
-    } else {
-      iniciarCamera();
-    }
-    return () => pararCamera();
-  }, []);
-
-  const handleProcessar = async (input: string) => {
-    try {
-      error.value = null;
-      const resultado = await processarQualquerConvite(input);
-      preview.value = resultado;
-    } catch (e: any) {
-      error.value = e.message || "Falha ao processar convite.";
-    }
-  };
-
-  const iniciarCamera = async () => {
-    if (!('BarcodeDetector' in window)) {
-      error.value = "Seu navegador não suporta a API nativa de leitura de QR Code. Tente colar o link manual abaixo.";
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        isScanning.value = true;
-        scanLoop();
-      }
-    } catch {
-      error.value = "Não foi possível acessar a câmera. Verifique as permissões do navegador.";
-    }
-  };
-
-  const pararCamera = () => {
-    isScanning.value = false;
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-    }
-  };
-
-  const scanLoop = async () => {
-    if (!isScanning.value || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
-      if (isScanning.value) requestAnimationFrame(scanLoop);
-      return;
-    }
-    try {
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
-      const barcodes = await detector.detect(videoRef.current);
-      if (barcodes.length > 0) {
-        pararCamera();
-        handleProcessar(barcodes[0].rawValue);
-        return; 
-      }
-    } catch (e) {
-      console.warn("Erro no BarcodeDetector:", e);
-    }
-    if (isScanning.value) requestAnimationFrame(scanLoop);
-  };
-
-  const handleManualSubmit = () => {
-    if (!manualInput.value.trim()) return;
-    pararCamera();
-    handleProcessar(manualInput.value.trim());
-  };
-
-  const confirmar = async () => {
-    if (!preview.value) return;
-    try {
-      const p = preview.value;
-      const contatoId = await serializarPublicKeyVapid(p.vapidPublicKey!);
-
-      const novoContato: Contato = {
-        id: contatoId,
-        vapidPublicKey: p.vapidPublicKey!,
-        email: p.email || '',
-        name: p.name || '', 
-        e2ePublicKey: p.e2ePublicKey!,
-        subscription: p.subscription!,
-        vapidPrivateKeyEnvelope: p.vapidPrivateKeyEnvelope!,
-        trusted: true, 
-        me: 'none', 
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-      
-      await adicionarContato(novoContato);
-      
-      const reg = await navigator.serviceWorker.ready;
-      if (reg.active) {
-        reg.active.postMessage({
-          type: 'CRIAR_HANDSHAKE_OUT',
-          payload: {
-            rotasModulo: 'contato',
-            params: { function: 'enviarSubscription', contato: contatoId, responder: false }
-          }
-        });
-      }
-
-      alert("✅ Contato adicionado! Um pacote de sincronização invisível foi enviado para ele.");
-      window.location.href = '/'; 
-    } catch (e: any) {
-      alert("❌ Erro ao adicionar contato: " + e.message);
-    }
-  };
-
-  const cancelar = () => {
-    pararCamera();
-    window.location.href = '/';
-  };
-
-  return (
-    <div style="min-height: 100vh; background-color: var(--md-sys-color-background); display: flex; flex-direction: column;">
-      
-      <header class="sidebar-header" style="background: var(--md-sys-color-surface-variant); border-bottom: 1px solid #e0e0e0; padding: 16px; display: flex; align-items: center; gap: 16px;">
-        <md-icon-button onClick={cancelar}>
-          <md-icon>arrow_back</md-icon>
-        </md-icon-button>
-        <h1 style="margin: 0; font-size: 1.25rem;">Leitor / Adicionar Contato</h1>
-      </header>
-
-      <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;">
-        {error.value ? (
-          <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
-            <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
-            <h2 style="justify-content: center;">Ops! Algo deu errado</h2>
-            <p style="color: #666; margin-bottom: 24px;">{error.value}</p>
-            <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
-              Tentar Novamente
-            </md-filled-button>
-          </div>
-        ) : preview.value ? (
-          <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 400px; width: 100%;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
-              <h2 style="justify-content: center;">Adicionar Contato</h2>
-              <p style="color: #666; font-size: 0.9rem;">Você foi convidado(a) para se conectar de ponta a ponta com este perfil.</p>
-            </div>
-            
-            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
-              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
-              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
-              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.email || "Sem e-mail"}</p>
-            </div>
-
-            <div style="display: flex; gap: 8px; flex-direction: column;">
-              <md-filled-button onClick={confirmar} style="width: 100%;">✅ Confirmar e Adicionar</md-filled-button>
-            </div>
-          </div>
-        ) : (
-          <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 400px; width: 100%;">
-            <h2 style="justify-content: center;">Ler QR Code</h2>
-            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo.</p>
-            
-            <div style="position: relative; width: 100%; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden;">
-               <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>
-               <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px dashed rgba(255,255,255,0.7); width: 70%; height: 70%; border-radius: 16px; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);"></div>
-            </div>
-
-            <div style="width: 100%; margin-top: 24px; text-align: left;">
-              <label style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">
-                Ou cole o link/código de convite:
-              </label>
-              <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <md-outlined-text-field
-                  value={manualInput.value}
-                  onInput={(e: any) => manualInput.value = e.target.value}
-                  placeholder="Cole aqui..."
-                  style="flex-grow: 1; margin-bottom: 0;"
-                ></md-outlined-text-field>
-                <md-filled-button onClick={handleManualSubmit} style="height: 56px; margin-bottom: 0;">
-                  Adicionar
-                </md-filled-button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const root = document.getElementById('app-share');
-if (root) {
-  render(<ShareApp />, root);
 }
 ```
 
@@ -5108,7 +4917,8 @@ import { useSignal } from '@preact/signals';
 import { ContatosSection } from './components/ContatosSection.tsx';
 import { ChatSection } from './components/ChatSection.tsx'; 
 import { ContactDetailSection } from './components/ContactDetailSection.tsx';
-import { AdvancedSection } from './components/AdvancedSection.tsx'; // 🔥 Importação Nova
+import { AdvancedSection } from './components/AdvancedSection.tsx';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
 
@@ -5265,7 +5075,7 @@ function App() {
           </div>
         )}
       </main>
-
+      <ToastSnackbar />
     </div>
   );
 }
@@ -5340,6 +5150,293 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
     }
   }
 });
+```
+
+---
+
+## Arquivo: `src/profile.tsx`
+
+```tsx
+// src/profile.tsx
+import { render } from 'preact';
+import { useEffect } from 'preact/hooks';
+import { profile, carregarProfile } from './stores/profileStore.ts';
+import { ProfileSection } from './components/ProfileSection.tsx';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
+
+import "@material/web/all.js";
+import './styles.css';
+
+function ProfileApp() {
+  useEffect(() => {
+    carregarProfile();
+  }, []);
+
+  const isExistingUser = profile.value !== null;
+
+  return (
+    <div style="display: flex; flex-direction: column; align-items: center; min-height: 100vh; height: 100%; overflow-y: auto; padding-bottom: 40px; box-sizing: border-box;">
+      
+      <header class="sidebar-header" style="width: 100%; max-width: 600px; background: transparent; border: none; padding-top: 24px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          {isExistingUser && (
+            <md-icon-button onClick={() => window.location.href = '/'}>
+              <md-icon>arrow_back</md-icon>
+            </md-icon-button>
+          )}
+          <h1 style="margin: 0; font-size: 1.5rem; color: var(--md-sys-color-primary);">
+            {isExistingUser ? "Meu Perfil" : "Configurar Conta"}
+          </h1>
+        </div>
+      </header>
+
+      <div style="width: 100%; max-width: 600px; padding: 16px; box-sizing: border-box;">
+        <ProfileSection />
+      </div>
+
+      {/* Exibição não-bloqueante de alertas */}
+      <ToastSnackbar />
+
+    </div>
+  );
+}
+
+const root = document.getElementById('app-profile');
+if (root) {
+  render(<ProfileApp />, root);
+}
+```
+
+---
+
+## Arquivo: `src/share.tsx`
+
+```tsx
+// src/share.tsx
+import { render } from 'preact';
+import { useEffect, useRef } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { processarQualquerConvite } from './utils/share-utils.ts';
+import { adicionarContato, initContatosStore } from './stores/contatosStore.ts';
+import { serializarPublicKeyVapid } from './utils/db-helpers.ts';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
+import { showToast } from './signals/state.ts';
+import type { Contato } from './constants/db.ts';
+
+import "@material/web/all.js";
+import './styles.css';
+
+declare global {
+  class BarcodeDetector {
+    constructor(options?: { formats: string[] });
+    detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
+    static getSupportedFormats(): Promise<string[]>;
+  }
+}
+
+function ShareApp() {
+  const preview = useSignal<Partial<Contato> | null>(null);
+  const error = useSignal<string | null>(null);
+  const isScanning = useSignal<boolean>(false);
+  const manualInput = useSignal<string>('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    initContatosStore();
+    if (window.location.search.length > 3) {
+      handleProcessar(window.location.href);
+    } else {
+      iniciarCamera();
+    }
+    return () => pararCamera();
+  }, []);
+
+  const handleProcessar = async (input: string) => {
+    try {
+      error.value = null;
+      const resultado = await processarQualquerConvite(input);
+      preview.value = resultado;
+    } catch (e: any) {
+      error.value = e.message || "Falha ao processar convite.";
+    }
+  };
+
+  const iniciarCamera = async () => {
+    if (!('BarcodeDetector' in window)) {
+      error.value = "Seu navegador não suporta a API nativa de leitura de QR Code. Tente colar o link manual abaixo.";
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        isScanning.value = true;
+        scanLoop();
+      }
+    } catch {
+      error.value = "Não foi possível acessar a câmera. Verifique as permissões do navegador.";
+    }
+  };
+
+  const pararCamera = () => {
+    isScanning.value = false;
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  const scanLoop = async () => {
+    if (!isScanning.value || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
+      if (isScanning.value) requestAnimationFrame(scanLoop);
+      return;
+    }
+    try {
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const barcodes = await detector.detect(videoRef.current);
+      if (barcodes.length > 0) {
+        pararCamera();
+        handleProcessar(barcodes[0].rawValue);
+        return; 
+      }
+    } catch (e) {
+      console.warn("Erro no BarcodeDetector:", e);
+    }
+    if (isScanning.value) requestAnimationFrame(scanLoop);
+  };
+
+  const handleManualSubmit = () => {
+    if (!manualInput.value.trim()) return;
+    pararCamera();
+    handleProcessar(manualInput.value.trim());
+  };
+
+  const confirmar = async () => {
+    if (!preview.value) return;
+    try {
+      const p = preview.value;
+      const contatoId = await serializarPublicKeyVapid(p.vapidPublicKey!);
+
+      const novoContato: Contato = {
+        id: contatoId,
+        vapidPublicKey: p.vapidPublicKey!,
+        email: p.email || '',
+        name: p.name || '', 
+        e2ePublicKey: p.e2ePublicKey!,
+        subscription: p.subscription!,
+        vapidPrivateKeyEnvelope: p.vapidPrivateKeyEnvelope!,
+        trusted: true, 
+        me: 'none', 
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      
+      await adicionarContato(novoContato);
+      
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'CRIAR_HANDSHAKE_OUT',
+          payload: {
+            rotasModulo: 'contato',
+            params: { function: 'enviarSubscription', contato: contatoId, responder: false }
+          }
+        });
+      }
+
+      showToast("✅ Contato adicionado! Um pacote de sincronização foi enviado.", "success");
+      setTimeout(() => {
+        window.location.href = '/'; 
+      }, 1200);
+    } catch (e: any) {
+      showToast("❌ Erro ao adicionar contato: " + e.message, "error");
+    }
+  };
+
+  const cancelar = () => {
+    pararCamera();
+    window.location.href = '/';
+  };
+
+  return (
+    <div style="min-height: 100vh; background-color: var(--md-sys-color-background); display: flex; flex-direction: column;">
+      
+      <header class="sidebar-header" style="background: var(--md-sys-color-surface-variant); border-bottom: 1px solid #e0e0e0; padding: 16px; display: flex; align-items: center; gap: 16px;">
+        <md-icon-button onClick={cancelar}>
+          <md-icon>arrow_back</md-icon>
+        </md-icon-button>
+        <h1 style="margin: 0; font-size: 1.25rem;">Leitor / Adicionar Contato</h1>
+      </header>
+
+      <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;">
+        {error.value ? (
+          <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
+            <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
+            <h2 style="justify-content: center;">Ops! Algo deu errado</h2>
+            <p style="color: #666; margin-bottom: 24px;">{error.value}</p>
+            <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
+              Tentar Novamente
+            </md-filled-button>
+          </div>
+        ) : preview.value ? (
+          <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 400px; width: 100%;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
+              <h2 style="justify-content: center;">Adicionar Contato</h2>
+              <p style="color: #666; font-size: 0.9rem;">Você foi convidado(a) para se conectar de ponta a ponta com este perfil.</p>
+            </div>
+            
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
+              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
+              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
+              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.email || "Sem e-mail"}</p>
+            </div>
+
+            <div style="display: flex; gap: 8px; flex-direction: column;">
+              <md-filled-button onClick={confirmar} style="width: 100%;">✅ Confirmar e Adicionar</md-filled-button>
+            </div>
+          </div>
+        ) : (
+          <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 400px; width: 100%;">
+            <h2 style="justify-content: center;">Ler QR Code</h2>
+            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo.</p>
+            
+            <div style="position: relative; width: 100%; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden;">
+               <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>
+               <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px dashed rgba(255,255,255,0.7); width: 70%; height: 70%; border-radius: 16px; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);"></div>
+            </div>
+
+            <div style="width: 100%; margin-top: 24px; text-align: left;">
+              <label style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">
+                Ou cole o link/código de convite:
+              </label>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <md-outlined-text-field
+                  value={manualInput.value}
+                  onInput={(e: Event) => manualInput.value = (e.target as HTMLInputElement).value}
+                  placeholder="Cole aqui..."
+                  style="flex-grow: 1; margin-bottom: 0;"
+                ></md-outlined-text-field>
+                <md-filled-button onClick={handleManualSubmit} style="height: 56px; margin-bottom: 0;">
+                  Adicionar
+                </md-filled-button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Componente Global de Toast para feedback visual responsivo */}
+      <ToastSnackbar />
+    </div>
+  );
+}
+
+const root = document.getElementById('app-share');
+if (root) {
+  render(<ShareApp />, root);
+}
 ```
 
 ---
@@ -5778,7 +5875,7 @@ console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.2-msmdcc54",
+  "version": "0.2.16-msmjmycp",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -6081,148 +6178,6 @@ async function build() {
 
 await build();
 ```
-
----
-
-## Arquivo: `export.ts`
-
-````ts
-// export.ts
-/**
- * @file export.ts
- * @description Script de consolidação de contexto para IAs com suporte a parâmetros via CLI,
- * nomes de arquivos de saída dinâmicos e sincronização automática de versão.
- * 
- * USO VIA DENO TASKS:
- * - deno task export        -> Exporta Código Fonte para EXPORT.md
- * - deno task export main   -> Exporta Código Fonte para EXPORT.md
- * - deno task export docs   -> Exporta Documentação para EXPORT-DOCS.md
- */
-
-import { walk } from "jsr:@std/fs/walk";
-import { relative } from "jsr:@std/path/relative";
-import { APP_VERSION } from "./src/constants/version.ts";
-
-type ModoExportacao = "main" | "docs";
-
-// 1. Leitura do parâmetro via CLI nativo do Deno
-const argModo = Deno.args[0]?.toLowerCase();
-const modo: ModoExportacao = argModo === "docs" ? "docs" : "main";
-
-// Nomes de arquivos de saída distintos para cada modo de operação
-const ARQUIVO_SAIDA = modo === "docs" ? "EXPORT-DOCS.md" : "EXPORT.md";
-
-// Lista de extensões válidas de texto/código
-const EXTENSOES_PERMITIDAS = [
-  ".tsx", ".jsx", ".js", ".ts", ".css", ".html", ".manifest", ".map",
-  ".sh", ".py", ".ps1",
-  ".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".env", ".env.example",
-  ".md", ".txt", ".sql"
-];
-
-/**
- * Encontra a maior sequência consecutiva de crases dentro de um texto
- * e retorna uma string de fechamento com uma crase a mais para não quebrar o Markdown.
- */
-function calcularCraseWrapper(texto: string): string {
-  const matches = texto.match(/`+/g);
-  if (!matches) return "```";
-  
-  const maiorSequencia = Math.max(...matches.map(m => m.length));
-  const tamanhoNecessario = Math.max(3, maiorSequencia + 1);
-  return "`".repeat(tamanhoNecessario);
-}
-
-/**
- * Avalia se o arquivo deve ser incluído com base no modo selecionado.
- */
-function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): boolean {
-  // Ignora arquivos de exportação para evitar loops de leitura
-  if (caminhoRelativo === "EXPORT.md" || caminhoRelativo === "EXPORT-DOCS.md") {
-    return false;
-  }
-
-  const caminhoMinusculo = caminhoRelativo.toLowerCase();
-
-  if (modo === "docs") {
-    // Modo DOCUMENTAÇÃO: Pega docs/ e arquivos de licença/readme
-    if (caminhoRelativo.startsWith("docs/") || caminhoRelativo.startsWith("docs\\")) {
-      return EXTENSOES_PERMITIDAS.some(ext => caminhoMinusculo.endsWith(ext));
-    }
-    const arquivosDocsRaiz = ["readme.md", "readme", "license", "license.md", "license.txt"];
-    return arquivosDocsRaiz.includes(caminhoMinusculo);
-  } else {
-    // Modo MAIN (Padrão): Pega arquivos da raiz e pastas src/ e public/
-    const arquivosRaizPermitidos = ["main.ts", "build.ts", "deno.json", "deno.jsonc", "export.ts"];
-    
-    if (arquivosRaizPermitidos.includes(caminhoRelativo)) {
-      return true;
-    }
-
-    const pastasPermitidas = ["src", "public"];
-    const estaEmPastaPermitida = pastasPermitidas.some(pasta => 
-      caminhoRelativo.startsWith(`${pasta}/`) || caminhoRelativo.startsWith(`${pasta}\\`)
-    );
-
-    if (estaEmPastaPermitida) {
-      return EXTENSOES_PERMITIDAS.some(ext => 
-        caminhoMinusculo.endsWith(ext) || caminhoMinusculo === ext
-      );
-    }
-  }
-
-  return false;
-}
-
-// 2. Montagem do cabeçalho instrucional dinâmico com a versão sincronizada
-let conteudoFinal = `> **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v${APP_VERSION}** (${modo === "docs" ? "DOCUMENTAÇÃO" : "CÓDIGO FONTE"}) estruturados em blocos. 
-> Cada arquivo começa com um título indicando seu caminho relativo exato (ex: \`## Arquivo: src/main.ts\`).
-> Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
-
----
-
-# Contexto Exportado do Projeto Loco [v${APP_VERSION}] - Modo: ${modo.toUpperCase()}
-
-Gerado automaticamente em: ${new Date().toLocaleString()}
-
----
-
-`;
-
-console.log(`🚀 Iniciando exportação do Loco v${APP_VERSION} no modo: [${modo.toUpperCase()}] -> Gerando '${ARQUIVO_SAIDA}'`);
-
-// 3. Varredura do diretório
-for await (const entry of walk(".", { includeDirs: false })) {
-  const caminhoRelativo = relative(".", entry.path);
-
-  if (deveIncluirArquivo(caminhoRelativo, modo)) {
-    try {
-      console.log(` 📄 Incluindo: ${caminhoRelativo}`);
-      const conteudoArquivo = await Deno.readTextFile(entry.path);
-      
-      let extensaoMarkdown = caminhoRelativo.split(".").pop() || "";
-      if (extensaoMarkdown === "manifest") extensaoMarkdown = "json";
-      if (extensaoMarkdown === "jsonc") extensaoMarkdown = "json";
-      if (caminhoRelativo.includes(".env")) extensaoMarkdown = "properties";
-
-      const wrapperCrasis = calcularCraseWrapper(conteudoArquivo);
-
-      conteudoFinal += `## Arquivo: \`${caminhoRelativo}\`\n\n`;
-      conteudoFinal += `${wrapperCrasis}${extensaoMarkdown}\n`;
-      conteudoFinal += conteudoArquivo;
-      conteudoFinal += `\n${wrapperCrasis}\n\n---\n\n`;
-    } catch (erro) {
-      if (erro instanceof Error) {
-        console.error(`❌ Erro ao ler ${caminhoRelativo}:`, erro.message);
-      }
-    }
-  }
-}
-
-await Deno.writeTextFile(ARQUIVO_SAIDA, conteudoFinal);
-console.log(`\n✨ Prontinho! O arquivo ${ARQUIVO_SAIDA} (v${APP_VERSION}) foi gerado com sucesso.`);
-````
 
 ---
 

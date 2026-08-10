@@ -85,48 +85,91 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
   let cqr = null, cjwt = null, jwt = null;
 
   try {
-    const url = new URL(input);
+    const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
+      ? input 
+      : `http://localhost/?${input}`;
+    const url = new URL(fullUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
     cqr = url.searchParams.get('cqr');
     cjwt = url.searchParams.get('cjwt');
     jwt = url.searchParams.get('jwt');
   } catch {
-    if (!input.includes('.')) cqr = input;
-    else jwt = input;
+    if (input.includes('cjwt=')) {
+      const parts = input.split('cjwt=');
+      if (parts[1]) cjwt = parts[1].split('&')[0];
+    } else if (input.includes('cqr=')) {
+      const parts = input.split('cqr=');
+      if (parts[1]) cqr = parts[1].split('&')[0];
+    } else if (input.includes('jwt=')) {
+      const parts = input.split('jwt=');
+      if (parts[1]) jwt = parts[1].split('&')[0];
+    }
+  }
+
+  // Se nenhum parâmetro específico foi encontrado, infere pelo formato
+  if (!cqr && !cjwt && !jwt && input) {
+    if (input.includes('.')) {
+      jwt = input.trim();
+    } else {
+      // 🔥 CORREÇÃO: Nova Lógica de Fallback inspecionando o dado descomprimido
+      try {
+        const compressed = new Uint8Array(base64UrlToArrayBuffer(input.trim()));
+        const decompressed = gunzipSync(compressed);
+        const text = new TextDecoder().decode(decompressed);
+        
+        // QR Codes zipam um objeto JSON bruto (inicia com "{"). 
+        // JWTs zipam uma string JWT comum.
+        if (text.startsWith('{')) {
+          cqr = input.trim();
+        } else {
+          cjwt = input.trim();
+        }
+      } catch (e) {
+        cjwt = input.trim(); // fallback seguro de erro
+      }
+    }
   }
 
   let compactData: CompactContact | null = null;
 
-  // 1. Tenta ler binário do QR Code (cqr ou string pura sem pontos)
-  if (cqr) {
+  // 1. Tenta ler o Token Comprimido (cjwt)
+  if (!compactData && cjwt) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      
+      const { payload, valid } = await verificarJWT(jsonText); 
+      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar cjwt:", e);
+    }
+  }
+
+  // 2. Tenta ler binário do QR Code (cqr)
+  if (!compactData && cqr) {
     try {
       const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
       const decompressed = gunzipSync(compressed);
       const jsonText = new TextDecoder().decode(decompressed);
       const parsed = JSON.parse(jsonText);
-      
-      // Validação básica do novo formato
       if (parsed.vx && parsed.vy) {
         compactData = parsed as CompactContact;
       }
-    } catch (e) { /* fallback silêncioso para testar os outros formatos */ }
-  }
-
-  // 2. Tenta ler o Token Comprimido (cjwt)
-  const targetCjwt = cjwt || cqr;
-  if (!compactData && targetCjwt) {
-    const compressed = new Uint8Array(base64UrlToArrayBuffer(targetCjwt));
-    const decompressed = gunzipSync(compressed);
-    const jsonText = new TextDecoder().decode(decompressed);
-    const { payload, valid } = await verificarJWT(jsonText);
-    if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
-    compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao ler cqr:", e);
+    }
   }
 
   // 3. Tenta ler o Token Legado Sem Compressão (jwt)
   if (!compactData && jwt) {
-    const { payload, valid } = await verificarJWT(jwt);
-    if (!valid) throw new Error("Assinatura do convite inválida.");
-    compactData = payload as CompactContact;
+    try {
+      const { payload, valid } = await verificarJWT(jwt);
+      if (!valid) throw new Error("Assinatura do convite inválida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar jwt:", e);
+    }
   }
 
   if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");

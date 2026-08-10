@@ -21,15 +21,14 @@ interface MensagemOutParams {
   conteudo?: string;
   mensagem?: string;
   campos?: string[];
-  msgId?: string;       // Injetados pela UI no modo Otimista
-  handshakeId?: string; // Injetados pela UI no modo Otimista
+  msgId?: string;       
+  handshakeId?: string; 
   createdAt?: number;
 }
 
-function notificarUI(chatId: string) {
-  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
-    clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
-  });
+async function notificarUI(chatId: string) {
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
 }
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
@@ -42,7 +41,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
     const msgReq = handshake.in.rotas.mensagem;
 
-    // Cenário 1: Confirmação de Leitura ou PULL Status
+    // Cenário 1: Solicitação PULL de status
     if (msgReq.recebida && Array.isArray(msgReq.campos)) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
       const msgLocal = await buscarChat(msgReq.recebida);
@@ -60,7 +59,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // Cenário 2: Auto-Ack Recebido (A outra ponta confirmou que o Push físico chegou no celular dela)
+    // Cenário 2: Auto-Ack Recebido (Confirmação de chegada física no destino)
     else if (msgReq.data && typeof msgReq.data.recebida === 'string' && typeof msgReq.data.status === 'string') {
       addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. Status: ${msgReq.data.status}`);
       
@@ -71,11 +70,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (msgReq.data.status === 'lida') msgLocal.readAt = Date.now();
         
         await salvarChat(msgLocal);
-        notificarUI(msgLocal.id); // Atualiza os checkmarks visuais da UI
+        notificarUI(msgLocal.id);
       }
     }
 
-    // Cenário 3: Recebendo uma MENSAGEM NOVA de verdade
+    // Cenário 3: Recebendo uma MENSAGEM NOVA
     else if (msgReq.enviada && msgReq.conteudo) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
       
@@ -85,12 +84,12 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         conteudo: msgReq.conteudo,
         tipo: 'in',
         createdAt: Date.now(),
-        receivedAt: Date.now(), // Marcamos a recepção
+        receivedAt: Date.now(),
         handshake: handshakeId
       };
       await salvarChat(novaMsgRecebida);
 
-      // Devolve Recibo Híbrido Automático (Auto-Ack: "Chegou no meu celular")
+      // Devolve Auto-Ack de recebimento físico para o remetente
       const ackHandshake: Handshake = {
         id: gerarId(),
         aud: handshake.aud,
@@ -103,17 +102,25 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
       await salvarHandshake(ackHandshake);
 
-      // Gatilho visual
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const nomeExibicao = contato?.name?.trim() || "Anônimo";
-      
-      await self.registration.showNotification(`📥 Nova mensagem`, {
-        body: `${novaMsgRecebida.conteudo}\n\nDe: ${nomeExibicao}`,
-        icon: '/icon-192.png',
-        tag: novaMsgRecebida.id
-      });
+      // 🔍 VERIFICAÇÃO DE CLIENTES ABERTOS
+      const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const appEstaAberto = windowClients.length > 0;
 
-      notificarUI(novaMsgRecebida.id); // Avisa a UI para renderizar
+      // 🔥 Só exibe notificação nativa do sistema se o aplicativo estiver totalmente fechado
+      if (!appEstaAberto) {
+        const contato = await buscarContatoPorChave(handshake.aud);
+        const nomeExibicao = contato?.name?.trim() || "Anônimo";
+        
+        await self.registration.showNotification(`📥 Nova mensagem`, {
+          body: `${novaMsgRecebida.conteudo}\n\nDe: ${nomeExibicao}`,
+          icon: '/icon-192.png',
+          tag: novaMsgRecebida.id
+        });
+      } else {
+        addDebugLog(`[HAND-MENSAGEM] 👁️ O app está aberto (${windowClients.length} janela(s)). Notificação nativa suprimida.`);
+      }
+
+      notificarUI(novaMsgRecebida.id);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
@@ -137,8 +144,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const idReal = msgId || gerarId();
       const handIdReal = handshakeId || gerarId();
       
-      // O banco já está populado graças à Atualização Otimista da UI. 
-      // Mas se por algum motivo for rodado pelo console, salvamos.
       const chatExistente = await buscarChat(idReal);
       if (!chatExistente) {
         const chatOut: Chat = {
@@ -148,14 +153,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         await salvarChat(chatOut);
       }
 
-      // Cria a embalagem e solta pra rede
       const novoHandshake: Handshake = {
         id: handIdReal, aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
         out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: idReal, conteudo } } }
       };
 
       await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} encapsulada e posta na fila do SW.`);
+      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} posta na fila de saída do SW.`);
       
       setTimeout(() => processarFilaHandshake(), 100);
     }

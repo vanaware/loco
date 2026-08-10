@@ -13,9 +13,38 @@ export const profileInput = signal<string>('');
 export const profileName = signal<string>('');
 export const profileEmail = signal<string>('');
 
-/**
- * Re-exportação com sobrecarga mantendo compatibilidade com toda a Interface de Usuário
- */
+// 🔥 Signals dedicados para o sistema de Toast não-bloqueante (MD3)
+export interface ToastState {
+  message: string;
+  type: 'success' | 'error' | 'info';
+  visible: boolean;
+}
+
+export const toastState = signal<ToastState>({
+  message: '',
+  type: 'info',
+  visible: false,
+});
+
+let toastTimer: number | null = null;
+
+export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+  }
+
+  toastState.value = {
+    message: msg,
+    type,
+    visible: true,
+  };
+
+  // Oculta automaticamente após 3.5 segundos
+  toastTimer = setTimeout(() => {
+    toastState.value = { ...toastState.value, visible: false };
+  }, 3500) as unknown as number;
+}
+
 export function addDebugLog(
   typeOrMsg: string,
   moduleOrDetails?: any,
@@ -25,11 +54,4 @@ export function addDebugLog(
   emitLog(typeOrMsg, moduleOrDetails, message, details);
 }
 
-export function clearDebugLogs(): void {
-  // A persistência de limpeza de logs agora ocorre nativamente no DebugPanel.tsx
-  // Esta casca existe apenas para não quebrar referências antigas.
-}
-
-export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
-  alert(`${type.toUpperCase()}: ${msg}`);
-}
+export function clearDebugLogs(): void {}

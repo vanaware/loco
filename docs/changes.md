@@ -66,6 +66,14 @@ export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'inf
 * **O Problema:** A função `alert()` nativa do navegador pausa a execução da thread principal (o JavaScript congela até o usuário clicar em "OK"). Isso mata a experiência de um aplicativo descentralizado e PWA.
 * **Solução:** Como você está usando o Material Design 3 (`@material/web`), devemos criar um componente `<md-snackbar>` (ou uma `div` flutuante customizada com animação CSS) vinculada a um Signal, para exibir toasts não-bloqueantes no rodapé da tela.
 
+
+resolução escolhida: o prototipo atual não necessita de nenhum chamada que pausa a execução e o alert() já estava incomodando
+gostei da solução `<md-snackbar>` com signals para enviar toasts informativos e não bloqueantes no rodapé da tela.
+a preferencia é sempre dar preferencia para soluções do material design 3
+
+outra coisa, não preciso de notificação de mensagem caso o navegador esteja aberto, apenas se estiver fechado e o service-worker estiver rodando sozinho com a tela UI fechada
+
+
 ### 4. Risco de "QuotaExceededError" (Falta de Limpeza de Lixo)
 
 No Service Worker (`src/sw/sw-handshakes.ts`), no método `salvarHandshakeTransacional`, você mesmo deixou um aviso:

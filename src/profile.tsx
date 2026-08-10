@@ -3,6 +3,7 @@ import { render } from 'preact';
 import { useEffect } from 'preact/hooks';
 import { profile, carregarProfile } from './stores/profileStore.ts';
 import { ProfileSection } from './components/ProfileSection.tsx';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 
 import "@material/web/all.js";
 import './styles.css';
@@ -33,6 +34,9 @@ function ProfileApp() {
       <div style="width: 100%; max-width: 600px; padding: 16px; box-sizing: border-box;">
         <ProfileSection />
       </div>
+
+      {/* Exibição não-bloqueante de alertas */}
+      <ToastSnackbar />
 
     </div>
   );

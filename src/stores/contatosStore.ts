@@ -5,7 +5,6 @@ import {
   salvarContato,
   removerContato,
   serializarPublicKeyVapid,
-  buscarContatoPorPublicKey,
 } from "../utils/db-helpers.ts";
 import type { Contato } from "../constants/db.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
@@ -16,7 +15,6 @@ export const contatosRaw = signal<Contato[]>([]);
 
 /**
  * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
- * O Preact reage de forma super eficiente graças à computação sob demanda.
  */
 export const contatosComHash = computed(() => {
   return contatosRaw.value.map((contato) => ({
@@ -34,7 +32,7 @@ export const contatosMap = computed(() => {
 });
 
 /**
- * Carrega a lista de contatos do IndexedDB para a memória. Chamado apenas no init.
+ * Carrega a lista de contatos do IndexedDB para a memória.
  */
 export async function carregarContatos(): Promise<void> {
   try {
@@ -48,6 +46,15 @@ export async function carregarContatos(): Promise<void> {
 
 export async function initContatosStore(): Promise<void> {
   await carregarContatos();
+
+  // 🔥 Ouve mensagens do Service Worker para sincronizar atualizações em background
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'CONTATO_ATUALIZADO') {
+        carregarContatos();
+      }
+    });
+  }
 }
 
 /**
@@ -55,7 +62,6 @@ export async function initContatosStore(): Promise<void> {
  */
 export async function adicionarContato(contato: Contato): Promise<void> {
   try {
-    // 1. Atualiza memória instantaneamente para UI reagir
     const atual = contatosRaw.value;
     const index = atual.findIndex(c => c.id === contato.id);
     if (index >= 0) {
@@ -66,7 +72,6 @@ export async function adicionarContato(contato: Contato): Promise<void> {
       contatosRaw.value = [...atual, contato];
     }
 
-    // 2. Grava no banco sem travar a thread principal
     await salvarContato(contato);
     addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
   } catch (err) {
@@ -88,10 +93,8 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
   try {
     const hash = await serializarPublicKeyVapid(vapidPublicKey);
     
-    // Atualiza memória
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
-    // Persiste remoção
     await removerContato(vapidPublicKey);
     addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
   } catch (err) {
@@ -113,7 +116,6 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
       novaLista[index] = { ...novaLista[index], trusted: true, updatedAt: Date.now() };
       contatosRaw.value = novaLista;
       
-      // Persiste as mudanças consolidadas
       await salvarContato(novaLista[index]);
       addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${novaLista[index].name}`);
     } else {
@@ -132,7 +134,6 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
     novaLista[index] = { ...novaLista[index], me: meStatus, updatedAt: Date.now() };
     contatosRaw.value = novaLista;
     
-    // Dispara salvamento em background
     salvarContato(novaLista[index]).catch(err => {
         addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
     });

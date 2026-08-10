@@ -5,6 +5,8 @@ import { useSignal } from '@preact/signals';
 import { processarQualquerConvite } from './utils/share-utils.ts';
 import { adicionarContato, initContatosStore } from './stores/contatosStore.ts';
 import { serializarPublicKeyVapid } from './utils/db-helpers.ts';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
+import { showToast } from './signals/state.ts';
 import type { Contato } from './constants/db.ts';
 
 import "@material/web/all.js";
@@ -129,10 +131,12 @@ function ShareApp() {
         });
       }
 
-      alert("✅ Contato adicionado! Um pacote de sincronização invisível foi enviado para ele.");
-      window.location.href = '/'; 
+      showToast("✅ Contato adicionado! Um pacote de sincronização foi enviado.", "success");
+      setTimeout(() => {
+        window.location.href = '/'; 
+      }, 1200);
     } catch (e: any) {
-      alert("❌ Erro ao adicionar contato: " + e.message);
+      showToast("❌ Erro ao adicionar contato: " + e.message, "error");
     }
   };
 
@@ -196,7 +200,7 @@ function ShareApp() {
               <div style="display: flex; gap: 8px; align-items: flex-start;">
                 <md-outlined-text-field
                   value={manualInput.value}
-                  onInput={(e: any) => manualInput.value = e.target.value}
+                  onInput={(e: Event) => manualInput.value = (e.target as HTMLInputElement).value}
                   placeholder="Cole aqui..."
                   style="flex-grow: 1; margin-bottom: 0;"
                 ></md-outlined-text-field>
@@ -208,6 +212,9 @@ function ShareApp() {
           </div>
         )}
       </div>
+
+      {/* Componente Global de Toast para feedback visual responsivo */}
+      <ToastSnackbar />
     </div>
   );
 }

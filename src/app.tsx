@@ -5,7 +5,8 @@ import { useSignal } from '@preact/signals';
 import { ContatosSection } from './components/ContatosSection.tsx';
 import { ChatSection } from './components/ChatSection.tsx'; 
 import { ContactDetailSection } from './components/ContactDetailSection.tsx';
-import { AdvancedSection } from './components/AdvancedSection.tsx'; // 🔥 Importação Nova
+import { AdvancedSection } from './components/AdvancedSection.tsx';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
 
@@ -162,7 +163,7 @@ function App() {
           </div>
         )}
       </main>
-
+      <ToastSnackbar />
     </div>
   );
 }
