@@ -87,7 +87,7 @@ if (e.name === 'QuotaExceededError') {
 ```
 
 * **O Problema:** Handshakes de sincronização e recibos de entrega estão sendo acumulados para sempre no IndexedDB. Com o tempo, o celular do usuário vai estourar a cota de armazenamento e o app vai parar de enviar/receber mensagens.
-* **Solução:** Criar uma função de *Garbage Collection* no `sw-utils` ou `sw-handshakes` que, toda vez que rodar a fila, delete handshakes processados e entregues (status `'processado'` ou `'entregue'`) que tenham mais de X dias de vida.
+* **Solução:** Criar uma função de *Garbage Collection* no `sw-utils` ou `sw-handshakes` que, toda vez que rodar a fila, delete handshakes processados e entregues (status `'processado'` ou `'entregue'`) que tenham mais de 7 dias de vida.
 
 ### 5. Tipagem "Any" em Eventos React/Preact
 

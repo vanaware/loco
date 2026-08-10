@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.16-msmjmycp** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.18-msmjzxnn** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.16-msmjmycp] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.18-msmjzxnn] - Modo: MAIN
 
-Gerado automaticamente em: 8/9/2026, 10:23:15 PM
+Gerado automaticamente em: 8/9/2026, 10:29:33 PM
 
 ---
 
@@ -1348,7 +1348,7 @@ export function ToastSnackbar() {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.16-msmjmycp";
+export const APP_VERSION = "0.2.18-msmjzxnn";
 
 ```
 
@@ -2041,6 +2041,67 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
 
 ---
 
+## Arquivo: `src/sw/push.ts`
+
+```ts
+// src/sw/push.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { verificarJWT } from "../utils/jwt-helpers.ts";
+import { processarHandshakeRecebido } from "./sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+
+addDebugLog("[SW-PUSH-ROUTER] 🔀 Event Listener de Push engatilhado.");
+
+self.addEventListener('push', function (event) {
+  if (!event.data) return;
+  const rawText = event.data.text();
+  addDebugLog(`[SW-PUSH-ROUTER] 📩 WebPush físico recebido! (Tamanho: ${rawText.length} bytes)`);
+
+  if (rawText.split('.').length !== 3) {
+    event.waitUntil(
+      self.registration.showNotification("Notificação", { body: "Dados crus capturados." })
+    );
+    return;
+  }
+
+  // Envolve todo o fluxo de processamento assíncrono para garantir que o SW permaneça vivo
+  event.waitUntil(
+    (async function () {
+      try {
+        const { header, payload, valid } = await verificarJWT(rawText);
+        
+        if (!valid) {
+          addDebugLog("[SW-PUSH-ROUTER] ⚠️ Assinatura de pacote rejeitada.");
+          await self.registration.showNotification("⚠️ Assinatura inválida", {
+            body: `Mensagem rejeitada por falha de integridade.`,
+            icon: '/icon-192.png',
+          });
+          return;
+        }
+
+        // Redireciona o payload fechado de Handshake para nossa Máquina de Estados
+        if (payload.sub === "hand") {
+          await processarHandshakeRecebido(payload, header, rawText);
+          return;
+        }
+
+        addDebugLog(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
+      } catch (err: any) {
+        addDebugLog(`[SW-PUSH-ROUTER] ❌ Falha crítica no desempacotamento de Push: ${err.message}`);
+        await self.registration.showNotification("⚠️ Erro de Rede", {
+          body: "Falha criptográfica no processamento de uma mensagem recebida.",
+          icon: '/icon-192.png',
+        });
+      }
+    })()
+  );
+});
+```
+
+---
+
 ## Arquivo: `src/sw/sw-handshakes.ts`
 
 ```ts
@@ -2055,6 +2116,7 @@ import {
   salvarHandshake,
   buscarHandshake,
   listarHandshakes,
+  removerHandshake, // 🔥 NOVO: Importado para o Garbage Collection
   buscarContatoPorChave,
   buscarProfile,
   buscarChaveDecript,
@@ -2071,6 +2133,43 @@ import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
 
+// 🔥 NOVO: Motor de Garbage Collection para evitar QuotaExceededError no IndexedDB
+async function realizarGarbageCollection(emergencia = false) {
+  try {
+    const todos = await listarHandshakes();
+    const agora = Date.now();
+    
+    // Na operação padrão: remove finalizados há mais de 7 dias.
+    // Na emergência (Cota Estourada): remove finalizados há mais de 1 hora para forçar espaço imediato.
+    const LIMITE_MS = emergencia ? (60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000); 
+
+    let removidos = 0;
+    for (const h of todos) {
+      const idade = agora - (h.updatedAt || h.createdAt);
+      
+      if (idade > LIMITE_MS) {
+        // Verifica se ambas as pontas do handshake (Entrada e Saída) não estão mais pendentes
+        const inConcluido = !h.in || ['processado', 'falha'].includes(h.in.status);
+        const outConcluido = !h.out || ['enviado', 'entregue', 'falha'].includes(h.out.status);
+
+        // Em caso de emergência, se a transação estiver travada há mais de 3 dias, apagamos sem piedade
+        const apagarForcado = emergencia && (idade > 3 * 24 * 60 * 60 * 1000);
+
+        if ((inConcluido && outConcluido) || apagarForcado) {
+          await removerHandshake(h.id);
+          removidos++;
+        }
+      }
+    }
+    
+    if (removidos > 0) {
+      addDebugLog(`[SW-ROUTER] 🧹 Garbage Collection: ${removidos} handshakes antigos removidos (Emergência: ${emergencia}).`);
+    }
+  } catch (err: any) {
+    addDebugLog(`[SW-ROUTER] ❌ Erro durante o Garbage Collection: ${err.message}`);
+  }
+}
+
 // Wrapper transacional para o salvamento de Handshakes (Mitiga QuotaExceededError)
 async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso?: string) {
   try {
@@ -2078,12 +2177,22 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
     if (mensagemSucesso) addDebugLog(mensagemSucesso);
   } catch (e: any) {
     if (e.name === 'QuotaExceededError') {
-      addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida ao salvar handshake. O banco pode estar cheio.");
-      // TODO: Implementar estratégia de eviction (limpeza) de handshakes muito antigos
+      addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida. Disparando GC de emergência...");
+      // 🔥 NOVO: Roda a limpeza agressiva de emergência
+      await realizarGarbageCollection(true);
+      
+      try {
+        // Tenta salvar o pacote novamente após liberar espaço
+        await salvarHandshake(handshake);
+        addDebugLog("[SW-ROUTER] ✅ Espaço liberado. Handshake salvo com sucesso após emergência.");
+      } catch (e2: any) {
+        addDebugLog(`[SW-ROUTER] ❌ Falha catastrófica: Disco permanentemente cheio. Erro: ${e2.message}`);
+        throw e2;
+      }
     } else {
       addDebugLog(`[SW-ROUTER] ❌ Erro ao gravar handshake no IndexedDB: ${e.message}`);
+      throw e;
     }
-    throw e;
   }
 }
 
@@ -2285,6 +2394,10 @@ export async function processarFilaHandshake() {
         }
       }
     }
+    
+    // 3. GARBAGE COLLECTION PASSSIVA 🔥
+    // Executa no final da fila normal para matar sujeiras muito velhas
+    await realizarGarbageCollection(false);
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
@@ -2308,67 +2421,6 @@ self.addEventListener('online', function (event: Event) {
   } else {
     processarFilaHandshake();
   }
-});
-```
-
----
-
-## Arquivo: `src/sw/push.ts`
-
-```ts
-// src/sw/push.ts
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-import { verificarJWT } from "../utils/jwt-helpers.ts";
-import { processarHandshakeRecebido } from "./sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-
-addDebugLog("[SW-PUSH-ROUTER] 🔀 Event Listener de Push engatilhado.");
-
-self.addEventListener('push', function (event) {
-  if (!event.data) return;
-  const rawText = event.data.text();
-  addDebugLog(`[SW-PUSH-ROUTER] 📩 WebPush físico recebido! (Tamanho: ${rawText.length} bytes)`);
-
-  if (rawText.split('.').length !== 3) {
-    event.waitUntil(
-      self.registration.showNotification("Notificação", { body: "Dados crus capturados." })
-    );
-    return;
-  }
-
-  // Envolve todo o fluxo de processamento assíncrono para garantir que o SW permaneça vivo
-  event.waitUntil(
-    (async function () {
-      try {
-        const { header, payload, valid } = await verificarJWT(rawText);
-        
-        if (!valid) {
-          addDebugLog("[SW-PUSH-ROUTER] ⚠️ Assinatura de pacote rejeitada.");
-          await self.registration.showNotification("⚠️ Assinatura inválida", {
-            body: `Mensagem rejeitada por falha de integridade.`,
-            icon: '/icon-192.png',
-          });
-          return;
-        }
-
-        // Redireciona o payload fechado de Handshake para nossa Máquina de Estados
-        if (payload.sub === "hand") {
-          await processarHandshakeRecebido(payload, header, rawText);
-          return;
-        }
-
-        addDebugLog(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
-      } catch (err: any) {
-        addDebugLog(`[SW-PUSH-ROUTER] ❌ Falha crítica no desempacotamento de Push: ${err.message}`);
-        await self.registration.showNotification("⚠️ Erro de Rede", {
-          body: "Falha criptográfica no processamento de uma mensagem recebida.",
-          icon: '/icon-192.png',
-        });
-      }
-    })()
-  );
 });
 ```
 
@@ -3634,7 +3686,22 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
     if (input.includes('.')) {
       jwt = input.trim();
     } else {
-      cjwt = input.trim(); // Assume cjwt por padrão para links gerados
+      // 🔥 CORREÇÃO: Nova Lógica de Fallback inspecionando o dado descomprimido
+      try {
+        const compressed = new Uint8Array(base64UrlToArrayBuffer(input.trim()));
+        const decompressed = gunzipSync(compressed);
+        const text = new TextDecoder().decode(decompressed);
+        
+        // QR Codes zipam um objeto JSON bruto (inicia com "{"). 
+        // JWTs zipam uma string JWT comum.
+        if (text.startsWith('{')) {
+          cqr = input.trim();
+        } else {
+          cjwt = input.trim();
+        }
+      } catch (e) {
+        cjwt = input.trim(); // fallback seguro de erro
+      }
     }
   }
 
@@ -3646,7 +3713,7 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
       const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
       const decompressed = gunzipSync(compressed);
       const jsonText = new TextDecoder().decode(decompressed);
-      // 🔥 CORREÇÃO: Desestruturação correta do retorno da função verificarJWT
+      
       const { payload, valid } = await verificarJWT(jsonText); 
       if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
       if (payload) compactData = payload as CompactContact;
@@ -3673,7 +3740,6 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
   // 3. Tenta ler o Token Legado Sem Compressão (jwt)
   if (!compactData && jwt) {
     try {
-      // 🔥 CORREÇÃO: Desestruturação correta
       const { payload, valid } = await verificarJWT(jwt);
       if (!valid) throw new Error("Assinatura do convite inválida.");
       if (payload) compactData = payload as CompactContact;
@@ -5875,7 +5941,7 @@ console.log(`🚀 Protótipo rodando em http://localhost:${PORT}`);
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.16-msmjmycp",
+  "version": "0.2.18-msmjzxnn",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",

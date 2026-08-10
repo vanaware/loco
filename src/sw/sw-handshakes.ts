@@ -9,6 +9,7 @@ import {
   salvarHandshake,
   buscarHandshake,
   listarHandshakes,
+  removerHandshake, // 🔥 NOVO: Importado para o Garbage Collection
   buscarContatoPorChave,
   buscarProfile,
   buscarChaveDecript,
@@ -25,6 +26,43 @@ import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
 
+// 🔥 NOVO: Motor de Garbage Collection para evitar QuotaExceededError no IndexedDB
+async function realizarGarbageCollection(emergencia = false) {
+  try {
+    const todos = await listarHandshakes();
+    const agora = Date.now();
+    
+    // Na operação padrão: remove finalizados há mais de 7 dias.
+    // Na emergência (Cota Estourada): remove finalizados há mais de 1 hora para forçar espaço imediato.
+    const LIMITE_MS = emergencia ? (60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000); 
+
+    let removidos = 0;
+    for (const h of todos) {
+      const idade = agora - (h.updatedAt || h.createdAt);
+      
+      if (idade > LIMITE_MS) {
+        // Verifica se ambas as pontas do handshake (Entrada e Saída) não estão mais pendentes
+        const inConcluido = !h.in || ['processado', 'falha'].includes(h.in.status);
+        const outConcluido = !h.out || ['enviado', 'entregue', 'falha'].includes(h.out.status);
+
+        // Em caso de emergência, se a transação estiver travada há mais de 3 dias, apagamos sem piedade
+        const apagarForcado = emergencia && (idade > 3 * 24 * 60 * 60 * 1000);
+
+        if ((inConcluido && outConcluido) || apagarForcado) {
+          await removerHandshake(h.id);
+          removidos++;
+        }
+      }
+    }
+    
+    if (removidos > 0) {
+      addDebugLog(`[SW-ROUTER] 🧹 Garbage Collection: ${removidos} handshakes antigos removidos (Emergência: ${emergencia}).`);
+    }
+  } catch (err: any) {
+    addDebugLog(`[SW-ROUTER] ❌ Erro durante o Garbage Collection: ${err.message}`);
+  }
+}
+
 // Wrapper transacional para o salvamento de Handshakes (Mitiga QuotaExceededError)
 async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso?: string) {
   try {
@@ -32,12 +70,22 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
     if (mensagemSucesso) addDebugLog(mensagemSucesso);
   } catch (e: any) {
     if (e.name === 'QuotaExceededError') {
-      addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida ao salvar handshake. O banco pode estar cheio.");
-      // TODO: Implementar estratégia de eviction (limpeza) de handshakes muito antigos
+      addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida. Disparando GC de emergência...");
+      // 🔥 NOVO: Roda a limpeza agressiva de emergência
+      await realizarGarbageCollection(true);
+      
+      try {
+        // Tenta salvar o pacote novamente após liberar espaço
+        await salvarHandshake(handshake);
+        addDebugLog("[SW-ROUTER] ✅ Espaço liberado. Handshake salvo com sucesso após emergência.");
+      } catch (e2: any) {
+        addDebugLog(`[SW-ROUTER] ❌ Falha catastrófica: Disco permanentemente cheio. Erro: ${e2.message}`);
+        throw e2;
+      }
     } else {
       addDebugLog(`[SW-ROUTER] ❌ Erro ao gravar handshake no IndexedDB: ${e.message}`);
+      throw e;
     }
-    throw e;
   }
 }
 
@@ -239,6 +287,10 @@ export async function processarFilaHandshake() {
         }
       }
     }
+    
+    // 3. GARBAGE COLLECTION PASSSIVA 🔥
+    // Executa no final da fila normal para matar sujeiras muito velhas
+    await realizarGarbageCollection(false);
 
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
