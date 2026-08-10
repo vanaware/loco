@@ -2,15 +2,13 @@
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-import { Handshake, MensagemRecebida, MensagemEnviada } from "../constants/db.ts";
+import { Handshake, Chat } from "../constants/db.ts";
 import { gerarId } from "../utils/id-utils.ts";
 import {
   buscarHandshake,
   salvarHandshake,
-  buscarMensagemEnviada,
-  salvarMensagemEnviada,
-  buscarMensagemRecebida,
-  salvarMensagemRecebida,
+  buscarChat,
+  salvarChat,
   buscarContatoPorChave
 } from "../utils/db-helpers.ts";
 
@@ -23,10 +21,20 @@ interface MensagemOutParams {
   conteudo?: string;
   mensagem?: string;
   campos?: string[];
+  msgId?: string;       // Injetados pela UI no modo Otimista
+  handshakeId?: string; // Injetados pela UI no modo Otimista
+  createdAt?: number;
+}
+
+function notificarUI(chatId: string) {
+  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+    clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
+  });
 }
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
   
+  // 📥 LÓGICA DE ENTRADA (Recebendo Push Criptografado da Rede)
   if (handshakeId) {
     addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
@@ -34,16 +42,16 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
     const msgReq = handshake.in.rotas.mensagem;
 
+    // Cenário 1: Confirmação de Leitura ou PULL Status
     if (msgReq.recebida && Array.isArray(msgReq.campos)) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
-      const msgLocal = await buscarMensagemRecebida(msgReq.recebida);
+      const msgLocal = await buscarChat(msgReq.recebida);
       const rotasMsgData: Record<string, unknown> = { recebida: msgReq.recebida };
 
       if (msgLocal) {
         const camposSet = new Set(msgReq.campos);
-        if (camposSet.has('status')) rotasMsgData.status = msgLocal.status;
-        if (camposSet.has('conteudo')) rotasMsgData.conteudo = msgLocal.conteudo;
-        if (camposSet.has('recebidoEm')) rotasMsgData.recebidoEm = msgLocal.recebidoEm;
+        if (camposSet.has('readAt')) rotasMsgData.readAt = msgLocal.readAt;
+        if (camposSet.has('receivedAt')) rotasMsgData.receivedAt = msgLocal.receivedAt;
       }
 
       handshake.out = { status: 'pendente', tentativas: 0, rotas: { mensagem: { data: rotasMsgData } } };
@@ -52,33 +60,37 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
+    // Cenário 2: Auto-Ack Recebido (A outra ponta confirmou que o Push físico chegou no celular dela)
     else if (msgReq.data && typeof msgReq.data.recebida === 'string' && typeof msgReq.data.status === 'string') {
-      addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. A mensagem ${msgReq.data.recebida} consta como ${msgReq.data.status} no destino.`);
+      addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. Status: ${msgReq.data.status}`);
       
-      const msgEnviada = await buscarMensagemEnviada(msgReq.data.recebida);
+      const msgLocal = await buscarChat(msgReq.data.recebida);
       
-      if (msgEnviada) {
-        msgEnviada.status = 'entregue';
-        msgEnviada.updatedAt = Date.now();
-        await salvarMensagemEnviada(msgEnviada);
-
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => client.postMessage({ type: 'MENSAGEM_ENTREGUE', payload: { mensagemId: msgEnviada.id } }));
+      if (msgLocal && msgLocal.tipo === 'out') {
+        if (msgReq.data.status === 'entregue') msgLocal.receivedAt = Date.now();
+        if (msgReq.data.status === 'lida') msgLocal.readAt = Date.now();
+        
+        await salvarChat(msgLocal);
+        notificarUI(msgLocal.id); // Atualiza os checkmarks visuais da UI
       }
     }
 
+    // Cenário 3: Recebendo uma MENSAGEM NOVA de verdade
     else if (msgReq.enviada && msgReq.conteudo) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
       
-      const novaMsgRecebida: MensagemRecebida = {
+      const novaMsgRecebida: Chat = {
         id: msgReq.enviada,
-        contatoPublicKeyVapid: handshake.aud,
+        contatoHash: handshake.aud,
         conteudo: msgReq.conteudo,
-        status: 'nao_lida',
-        recebidoEm: Date.now()
+        tipo: 'in',
+        createdAt: Date.now(),
+        receivedAt: Date.now(), // Marcamos a recepção
+        handshake: handshakeId
       };
-      await salvarMensagemRecebida(novaMsgRecebida);
+      await salvarChat(novaMsgRecebida);
 
+      // Devolve Recibo Híbrido Automático (Auto-Ack: "Chegou no meu celular")
       const ackHandshake: Handshake = {
         id: gerarId(),
         aud: handshake.aud,
@@ -91,6 +103,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
       await salvarHandshake(ackHandshake);
 
+      // Gatilho visual
       const contato = await buscarContatoPorChave(handshake.aud);
       const nomeExibicao = contato?.name?.trim() || "Anônimo";
       
@@ -100,15 +113,12 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         tag: novaMsgRecebida.id
       });
 
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => {
-        client.postMessage({ type: "PUSH_RECEIVED", payload: { id: novaMsgRecebida.id } });
-      });
-
+      notificarUI(novaMsgRecebida.id); // Avisa a UI para renderizar
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
   
+  // 📤 LÓGICA DE SAÍDA (Criando pacotes Push para enviar)
   if (outParams) {
     if (outParams.function === 'confirmarEntrega') {
       const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
@@ -121,24 +131,31 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     }
 
     else if (outParams.function === 'enviarMensagem') {
-      const { contato: contatoId, conteudo } = outParams;
+      const { contato: contatoId, conteudo, msgId, handshakeId, createdAt } = outParams;
       if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
 
-      const msgId = gerarId();
+      const idReal = msgId || gerarId();
+      const handIdReal = handshakeId || gerarId();
+      
+      // O banco já está populado graças à Atualização Otimista da UI. 
+      // Mas se por algum motivo for rodado pelo console, salvamos.
+      const chatExistente = await buscarChat(idReal);
+      if (!chatExistente) {
+        const chatOut: Chat = {
+          id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
+          createdAt: createdAt || Date.now(), handshake: handIdReal
+        };
+        await salvarChat(chatOut);
+      }
 
-      const msgEnviada: MensagemEnviada = {
-        id: msgId, contatoHash: contatoId, conteudo, status: 'pendente',
-        tentativas: 0, createdAt: Date.now(), updatedAt: Date.now()
-      };
-      await salvarMensagemEnviada(msgEnviada);
-
+      // Cria a embalagem e solta pra rede
       const novoHandshake: Handshake = {
-        id: gerarId(), aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: msgId, conteudo } } }
+        id: handIdReal, aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: idReal, conteudo } } }
       };
 
       await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${msgId} salva na fila do Service Worker.`);
+      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} encapsulada e posta na fila do SW.`);
       
       setTimeout(() => processarFilaHandshake(), 100);
     }

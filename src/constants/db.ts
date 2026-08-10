@@ -2,9 +2,8 @@
 
 export const DB_NAMES = {
   CONFIG: "AppConfig_DB",
-  MENSAGENS_ENVIADAS: "BrowserA_MensagensEnviadas_DB",
+  CHAT: "Chat_DB", // 🔥 Unificou MensagensEnviadas e MensagensRecebidas
   CONTATOS: "BrowserB_Contatos_DB",
-  MENSAGENS_RECEBIDAS_B: "BrowserB_MensagensRecebidas_DB",
   HANDSHAKES: "Handshake_DB",
 } as const;
 
@@ -14,9 +13,8 @@ export const STORE_NAMES = {
 
 export const KEY_NAMES = {
   PROFILE: "profile",
-  MENSAGENS_ENVIADAS: "mensagens_enviadas",
   CONTATO: "contato_",
-  MENSAGENS_RECEBIDAS: "mensagens_recebidas",
+  CHAT_INDEX: "chat_index_", // 🔥 Novo prefixo para guardar os arrays de paginação
 } as const;
 
 export const MAX_TENTATIVAS = 3;
@@ -41,25 +39,20 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
-export interface MensagemEnviada {
+// 🔥 Nova Estrutura Unificada e Baseada em Timestamps
+export interface Chat {
   id: string;
   contatoHash: string;
   conteudo: string;
-  status: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue';
-  tentativas: number;
+  tipo: 'in' | 'out';
+  readAt?: number;
+  notifiedAt?: number;
+  receivedAt?: number;
+  sentAt?: number;
   createdAt: number;
-  updatedAt: number;
-  erro?: string;
-}
-
-export interface MensagemRecebida {
-  id: string;
-  contatoPublicKeyVapid: string;
-  conteudo: string;
-  status: 'nao_lida' | 'lida' | 'notificada';
-  recebidoEm: number;
-  lidaEm?: number;
-  notificadaEm?: number;
+  updatedAt?: number;
+  errorAt?: number;
+  handshake: string;
 }
 
 export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
@@ -81,7 +74,6 @@ export interface Contato {
   updatedAt: number;
 }
 
-// 🔥 Removidos os Any: O compilador agora checará as fronteiras
 export interface ProfileRouteData {
   campos?: string[];
   data?: Record<string, unknown>;
@@ -107,7 +99,7 @@ export interface HandshakeRotas {
   profile?: ProfileRouteData; 
   mensagem?: MensagemRouteData; 
   contato?: ContatoRouteData; 
-  [key: string]: unknown; // Garante extensibilidade futura segura sem "any"
+  [key: string]: unknown;
 }
 
 export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';

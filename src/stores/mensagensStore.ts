@@ -1,92 +1,88 @@
 // src/stores/mensagensStore.ts
-import { signal } from '@preact/signals';
-import {
-  listarMensagensRecebidas,
-  listarMensagensEnviadas,
-  salvarMensagemRecebida,
-  salvarMensagemEnviada,
-  atualizarStatusMensagemRecebida as dbAtualizarStatusRecebida,
-  atualizarStatusMensagemEnviada as dbAtualizarStatusEnviada,
-  removerMensagemRecebida,
-  removerMensagemEnviada,
-} from '../utils/db-helpers.ts';
-import type { MensagemRecebida, MensagemEnviada } from '../constants/db.ts';
+import { signal, computed } from '@preact/signals';
+import { listarChatPaginado, salvarChat, buscarChat } from '../utils/db-helpers.ts';
+import type { Chat } from '../constants/db.ts';
+import { contatoSelecionado } from '../signals/state.ts';
 
-export const mensagensRecebidas = signal<MensagemRecebida[]>([]);
-export const mensagensEnviadas = signal<MensagemEnviada[]>([]);
+// O Cache ativo de mensagens na RAM
+export const mensagensAtivas = signal<Chat[]>([]);
+export const hasMoreMessages = signal<boolean>(true);
+
+const PAGE_SIZE = 30;
+let currentOffset = 0;
+let isFetching = false;
 
 /**
- * Carrega o histórico completo do banco. 
- * Deve ser chamado APENAS na inicialização do app.
+ * Reseta e carrega a primeira página de mensagens do contato selecionado.
  */
-export async function carregarMensagensRecebidas() {
-  const lista = await listarMensagensRecebidas();
-  lista.sort((a, b) => b.recebidoEm - a.recebidoEm);
-  mensagensRecebidas.value = lista;
-}
-
-export async function carregarMensagensEnviadas() {
-  const lista = await listarMensagensEnviadas();
-  lista.sort((a, b) => b.createdAt - a.createdAt);
-  mensagensEnviadas.value = lista;
+export async function inicializarChat(contatoHash: string) {
+  currentOffset = 0;
+  hasMoreMessages.value = true;
+  mensagensAtivas.value = [];
+  await carregarMaisMensagens(contatoHash);
 }
 
 /**
- * Atualização Otimista: Injeta na memória instantaneamente e depois salva no DB
+ * Lazy Loader: Busca a próxima fatia do IndexedDB e empurra para a RAM.
  */
-export async function adicionarMensagemRecebida(mensagem: MensagemRecebida) {
-  // 1. Atualiza a memória (Signal) clonando raso para evitar re-renderização total
-  mensagensRecebidas.value = [mensagem, ...mensagensRecebidas.value].sort((a, b) => b.recebidoEm - a.recebidoEm);
-  // 2. Persiste no banco em background
-  await salvarMensagemRecebida(mensagem);
-}
+export async function carregarMaisMensagens(contatoHash: string) {
+  if (isFetching || !hasMoreMessages.value) return;
+  isFetching = true;
 
-export async function adicionarMensagemEnviada(mensagem: MensagemEnviada) {
-  mensagensEnviadas.value = [mensagem, ...mensagensEnviadas.value].sort((a, b) => b.createdAt - a.createdAt);
-  await salvarMensagemEnviada(mensagem);
-}
+  try {
+    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
+    
+    if (novas.length < PAGE_SIZE) {
+      hasMoreMessages.value = false;
+    }
 
-/**
- * Atualização Granular: Modifica apenas a mensagem específica sem buscar o DB inteiro
- */
-export async function marcarMensagemRecebidaComoLida(id: string) {
-  // Modificação direta em memória
-  const atual = mensagensRecebidas.value;
-  const index = atual.findIndex(m => m.id === id);
-  if (index !== -1) {
-    const nova = [...atual];
-    nova[index] = { ...nova[index], status: 'lida', lidaEm: Date.now() };
-    mensagensRecebidas.value = nova;
+    if (novas.length > 0) {
+      currentOffset += novas.length;
+      
+      // Como estamos carregando de trás pra frente (paginação reversa), 
+      // adicionamos as antigas no início do array
+      mensagensAtivas.value = [...novas, ...mensagensAtivas.value].sort((a, b) => a.createdAt - b.createdAt);
+    }
+  } finally {
+    isFetching = false;
   }
-  // Sincronização em background com o DB
-  await dbAtualizarStatusRecebida(id, 'lida');
 }
 
-export async function atualizarStatusDeMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string) {
-  const atual = mensagensEnviadas.value;
-  const index = atual.findIndex(m => m.id === id);
-  if (index !== -1) {
-    const nova = [...atual];
-    const msgAtualizada = { ...nova[index], status, updatedAt: Date.now() };
-    if (erro) msgAtualizada.erro = erro;
-    nova[index] = msgAtualizada;
-    mensagensEnviadas.value = nova;
+/**
+ * Atualização Otimista O(1): Insere/Atualiza diretamente na memória sem engasgar o app
+ */
+export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
+  // 1. Atualiza memória (se o chat pertencer à tela atual)
+  if (chat.contatoHash === contatoSelecionado.value) {
+    const atual = mensagensAtivas.value;
+    const index = atual.findIndex(m => m.id === chat.id);
+    
+    if (index !== -1) {
+      const nova = [...atual];
+      nova[index] = chat;
+      mensagensAtivas.value = nova;
+    } else {
+      // É nova, empurra pro final da fila e soma no offset
+      mensagensAtivas.value = [...atual, chat];
+      currentOffset += 1;
+    }
   }
-  
-  await dbAtualizarStatusEnviada(id, status, erro);
+
+  // 2. Persiste assincronamente no DB
+  await salvarChat(chat);
 }
 
-export async function removerMensagemRecebidaPorId(id: string) {
-  mensagensRecebidas.value = mensagensRecebidas.value.filter(m => m.id !== id);
-  await removerMensagemRecebida(id);
-}
-
-export async function removerMensagemEnviadaPorId(id: string) {
-  mensagensEnviadas.value = mensagensEnviadas.value.filter(m => m.id !== id);
-  await removerMensagemEnviada(id);
+/**
+ * Helper chamado pelos Handshakes no SW (via Broadcast/PostMessage)
+ */
+export async function processarAtualizacaoDeStatusDB(chatId: string) {
+  // Busca a versão consolidada que o SW acabou de gravar no DB
+  const chatAtualizado = await buscarChat(chatId);
+  if (chatAtualizado) {
+    await atualizarOuAdicionarChatAtivo(chatAtualizado);
+  }
 }
 
 export async function initMensagensStore() {
-  await carregarMensagensRecebidas();
-  await carregarMensagensEnviadas();
+  // A inicialização inicial agora é vazia, pois carregamos sob demanda na UI
 }

@@ -1,10 +1,9 @@
 // src/utils/db-helpers.ts
-import { get, set, createStore, del, entries, values } from "idb-keyval";
+import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
 import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
 import type {
   ProfileConfig,
-  MensagemEnviada,
-  MensagemRecebida,
+  Chat,
   Contato,
   Handshake,
 } from "../constants/db.ts";
@@ -18,9 +17,8 @@ export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL)
 }
 
 const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeMensagensEnviadasA = criarStore(DB_NAMES.MENSAGENS_ENVIADAS);
+export const storeChat = criarStore(DB_NAMES.CHAT); // 🔥 Unificado
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
-export const storeMensagensRecebidasB = criarStore(DB_NAMES.MENSAGENS_RECEBIDAS_B);
 export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
 
 // ============================================================
@@ -70,24 +68,16 @@ export async function removerProfile(): Promise<void> {
 export async function buscarChaveDecript(): Promise<CryptoKey | null> {
   try {
     const profile = await buscarProfile();
-    if (!profile) {
-      console.warn("[DB-HELPERS] ⚠️ Perfil não encontrado.");
-      return null;
-    }
-    if (!profile.e2ePrivateKeyJwk) {
-      console.warn("[DB-HELPERS] ⚠️ Chave privada RSA não encontrada no perfil.");
-      return null;
-    }
+    if (!profile) return null;
+    if (!profile.e2ePrivateKeyJwk) return null;
 
-    const privateDecrypt = await crypto.subtle.importKey(
+    return await crypto.subtle.importKey(
       "jwk",
       profile.e2ePrivateKeyJwk,
       { name: "RSA-OAEP", hash: "SHA-256" },
       false,
       ["decrypt"]
     );
-    console.log("[DB-HELPERS] 🔑 Chave de decodificação RSA encontrada e importada.");
-    return privateDecrypt;
   } catch (err) {
     console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
     return null;
@@ -95,70 +85,59 @@ export async function buscarChaveDecript(): Promise<CryptoKey | null> {
 }
 
 // ============================================================
-// Mensagens Enviadas
+// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
 // ============================================================
 
-export async function salvarMensagemEnviada(mensagem: MensagemEnviada): Promise<void> {
-  await salvarChave(storeMensagensEnviadasA, mensagem.id, mensagem);
-}
+/**
+ * Salva a mensagem e adiciona seu ID ao índice de paginação do contato.
+ */
+export async function salvarChat(chat: Chat): Promise<void> {
+  chat.updatedAt = Date.now();
+  await salvarChave(storeChat, chat.id, chat);
 
-export async function buscarMensagemEnviada(id: string): Promise<MensagemEnviada | undefined> {
-  return buscarChave<MensagemEnviada>(storeMensagensEnviadasA, id);
-}
-
-export async function listarMensagensEnviadas(): Promise<MensagemEnviada[]> {
-  const entriesList = await listarChaves<MensagemEnviada>(storeMensagensEnviadasA);
-  return entriesList.map(([_, msg]) => msg);
-}
-
-export async function listarMensagensEnviadasPorStatus(status: MensagemEnviada['status']): Promise<MensagemEnviada[]> {
-  const todas = await listarMensagensEnviadas();
-  return todas.filter(m => m.status === status);
-}
-
-export async function atualizarStatusMensagemEnviada(id: string, status: MensagemEnviada['status'], erro?: string): Promise<void> {
-  const mensagem = await buscarMensagemEnviada(id);
-  if (mensagem) {
-    mensagem.status = status;
-    mensagem.updatedAt = Date.now();
-    if (erro) mensagem.erro = erro;
-    await salvarMensagemEnviada(mensagem);
+  // Mantém um índice ordenado por data para não precisar carregar o DB inteiro
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  if (!index.includes(chat.id)) {
+    index.push(chat.id);
+    await salvarChave(storeChat, indexKey, index);
   }
 }
 
-export async function removerMensagemEnviada(id: string): Promise<void> {
-  await removerChave(storeMensagensEnviadasA, id);
+export async function buscarChat(id: string): Promise<Chat | undefined> {
+  return buscarChave<Chat>(storeChat, id);
 }
 
-// ============================================================
-// Mensagens Recebidas
-// ============================================================
+/**
+ * 🔥 Lazy Loading Paginado: Carrega apenas uma fatia de mensagens de um contato.
+ * O `offset` dita de onde começar de baixo para cima (mais recentes primeiro).
+ */
+export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
 
-export async function salvarMensagemRecebida(mensagem: MensagemRecebida): Promise<void> {
-  await salvarChave(storeMensagensRecebidasB, mensagem.id, mensagem);
+  // Pega do final do array (mais recentes) para o começo
+  const total = index.length;
+  if (total === 0 || offset >= total) return [];
+
+  const startIndex = Math.max(0, total - offset - limit);
+  const endIndex = total - offset;
+  
+  // Pega os IDs da fatia solicitada
+  const sliceIds = index.slice(startIndex, endIndex);
+
+  // Busca os dados físicos desses IDs em batch
+  const records = await getMany(sliceIds, storeChat);
+  return records.filter(Boolean) as Chat[];
 }
 
-export async function buscarMensagemRecebida(id: string): Promise<MensagemRecebida | undefined> {
-  return buscarChave<MensagemRecebida>(storeMensagensRecebidasB, id);
-}
-
-export async function listarMensagensRecebidas(): Promise<MensagemRecebida[]> {
-  const entriesList = await listarChaves<MensagemRecebida>(storeMensagensRecebidasB);
-  return entriesList.map(([_, msg]) => msg);
-}
-
-export async function atualizarStatusMensagemRecebida(id: string, status: MensagemRecebida['status']): Promise<void> {
-  const mensagem = await buscarMensagemRecebida(id);
-  if (mensagem) {
-    mensagem.status = status;
-    if (status === 'lida') mensagem.lidaEm = Date.now();
-    if (status === 'notificada') mensagem.notificadaEm = Date.now();
-    await salvarMensagemRecebida(mensagem);
-  }
-}
-
-export async function removerMensagemRecebida(id: string): Promise<void> {
-  await removerChave(storeMensagensRecebidasB, id);
+export async function removerChat(id: string, contatoHash: string): Promise<void> {
+  await removerChave(storeChat, id);
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  index = index.filter(x => x !== id);
+  await salvarChave(storeChat, indexKey, index);
 }
 
 // ============================================================
@@ -212,7 +191,7 @@ export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> 
 }
 
 // ============================================================
-// Handshakes (Utilizando idb-keyval)
+// Handshakes
 // ============================================================
 
 export async function salvarHandshake(handshake: Handshake): Promise<void> {
@@ -229,16 +208,6 @@ export async function buscarHandshake(id: string): Promise<Handshake | undefined
 
 export async function listarHandshakes(): Promise<Handshake[]> {
   return listarValores<Handshake>(storeHandshakes);
-}
-
-export async function atualizarStatusHandshake(id: string, statusInOrOut: string, flow: 'in' | 'out', erro?: string): Promise<void> {
-  const handshake = await buscarHandshake(id);
-  if (handshake && handshake[flow]) {
-    handshake[flow]!.status = statusInOrOut as any;
-    handshake.updatedAt = Date.now();
-    if (erro) handshake[flow]!.erro = erro;
-    await salvarHandshake(handshake);
-  }
 }
 
 export async function removerHandshake(id: string): Promise<void> {
