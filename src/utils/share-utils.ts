@@ -64,7 +64,8 @@ export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): str
 export async function gerarLinkConviteWeb(
   target: ProfileConfig | Contato,
   myVapidPrivateKeyJwk: JsonWebKey,
-  myVapidPublicKeyJwk: JsonWebKey
+  myVapidPublicKeyJwk: JsonWebKey,
+  baseUrl?: string
 ): Promise<string> {
   const compact = extrairDadosCompactos(target);
   const payload = {
@@ -79,7 +80,9 @@ export async function gerarLinkConviteWeb(
   const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 
   // 🔥 URL atualizada para o formato SPA do Loco
-  return `${window.location.origin}/#share=${cjwt}`;
+  // Usa baseUrl se fornecida (para testes), caso contrário usa window.location.origin
+  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  return `${origin}/#share=${cjwt}`;
 }
 
 export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {
