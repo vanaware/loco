@@ -108,6 +108,7 @@
     "https://esm.sh/@preact/signals-core@1.14.4?target=denonext": "fc2ace510655938a2c29970ebdedf064468976b33ec59b41df5b8c6ed779ce2b",
     "https://esm.sh/@preact/signals@1.2.2": "32d01c41401ae32120546ec8b9036be51ca4e6f07d97ccae347d23ff7c2d6e9c",
     "https://esm.sh/@preact/signals@1.2.2/denonext/signals.mjs": "401cedd3fb0f5becc20ded8b7dd9f83ee2dbf2251590735d06605b1399a4b5b2",
+    "https://esm.sh/@types/trusted-types@2.0.7/lib/index.js": "fabf6997a3adf11e45d11e3c4d58d0634ab98f9d72f3116f3694123818ccd457",
     "https://esm.sh/dijkstrajs@1.0.3/denonext/dijkstrajs.mjs": "9b67eef6735999e48f6d65584bda995e13231defe9f1b39061d144caefdc639f",
     "https://esm.sh/dijkstrajs@1.0.3?target=denonext": "1fe91496e9f3733496e88232f618c4b8a2a59a1da1a59a43c9b60cf591e68d4a",
     "https://esm.sh/encode-utf8@1.0.3/denonext/encode-utf8.mjs": "937dc559de55c0a56aba267a9cdca2ca32623892a796fc61d85ad855d2e8127e",

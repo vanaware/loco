@@ -2,7 +2,7 @@
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { profile } from '../stores/profileStore.ts';
-import { currentMobileView, showAdvanced, showToast } from '../signals/state.ts';
+import { showToast } from '../signals/state.ts';
 import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
 import { DebugPanel } from './DebugPanel.tsx';
 // 🔥 Importamos a versão gerada automaticamente pelo Build
@@ -119,9 +119,9 @@ export function AdvancedSection() {
     await runDiagnostics();
   };
 
+  // 🔥 Roteamento desacoplado
   const handleFechar = () => {
-    showAdvanced.value = false;
-    currentMobileView.value = 'list';
+    window.location.hash = ''; 
   };
 
   return (

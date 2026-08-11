@@ -24,7 +24,7 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
     const privateKeyJwk = JSON.parse(privateKeyStr);
 
     const serverPrivateKey = await crypto.subtle.importKey(
-      "jwk",
+      "jwk" as any,
       privateKeyJwk,
       { name: "RSA-OAEP", hash: "SHA-256" },
       true,
@@ -99,7 +99,10 @@ function lerMetadadosJJWT(jwtString: string) {
     const parts = jwtString.split(".");
     if (parts.length !== 3) return null;
 
-    let base64Url = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const part1 = parts[1];
+    if (!part1) return null;
+
+    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
     while (base64Url.length % 4) base64Url += "=";
 
     const jsonString = new TextDecoder().decode(
@@ -113,7 +116,7 @@ function lerMetadadosJJWT(jwtString: string) {
 }
 
 const workerHandler = {
-  async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
@@ -140,7 +143,6 @@ const workerHandler = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // Normalização do caminho caso exista um ProxyPath configurado via env
     const proxyPath = env.PROXY_PATH || "";
     const targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
 
@@ -155,7 +157,6 @@ const workerHandler = {
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
 
-      // 🔑 Rota POST para entregar a chave pública do servidor
       if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
           status: 200,
@@ -163,7 +164,6 @@ const workerHandler = {
         });
       }
 
-      // 🚪 Rota POST para limpeza e destruição de sessão (Logout)
       if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
         const headers = new Headers(corsHeaders);
         deleteCookie(headers, "session_token", { path: "/" });
@@ -175,7 +175,6 @@ const workerHandler = {
         });
       }
 
-      // 📨 Rota POST raiz para Proxy Web Push
       if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
         console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         

@@ -20,8 +20,12 @@ function LogoutApp() {
       status.value = "2/5 Apagando Cookies...";
       const cookies = document.cookie.split(";");
       for (let i = 0; i < cookies.length; i++) {
-        const parts = cookies[i].split("=");
-        const name = parts[0].trim();
+        const cookieStr = cookies[i];
+        if (!cookieStr) continue;
+        const parts = cookieStr.split("=");
+        const part0 = parts[0];
+        if (!part0) continue;
+        const name = part0.trim();
         document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
         document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
       }

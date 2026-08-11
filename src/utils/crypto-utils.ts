@@ -1,15 +1,12 @@
 // src/utils/crypto-utils.ts
 import { addDebugLog } from "./debug-utils.ts";
 
-/**
- * Converte ArrayBuffer para string Base64URL de forma segura
- */
 export function bufferToBase64Url(buffer: ArrayBuffer): string {
   try {
     const bytes = new Uint8Array(buffer);
     let binary = "";
     for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
+      binary += String.fromCharCode(bytes[i]!);
     }
     return btoa(binary)
       .replace(/\+/g, "-")
@@ -21,20 +18,13 @@ export function bufferToBase64Url(buffer: ArrayBuffer): string {
   }
 }
 
-/**
- * Alias de compatibilidade para conversão de ArrayBuffer em Base64URL
- */
 export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
   return bufferToBase64Url(buffer);
 }
 
-/**
- * Converte string Base64URL para ArrayBuffer blindado contra malformações
- */
 export function base64UrlToBuffer(base64url: string): ArrayBuffer {
   try {
     let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-    // Restaura o padding exato para evitar InvalidCharacterError no atob
     const padLength = (4 - (base64.length % 4)) % 4;
     base64 += '='.repeat(padLength);
     
@@ -43,16 +33,13 @@ export function base64UrlToBuffer(base64url: string): ArrayBuffer {
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    return bytes.buffer;
+    return bytes.buffer as ArrayBuffer;
   } catch (err: any) {
     addDebugLog("error", "CRYPTO", "Tentativa de decodificar Base64Url malformado ou corrompido", err.message);
     throw new Error("Formato Base64Url inválido.");
   }
 }
 
-/**
- * Gera um par de chaves VAPID (ECDSA P-256) via WebCrypto API
- */
 export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   try {
     const keyPair = await crypto.subtle.generateKey(
@@ -68,9 +55,6 @@ export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   }
 }
 
-/**
- * Gera um par de chaves RSA-OAEP 2048 para Criptografia E2E
- */
 export async function generateE2EEKeys(): Promise<{
   publicEncrypt: JsonWebKey;
   privateDecryptJwk: JsonWebKey;
@@ -98,9 +82,6 @@ export async function generateE2EEKeys(): Promise<{
   }
 }
 
-/**
- * Criptografa um texto em UTF-8 usando AES-GCM
- */
 export async function encryptTextAES(
   key: CryptoKey,
   plainText: string
@@ -120,7 +101,7 @@ export async function encryptTextAES(
 
     return {
       cipherTextBase64: bufferToBase64Url(cipherBuffer),
-      ivBase64: bufferToBase64Url(iv.buffer),
+      ivBase64: bufferToBase64Url(iv.buffer as ArrayBuffer),
     };
   } catch (error: any) {
     addDebugLog("error", "CRYPTO", `Falha interna no motor AES-GCM (Encrypt): ${error.message}`, error);
@@ -128,9 +109,6 @@ export async function encryptTextAES(
   }
 }
 
-/**
- * Descriptografa um ciphertext em Base64URL usando AES-GCM
- */
 export async function decryptTextAES(
   key: CryptoKey,
   cipherTextBase64: string,
@@ -154,9 +132,6 @@ export async function decryptTextAES(
   }
 }
 
-/**
- * Exporta chave CryptoKey para formato JWK seguro
- */
 export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
   try {
     const jwk = await crypto.subtle.exportKey("jwk", key);
@@ -167,9 +142,6 @@ export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
   }
 }
 
-/**
- * Importa chave JWK para CryptoKey blindado
- */
 export async function importJWKToKey(
   jwk: JsonWebKey,
   algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
@@ -178,7 +150,7 @@ export async function importJWKToKey(
 ): Promise<CryptoKey> {
   try {
     const key = await crypto.subtle.importKey(
-      "jwk",
+      "jwk" as any,
       jwk,
       algorithm,
       extractable,

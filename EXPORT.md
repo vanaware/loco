@@ -1,325 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.45-mso13i2u** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.49-mso2rqks** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.45-mso13i2u] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.49-mso2rqks] - Modo: MAIN
 
-Gerado automaticamente em: 8/10/2026, 11:16:01 PM
-
----
-
-## Arquivo: `src/components/ContatosSection.tsx`
-
-```tsx
-// src/components/ContatosSection.tsx
-import { useEffect } from 'preact/hooks';
-import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast, contatoSelecionado, contatoCompartilharHash, currentMobileView, showAdvanced } from '../signals/state.ts';
-
-export function ContatosSection() {
-  useEffect(() => {}, []);
-
-  const abrirChat = (hash: string) => {
-    contatoCompartilharHash.value = null;
-    showAdvanced.value = false; // 🔥 Desliga Aba Avançada
-    contatoSelecionado.value = hash;
-    currentMobileView.value = 'chat';
-  };
-
-  const abrirDetalhesContato = (e: Event, hash: string) => {
-    e.stopPropagation();
-    showAdvanced.value = false; // 🔥 Desliga Aba Avançada
-    contatoCompartilharHash.value = hash;
-    currentMobileView.value = 'chat';
-  };
-
-  return (
-    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
-      
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
-        <md-icon-button onClick={() => window.location.href = '/share.html'} title="Adicionar / Escanear Contato">
-          <md-icon>person_add</md-icon>
-        </md-icon-button>
-      </div>
-      
-      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
-        {contatosComHash.value.length === 0 ? (
-          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
-        ) : (
-          <md-list>
-            {contatosComHash.value.map(({ contato, hash }) => {
-              const nomeExibicao = contato.name?.trim() || "Anônimo";
-              return (
-                <md-list-item 
-                  key={hash} 
-                  onClick={() => abrirChat(hash)}
-                  style="cursor: pointer;"
-                >
-                  <md-icon slot="start">person</md-icon>
-                  
-                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
-                      <strong>{nomeExibicao}</strong>
-                    </span>
-                    {contato.trusted && (
-                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
-                    )}
-                  </div>
-                  
-                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
-                    {contato.email || 'Sem e-mail'}
-                  </span>
-                  
-                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
-                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
-                      <md-icon>qr_code_2</md-icon>
-                    </md-icon-button>
-
-                    {!contato.trusted && (
-                      <md-icon-button onClick={async (e) => {
-                        e.stopPropagation();
-                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
-                        showToast("Contato marcado como confiável!", "success");
-                      }}>
-                        <md-icon>verified</md-icon>
-                      </md-icon-button>
-                    )}
-
-                    <md-icon-button onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm(`Remover ${nomeExibicao} dos contatos?`)) {
-                        await removerContatoPorPublicKey(contato.vapidPublicKey);
-                      }
-                    }}>
-                      <md-icon>delete</md-icon>
-                    </md-icon-button>
-                  </div>
-                </md-list-item>
-              );
-            })}
-          </md-list>
-        )}
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/AdvancedSection.tsx`
-
-```tsx
-// src/components/AdvancedSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { profile } from '../stores/profileStore.ts';
-import { currentMobileView, showAdvanced, showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
-import { DebugPanel } from './DebugPanel.tsx';
-// 🔥 Importamos a versão gerada automaticamente pelo Build
-import { APP_VERSION } from '../constants/version.ts'; 
-
-export function AdvancedSection() {
-  const diagnostic = useSignal({
-    identificacao: false, criptografia: false, blindagemServidor: false,
-    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
-    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
-    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
-    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
-    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
-    loading: true,
-  });
-
-  const runDiagnostics = async () => {
-    const p = profile.value;
-    
-    let envelopeOK = false;
-    if (p?.vapidPrivateKeyEnvelope) {
-      try {
-        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
-        const envelopeDecoded = JSON.parse(envelopeJson);
-        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
-          envelopeOK = true;
-        }
-      } catch { envelopeOK = false; }
-    }
-
-    let cameraState = 'prompt', micState = 'prompt';
-    if ('navigator' in window && 'permissions' in navigator && navigator.permissions.query) {
-      try { cameraState = (await navigator.permissions.query({ name: 'camera' as any })).state; } catch {}
-      try { micState = (await navigator.permissions.query({ name: 'microphone' as any })).state; } catch {}
-    }
-
-    let storagePersisted = false;
-    let quotaInfo = { usoMB: 0, livreMB: 0 };
-    if ('storage' in navigator) {
-      if (navigator.storage.persisted) {
-        try { storagePersisted = await navigator.storage.persisted(); } catch {}
-      }
-      if (navigator.storage.estimate) {
-        try {
-          const estimate = await navigator.storage.estimate();
-          quotaInfo = {
-            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
-            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
-          };
-        } catch {}
-      }
-    }
-
-    let swControlando = false, hasBackgroundSync = false;
-    if ('serviceWorker' in navigator) {
-      swControlando = navigator.serviceWorker.controller !== null;
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) hasBackgroundSync = 'sync' in reg;
-      } catch {}
-    }
-
-    const diag = {
-      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
-      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
-      blindagemServidor: envelopeOK,
-      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
-      inscricaoRegistrada: !!p?.subscription,
-      inscricaoValida: false,
-      swAtivoEControlando: swControlando,
-      isOnline: navigator.onLine,
-      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
-      permissaoCamera: cameraState,
-      permissaoMicrofone: micState,
-      suporteBarcodeDetector: 'BarcodeDetector' in window,
-      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
-      suporteWebRTC: 'RTCPeerConnection' in window,
-      suporteBackgroundSync: hasBackgroundSync,
-      armazenamentoPersistido: storagePersisted,
-      cotaEspaco: quotaInfo,
-      loading: false,
-    };
-
-    if (diag.permissoesNotificacao && p?.subscription) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg && reg.pushManager) {
-          const sub = await reg.pushManager.getSubscription();
-          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
-        }
-      } catch {}
-    }
-
-    diagnostic.value = diag;
-  };
-
-  useEffect(() => {
-    runDiagnostics();
-    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
-    };
-  }, [profile.value]);
-
-  const diag = diagnostic.value;
-
-  const handleSolicitarPersistenciaManual = async () => {
-    const ok = await solicitarArmazenamentoPersistente();
-    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
-    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
-    await runDiagnostics();
-  };
-
-  const handleFechar = () => {
-    showAdvanced.value = false;
-    currentMobileView.value = 'list';
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
-            </span>
-            {/* 🔥 Exibição da versão injetada */}
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Build Version: v{APP_VERSION}
-            </span>
-          </div>
-          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        {diag.loading ? (
-          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
-        ) : (
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                🛑 Requisitos Obrigatórios
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
-                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
-                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
-                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
-                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
-                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
-                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
-              </ul>
-            </div>
-            <md-divider></md-divider>
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                ⚡ Recursos Desejáveis & Status
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
-                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
-                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
-                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
-                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
-                <li>
-                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
-                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
-                   'ℹ️ Permissão de Câmera (Pendente)'}
-                </li>
-                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
-                  {!diag.armazenamentoPersistido && (
-                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                      Proteger Dados
-                    </md-outlined-button>
-                  )}
-                </li>
-                {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
-                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
-                  </li>
-                )}
-              </ul>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style="max-width: 600px; width: 100%;">
-        <DebugPanel />
-      </div>
-    </div>
-  );
-}
-```
+Gerado automaticamente em: 8/11/2026, 12:30:44 AM
 
 ---
 
@@ -593,285 +281,6 @@ export function ChatSection() {
         >
           <md-icon>send</md-icon>
         </md-filled-icon-button>
-      </div>
-
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ContactDetailSection.tsx`
-
-```tsx
-// src/components/ContactDetailSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
-import { profile } from '../stores/profileStore.ts';
-import { contatoSelecionado, contatoCompartilharHash, currentMobileView, showToast } from '../signals/state.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-
-export function ContactDetailSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-  const editNome = useSignal<string>('');
-  const editEmail = useSignal<string>('');
-
-  const hash = contatoCompartilharHash.value;
-  const item = contatosComHash.value.find(c => c.hash === hash);
-  const contato = item?.contato;
-
-  useEffect(() => {
-    if (!contato) {
-      qrCodeDataUrl.value = null;
-      isEditing.value = false;
-      return;
-    }
-
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-
-    try {
-      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
-      const qr = qrcode(0, 'L');
-      qr.addData(payloadBinario);
-      qr.make();
-      qrCodeDataUrl.value = qr.createDataURL(5, 0);
-    } catch (e) {
-      console.error("Erro ao gerar QR Code do contato:", e);
-      qrCodeDataUrl.value = null;
-    }
-  }, [contato]);
-
-  if (!contato || !hash) return null;
-
-  const nomeExibicao = contato.name?.trim() || "Anônimo";
-
-  const handleCopiarLink = async () => {
-    const p = profile.value;
-    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
-
-    try {
-      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
-    } catch (err: any) {
-      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
-    }
-  };
-
-  const handleEnviarMeusDados = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'enviarSubscription',
-            contato: hash,
-            responder: false
-          }
-        }
-      });
-      
-      showToast("🚀 Meus dados foram enviados para o contato!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
-    }
-  };
-
-  const handleSolicitarAtualizacao = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'confirmarSubscription',
-            contato: hash,
-            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
-          }
-        }
-      });
-      
-      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
-    } catch (err: any) {
-      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
-    }
-  };
-
-  const handleSalvarEdicao = async () => {
-    try {
-      const contatoAtualizado = {
-        ...contato,
-        name: editNome.value.trim(),
-        email: editEmail.value.trim(),
-        updatedAt: Date.now(),
-      };
-
-      await adicionarContato(contatoAtualizado);
-      isEditing.value = false;
-      showToast("✅ Dados do contato atualizados!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-    isEditing.value = false;
-  };
-
-  const handleIniciarChat = () => {
-    contatoSelecionado.value = hash;
-    contatoCompartilharHash.value = null;
-    currentMobileView.value = 'chat';
-  };
-
-  const handleFechar = () => {
-    contatoCompartilharHash.value = null;
-    if (!contatoSelecionado.value) {
-      currentMobileView.value = 'list';
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>badge</md-icon> Cartão de Contato
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {!isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-            <md-icon-button onClick={handleFechar} title="Fechar">
-              <md-icon>close</md-icon>
-            </md-icon-button>
-          </div>
-        </div>
-
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
-            <md-outlined-text-field
-              label="Nome do Contato"
-              value={editNome.value}
-              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <md-outlined-text-field
-              label="E-mail do Contato"
-              value={editEmail.value}
-              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 4px;">
-              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
-                💾 Salvar
-              </md-filled-button>
-              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
-                Cancelar
-              </md-outlined-button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {nomeExibicao}
-            </h2>
-
-            {contato.trusted && (
-              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
-                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
-              </div>
-            )}
-
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">{contato.email || 'Sem e-mail'}</p>
-          </>
-        )}
-
-        {!isEditing.value && (
-          <>
-            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
-              
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO VOCÊ VÊ ESTE CONTATO:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.trusted ? (
-                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
-                  ) : (
-                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO ESTE CONTATO VÊ VOCÊ:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
-                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
-                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
-                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
-                </div>
-              </div>
-
-            </div>
-
-            {qrCodeDataUrl.value && (
-              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
-                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
-                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
-                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
-                </span>
-              </div>
-            )}
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Copiar Link de Indicação
-              </md-filled-button>
-
-              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
-                <md-icon slot="icon">send_to_mobile</md-icon>
-                Enviar meus dados ao contato
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
-                <md-icon slot="icon">sync</md-icon>
-                Verificar Status de Confiança
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
-                <md-icon slot="icon">chat</md-icon>
-                Iniciar Conversa
-              </md-outlined-button>
-            </div>
-          </>
-        )}
-
       </div>
 
     </div>
@@ -1320,11 +729,594 @@ const styles: Record<string, JSX.CSSProperties> = {
 
 ---
 
+## Arquivo: `src/components/ContatosSection.tsx`
+
+```tsx
+// src/components/ContatosSection.tsx
+import { useEffect } from 'preact/hooks';
+import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { showToast } from '../signals/state.ts';
+
+export function ContatosSection() {
+  useEffect(() => {}, []);
+
+  // 🔥 Navegação delegada para o roteador central (URL)
+  const abrirChat = (hash: string) => {
+    window.location.hash = `#chat=${hash}`;
+  };
+
+  const abrirDetalhesContato = (e: Event, hash: string) => {
+    e.stopPropagation();
+    window.location.hash = `#detail=${hash}`;
+  };
+
+  return (
+    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
+        <md-icon-button onClick={() => window.location.href = '/share.html'} title="Adicionar / Escanear Contato">
+          <md-icon>person_add</md-icon>
+        </md-icon-button>
+      </div>
+      
+      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+        {contatosComHash.value.length === 0 ? (
+          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
+        ) : (
+          <md-list>
+            {contatosComHash.value.map(({ contato, hash }) => {
+              const nomeExibicao = contato.name?.trim() || "Anônimo";
+              return (
+                <md-list-item 
+                  key={hash} 
+                  onClick={() => abrirChat(hash)}
+                  style="cursor: pointer;"
+                >
+                  <md-icon slot="start">person</md-icon>
+                  
+                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
+                      <strong>{nomeExibicao}</strong>
+                    </span>
+                    {contato.trusted && (
+                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                    )}
+                  </div>
+                  
+                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
+                    {contato.email || 'Sem e-mail'}
+                  </span>
+                  
+                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
+                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
+                      <md-icon>qr_code_2</md-icon>
+                    </md-icon-button>
+
+                    {!contato.trusted && (
+                      <md-icon-button onClick={async (e) => {
+                        e.stopPropagation();
+                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
+                        showToast("Contato marcado como confiável!", "success");
+                      }}>
+                        <md-icon>verified</md-icon>
+                      </md-icon-button>
+                    )}
+
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remover ${nomeExibicao} dos contatos?`)) {
+                        await removerContatoPorPublicKey(contato.vapidPublicKey);
+                      }
+                    }}>
+                      <md-icon>delete</md-icon>
+                    </md-icon-button>
+                  </div>
+                </md-list-item>
+              );
+            })}
+          </md-list>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ContactDetailSection.tsx`
+
+```tsx
+// src/components/ContactDetailSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
+import { profile } from '../stores/profileStore.ts';
+import { contatoCompartilharHash, showToast } from '../signals/state.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+
+export function ContactDetailSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+  const editNome = useSignal<string>('');
+  const editEmail = useSignal<string>('');
+
+  const hash = contatoCompartilharHash.value;
+  const item = contatosComHash.value.find(c => c.hash === hash);
+  const contato = item?.contato;
+
+  useEffect(() => {
+    if (!contato) {
+      qrCodeDataUrl.value = null;
+      isEditing.value = false;
+      return;
+    }
+
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+
+    try {
+      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
+      const qr = qrcode(0, 'L');
+      qr.addData(payloadBinario);
+      qr.make();
+      qrCodeDataUrl.value = qr.createDataURL(5, 0);
+    } catch (e) {
+      console.error("Erro ao gerar QR Code do contato:", e);
+      qrCodeDataUrl.value = null;
+    }
+  }, [contato]);
+
+  if (!contato || !hash) return null;
+
+  const nomeExibicao = contato.name?.trim() || "Anônimo";
+
+  const handleCopiarLink = async () => {
+    const p = profile.value;
+    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
+
+    try {
+      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
+    } catch (err: any) {
+      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
+    }
+  };
+
+  const handleEnviarMeusDados = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'enviarSubscription',
+            contato: hash,
+            responder: false
+          }
+        }
+      });
+      
+      showToast("🚀 Meus dados foram enviados para o contato!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
+    }
+  };
+
+  const handleSolicitarAtualizacao = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'confirmarSubscription',
+            contato: hash,
+            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
+          }
+        }
+      });
+      
+      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
+    } catch (err: any) {
+      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
+    }
+  };
+
+  const handleSalvarEdicao = async () => {
+    try {
+      const contatoAtualizado = {
+        ...contato,
+        name: editNome.value.trim(),
+        email: editEmail.value.trim(),
+        updatedAt: Date.now(),
+      };
+
+      await adicionarContato(contatoAtualizado);
+      isEditing.value = false;
+      showToast("✅ Dados do contato atualizados!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+    isEditing.value = false;
+  };
+
+  // 🔥 Navegação reativa (A URL cuida da tela)
+  const handleIniciarChat = () => {
+    window.location.hash = `#chat=${hash}`;
+  };
+
+  const handleFechar = () => {
+    window.location.hash = '';
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>badge</md-icon> Cartão de Contato
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {!isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+            <md-icon-button onClick={handleFechar} title="Fechar">
+              <md-icon>close</md-icon>
+            </md-icon-button>
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
+            <md-outlined-text-field
+              label="Nome do Contato"
+              value={editNome.value}
+              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <md-outlined-text-field
+              label="E-mail do Contato"
+              value={editEmail.value}
+              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 4px;">
+              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
+                💾 Salvar
+              </md-filled-button>
+              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                Cancelar
+              </md-outlined-button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {nomeExibicao}
+            </h2>
+
+            {contato.trusted && (
+              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
+                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
+              </div>
+            )}
+
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">{contato.email || 'Sem e-mail'}</p>
+          </>
+        )}
+
+        {!isEditing.value && (
+          <>
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
+              
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO VOCÊ VÊ ESTE CONTATO:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.trusted ? (
+                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
+                  ) : (
+                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO ESTE CONTATO VÊ VOCÊ:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
+                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
+                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
+                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
+                </div>
+              </div>
+
+            </div>
+
+            {qrCodeDataUrl.value && (
+              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
+                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
+                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
+                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
+                </span>
+              </div>
+            )}
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Copiar Link de Indicação
+              </md-filled-button>
+
+              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
+                <md-icon slot="icon">send_to_mobile</md-icon>
+                Enviar meus dados ao contato
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
+                <md-icon slot="icon">sync</md-icon>
+                Verificar Status de Confiança
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
+                <md-icon slot="icon">chat</md-icon>
+                Iniciar Conversa
+              </md-outlined-button>
+            </div>
+          </>
+        )}
+
+      </div>
+
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/AdvancedSection.tsx`
+
+```tsx
+// src/components/AdvancedSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { profile } from '../stores/profileStore.ts';
+import { showToast } from '../signals/state.ts';
+import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
+import { DebugPanel } from './DebugPanel.tsx';
+// 🔥 Importamos a versão gerada automaticamente pelo Build
+import { APP_VERSION } from '../constants/version.ts'; 
+
+export function AdvancedSection() {
+  const diagnostic = useSignal({
+    identificacao: false, criptografia: false, blindagemServidor: false,
+    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
+    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
+    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
+    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
+    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
+    loading: true,
+  });
+
+  const runDiagnostics = async () => {
+    const p = profile.value;
+    
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch { envelopeOK = false; }
+    }
+
+    let cameraState = 'prompt', micState = 'prompt';
+    if ('navigator' in window && 'permissions' in navigator && navigator.permissions.query) {
+      try { cameraState = (await navigator.permissions.query({ name: 'camera' as any })).state; } catch {}
+      try { micState = (await navigator.permissions.query({ name: 'microphone' as any })).state; } catch {}
+    }
+
+    let storagePersisted = false;
+    let quotaInfo = { usoMB: 0, livreMB: 0 };
+    if ('storage' in navigator) {
+      if (navigator.storage.persisted) {
+        try { storagePersisted = await navigator.storage.persisted(); } catch {}
+      }
+      if (navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          quotaInfo = {
+            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
+            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
+          };
+        } catch {}
+      }
+    }
+
+    let swControlando = false, hasBackgroundSync = false;
+    if ('serviceWorker' in navigator) {
+      swControlando = navigator.serviceWorker.controller !== null;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) hasBackgroundSync = 'sync' in reg;
+      } catch {}
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
+      inscricaoRegistrada: !!p?.subscription,
+      inscricaoValida: false,
+      swAtivoEControlando: swControlando,
+      isOnline: navigator.onLine,
+      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
+      permissaoCamera: cameraState,
+      permissaoMicrofone: micState,
+      suporteBarcodeDetector: 'BarcodeDetector' in window,
+      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
+      suporteWebRTC: 'RTCPeerConnection' in window,
+      suporteBackgroundSync: hasBackgroundSync,
+      armazenamentoPersistido: storagePersisted,
+      cotaEspaco: quotaInfo,
+      loading: false,
+    };
+
+    if (diag.permissoesNotificacao && p?.subscription) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
+        }
+      } catch {}
+    }
+
+    diagnostic.value = diag;
+  };
+
+  useEffect(() => {
+    runDiagnostics();
+    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+
+  const handleSolicitarPersistenciaManual = async () => {
+    const ok = await solicitarArmazenamentoPersistente();
+    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
+    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
+    await runDiagnostics();
+  };
+
+  // 🔥 Roteamento desacoplado
+  const handleFechar = () => {
+    window.location.hash = ''; 
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
+            </span>
+            {/* 🔥 Exibição da versão injetada */}
+            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+              Build Version: v{APP_VERSION}
+            </span>
+          </div>
+          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        {diag.loading ? (
+          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
+        ) : (
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                🛑 Requisitos Obrigatórios
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
+                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
+              </ul>
+            </div>
+            <md-divider></md-divider>
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                ⚡ Recursos Desejáveis & Status
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
+                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
+                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
+                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
+                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
+                <li>
+                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
+                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
+                   'ℹ️ Permissão de Câmera (Pendente)'}
+                </li>
+                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
+                  {!diag.armazenamentoPersistido && (
+                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                      Proteger Dados
+                    </md-outlined-button>
+                  )}
+                </li>
+                {diag.cotaEspaco.livreMB > 0 && (
+                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
+                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style="max-width: 600px; width: 100%;">
+        <DebugPanel />
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/version.ts`
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.45-mso13i2u";
+export const APP_VERSION = "0.2.49-mso2rqks";
 
 ```
 
@@ -1744,9 +1736,6 @@ export type { Contato };
 
 export const contatosRaw = signal<Contato[]>([]);
 
-/**
- * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
- */
 export const contatosComHash = computed(() => {
   return contatosRaw.value.map((contato) => ({
     contato,
@@ -1762,9 +1751,6 @@ export const contatosMap = computed(() => {
   return map;
 });
 
-/**
- * Carrega a lista de contatos do IndexedDB para a memória.
- */
 export async function carregarContatos(): Promise<void> {
   try {
     const lista = await listarContatos();
@@ -1780,7 +1766,6 @@ let isContatosListenerInitialized = false;
 export async function initContatosStore(): Promise<void> {
   await carregarContatos();
 
-  // 🔥 Ouve mensagens do Service Worker para sincronizar atualizações em background (com trava de duplicidade)
   if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
     isContatosListenerInitialized = true;
     navigator.serviceWorker.addEventListener('message', (event) => {
@@ -1791,9 +1776,6 @@ export async function initContatosStore(): Promise<void> {
   }
 }
 
-/**
- * Adiciona ou atualiza um contato usando Inserção Otimista em Memória
- */
 export async function adicionarContato(contato: Contato): Promise<void> {
   try {
     const atual = contatosRaw.value;
@@ -1820,9 +1802,6 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   });
 }
 
-/**
- * Remove um contato com atualização local imediata
- */
 export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
     const hash = await serializarPublicKeyVapid(vapidPublicKey);
@@ -1836,22 +1815,21 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
   }
 }
 
-/**
- * Marca um contato como verificado/confiável (trusted: true)
- */
 export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
     const hash = await serializarPublicKeyVapid(vapidPublicKey);
     const atual = contatosRaw.value;
     const index = atual.findIndex(c => c.id === hash);
     
-    if (index >= 0) {
+    if (index >= 0 && atual[index]) {
+      const contatoAtual = atual[index];
+      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
       const novaLista = [...atual];
-      novaLista[index] = { ...novaLista[index], trusted: true, updatedAt: Date.now() };
+      novaLista[index] = contatoModificado;
       contatosRaw.value = novaLista;
       
-      await salvarContato(novaLista[index]);
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${novaLista[index].name}`);
+      await salvarContato(contatoModificado);
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
     } else {
       addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
     }
@@ -1863,131 +1841,18 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
 export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
   const atual = contatosRaw.value;
   const index = atual.findIndex(c => c.id === id);
-  if (index >= 0) {
+  if (index >= 0 && atual[index]) {
+    const contatoAtual = atual[index];
+    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
     const novaLista = [...atual];
-    novaLista[index] = { ...novaLista[index], me: meStatus, updatedAt: Date.now() };
+    novaLista[index] = contatoModificado;
     contatosRaw.value = novaLista;
     
-    salvarContato(novaLista[index]).catch(err => {
+    salvarContato(contatoModificado).catch(err => {
         addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
     });
   } else {
     addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
-  }
-}
-```
-
----
-
-## Arquivo: `src/sw/cache.ts`
-
-```ts
-// src/sw/cache.js
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-const CACHE_VERSION = "VERSION_HASH";
-const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
-
-// O script de build vai injetar a lista dentro deste array substituindo o texto
-const ASSETS_TO_CACHE = [__GENERATED_ASSETS__];
-
-// EVENTO DE INSTALAÇÃO
-self.addEventListener("install", (event) => {
-  console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log("[SW-CACHE] 📦 Armazenando assets essenciais no cache local...");
-      return Promise.all(
-        ASSETS_TO_CACHE.map((url) => {
-          return cache.add(url).catch((err) => {
-            console.error(`[SW-CACHE] ❌ Falha ao cachear recurso: ${url}`, err);
-          });
-        })
-      );
-    }).then(() => self.skipWaiting())
-  );
-});
-
-// EVENTO DE ATIVAÇÃO
-self.addEventListener("activate", (event) => {
-  console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log(`[SW-CACHE] 🗑️ Removendo cache obsoleto: ${cache}`);
-            return caches.delete(cache);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
-});
-
-// EVENTO FETCH
-self.addEventListener("fetch", (event) => {
-  if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
-    return;
-  }
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-        }
-        return response;
-      })
-      .catch(() => {
-        console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) return cachedResponse;
-          return new Response("Você está offline e este recurso não foi mapeado no cache.", {
-            status: 503,
-            headers: { "Content-Type": "text/plain; charset=utf-8" }
-          });
-        });
-      })
-  );
-});
-
-```
-
----
-
-## Arquivo: `src/sw/sw-utils.ts`
-
-```ts
-// src/utils/sw-utils.ts
-import { addDebugLog } from './debug-utils.ts'; // 🔥 Alterado para não importar o state.ts
-
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  addDebugLog("📡 Verificando suporte ao Service Worker...");
-  if (!("serviceWorker" in navigator)) {
-    throw new Error("Service Worker não é suportado neste navegador.");
-  }
-
-  const cacheBuster = Date.now();
-  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
-
-  try {
-    const registration = await navigator.serviceWorker.register(
-      `./service-worker.js?cacheBuster=${cacheBuster}`,
-      { scope: "/" }
-    );
-    if (!registration) {
-      throw new Error("Service Worker registration retornou null/undefined");
-    }
-    addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    const readyReg = await navigator.serviceWorker.ready;
-    addDebugLog("✅ Service Worker ativo e pronto.");
-    return readyReg;
-  } catch (err: any) {
-    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
-    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
   }
 }
 ```
@@ -2055,6 +1920,122 @@ self.addEventListener('push', function (event) {
 
 ---
 
+## Arquivo: `src/sw/click.ts`
+
+```ts
+// src/sw/click.ts
+
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+self.addEventListener('notificationclick', function(event: any) {
+  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
+  event.notification.close();
+  const urlParaAbrir = new URL('/', self.location.origin).href;
+  
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(function(windowClients) {
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          if (client && client.url === urlParaAbrir && 'focus' in client) {
+            try {
+              return client.focus();
+            } catch (err: any) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
+              break;
+            }
+          }
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(urlParaAbrir)
+            .catch(function(err: any) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
+              return Promise.resolve();
+            });
+        }
+      })
+  );
+});
+```
+
+---
+
+## Arquivo: `src/sw/cache.ts`
+
+```ts
+// src/sw/cache.ts
+
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+declare const __GENERATED_ASSETS__: string[];
+
+const CACHE_VERSION = "VERSION_HASH";
+const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
+
+const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
+
+self.addEventListener("install", (event) => {
+  console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      console.log("[SW-CACHE] 📦 Armazenando assets essenciais no cache local...");
+      return Promise.all(
+        ASSETS_TO_CACHE.map((url) => {
+          return cache.add(url).catch((err) => {
+            console.error(`[SW-CACHE] ❌ Falha ao cachear recurso: ${url}`, err);
+          });
+        })
+      );
+    }).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            console.log(`[SW-CACHE] 🗑️ Removendo cache obsoleto: ${cache}`);
+            return caches.delete(cache);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (event: any) => {
+  if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
+    return;
+  }
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
+        return response;
+      })
+      .catch(() => {
+        console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          return new Response("Você está offline e este recurso não foi mapeado no cache.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" }
+          });
+        });
+      })
+  );
+});
+```
+
+---
+
 ## Arquivo: `src/sw/sw-handshakes.ts`
 
 ```ts
@@ -2063,7 +2044,7 @@ self.addEventListener('push', function (event) {
 declare const self: ServiceWorkerGlobalScope;
 
 import { gunzipSync } from "fflate";
-import { DB_NAMES, STORE_NAMES, MAX_TENTATIVAS, Handshake } from "../constants/db.ts";
+import { Handshake, MAX_TENTATIVAS } from "../constants/db.ts";
 import { base64UrlToArrayBuffer, criarJWT } from "../utils/jwt-helpers.ts";
 import {
   salvarHandshake,
@@ -2141,7 +2122,7 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
   }
 }
 
-export async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
+export async function processarHandshakeRecebido(payload: any, header: any, _jwt: string) {
   addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
@@ -2156,13 +2137,13 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
 
     const privateDecryptKey = await buscarChaveDecript();
     if (!privateDecryptKey) {
-      throw new Error("Chave privada RSA não japonesa para decifrar handshake.");
+      throw new Error("Chave privada RSA não encontrada para decifrar handshake.");
     }
 
     let envelope;
     try {
       envelope = JSON.parse(payload.ct);
-    } catch (e) {
+    } catch (_e) {
       addDebugLog("[SW-ROUTER] ⚠️ Falha ao fazer parse do envelope cifrado 'ct'. JSON malformado.");
       return;
     }
@@ -2189,7 +2170,7 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
     try {
       decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
       rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
-    } catch (e) {
+    } catch (_e) {
       addDebugLog("[SW-ROUTER] ⚠️ Falha ao descomprimir (fflate) ou fazer parse JSON do payload decifrado.");
       throw new Error("Falha na descompressão ou parse do payload interno.");
     }
@@ -2279,15 +2260,14 @@ export async function processarFilaHandshake() {
 
       try {
         const contatoIdHash = await normalizarChaveContato(h.aud);
-        let contato = await buscarContatoPorChave(contatoIdHash);
+        const contato = await buscarContatoPorChave(contatoIdHash);
         
         if (!contato) throw new Error(`Contato alvo (hash: ${contatoIdHash}) não encontrado.`);
-        let profile = await buscarProfile();
+        const profile = await buscarProfile();
         if (!profile) throw new Error("Perfil local não encontrado.");
 
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
-          // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
           const serverPublicKeyJwk = await getServerPublicKey();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
@@ -2300,7 +2280,7 @@ export async function processarFilaHandshake() {
         if (!isSyncHandshake && !isPullHandshake && (contato.me === 'none' || contato.me === 'wrong')) {
           addDebugLog(`[SW-ROUTER] 💉 Contato desatualizado. Injetando dados de perfil no handshake ${h.id}.`);
           h.out!.rotas.contato = h.out!.rotas.contato || {};
-          h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true);
+          h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
         }
 
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
@@ -2357,45 +2337,38 @@ self.addEventListener('online', function (event: Event) {
 
 ---
 
-## Arquivo: `src/sw/click.ts`
+## Arquivo: `src/sw/sw-utils.ts`
 
 ```ts
-// src/sw/click.ts
+// src/sw/sw-utils.ts
+import { addDebugLog } from '../utils/debug-utils.ts';
 
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
+  addDebugLog("📡 Verificando suporte ao Service Worker...");
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker não é suportado neste navegador.");
+  }
 
-self.addEventListener('notificationclick', function(event) {
-  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
-  event.notification.close();
-  const urlParaAbrir = new URL('/', self.location.origin).href;
-  
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(function(windowClients) {
-        // Tenta focar uma janela existente
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client.url === urlParaAbrir && 'focus' in client) {
-            try {
-              return client.focus();
-            } catch (err: any) {
-              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
-              break;
-            }
-          }
-        }
-        // Se não encontrou ou não conseguiu focar, abre uma nova
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(urlParaAbrir)
-            .catch(function(err: any) {
-              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
-              return Promise.resolve();
-            });
-        }
-      })
-  );
-});
+  const cacheBuster = Date.now();
+  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
+
+  try {
+    const registration = await navigator.serviceWorker.register(
+      `./service-worker.js?cacheBuster=${cacheBuster}`,
+      { scope: "/" }
+    );
+    if (!registration) {
+      throw new Error("Service Worker registration retornou null/undefined");
+    }
+    addDebugLog("✅ Service Worker registrado, aguardando ready...");
+    const readyReg = await navigator.serviceWorker.ready;
+    addDebugLog("✅ Service Worker ativo e pronto.");
+    return readyReg;
+  } catch (err: any) {
+    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
+    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
+  }
+}
 ```
 
 ---
@@ -2516,404 +2489,6 @@ export function addDebugLog(
   if (logType === "error") console.error(consoleMsg, logDetails ?? "");
   else if (logType === "warn") console.warn(consoleMsg, logDetails ?? "");
   else console.log(consoleMsg, logDetails ?? "");
-}
-```
-
----
-
-## Arquivo: `src/utils/crypto-utils.ts`
-
-```ts
-// src/utils/crypto-utils.ts
-import { addDebugLog } from "./debug-utils.ts";
-
-/**
- * Converte ArrayBuffer para string Base64URL de forma segura
- */
-export function bufferToBase64Url(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO", "Falha crítica ao converter Buffer para Base64Url", err.message);
-    throw new Error(`Buffer conversion failed: ${err.message}`);
-  }
-}
-
-/**
- * Alias de compatibilidade para conversão de ArrayBuffer em Base64URL
- */
-export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
-  return bufferToBase64Url(buffer);
-}
-
-/**
- * Converte string Base64URL para ArrayBuffer blindado contra malformações
- */
-export function base64UrlToBuffer(base64url: string): ArrayBuffer {
-  try {
-    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-    // Restaura o padding exato para evitar InvalidCharacterError no atob
-    const padLength = (4 - (base64.length % 4)) % 4;
-    base64 += '='.repeat(padLength);
-    
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO", "Tentativa de decodificar Base64Url malformado ou corrompido", err.message);
-    throw new Error("Formato Base64Url inválido.");
-  }
-}
-
-/**
- * Gera um par de chaves VAPID (ECDSA P-256) via WebCrypto API
- */
-export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
-  try {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["sign", "verify"]
-    );
-    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
-    return keyPair;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha de Hardware/Browser ao gerar VAPID: ${error.message}`, error);
-    throw new Error("Este navegador não suporta geração de chaves ECDSA P-256 necessárias para o funcionamento offline.");
-  }
-}
-
-/**
- * Gera um par de chaves RSA-OAEP 2048 para Criptografia E2E
- */
-export async function generateE2EEKeys(): Promise<{
-  publicEncrypt: JsonWebKey;
-  privateDecryptJwk: JsonWebKey;
-}> {
-  try {
-    const keyPair = await crypto.subtle.generateKey(
-      {
-        name: "RSA-OAEP",
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash: "SHA-256",
-      },
-      true,
-      ["encrypt", "decrypt"]
-    );
-
-    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-
-    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
-    return { publicEncrypt, privateDecryptJwk };
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA E2E: ${error.message}`, error);
-    throw new Error("Este dispositivo não suporta geração de chaves RSA-OAEP de 2048 bits.");
-  }
-}
-
-/**
- * Criptografa um texto em UTF-8 usando AES-GCM
- */
-export async function encryptTextAES(
-  key: CryptoKey,
-  plainText: string
-): Promise<{ cipherTextBase64: string; ivBase64: string }> {
-  try {
-    const enc = new TextEncoder();
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encodedText = enc.encode(plainText);
-
-    const cipherBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      encodedText
-    );
-
-    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
-
-    return {
-      cipherTextBase64: bufferToBase64Url(cipherBuffer),
-      ivBase64: bufferToBase64Url(iv.buffer),
-    };
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha interna no motor AES-GCM (Encrypt): ${error.message}`, error);
-    throw new Error("Não foi possível criptografar os dados.");
-  }
-}
-
-/**
- * Descriptografa um ciphertext em Base64URL usando AES-GCM
- */
-export async function decryptTextAES(
-  key: CryptoKey,
-  cipherTextBase64: string,
-  ivBase64: string
-): Promise<string> {
-  try {
-    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
-    const ivBuffer = base64UrlToBuffer(ivBase64);
-
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
-      key,
-      cipherBuffer
-    );
-
-    const dec = new TextDecoder();
-    return dec.decode(decryptedBuffer);
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha de decifragem AES-GCM (Chave incorreta ou corrompido): ${error.message}`, error);
-    throw new Error("A decodificação falhou. Dados corrompidos ou chave inválida.");
-  }
-}
-
-/**
- * Exporta chave CryptoKey para formato JWK seguro
- */
-export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
-  try {
-    const jwk = await crypto.subtle.exportKey("jwk", key);
-    return jwk;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Erro ao extrair chave (não extraível?): ${error.message}`, error);
-    throw new Error("Falha ao exportar a chave para formato seguro.");
-  }
-}
-
-/**
- * Importa chave JWK para CryptoKey blindado
- */
-export async function importJWKToKey(
-  jwk: JsonWebKey,
-  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
-  extractable: boolean,
-  keyUsages: KeyUsage[]
-): Promise<CryptoKey> {
-  try {
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      algorithm,
-      extractable,
-      keyUsages
-    );
-    return key;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Erro estrutural ao importar chave JWK: ${error.message}`, error);
-    throw new Error("A chave de criptografia fornecida está corrompida ou é incompatível.");
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/jwt-helpers.ts`
-
-```ts
-// src/utils/jwt-helpers.ts
-
-// ============================================================
-// UTILITÁRIOS BASE64URL (Robustos e Protegidos)
-// ============================================================
-
-export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
-  }
-}
-
-export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
-  try {
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    // Preenchimento rígido matemático para evitar quebra do atob
-    const padLength = (4 - (base64.length % 4)) % 4;
-    base64 += '='.repeat(padLength);
-    
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-  } catch (e: any) {
-    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
-  }
-}
-
-export function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
-  }
-}
-
-// ============================================================
-// FUNÇÃO GENÉRICA: CRIAR JWT
-// ============================================================
-
-/**
- * Cria um JWT assinado com ES256 (ECDSA P-256 + SHA-256).
- * @param payload - Objeto com os dados do payload (será convertido para JSON).
- * @param privateKeyJwk - Chave privada VAPID em formato JWK.
- * @param headerExtra - Campos extras para o header (ex: { kid: ... }).
- * @returns JWT completo (string) no formato header.payload.signature.
- */
-export async function criarJWT(
-  payload: Record<string, any>,
-  privateKeyJwk: JsonWebKey,
-  headerExtra: Record<string, any> = {}
-): Promise<string> {
-  try {
-    const header = { alg: "ES256", ...headerExtra };
-    const encoder = new TextEncoder();
-
-    const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
-    const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
-    const toSign = `${headerB64}.${payloadB64}`;
-
-    const privateKey = await crypto.subtle.importKey(
-      "jwk",
-      privateKeyJwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"]
-    );
-
-    const signature = await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      privateKey,
-      encoder.encode(toSign)
-    );
-    const sigB64 = arrayBufferToBase64Url(signature);
-
-    return `${toSign}.${sigB64}`;
-  } catch (err: any) {
-    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
-  }
-}
-
-// ============================================================
-// FUNÇÃO GENÉRICA: VERIFICAR JWT
-// ============================================================
-
-/**
- * Verifica um JWT assinado com ES256.
- * Se publicKeyJwk for fornecido, usa-o; senão, extrai a chave do campo 'kid' do header.
- * Retorna { header, payload, signature, valid }.
- */
-export async function verificarJWT(
-  jwt: string,
-  publicKeyJwk?: JsonWebKey
-): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
-  try {
-    const parts = jwt.split('.');
-    if (parts.length !== 3) {
-      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
-    }
-
-    const [headerB64, payloadB64, signatureB64] = parts;
-    const decoder = new TextDecoder();
-
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-    
-    let header, payload;
-    try {
-      header = JSON.parse(headerJson);
-      payload = JSON.parse(payloadJson);
-    } catch (parseErr) {
-      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
-    }
-
-    let publicKeyJwkFinal = publicKeyJwk;
-    if (!publicKeyJwkFinal) {
-      if (!header.kid) {
-        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
-      }
-      publicKeyJwkFinal = header.kid;
-    }
-
-    const publicKey = await crypto.subtle.importKey(
-      "jwk",
-      publicKeyJwkFinal,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["verify"]
-    );
-
-    const toSign = `${headerB64}.${payloadB64}`;
-    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
-
-    const encoder = new TextEncoder();
-    const valid = await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      publicKey,
-      signatureBytes,
-      encoder.encode(toSign)
-    );
-
-    return { header, payload, signature: signatureB64, valid };
-  } catch (err: any) {
-    // Retorna valid: false com o log amigável da camada superior caso quebre integridade estrutural
-    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
-  }
-}
-
-// ============================================================
-// FUNÇÃO GENÉRICA: DECODIFICAR JWT (sem verificar assinatura)
-// ============================================================
-
-/**
- * Decodifica um JWT sem verificar a assinatura (apenas para leitura).
- * Retorna { header, payload, signature }.
- */
-export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
-  const parts = jwt.split('.');
-  if (parts.length !== 3) {
-    throw new Error("JWT malformado. Leitura interrompida.");
-  }
-
-  const [headerB64, payloadB64, signatureB64] = parts;
-  const decoder = new TextDecoder();
-
-  try {
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-
-    return {
-      header: JSON.parse(headerJson),
-      payload: JSON.parse(payloadJson),
-      signature: signatureB64
-    };
-  } catch (err: any) {
-    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
-  }
 }
 ```
 
@@ -3141,6 +2716,521 @@ export async function removerHandshake(id: string): Promise<void> {
 
 ---
 
+## Arquivo: `src/utils/crypto-utils.ts`
+
+```ts
+// src/utils/crypto-utils.ts
+import { addDebugLog } from "./debug-utils.ts";
+
+export function bufferToBase64Url(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO", "Falha crítica ao converter Buffer para Base64Url", err.message);
+    throw new Error(`Buffer conversion failed: ${err.message}`);
+  }
+}
+
+export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
+  return bufferToBase64Url(buffer);
+}
+
+export function base64UrlToBuffer(base64url: string): ArrayBuffer {
+  try {
+    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer as ArrayBuffer;
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO", "Tentativa de decodificar Base64Url malformado ou corrompido", err.message);
+    throw new Error("Formato Base64Url inválido.");
+  }
+}
+
+export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
+    return keyPair;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha de Hardware/Browser ao gerar VAPID: ${error.message}`, error);
+    throw new Error("Este navegador não suporta geração de chaves ECDSA P-256 necessárias para o funcionamento offline.");
+  }
+}
+
+export async function generateE2EEKeys(): Promise<{
+  publicEncrypt: JsonWebKey;
+  privateDecryptJwk: JsonWebKey;
+}> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      {
+        name: "RSA-OAEP",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["encrypt", "decrypt"]
+    );
+
+    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+
+    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
+    return { publicEncrypt, privateDecryptJwk };
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA E2E: ${error.message}`, error);
+    throw new Error("Este dispositivo não suporta geração de chaves RSA-OAEP de 2048 bits.");
+  }
+}
+
+export async function encryptTextAES(
+  key: CryptoKey,
+  plainText: string
+): Promise<{ cipherTextBase64: string; ivBase64: string }> {
+  try {
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encodedText = enc.encode(plainText);
+
+    const cipherBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encodedText
+    );
+
+    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
+
+    return {
+      cipherTextBase64: bufferToBase64Url(cipherBuffer),
+      ivBase64: bufferToBase64Url(iv.buffer as ArrayBuffer),
+    };
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha interna no motor AES-GCM (Encrypt): ${error.message}`, error);
+    throw new Error("Não foi possível criptografar os dados.");
+  }
+}
+
+export async function decryptTextAES(
+  key: CryptoKey,
+  cipherTextBase64: string,
+  ivBase64: string
+): Promise<string> {
+  try {
+    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
+    const ivBuffer = base64UrlToBuffer(ivBase64);
+
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
+      key,
+      cipherBuffer
+    );
+
+    const dec = new TextDecoder();
+    return dec.decode(decryptedBuffer);
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha de decifragem AES-GCM (Chave incorreta ou corrompido): ${error.message}`, error);
+    throw new Error("A decodificação falhou. Dados corrompidos ou chave inválida.");
+  }
+}
+
+export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
+  try {
+    const jwk = await crypto.subtle.exportKey("jwk", key);
+    return jwk;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Erro ao extrair chave (não extraível?): ${error.message}`, error);
+    throw new Error("Falha ao exportar a chave para formato seguro.");
+  }
+}
+
+export async function importJWKToKey(
+  jwk: JsonWebKey,
+  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
+  extractable: boolean,
+  keyUsages: KeyUsage[]
+): Promise<CryptoKey> {
+  try {
+    const key = await crypto.subtle.importKey(
+      "jwk" as any,
+      jwk,
+      algorithm,
+      extractable,
+      keyUsages
+    );
+    return key;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Erro estrutural ao importar chave JWK: ${error.message}`, error);
+    throw new Error("A chave de criptografia fornecida está corrompida ou é incompatível.");
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/profile-utils.ts`
+
+```ts
+// src/utils/profile-utils.ts
+import { salvarProfile, buscarProfile } from './db-helpers.ts';
+import { cifrarChaveVapid } from './push-utils.ts';
+import { registrarServiceWorker } from "../sw/sw-utils.ts";
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { addDebugLog } from './debug-utils.ts';
+import { ProxyPath } from '../constants/config.ts';
+
+export async function getServerPublicKey() {
+  const response = await fetch(`${ProxyPath}/publickey`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
+  return await response.json();
+}
+
+export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const concedido = await navigator.storage.persist();
+      if (concedido) {
+        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
+      } else {
+        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
+      }
+      return concedido;
+    } catch (err: any) {
+      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
+  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
+
+  if (!nome || !email) {
+    throw new Error("Preencha Nome e E-mail primeiro.");
+  }
+
+  try {
+    addDebugLog("Step 1: Verificando permissão de notificação...");
+    try {
+      if (Notification.permission === "denied") {
+        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
+      } else if (Notification.permission === "default") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          addDebugLog("⚠️ Permissão de notificação não concedida.");
+        }
+      }
+    } catch (notifErr: any) {
+      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
+    }
+
+    addDebugLog("Step 2: Registrando Service Worker...");
+    const registration = await registrarServiceWorker();
+
+    addDebugLog("Step 3: Buscando chave pública do servidor...");
+    const serverPublicKeyJwk = await getServerPublicKey();
+    addDebugLog("Step 3.5: Chave do servidor recebida");
+
+    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
+    let publicKeyJwk: JsonWebKey | undefined = undefined;
+    let privateKeyJwk: JsonWebKey | undefined = undefined;
+
+    let existingProfile = await buscarProfile();
+    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
+      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
+      publicKeyJwk = existingProfile.vapidPublicKey;
+      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
+      try {
+        vapidKeyPair = {
+          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+        } as CryptoKeyPair;
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
+        existingProfile = undefined;
+      }
+    }
+    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
+      addDebugLog("🔑 Gerando novas chaves VAPID...");
+      vapidKeyPair = await generateVAPIDKeys();
+      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+    }
+
+    addDebugLog("Step 4: Obtendo subscription...");
+    if (!registration) throw new Error("Service Worker registration é null/undefined");
+    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
+    
+    let existingSubscription = await registration.pushManager.getSubscription();
+    let subscriptionValida = false;
+
+    if (existingSubscription) {
+      const profileSub = existingProfile?.subscription;
+      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
+        subscriptionValida = true;
+      } else {
+        await existingSubscription.unsubscribe();
+        if (existingProfile) {
+           delete (existingProfile as any).subscription;
+           await salvarProfile(existingProfile);
+        }
+        existingSubscription = null;
+      }
+    }
+    
+    if (!existingSubscription || !subscriptionValida) {
+      addDebugLog("📝 Criando nova subscription...");
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+      existingSubscription = await registration.pushManager.subscribe({
+        applicationServerKey: new Uint8Array(rawPublicKey),
+        userVisibleOnly: true
+      });
+    }
+
+    const p256dhBuffer = existingSubscription.getKey('p256dh');
+    const authBuffer = existingSubscription.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) {
+      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
+    }
+    const subscription = {
+      endpoint: existingSubscription.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      }
+    };
+
+    let e2ePublicKey: JsonWebKey;
+    let e2ePrivateKeyJwk: JsonWebKey;
+
+    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
+      addDebugLog("📂 Chaves E2E encontradas no perfil.");
+      e2ePublicKey = existingProfile.e2ePublicKey;
+      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
+      try {
+        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
+        const newKeys = await generateE2EEKeys();
+        e2ePublicKey = newKeys.publicEncrypt;
+        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+      }
+    } else {
+      addDebugLog("🔑 Gerando novas chaves E2E...");
+      const newKeys = await generateE2EEKeys();
+      e2ePublicKey = newKeys.publicEncrypt;
+      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+    }
+
+    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
+
+    const profile: ProfileConfig = {
+      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
+    };
+
+    await salvarProfile(profile);
+    await solicitarArmazenamentoPersistente();
+
+    addDebugLog("✅ Perfil salvo com sucesso.");
+    return profile;
+  } catch (err) {
+    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/push-utils.ts`
+
+```ts
+// src/utils/push-utils.ts
+import { gzipSync } from "fflate";
+import { addDebugLog } from "./debug-utils.ts";
+import { ProxyPath } from '../constants/config.ts';
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
+  }
+}
+
+export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
+  i: string;
+  d: string;
+  k: string;
+}> {
+  try {
+    const encoder = new TextEncoder();
+    const jsonString = JSON.stringify(payloadObj);
+    const bytes = encoder.encode(jsonString);
+    
+    const compressed = gzipSync(bytes);
+    
+    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
+    if (compressed.length > 3000) {
+       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
+    }
+
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      compressed as unknown as BufferSource
+    );
+
+    const cryptoKeyDestino = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyRSA,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyEncrypted = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoKeyDestino,
+      aesKeyRaw
+    );
+
+    return {
+      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
+      d: arrayBufferToBase64(encryptedBuffer),
+      k: arrayBufferToBase64(aesKeyEncrypted)
+    };
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
+    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
+  }
+}
+
+export async function enviarParaProxy(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payloadText: string,
+  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
+): Promise<void> {
+  const payloadSize = new Blob([payloadText]).size;
+  if (payloadSize > 4096) {
+    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
+    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
+  }
+
+  try {
+    const response = await fetch(`${ProxyPath}/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription,
+        payloadText,
+        vapid: {
+          subject: vapid.subject,
+          publicKey: vapid.publicKey,
+          privateKey: vapid.privateKey
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
+    }
+  } catch (err: any) {
+     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
+     throw err;
+  }
+}
+
+export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  try {
+    const serverKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      serverPublicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+    
+    const vapidCifrado = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      vapidBytes as unknown as BufferSource
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyCifrado = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      serverKey,
+      aesKeyRaw
+    );
+
+    const toHex = (buf: ArrayBuffer) =>
+      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    const envelope = {
+      iv: toHex(iv.buffer as ArrayBuffer),
+      dadosCifrados: toHex(vapidCifrado),
+      chaveAesCifrada: toHex(aesKeyCifrado)
+    };
+    
+    return btoa(JSON.stringify(envelope));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
+    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/utils/share-utils.ts`
 
 ```ts
@@ -3204,7 +3294,7 @@ export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): str
   const compact = extrairDadosCompactos(target);
   const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
   const compressed = gzipSync(jsonBytes);
-  return arrayBufferToBase64Url(compressed.buffer);
+  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 }
 
 export async function gerarLinkConviteWeb(
@@ -3222,7 +3312,7 @@ export async function gerarLinkConviteWeb(
   const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
   const jwtBytes = new TextEncoder().encode(jwt);
   const compressed = gzipSync(jwtBytes);
-  const cjwt = arrayBufferToBase64Url(compressed.buffer);
+  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 
   return `${window.location.origin}/share.html?cjwt=${cjwt}`;
 }
@@ -3251,33 +3341,28 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
     }
   }
 
-  // Se nenhum parâmetro específico foi encontrado, infere pelo formato
   if (!cqr && !cjwt && !jwt && input) {
     if (input.includes('.')) {
       jwt = input.trim();
     } else {
-      // 🔥 CORREÇÃO: Nova Lógica de Fallback inspecionando o dado descomprimido
       try {
         const compressed = new Uint8Array(base64UrlToArrayBuffer(input.trim()));
         const decompressed = gunzipSync(compressed);
         const text = new TextDecoder().decode(decompressed);
         
-        // QR Codes zipam um objeto JSON bruto (inicia com "{"). 
-        // JWTs zipam uma string JWT comum.
         if (text.startsWith('{')) {
           cqr = input.trim();
         } else {
           cjwt = input.trim();
         }
-      } catch (e) {
-        cjwt = input.trim(); // fallback seguro de erro
+      } catch (_e) {
+        cjwt = input.trim();
       }
     }
   }
 
   let compactData: CompactContact | null = null;
 
-  // 1. Tenta ler o Token Comprimido (cjwt)
   if (!compactData && cjwt) {
     try {
       const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
@@ -3292,7 +3377,6 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
     }
   }
 
-  // 2. Tenta ler binário do QR Code (cqr)
   if (!compactData && cqr) {
     try {
       const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
@@ -3307,7 +3391,6 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
     }
   }
 
-  // 3. Tenta ler o Token Legado Sem Compressão (jwt)
   if (!compactData && jwt) {
     try {
       const { payload, valid } = await verificarJWT(jwt);
@@ -3326,411 +3409,171 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
 
 ---
 
-## Arquivo: `src/utils/push-utils.ts`
+## Arquivo: `src/utils/jwt-helpers.ts`
 
 ```ts
-// src/utils/push-utils.ts
-import { gzipSync } from "fflate";
-import { addDebugLog } from "./debug-utils.ts";
-import { ProxyPath } from '../constants/config.ts';
-
-
-// ============================================================
-// UTILITÁRIOS DE CRIPTOGRAFIA PARA PUSH
-// ============================================================
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+// src/utils/jwt-helpers.ts
+export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
   try {
     const bytes = new Uint8Array(buffer);
     let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
+  }
+}
+
+export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
+  try {
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer as ArrayBuffer;
+  } catch (e: any) {
+    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
+  }
+}
+
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
     return btoa(binary);
   } catch (e: any) {
-    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
+    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
   }
 }
 
-/**
- * Cifra um payloadObj (objeto JavaScript) usando AES-GCM e a chave E2EE RSA do destinatário.
- * Retorna envelope blindado: { i: ivBase64, d: dadosCifradosBase64, k: chaveAesCifradaBase64 }
- */
-export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
-  i: string;
-  d: string;
-  k: string;
-}> {
+export async function criarJWT(
+  payload: Record<string, any>,
+  privateKeyJwk: JsonWebKey,
+  headerExtra: Record<string, any> = {}
+): Promise<string> {
   try {
+    const header = { alg: "ES256", ...headerExtra };
     const encoder = new TextEncoder();
-    const jsonString = JSON.stringify(payloadObj);
-    const bytes = encoder.encode(jsonString);
-    
-    // Otimização: Compressão Deflate para poupar tráfego e respeitar a cota Web Push
-    const compressed = gzipSync(bytes);
-    
-    // Avaliação Proativa de Gargalos de Rede (WebPush limita FCM a 4096 bytes)
-    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
-    if (compressed.length > 3000) {
-       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
+
+    const headerEnc = encoder.encode(JSON.stringify(header));
+    const payloadEnc = encoder.encode(JSON.stringify(payload));
+
+    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
+    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
+    const toSign = `${headerB64}.${payloadB64}`;
+
+    const privateKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      privateKeyJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      encoder.encode(toSign)
+    );
+    const sigB64 = arrayBufferToBase64Url(signature);
+
+    return `${toSign}.${sigB64}`;
+  } catch (err: any) {
+    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
+  }
+}
+
+export async function verificarJWT(
+  jwt: string,
+  publicKeyJwk?: JsonWebKey
+): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) {
+      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
     }
 
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const headerB64 = parts[0]!;
+    const payloadB64 = parts[1]!;
+    const signatureB64 = parts[2]!;
+    const decoder = new TextDecoder();
 
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      compressed
-    );
-
-    const cryptoKeyDestino = await crypto.subtle.importKey(
-      "jwk",
-      publicKeyRSA,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
     
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyEncrypted = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      cryptoKeyDestino,
-      aesKeyRaw
+    let header, payload;
+    try {
+      header = JSON.parse(headerJson);
+      payload = JSON.parse(payloadJson);
+    } catch (_parseErr) {
+      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
+    }
+
+    let publicKeyJwkFinal = publicKeyJwk;
+    if (!publicKeyJwkFinal) {
+      if (!header.kid) {
+        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
+      }
+      publicKeyJwkFinal = header.kid;
+    }
+
+    const publicKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyJwkFinal as JsonWebKey,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
     );
+
+    const toSign = `${headerB64}.${payloadB64}`;
+    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
+
+    const encoder = new TextEncoder();
+    const valid = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      signatureBytes,
+      encoder.encode(toSign)
+    );
+
+    return { header, payload, signature: signatureB64, valid };
+  } catch (err: any) {
+    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
+  }
+}
+
+export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error("JWT malformado. Leitura interrompida.");
+  }
+
+  const headerB64 = parts[0]!;
+  const payloadB64 = parts[1]!;
+  const signatureB64 = parts[2]!;
+  const decoder = new TextDecoder();
+
+  try {
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
 
     return {
-      i: arrayBufferToBase64(iv.buffer),
-      d: arrayBufferToBase64(encryptedBuffer),
-      k: arrayBufferToBase64(aesKeyEncrypted)
+      header: JSON.parse(headerJson),
+      payload: JSON.parse(payloadJson),
+      signature: signatureB64
     };
   } catch (err: any) {
-    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
-    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
-  }
-}
-
-/**
- * Envia um payload JWT pronto para o servidor proxy na raiz (/).
- * Retorna true se sucesso, lança erro detalhado em caso de falha.
- */
-export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  payloadText: string,
-  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
-): Promise<void> {
-  // Apenas Blob consegue medir strings com caracteres multi-byte UTF-8 corretamente no Client Side
-  const payloadSize = new Blob([payloadText]).size;
-  if (payloadSize > 4096) {
-    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
-    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
-  }
-
-  try {
-    const response = await fetch(`${ProxyPath}/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscription,
-        payloadText,
-        vapid: {
-          subject: vapid.subject,
-          publicKey: vapid.publicKey,
-          privateKey: vapid.privateKey
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err: any) {
-     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
-     throw err;
-  }
-}
-
-/**
- * Cifra a chave privada VAPID (JWK) com a chave pública do servidor usando Hybrid Crypto.
- * Retorna string Base64 estruturada.
- */
-export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
-  try {
-    const serverKey = await crypto.subtle.importKey(
-      "jwk",
-      serverPublicKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoder = new TextEncoder();
-    const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
-    
-    const vapidCifrado = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      vapidBytes
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyCifrado = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      serverKey,
-      aesKeyRaw
-    );
-
-    const toHex = (buf: ArrayBuffer) =>
-      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    const envelope = {
-      iv: toHex(iv.buffer),
-      dadosCifrados: toHex(vapidCifrado),
-      chaveAesCifrada: toHex(aesKeyCifrado)
-    };
-    
-    return btoa(JSON.stringify(envelope));
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
-    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/profile-utils.ts`
-
-```ts
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from './db-helpers.ts';
-import { cifrarChaveVapid } from './push-utils.ts';
-import { registrarServiceWorker } from './sw-utils.ts';
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts';
-import { ProxyPath } from '../constants/config.ts';
-
-export async function getServerPublicKey() {
-  const response = await fetch(`${ProxyPath}/publickey`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  return await response.json(); // Retorna o JsonWebKey (JWK)
-}
-
-
-export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
-  if ('storage' in navigator && 'persist' in navigator.storage) {
-    try {
-      const concedido = await navigator.storage.persist();
-      if (concedido) {
-        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
-      } else {
-        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
-      }
-      return concedido;
-    } catch (err: any) {
-      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
-      return false;
-    }
-  }
-  return false;
-}
-
-export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
-  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
-  if (!nome || !email) {
-    throw new Error("Preencha Nome e E-mail primeiro.");
-  }
-
-  try {
-    addDebugLog("Step 1: Verificando permissão de notificação...");
-    try {
-      if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida.");
-        }
-      }
-    } catch (notifErr: any) {
-      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
-    }
-
-    addDebugLog("Step 2: Registrando Service Worker...");
-    const registration = await registrarServiceWorker();
-
-    addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const serverPublicKeyJwk = await getServerPublicKey();
-    addDebugLog("Step 3.5: Chave do servidor recebida");
-
-    let vapidKeyPair: CryptoKeyPair;
-    let publicKeyJwk: JsonWebKey;
-    let privateKeyJwk: JsonWebKey;
-
-    let existingProfile = await buscarProfile();
-    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
-      publicKeyJwk = existingProfile.vapidPublicKey;
-      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
-      try {
-        vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk", privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
-        } as CryptoKeyPair;
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
-        existingProfile = undefined;
-      }
-    }
-    if (!existingProfile || !vapidKeyPair!) {
-      addDebugLog("🔑 Gerando novas chaves VAPID...");
-      vapidKeyPair = await generateVAPIDKeys();
-      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
-      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
-    }
-
-    addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) throw new Error("Service Worker registration é null/undefined");
-    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
-    let subscriptionValida = false;
-
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        if (existingProfile) {
-           delete (existingProfile as any).subscription;
-           await salvarProfile(existingProfile);
-        }
-        existingSubscription = null;
-      }
-    }
-    
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair!.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
-
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    const subscription = {
-      endpoint: existingSubscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      }
-    };
-
-    let e2ePublicKey: JsonWebKey;
-    let e2ePrivateKeyJwk: JsonWebKey;
-
-    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      addDebugLog("📂 Chaves E2E encontradas no perfil.");
-      e2ePublicKey = existingProfile.e2ePublicKey;
-      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
-      try {
-        await window.crypto.subtle.importKey("jwk", e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
-        const newKeys = await generateE2EEKeys();
-        e2ePublicKey = newKeys.publicEncrypt;
-        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      }
-    } else {
-      addDebugLog("🔑 Gerando novas chaves E2E...");
-      const newKeys = await generateE2EEKeys();
-      e2ePublicKey = newKeys.publicEncrypt;
-      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-    }
-
-    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
-    const profile: ProfileConfig = {
-      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
-    };
-
-    await salvarProfile(profile);
-    await solicitarArmazenamentoPersistente();
-
-    addDebugLog("✅ Perfil salvo com sucesso.");
-    return profile;
-  } catch (err) {
-    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
-    throw err;
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/sw-utils.ts`
-
-```ts
-// src/utils/sw-utils.ts
-import { addDebugLog } from "./debug-utils.ts";
-
-export function logSwInfo(module: string, message: string, details?: unknown) {
-  addDebugLog("info", `SW:${module}`, message, details);
-}
-
-export function logSwError(module: string, message: string, details?: unknown) {
-  addDebugLog("error", `SW:${module}`, message, details);
-}
-
-export function logSwWarn(module: string, message: string, details?: unknown) {
-  addDebugLog("warn", `SW:${module}`, message, details);
-}
-
-export function logSwSuccess(module: string, message: string, details?: unknown) {
-  addDebugLog("success", `SW:${module}`, message, details);
-}
-
-/**
- * Registra o Service Worker principal no navegador
- */
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-  if (!("serviceWorker" in navigator)) {
-    logSwWarn("INIT", "Service Worker não é suportado neste navegador.");
-    return null;
-  }
-
-  try {
-    const registration = await navigator.serviceWorker.register("/service-worker.js", {
-      scope: "/",
-    });
-    logSwSuccess("INIT", "Service Worker registrado com sucesso", { scope: registration.scope });
-    return registration;
-  } catch (error: any) {
-    logSwError("INIT", "Falha ao registrar Service Worker", error);
-    throw error;
+    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
   }
 }
 ```
@@ -3757,7 +3600,6 @@ import { JSX } from "preact";
 
 declare module "preact" {
   namespace JSX {
-    // Definimos um tipo base forte que une os atributos HTML do Preact aos custom attributes do MD3
     type MdElement = JSX.HTMLAttributes<HTMLElement> & {
       value?: string | number;
       checked?: boolean;
@@ -3775,6 +3617,7 @@ declare module "preact" {
       "md-text-button": MdElement;
       "md-filled-tonal-button": MdElement;
       "md-icon-button": MdElement;
+      "md-filled-icon-button": MdElement;
       "md-fab": MdElement;
       "md-extended-fab": MdElement;
       "md-elevated-card": MdElement;
@@ -4840,253 +4683,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
 ---
 
-## Arquivo: `src/app.tsx`
-
-```tsx
-// src/app.tsx
-import { render } from 'preact';
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { ContatosSection } from './components/ContatosSection.tsx';
-import { ChatSection } from './components/ChatSection.tsx'; 
-import { ContactDetailSection } from './components/ContactDetailSection.tsx';
-import { AdvancedSection } from './components/AdvancedSection.tsx';
-import { ToastSnackbar } from './components/ToastSnackbar.tsx';
-import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
-import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
-
-import "@material/web/all.js";
-import './styles.css';
-
-function App() {
-  useEffect(() => {
-    const init = async () => {
-      await initProfileStore();
-      
-      if (!profile.value || !profile.value.e2ePrivateKeyJwk || !profile.value.vapidPrivateKeyJwk) {
-        window.location.href = '/profile.html';
-        return;
-      }
-
-      await initContatosStore();
-      await initMensagensStore();
-      addDebugLog("✅ Stores inicializados");
-    };
-    init();
-  }, []);
-
-  if (!profile.value) {
-    return (
-      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
-        <md-circular-progress indeterminate></md-circular-progress>
-      </div>
-    );
-  }
-
-  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
-  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
-
-  const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
-  const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
-
-  const fecharChatOuDetalhes = () => {
-    currentMobileView.value = 'list';
-    contatoSelecionado.value = '';
-    contatoCompartilharHash.value = null;
-    showAdvanced.value = false; // 🔥 Desliga a aba avançada ao voltar
-  };
-
-  const handleAbrirDetalhesDoContato = () => {
-    if (contatoSelecionado.value && !showAdvanced.value) {
-      contatoCompartilharHash.value = contatoSelecionado.value;
-    }
-  };
-
-  const abrirAvancado = () => {
-    const menu: any = document.getElementById('main-menu');
-    if (menu) menu.open = false;
-    showAdvanced.value = true;
-    contatoSelecionado.value = '';
-    contatoCompartilharHash.value = null;
-    currentMobileView.value = 'chat'; // Força a tela principal abrir no mobile
-  };
-
-  return (
-    <div id="app-root" class={`view-mode-${currentMobileView.value}`}>
-      
-      <aside class="app-sidebar">
-        <header class="sidebar-header">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="position: relative;">
-              <md-icon-button id="btn-menu" onClick={() => {
-                const menu: any = document.getElementById('main-menu');
-                if(menu) menu.open = !menu.open;
-              }}>
-                <md-icon>menu</md-icon>
-              </md-icon-button>
-              
-              <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
-                <md-menu-item onClick={abrirAvancado}>
-                  <div slot="headline">Avançado</div>
-                  <md-icon slot="start">settings_suggest</md-icon>
-                </md-menu-item>
-                <md-menu-item onClick={() => window.location.href = '/logout.html'}>
-                  <div slot="headline">Sair do App (Logout)</div>
-                  <md-icon slot="start">logout</md-icon>
-                </md-menu-item>
-              </md-menu>
-            </div>
-            <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
-          </div>
-          
-          <md-icon-button onClick={() => window.location.href = '/profile.html'}>
-            <md-icon>account_circle</md-icon>
-          </md-icon-button>
-        </header>
-        
-        <div class="sidebar-content" style="padding: 0;">
-          <div style="padding: 16px; animation: fadeIn 0.3s ease;">
-            <ContatosSection />
-          </div>
-        </div>
-      </aside>
-
-      <main class="app-main">
-        <header class="chat-header">
-          <md-icon-button class="back-button" onClick={fecharChatOuDetalhes}>
-            <md-icon>arrow_back</md-icon>
-          </md-icon-button>
-          
-          <div 
-            onClick={!showAdvanced.value ? handleAbrirDetalhesDoContato : undefined}
-            style={`display: flex; align-items: center; gap: 12px; ${contatoAtivo && !showAdvanced.value ? 'cursor: pointer;' : ''}`}
-            title={contatoAtivo && !showAdvanced.value ? `Ver QR Code / Cartão de ${nomeContatoAtivo}` : ''}
-          >
-            <md-icon style="font-size: 2rem; color: #555;">
-              {showAdvanced.value ? 'settings_suggest' : 'account_circle'}
-            </md-icon>
-            <div>
-              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
-                {showAdvanced.value 
-                  ? "Opções Avançadas"
-                  : contatoCompartilharHash.value 
-                    ? `Cartão de ${nomeDetalhesAtivo}`
-                    : (contatoAtivo ? nomeContatoAtivo : "Selecione um contato")}
-                
-                {!showAdvanced.value && ((contatoCompartilharHash.value && contatoDetalhesAtivo?.trusted) || 
-                  (!contatoCompartilharHash.value && contatoAtivo?.trusted)) && (
-                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
-                )}
-              </h2>
-              <span style="font-size: 0.8rem; color: #666;">
-                {showAdvanced.value 
-                  ? "Diagnóstico do sistema e logs de operação"
-                  : contatoCompartilharHash.value 
-                    ? "Aponte a câmera ou copie o link para indicar este contato"
-                    : (contatoAtivo ? (contatoAtivo.email || "Sem e-mail") : "Inicie uma conversa na barra lateral")}
-              </span>
-            </div>
-
-            {contatoAtivo && !contatoCompartilharHash.value && !showAdvanced.value && (
-              <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-primary); opacity: 0.8; margin-left: 4px;">qr_code_2</md-icon>
-            )}
-          </div>
-        </header>
-
-        {showAdvanced.value ? (
-          <AdvancedSection />
-        ) : contatoCompartilharHash.value ? (
-          <ContactDetailSection />
-        ) : contatoSelecionado.value ? (
-          <ChatSection /> 
-        ) : (
-          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888;">
-            <div style="text-align: center;">
-              <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
-              <p>Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
-            </div>
-          </div>
-        )}
-      </main>
-      <ToastSnackbar />
-    </div>
-  );
-}
-
-const root = document.getElementById('app');
-if (root) {
-  render(<App />, root);
-}
-```
-
----
-
-## Arquivo: `src/service-worker.ts`
-
-```ts
-// src/service-worker.ts
-import "./sw/cache.ts";
-import "./sw/push.ts";
-import "./sw/click.ts";
-import "./sw/sw-handshakes.ts";
-
-// Importando a função principal
-import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
-
-// Importando os processadores de Handshake
-import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
-import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
-import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
-
-console.log("[SW] 🌌 Service Worker orquestrador carregado.");
-
-self.addEventListener('activate', (event: ExtendableEvent) => {
-  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
-  event.waitUntil(
-    (async () => {
-      await new Promise(r => setTimeout(r, 1000));
-      try {
-        await processarFilaHandshake();
-      } catch (e) {
-        console.error("[SW] Erro ao processar fila de handshakes:", e);
-      }
-    })()
-  );
-});
-
-// Este é O ÚNICO listener de mensagens do nosso Service Worker agora.
-// Ele funciona como o Diretor de Tráfego vindo da UI.
-self.addEventListener('message', (event: ExtendableMessageEvent) => {
-  if (!event.data) return;
-
-  const { type, payload } = event.data;
-
-  // Manual Trigger: UI pedindo para a fila de rede andar
-  if (type === 'PROCESSAR_FILA_HANDSHAKE') {
-    processarFilaHandshake().catch(err => console.error(err));
-    return;
-  }
-
-  // Roteador de comandos de saída (Envio de Mensagens, Contatos, etc) criados pela UI
-  if (type === 'CRIAR_HANDSHAKE_OUT') {
-    const { rotasModulo, params } = payload;
-    console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);
-    
-    if (rotasModulo === 'profile') {
-      ProcessarProfile({ out: params }).catch(err => console.error("[SW] Erro no hand-profile:", err));
-    } else if (rotasModulo === 'mensagem') {
-      ProcessarMensagem({ out: params }).catch(err => console.error("[SW] Erro no hand-mensagem:", err));
-    } else if (rotasModulo === 'contato') {
-      ProcessarContato({ out: params }).catch(err => console.error("[SW] Erro no hand-contato:", err));
-    } else {
-      console.warn(`[SW] ⚠️ Módulo de rotas desconhecido ou não implementado: ${rotasModulo}`);
-    }
-  }
-});
-```
-
----
-
 ## Arquivo: `src/profile.tsx`
 
 ```tsx
@@ -5399,8 +4995,12 @@ function LogoutApp() {
       status.value = "2/5 Apagando Cookies...";
       const cookies = document.cookie.split(";");
       for (let i = 0; i < cookies.length; i++) {
-        const parts = cookies[i].split("=");
-        const name = parts[0].trim();
+        const cookieStr = cookies[i];
+        if (!cookieStr) continue;
+        const parts = cookieStr.split("=");
+        const part0 = parts[0];
+        if (!part0) continue;
+        const name = part0.trim();
         document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
         document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
       }
@@ -5489,6 +5089,277 @@ if (root) {
 
 ---
 
+## Arquivo: `src/service-worker.ts`
+
+```ts
+// src/service-worker.ts
+import "./sw/cache.ts";
+import "./sw/push.ts";
+import "./sw/click.ts";
+import "./sw/sw-handshakes.ts";
+
+import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
+import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
+import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
+import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
+
+console.log("[SW] 🌌 Service Worker orquestrador carregado.");
+
+self.addEventListener('activate', (event: any) => {
+  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
+  event.waitUntil(
+    (async () => {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        await processarFilaHandshake();
+      } catch (e) {
+        console.error("[SW] Erro ao processar fila de handshakes:", e);
+      }
+    })()
+  );
+});
+
+self.addEventListener('message', (event: any) => {
+  if (!event.data) return;
+
+  const { type, payload } = event.data;
+
+  if (type === 'PROCESSAR_FILA_HANDSHAKE') {
+    processarFilaHandshake().catch(err => console.error(err));
+    return;
+  }
+
+  if (type === 'CRIAR_HANDSHAKE_OUT') {
+    const { rotasModulo, params } = payload;
+    console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);
+    
+    if (rotasModulo === 'profile') {
+      ProcessarProfile({ out: params }).catch(err => console.error("[SW] Erro no hand-profile:", err));
+    } else if (rotasModulo === 'mensagem') {
+      ProcessarMensagem({ out: params }).catch(err => console.error("[SW] Erro no hand-mensagem:", err));
+    } else if (rotasModulo === 'contato') {
+      ProcessarContato({ out: params }).catch(err => console.error("[SW] Erro no hand-contato:", err));
+    } else {
+      console.warn(`[SW] ⚠️ Módulo de rotas desconhecido ou não implementado: ${rotasModulo}`);
+    }
+  }
+});
+```
+
+---
+
+## Arquivo: `src/app.tsx`
+
+```tsx
+// src/app.tsx
+import { render } from 'preact';
+import { useEffect } from 'preact/hooks';
+import { ContatosSection } from './components/ContatosSection.tsx';
+import { ChatSection } from './components/ChatSection.tsx'; 
+import { ContactDetailSection } from './components/ContactDetailSection.tsx';
+import { AdvancedSection } from './components/AdvancedSection.tsx';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
+import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
+import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
+
+import "@material/web/all.js";
+import './styles.css';
+
+function App() {
+  // 🔥 Roteador Central (Single Source of Truth: URL Hash)
+  useEffect(() => {
+    const parseHash = () => {
+      const hash = window.location.hash;
+      
+      if (hash.startsWith('#chat=')) {
+        contatoSelecionado.value = hash.substring(6);
+        contatoCompartilharHash.value = null;
+        showAdvanced.value = false;
+        currentMobileView.value = 'chat';
+      } else if (hash.startsWith('#detail=')) {
+        contatoCompartilharHash.value = hash.substring(8);
+        contatoSelecionado.value = '';
+        showAdvanced.value = false;
+        currentMobileView.value = 'chat';
+      } else if (hash === '#advanced') {
+        showAdvanced.value = true;
+        contatoSelecionado.value = '';
+        contatoCompartilharHash.value = null;
+        currentMobileView.value = 'chat';
+      } else {
+        // Raiz (Lista de Contatos)
+        contatoSelecionado.value = '';
+        contatoCompartilharHash.value = null;
+        showAdvanced.value = false;
+        currentMobileView.value = 'list';
+      }
+    };
+
+    // Lê o estado no primeiro load
+    parseHash();
+    
+    // Escuta as mudanças de hash (acionadas por cliques ou pelo botão voltar do celular)
+    window.addEventListener('hashchange', parseHash);
+    return () => window.removeEventListener('hashchange', parseHash);
+  }, []);
+
+  useEffect(() => {
+    const init = async () => {
+      await initProfileStore();
+      
+      if (!profile.value || !profile.value.e2ePrivateKeyJwk || !profile.value.vapidPrivateKeyJwk) {
+        window.location.href = '/profile.html';
+        return;
+      }
+
+      await initContatosStore();
+      await initMensagensStore();
+      addDebugLog("✅ Stores inicializados");
+    };
+    init();
+  }, []);
+
+  if (!profile.value) {
+    return (
+      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
+        <md-circular-progress indeterminate></md-circular-progress>
+      </div>
+    );
+  }
+
+  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
+  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
+
+  const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
+  const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
+
+  // 🔥 Navegação: Agora apenas alteramos a URL, o roteador fará a mágica
+  const fecharChatOuDetalhes = () => {
+    window.location.hash = ''; // Força o retorno para a lista base
+  };
+
+  const handleAbrirDetalhesDoContato = () => {
+    if (contatoSelecionado.value && !showAdvanced.value) {
+      window.location.hash = `#detail=${contatoSelecionado.value}`;
+    }
+  };
+
+  const abrirAvancado = () => {
+    const menu: any = document.getElementById('main-menu');
+    if (menu) menu.open = false;
+    window.location.hash = '#advanced';
+  };
+
+  return (
+    <div id="app-root" class={`view-mode-${currentMobileView.value}`}>
+      
+      <aside class="app-sidebar">
+        <header class="sidebar-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="position: relative;">
+              <md-icon-button id="btn-menu" onClick={() => {
+                const menu: any = document.getElementById('main-menu');
+                if(menu) menu.open = !menu.open;
+              }}>
+                <md-icon>menu</md-icon>
+              </md-icon-button>
+              
+              <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
+                <md-menu-item onClick={abrirAvancado}>
+                  <div slot="headline">Avançado</div>
+                  <md-icon slot="start">settings_suggest</md-icon>
+                </md-menu-item>
+                <md-menu-item onClick={() => window.location.href = '/logout.html'}>
+                  <div slot="headline">Sair do App (Logout)</div>
+                  <md-icon slot="start">logout</md-icon>
+                </md-menu-item>
+              </md-menu>
+            </div>
+            <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
+          </div>
+          
+          <md-icon-button onClick={() => window.location.href = '/profile.html'}>
+            <md-icon>account_circle</md-icon>
+          </md-icon-button>
+        </header>
+        
+        <div class="sidebar-content" style="padding: 0;">
+          <div style="padding: 16px; animation: fadeIn 0.3s ease;">
+            <ContatosSection />
+          </div>
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="chat-header">
+          <md-icon-button class="back-button" onClick={fecharChatOuDetalhes}>
+            <md-icon>arrow_back</md-icon>
+          </md-icon-button>
+          
+          <div 
+            onClick={!showAdvanced.value ? handleAbrirDetalhesDoContato : undefined}
+            style={`display: flex; align-items: center; gap: 12px; ${contatoAtivo && !showAdvanced.value ? 'cursor: pointer;' : ''}`}
+            title={contatoAtivo && !showAdvanced.value ? `Ver QR Code / Cartão de ${nomeContatoAtivo}` : ''}
+          >
+            <md-icon style="font-size: 2rem; color: #555;">
+              {showAdvanced.value ? 'settings_suggest' : 'account_circle'}
+            </md-icon>
+            <div>
+              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
+                {showAdvanced.value 
+                  ? "Opções Avançadas"
+                  : contatoCompartilharHash.value 
+                    ? `Cartão de ${nomeDetalhesAtivo}`
+                    : (contatoAtivo ? nomeContatoAtivo : "Selecione um contato")}
+                
+                {!showAdvanced.value && ((contatoCompartilharHash.value && contatoDetalhesAtivo?.trusted) || 
+                  (!contatoCompartilharHash.value && contatoAtivo?.trusted)) && (
+                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                )}
+              </h2>
+              <span style="font-size: 0.8rem; color: #666;">
+                {showAdvanced.value 
+                  ? "Diagnóstico do sistema e logs de operação"
+                  : contatoCompartilharHash.value 
+                    ? "Aponte a câmera ou copie o link para indicar este contato"
+                    : (contatoAtivo ? (contatoAtivo.email || "Sem e-mail") : "Inicie uma conversa na barra lateral")}
+              </span>
+            </div>
+
+            {contatoAtivo && !contatoCompartilharHash.value && !showAdvanced.value && (
+              <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-primary); opacity: 0.8; margin-left: 4px;">qr_code_2</md-icon>
+            )}
+          </div>
+        </header>
+
+        {showAdvanced.value ? (
+          <AdvancedSection />
+        ) : contatoCompartilharHash.value ? (
+          <ContactDetailSection />
+        ) : contatoSelecionado.value ? (
+          <ChatSection /> 
+        ) : (
+          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888;">
+            <div style="text-align: center;">
+              <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
+              <p>Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
+            </div>
+          </div>
+        )}
+      </main>
+      <ToastSnackbar />
+    </div>
+  );
+}
+
+const root = document.getElementById('app');
+if (root) {
+  render(<App />, root);
+}
+```
+
+---
+
 ## Arquivo: `public/manifest.json`
 
 ```json
@@ -5530,7 +5401,7 @@ if (root) {
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.45-mso13i2u",
+  "version": "0.2.49-mso2rqks",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -5585,267 +5456,6 @@ if (root) {
 
   "exclude": ["dist/", "public/"]
 }
-```
-
----
-
-## Arquivo: `build.ts`
-
-```ts
-/// <reference lib="deno.ns" />
-import { ensureDir, copy, walk } from "@std/fs";
-import { join } from "@std/path";
-
-const DIST_DIR = "dist";
-const SRC_DIR = "src";
-const PUBLIC_DIR = "public";
-
-interface BundleResult {
-  success: boolean;
-  errors?: unknown[];
-  warnings?: unknown[];
-  outputFiles?: Array<{
-    path: string;
-    contents: Record<string, number> | Uint8Array | string;
-    hash?: string;
-  }>;
-  code?: string;
-  output?: string;
-}
-
-interface BundleOptions {
-  entrypoints: string[];
-  outputDir?: string;
-  outputFile?: string;
-  platform?: "browser" | "deno" | "neutral";
-  format?: "esm" | "iife" | "cjs";
-  bundle?: boolean;
-  minify?: boolean;
-  sourcemap?: boolean | "linked" | "inline";
-  write?: boolean;
-  jsx?: "automatic" | "react" | "preserve";
-  jsxImportSource?: string;
-  jsxFactory?: string;
-  jsxFragment?: string;
-}
-
-async function incrementVersion(): Promise<string> {
-  const denoJsoncPath = "deno.jsonc";
-  let content = await Deno.readTextFile(denoJsoncPath);
-  let currentVersion = "0.0.0";
-  
-  // Gera o hash único deste build
-  const buildHash = Date.now().toString(36);
-
-  // Regex para capturar a versão, ignorando o hash antigo se ele existir, e somando o patch
-  content = content.replace(/"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9]+)?"/, (_match, major, minor, patch) => {
-    const nextPatch = parseInt(patch, 10) + 1;
-    currentVersion = `${major}.${minor}.${nextPatch}-${buildHash}`;
-    return `"version": "${currentVersion}"`;
-  });
-
-  await Deno.writeTextFile(denoJsoncPath, content);
-  
-  // Gera um arquivo TS injetável para o Frontend ler a versão de forma síncrona
-  await ensureDir(join(SRC_DIR, "constants"));
-  const versionTsContent = `// Arquivo gerado automaticamente pelo build.ts\nexport const APP_VERSION = "${currentVersion}";\n`;
-  await Deno.writeTextFile(join(SRC_DIR, "constants", "version.ts"), versionTsContent);
-  
-  console.log(`📈 Versão incrementada para: v${currentVersion}`);
-  return currentVersion; // Retorna ex: "0.1.2-msmcsbjx"
-}
-
-async function clean() {
-  try {
-    await Deno.remove(DIST_DIR, { recursive: true });
-  } catch {
-    // diretório não existe, ok
-  }
-  await ensureDir(DIST_DIR);
-  console.log("📁 Arquivos anteriores excluídos");
-}
-
-async function copyStaticAndSyncManifest(appVersion: string) {
-  try {
-    await copy(PUBLIC_DIR, DIST_DIR, { overwrite: true });
-    
-    // Injeta a versão sincronizada dentro do dist/manifest.json
-    const manifestPath = join(DIST_DIR, "manifest.json");
-    try {
-      const manifestText = await Deno.readTextFile(manifestPath);
-      const manifestObj = JSON.parse(manifestText);
-      manifestObj.version = appVersion; // 🔥 Injeção da versão unificada
-      await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
-      console.log(`📱 Versão v${appVersion} injetada em dist/manifest.json`);
-    } catch {
-      console.log("⚠️ Não foi possível atualizar a versão dentro do manifest.json");
-    }
-
-    console.log("📁 Arquivos estáticos copiados");
-  } catch {
-    console.log("⚠️ Pasta public não encontrada ou erro na cópia");
-  }
-}
-
-function contentsToString(contents: Record<string, number> | Uint8Array | string): string {
-  if (typeof contents === 'string') return contents;
-  if (contents instanceof Uint8Array) return new TextDecoder().decode(contents);
-  if (contents && typeof contents === 'object') {
-    const bytes: number[] = [];
-    const keys = Object.keys(contents);
-    const isNumericKeys = keys.every(k => !isNaN(Number(k)));
-    if (isNumericKeys && keys.length > 0) {
-      const sortedKeys = keys.map(Number).sort((a, b) => a - b);
-      for (const key of sortedKeys) {
-        const value = (contents as Record<string, number>)[key.toString()];
-        if (typeof value === 'number' && value >= 0 && value <= 255) bytes.push(value);
-      }
-      if (bytes.length > 0) return new TextDecoder().decode(new Uint8Array(bytes));
-    }
-  }
-  return JSON.stringify(contents);
-}
-
-function extrairCodigoDoBundle(result: BundleResult): string {
-  if (!result.outputFiles || result.outputFiles.length === 0) return '';
-  return contentsToString(result.outputFiles[0].contents);
-}
-
-async function runBundle(name: string, bundleOpts: BundleOptions): Promise<BundleResult> {
-  console.log(`🔨 [${name}] Iniciando bundle...`);
-  // deno-lint-ignore no-explicit-any
-  const result = (await (Deno as any).bundle(bundleOpts)) as BundleResult;
-  if (!result.success) {
-    console.error(`❌ Erros no bundle ${name}:`, result.errors);
-    throw new Error(`Falha ao gerar ${name}`);
-  }
-  for (const warning of result.warnings || []) {
-    console.warn(`⚠️ ${name}:`, warning);
-  }
-  return result;
-}
-
-async function gerarOuCarregarChavesServidor() {
-  let publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
-  let privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
-  if (publicKey && privateKey) {
-    console.log("🔑 Chaves do servidor carregadas do .env");
-    return;
-  }
-  console.log("🔐 Gerando novas chaves RSA do servidor...");
-  const keyPair = await crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-  const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-  const publicKeyStr = JSON.stringify(publicJwk);
-  const privateKeyStr = JSON.stringify(privateJwk);
-  Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
-  Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
-  await Deno.writeTextFile(
-    '.env',
-    `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
-    `# NÃO COMMITAR ESTE ARQUIVO!\n` +
-    `SERVER_PUBLIC_KEY=${publicKeyStr}\n` +
-    `SERVER_PRIVATE_KEY=${privateKeyStr}\n`
-  );
-  console.log(`✅ Chaves do servidor salvas em .env`);
-}
-
-async function listarAssetsParaCache(): Promise<string[]> {
-  const assets: string[] = [];
-  const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
-  
-  for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
-    if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
-      assets.push(webPath);
-    }
-  }
-  return assets;
-}
-
-async function build() {
-  console.log("\n🚀 Iniciando build Loco ...\n");
-  const start = performance.now();
-
-  const appVersion = await incrementVersion();
-  await gerarOuCarregarChavesServidor();
-  await clean();
-  await copyStaticAndSyncManifest(appVersion);
-
-  console.log("📦 Compilando página HTML ...");
-  await runBundle("HTML", {
-    entrypoints: [
-      join(SRC_DIR, "index.html"), 
-      join(SRC_DIR, "logout.html"),
-      join(SRC_DIR, "share.html"),
-      join(SRC_DIR, "profile.html")
-    ],
-    outputDir: DIST_DIR,
-    platform: "browser",
-    format: "esm",
-    bundle: true,
-    minify: false,
-    write: true,
-    jsx: "automatic",
-    jsxImportSource: "preact",
-    jsxFactory: "h",
-    jsxFragment: "Fragment",
-  });
-
- console.log("📦 Compilando Cloudflare Worker ...");
-  await runBundle("worker", {
-    entrypoints: [
-      "./worker.ts"
-    ],
-    outputDir: DIST_DIR,
-    platform: "browser",
-    format: "esm",
-    bundle: true,
-    minify: false,
-    write: true,
-    sourcemap: "inline",
-  }); 
-  
-  console.log("📦 Compilando Service Worker em memória...");
-  const swResult = await runBundle("ServiceWorker", {
-    entrypoints: [join(SRC_DIR, "service-worker.ts")],
-    platform: "browser",
-    format: "iife",
-    bundle: true,
-    minify: false,
-    write: false,
-  });
-
-  let swCode = extrairCodigoDoBundle(swResult);
-  if (swCode.length < 100) throw new Error("Não foi possível extrair o código do Service Worker");
-
-  const assets = await listarAssetsParaCache();
-  const versionHash = `v${appVersion}`;
-
-  swCode = swCode
-    .replace(/VERSION_HASH/g, versionHash)
-    .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets).slice(1, -1)); 
-
-  await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
-
-  console.log(`✨ Service Worker gerado com sucesso! (Cache ID: ${versionHash})`);
-  console.log(`   📦 ${assets.length} assets em cache`);
-  console.log(`   📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
-
-  const elapsed = (performance.now() - start).toFixed(0);
-  console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/\n`);
-}
-
-await build();
 ```
 
 ---
@@ -5950,7 +5560,7 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
     const privateKeyJwk = JSON.parse(privateKeyStr);
 
     const serverPrivateKey = await crypto.subtle.importKey(
-      "jwk",
+      "jwk" as any,
       privateKeyJwk,
       { name: "RSA-OAEP", hash: "SHA-256" },
       true,
@@ -6025,7 +5635,10 @@ function lerMetadadosJJWT(jwtString: string) {
     const parts = jwtString.split(".");
     if (parts.length !== 3) return null;
 
-    let base64Url = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const part1 = parts[1];
+    if (!part1) return null;
+
+    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
     while (base64Url.length % 4) base64Url += "=";
 
     const jsonString = new TextDecoder().decode(
@@ -6039,7 +5652,7 @@ function lerMetadadosJJWT(jwtString: string) {
 }
 
 const workerHandler = {
-  async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
@@ -6066,7 +5679,6 @@ const workerHandler = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // Normalização do caminho caso exista um ProxyPath configurado via env
     const proxyPath = env.PROXY_PATH || "";
     const targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
 
@@ -6081,7 +5693,6 @@ const workerHandler = {
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
 
-      // 🔑 Rota POST para entregar a chave pública do servidor
       if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
           status: 200,
@@ -6089,7 +5700,6 @@ const workerHandler = {
         });
       }
 
-      // 🚪 Rota POST para limpeza e destruição de sessão (Logout)
       if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
         const headers = new Headers(corsHeaders);
         deleteCookie(headers, "session_token", { path: "/" });
@@ -6101,7 +5711,6 @@ const workerHandler = {
         });
       }
 
-      // 📨 Rota POST raiz para Proxy Web Push
       if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
         console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
@@ -6174,6 +5783,265 @@ const workerHandler = {
 };
 
 export default workerHandler;
+```
+
+---
+
+## Arquivo: `build.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { ensureDir, copy, walk } from "@std/fs";
+import { join } from "@std/path";
+
+const DIST_DIR = "dist";
+const SRC_DIR = "src";
+const PUBLIC_DIR = "public";
+
+interface BundleResult {
+  success: boolean;
+  errors?: unknown[];
+  warnings?: unknown[];
+  outputFiles?: Array<{
+    path: string;
+    contents: Record<string, number> | Uint8Array | string;
+    hash?: string;
+  }>;
+  code?: string;
+  output?: string;
+}
+
+interface BundleOptions {
+  entrypoints: string[];
+  outputDir?: string;
+  outputFile?: string;
+  platform?: "browser" | "deno" | "neutral";
+  format?: "esm" | "iife" | "cjs";
+  bundle?: boolean;
+  minify?: boolean;
+  sourcemap?: boolean | "linked" | "inline";
+  write?: boolean;
+  jsx?: "automatic" | "react" | "preserve";
+  jsxImportSource?: string;
+  jsxFactory?: string;
+  jsxFragment?: string;
+}
+
+async function incrementVersion(): Promise<string> {
+  const denoJsoncPath = "deno.jsonc";
+  let content = await Deno.readTextFile(denoJsoncPath);
+  let currentVersion = "0.0.0";
+  
+  const buildHash = Date.now().toString(36);
+
+  content = content.replace(/"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9]+)?"/, (_match, major, minor, patch) => {
+    const nextPatch = parseInt(patch, 10) + 1;
+    currentVersion = `${major}.${minor}.${nextPatch}-${buildHash}`;
+    return `"version": "${currentVersion}"`;
+  });
+
+  await Deno.writeTextFile(denoJsoncPath, content);
+  
+  await ensureDir(join(SRC_DIR, "constants"));
+  const versionTsContent = `// Arquivo gerado automaticamente pelo build.ts\nexport const APP_VERSION = "${currentVersion}";\n`;
+  await Deno.writeTextFile(join(SRC_DIR, "constants", "version.ts"), versionTsContent);
+  
+  console.log(`📈 Versão incrementada para: v${currentVersion}`);
+  return currentVersion;
+}
+
+async function clean() {
+  try {
+    await Deno.remove(DIST_DIR, { recursive: true });
+  } catch {
+    // diretório não existe, ok
+  }
+  await ensureDir(DIST_DIR);
+  console.log("📁 Arquivos anteriores excluídos");
+}
+
+async function copyStaticAndSyncManifest(appVersion: string) {
+  try {
+    await copy(PUBLIC_DIR, DIST_DIR, { overwrite: true });
+    
+    const manifestPath = join(DIST_DIR, "manifest.json");
+    try {
+      const manifestText = await Deno.readTextFile(manifestPath);
+      const manifestObj = JSON.parse(manifestText);
+      manifestObj.version = appVersion;
+      await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
+      console.log(`📱 Versão v${appVersion} injetada em dist/manifest.json`);
+    } catch {
+      console.log("⚠️ Não foi possível atualizar a versão dentro do manifest.json");
+    }
+
+    console.log("📁 Arquivos estáticos copiados");
+  } catch {
+    console.log("⚠️ Pasta public não encontrada ou erro na cópia");
+  }
+}
+
+function contentsToString(contents: Record<string, number> | Uint8Array | string): string {
+  if (typeof contents === 'string') return contents;
+  if (contents instanceof Uint8Array) return new TextDecoder().decode(contents);
+  if (contents && typeof contents === 'object') {
+    const bytes: number[] = [];
+    const keys = Object.keys(contents);
+    const isNumericKeys = keys.every(k => !isNaN(Number(k)));
+    if (isNumericKeys && keys.length > 0) {
+      const sortedKeys = keys.map(Number).sort((a, b) => a - b);
+      for (const key of sortedKeys) {
+        const value = (contents as Record<string, number>)[key.toString()];
+        if (typeof value === 'number' && value >= 0 && value <= 255) bytes.push(value);
+      }
+      if (bytes.length > 0) return new TextDecoder().decode(new Uint8Array(bytes));
+    }
+  }
+  return JSON.stringify(contents);
+}
+
+function extrairCodigoDoBundle(result: BundleResult): string {
+  if (!result.outputFiles || result.outputFiles.length === 0) return '';
+  const file = result.outputFiles[0];
+  if (!file || !file.contents) return '';
+  return contentsToString(file.contents);
+}
+
+async function runBundle(name: string, bundleOpts: BundleOptions): Promise<BundleResult> {
+  console.log(`🔨 [${name}] Iniciando bundle...`);
+  // deno-lint-ignore no-explicit-any
+  const result = (await (Deno as any).bundle(bundleOpts)) as BundleResult;
+  if (!result.success) {
+    console.error(`❌ Erros no bundle ${name}:`, result.errors);
+    throw new Error(`Falha ao gerar ${name}`);
+  }
+  for (const warning of result.warnings || []) {
+    console.warn(`⚠️ ${name}:`, warning);
+  }
+  return result;
+}
+
+async function gerarOuCarregarChavesServidor() {
+  let publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
+  let privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
+  if (publicKey && privateKey) {
+    console.log("🔑 Chaves do servidor carregadas do .env");
+    return;
+  }
+  console.log("🔐 Gerando novas chaves RSA do servidor...");
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: "RSA-OAEP",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt", "decrypt"]
+  );
+  const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+  const publicKeyStr = JSON.stringify(publicJwk);
+  const privateKeyStr = JSON.stringify(privateJwk);
+  Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
+  Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
+  await Deno.writeTextFile(
+    '.env',
+    `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
+    `# NÃO COMMITAR ESTE ARQUIVO!\n` +
+    `SERVER_PUBLIC_KEY=${publicKeyStr}\n` +
+    `SERVER_PRIVATE_KEY=${privateKeyStr}\n`
+  );
+  console.log(`✅ Chaves do servidor salvas em .env`);
+}
+
+async function listarAssetsParaCache(): Promise<string[]> {
+  const assets: string[] = [];
+  const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
+  
+  for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
+    if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
+      const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
+      assets.push(webPath);
+    }
+  }
+  return assets;
+}
+
+async function build() {
+  console.log("\n🚀 Iniciando build Loco ...\n");
+  const start = performance.now();
+
+  const appVersion = await incrementVersion();
+  await gerarOuCarregarChavesServidor();
+  await clean();
+  await copyStaticAndSyncManifest(appVersion);
+
+  console.log("📦 Compilando página HTML ...");
+  await runBundle("HTML", {
+    entrypoints: [
+      join(SRC_DIR, "index.html"), 
+      join(SRC_DIR, "logout.html"),
+      join(SRC_DIR, "share.html"),
+      join(SRC_DIR, "profile.html")
+    ],
+    outputDir: DIST_DIR,
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    write: true,
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    jsxFactory: "h",
+    jsxFragment: "Fragment",
+  });
+
+  console.log("📦 Compilando Cloudflare Worker ...");
+  await runBundle("worker", {
+    entrypoints: [
+      "./worker.ts"
+    ],
+    outputDir: DIST_DIR,
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    write: true,
+    sourcemap: "inline",
+  }); 
+  
+  console.log("📦 Compilando Service Worker em memória...");
+  const swResult = await runBundle("ServiceWorker", {
+    entrypoints: [join(SRC_DIR, "service-worker.ts")],
+    platform: "browser",
+    format: "iife",
+    bundle: true,
+    minify: false,
+    write: false,
+  });
+
+  let swCode = extrairCodigoDoBundle(swResult);
+  if (swCode.length < 100) throw new Error("Não foi possível extrair o código do Service Worker");
+
+  const assets = await listarAssetsParaCache();
+  const versionHash = `v${appVersion}`;
+
+  swCode = swCode
+    .replace(/VERSION_HASH/g, versionHash)
+    .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets)); 
+
+  await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+
+  console.log(`✨ Service Worker gerado com sucesso! (Cache ID: ${versionHash})`);
+  console.log(`    📦 ${assets.length} assets em cache`);
+  console.log(`    📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
+
+  const elapsed = (performance.now() - start).toFixed(0);
+  console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/\n`);
+}
+
+await build();
 ```
 
 ---

@@ -1,7 +1,7 @@
 // src/utils/profile-utils.ts
 import { salvarProfile, buscarProfile } from './db-helpers.ts';
 import { cifrarChaveVapid } from './push-utils.ts';
-import { registrarServiceWorker } from './sw-utils.ts';
+import { registrarServiceWorker } from "../sw/sw-utils.ts";
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from './debug-utils.ts';
@@ -13,9 +13,8 @@ export async function getServerPublicKey() {
     headers: { 'Content-Type': 'application/json' }
   });
   if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  return await response.json(); // Retorna o JsonWebKey (JWK)
+  return await response.json();
 }
-
 
 export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   if ('storage' in navigator && 'persist' in navigator.storage) {
@@ -64,9 +63,9 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     const serverPublicKeyJwk = await getServerPublicKey();
     addDebugLog("Step 3.5: Chave do servidor recebida");
 
-    let vapidKeyPair: CryptoKeyPair;
-    let publicKeyJwk: JsonWebKey;
-    let privateKeyJwk: JsonWebKey;
+    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
+    let publicKeyJwk: JsonWebKey | undefined = undefined;
+    let privateKeyJwk: JsonWebKey | undefined = undefined;
 
     let existingProfile = await buscarProfile();
     if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
@@ -75,15 +74,15 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
       privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
       try {
         vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk", privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
         } as CryptoKeyPair;
       } catch {
         addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
         existingProfile = undefined;
       }
     }
-    if (!existingProfile || !vapidKeyPair!) {
+    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
       addDebugLog("🔑 Gerando novas chaves VAPID...");
       vapidKeyPair = await generateVAPIDKeys();
       publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
@@ -113,7 +112,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     
     if (!existingSubscription || !subscriptionValida) {
       addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair!.publicKey);
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
       existingSubscription = await registration.pushManager.subscribe({
         applicationServerKey: new Uint8Array(rawPublicKey),
         userVisibleOnly: true
@@ -141,7 +140,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
       try {
-        await window.crypto.subtle.importKey("jwk", e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
       } catch {
         addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
         const newKeys = await generateE2EEKeys();

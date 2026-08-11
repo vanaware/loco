@@ -3,7 +3,7 @@
 declare const self: ServiceWorkerGlobalScope;
 
 import { gunzipSync } from "fflate";
-import { DB_NAMES, STORE_NAMES, MAX_TENTATIVAS, Handshake } from "../constants/db.ts";
+import { Handshake, MAX_TENTATIVAS } from "../constants/db.ts";
 import { base64UrlToArrayBuffer, criarJWT } from "../utils/jwt-helpers.ts";
 import {
   salvarHandshake,
@@ -81,7 +81,7 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
   }
 }
 
-export async function processarHandshakeRecebido(payload: any, header: any, jwt: string) {
+export async function processarHandshakeRecebido(payload: any, header: any, _jwt: string) {
   addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
@@ -96,13 +96,13 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
 
     const privateDecryptKey = await buscarChaveDecript();
     if (!privateDecryptKey) {
-      throw new Error("Chave privada RSA não japonesa para decifrar handshake.");
+      throw new Error("Chave privada RSA não encontrada para decifrar handshake.");
     }
 
     let envelope;
     try {
       envelope = JSON.parse(payload.ct);
-    } catch (e) {
+    } catch (_e) {
       addDebugLog("[SW-ROUTER] ⚠️ Falha ao fazer parse do envelope cifrado 'ct'. JSON malformado.");
       return;
     }
@@ -129,7 +129,7 @@ export async function processarHandshakeRecebido(payload: any, header: any, jwt:
     try {
       decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
       rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
-    } catch (e) {
+    } catch (_e) {
       addDebugLog("[SW-ROUTER] ⚠️ Falha ao descomprimir (fflate) ou fazer parse JSON do payload decifrado.");
       throw new Error("Falha na descompressão ou parse do payload interno.");
     }
@@ -219,15 +219,14 @@ export async function processarFilaHandshake() {
 
       try {
         const contatoIdHash = await normalizarChaveContato(h.aud);
-        let contato = await buscarContatoPorChave(contatoIdHash);
+        const contato = await buscarContatoPorChave(contatoIdHash);
         
         if (!contato) throw new Error(`Contato alvo (hash: ${contatoIdHash}) não encontrado.`);
-        let profile = await buscarProfile();
+        const profile = await buscarProfile();
         if (!profile) throw new Error("Perfil local não encontrado.");
 
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
-          // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
           const serverPublicKeyJwk = await getServerPublicKey();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
@@ -240,7 +239,7 @@ export async function processarFilaHandshake() {
         if (!isSyncHandshake && !isPullHandshake && (contato.me === 'none' || contato.me === 'wrong')) {
           addDebugLog(`[SW-ROUTER] 💉 Contato desatualizado. Injetando dados de perfil no handshake ${h.id}.`);
           h.out!.rotas.contato = h.out!.rotas.contato || {};
-          h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true);
+          h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
         }
 
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);

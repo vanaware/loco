@@ -5,7 +5,7 @@ import qrcode from 'qrcode-generator';
 
 import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
 import { profile } from '../stores/profileStore.ts';
-import { contatoSelecionado, contatoCompartilharHash, currentMobileView, showToast } from '../signals/state.ts';
+import { contatoCompartilharHash, showToast } from '../signals/state.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
 
 export function ContactDetailSection() {
@@ -126,17 +126,13 @@ export function ContactDetailSection() {
     isEditing.value = false;
   };
 
+  // 🔥 Navegação reativa (A URL cuida da tela)
   const handleIniciarChat = () => {
-    contatoSelecionado.value = hash;
-    contatoCompartilharHash.value = null;
-    currentMobileView.value = 'chat';
+    window.location.hash = `#chat=${hash}`;
   };
 
   const handleFechar = () => {
-    contatoCompartilharHash.value = null;
-    if (!contatoSelecionado.value) {
-      currentMobileView.value = 'list';
-    }
+    window.location.hash = '';
   };
 
   return (

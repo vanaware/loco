@@ -4,17 +4,14 @@ import "./sw/push.ts";
 import "./sw/click.ts";
 import "./sw/sw-handshakes.ts";
 
-// Importando a função principal
 import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
-
-// Importando os processadores de Handshake
 import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
 import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
 import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
 
 console.log("[SW] 🌌 Service Worker orquestrador carregado.");
 
-self.addEventListener('activate', (event: ExtendableEvent) => {
+self.addEventListener('activate', (event: any) => {
   console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
   event.waitUntil(
     (async () => {
@@ -28,20 +25,16 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
   );
 });
 
-// Este é O ÚNICO listener de mensagens do nosso Service Worker agora.
-// Ele funciona como o Diretor de Tráfego vindo da UI.
-self.addEventListener('message', (event: ExtendableMessageEvent) => {
+self.addEventListener('message', (event: any) => {
   if (!event.data) return;
 
   const { type, payload } = event.data;
 
-  // Manual Trigger: UI pedindo para a fila de rede andar
   if (type === 'PROCESSAR_FILA_HANDSHAKE') {
     processarFilaHandshake().catch(err => console.error(err));
     return;
   }
 
-  // Roteador de comandos de saída (Envio de Mensagens, Contatos, etc) criados pela UI
   if (type === 'CRIAR_HANDSHAKE_OUT') {
     const { rotasModulo, params } = payload;
     console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);

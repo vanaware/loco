@@ -1,7 +1,6 @@
 // src/app.tsx
 import { render } from 'preact';
 import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
 import { ContatosSection } from './components/ContatosSection.tsx';
 import { ChatSection } from './components/ChatSection.tsx'; 
 import { ContactDetailSection } from './components/ContactDetailSection.tsx';
@@ -14,6 +13,43 @@ import "@material/web/all.js";
 import './styles.css';
 
 function App() {
+  // 🔥 Roteador Central (Single Source of Truth: URL Hash)
+  useEffect(() => {
+    const parseHash = () => {
+      const hash = window.location.hash;
+      
+      if (hash.startsWith('#chat=')) {
+        contatoSelecionado.value = hash.substring(6);
+        contatoCompartilharHash.value = null;
+        showAdvanced.value = false;
+        currentMobileView.value = 'chat';
+      } else if (hash.startsWith('#detail=')) {
+        contatoCompartilharHash.value = hash.substring(8);
+        contatoSelecionado.value = '';
+        showAdvanced.value = false;
+        currentMobileView.value = 'chat';
+      } else if (hash === '#advanced') {
+        showAdvanced.value = true;
+        contatoSelecionado.value = '';
+        contatoCompartilharHash.value = null;
+        currentMobileView.value = 'chat';
+      } else {
+        // Raiz (Lista de Contatos)
+        contatoSelecionado.value = '';
+        contatoCompartilharHash.value = null;
+        showAdvanced.value = false;
+        currentMobileView.value = 'list';
+      }
+    };
+
+    // Lê o estado no primeiro load
+    parseHash();
+    
+    // Escuta as mudanças de hash (acionadas por cliques ou pelo botão voltar do celular)
+    window.addEventListener('hashchange', parseHash);
+    return () => window.removeEventListener('hashchange', parseHash);
+  }, []);
+
   useEffect(() => {
     const init = async () => {
       await initProfileStore();
@@ -44,26 +80,21 @@ function App() {
   const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
   const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
 
+  // 🔥 Navegação: Agora apenas alteramos a URL, o roteador fará a mágica
   const fecharChatOuDetalhes = () => {
-    currentMobileView.value = 'list';
-    contatoSelecionado.value = '';
-    contatoCompartilharHash.value = null;
-    showAdvanced.value = false; // 🔥 Desliga a aba avançada ao voltar
+    window.location.hash = ''; // Força o retorno para a lista base
   };
 
   const handleAbrirDetalhesDoContato = () => {
     if (contatoSelecionado.value && !showAdvanced.value) {
-      contatoCompartilharHash.value = contatoSelecionado.value;
+      window.location.hash = `#detail=${contatoSelecionado.value}`;
     }
   };
 
   const abrirAvancado = () => {
     const menu: any = document.getElementById('main-menu');
     if (menu) menu.open = false;
-    showAdvanced.value = true;
-    contatoSelecionado.value = '';
-    contatoCompartilharHash.value = null;
-    currentMobileView.value = 'chat'; // Força a tela principal abrir no mobile
+    window.location.hash = '#advanced';
   };
 
   return (

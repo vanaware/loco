@@ -1,5 +1,5 @@
-// src/utils/sw-utils.ts
-import { addDebugLog } from './debug-utils.ts'; // 🔥 Alterado para não importar o state.ts
+// src/sw/sw-utils.ts
+import { addDebugLog } from '../utils/debug-utils.ts';
 
 export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   addDebugLog("📡 Verificando suporte ao Service Worker...");

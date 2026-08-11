@@ -3,7 +3,6 @@ import { JSX } from "preact";
 
 declare module "preact" {
   namespace JSX {
-    // Definimos um tipo base forte que une os atributos HTML do Preact aos custom attributes do MD3
     type MdElement = JSX.HTMLAttributes<HTMLElement> & {
       value?: string | number;
       checked?: boolean;
@@ -21,6 +20,7 @@ declare module "preact" {
       "md-text-button": MdElement;
       "md-filled-tonal-button": MdElement;
       "md-icon-button": MdElement;
+      "md-filled-icon-button": MdElement;
       "md-fab": MdElement;
       "md-extended-fab": MdElement;
       "md-elevated-card": MdElement;

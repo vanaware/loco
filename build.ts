@@ -40,10 +40,8 @@ async function incrementVersion(): Promise<string> {
   let content = await Deno.readTextFile(denoJsoncPath);
   let currentVersion = "0.0.0";
   
-  // Gera o hash único deste build
   const buildHash = Date.now().toString(36);
 
-  // Regex para capturar a versão, ignorando o hash antigo se ele existir, e somando o patch
   content = content.replace(/"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9]+)?"/, (_match, major, minor, patch) => {
     const nextPatch = parseInt(patch, 10) + 1;
     currentVersion = `${major}.${minor}.${nextPatch}-${buildHash}`;
@@ -52,13 +50,12 @@ async function incrementVersion(): Promise<string> {
 
   await Deno.writeTextFile(denoJsoncPath, content);
   
-  // Gera um arquivo TS injetável para o Frontend ler a versão de forma síncrona
   await ensureDir(join(SRC_DIR, "constants"));
   const versionTsContent = `// Arquivo gerado automaticamente pelo build.ts\nexport const APP_VERSION = "${currentVersion}";\n`;
   await Deno.writeTextFile(join(SRC_DIR, "constants", "version.ts"), versionTsContent);
   
   console.log(`📈 Versão incrementada para: v${currentVersion}`);
-  return currentVersion; // Retorna ex: "0.1.2-msmcsbjx"
+  return currentVersion;
 }
 
 async function clean() {
@@ -75,12 +72,11 @@ async function copyStaticAndSyncManifest(appVersion: string) {
   try {
     await copy(PUBLIC_DIR, DIST_DIR, { overwrite: true });
     
-    // Injeta a versão sincronizada dentro do dist/manifest.json
     const manifestPath = join(DIST_DIR, "manifest.json");
     try {
       const manifestText = await Deno.readTextFile(manifestPath);
       const manifestObj = JSON.parse(manifestText);
-      manifestObj.version = appVersion; // 🔥 Injeção da versão unificada
+      manifestObj.version = appVersion;
       await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
       console.log(`📱 Versão v${appVersion} injetada em dist/manifest.json`);
     } catch {
@@ -114,7 +110,9 @@ function contentsToString(contents: Record<string, number> | Uint8Array | string
 
 function extrairCodigoDoBundle(result: BundleResult): string {
   if (!result.outputFiles || result.outputFiles.length === 0) return '';
-  return contentsToString(result.outputFiles[0].contents);
+  const file = result.outputFiles[0];
+  if (!file || !file.contents) return '';
+  return contentsToString(file.contents);
 }
 
 async function runBundle(name: string, bundleOpts: BundleOptions): Promise<BundleResult> {
@@ -207,7 +205,7 @@ async function build() {
     jsxFragment: "Fragment",
   });
 
- console.log("📦 Compilando Cloudflare Worker ...");
+  console.log("📦 Compilando Cloudflare Worker ...");
   await runBundle("worker", {
     entrypoints: [
       "./worker.ts"
@@ -239,13 +237,13 @@ async function build() {
 
   swCode = swCode
     .replace(/VERSION_HASH/g, versionHash)
-    .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets).slice(1, -1)); 
+    .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets)); 
 
   await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
 
   console.log(`✨ Service Worker gerado com sucesso! (Cache ID: ${versionHash})`);
-  console.log(`   📦 ${assets.length} assets em cache`);
-  console.log(`   📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
+  console.log(`    📦 ${assets.length} assets em cache`);
+  console.log(`    📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
 
   const elapsed = (performance.now() - start).toFixed(0);
   console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/\n`);

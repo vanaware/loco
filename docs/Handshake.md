@@ -972,3 +972,30 @@ Terá função Processar({in?:handshake.id, out?:any})
         ```
 
 -------
+
+
+# Arquitetura de Handshakes (Máquina de Estados Offline-First)
+
+O Loco PWA foi idealizado para funcionar perfeitamente sem conectividade de rede instantânea. Para garantir a imutabilidade, resiliência e entrega das mensagens (E2EE) mesmo em túneis ou viagens, implementamos o conceito de **Handshakes Assíncronos**.
+
+## 1. Princípio de Desacoplamento (UI vs Trabalhadores)
+A Interface de Usuário (Preact/Signals) **nunca** faz disparos `fetch` diretamente para enviar dados aos contatos. 
+A UI tem apenas 2 responsabilidades durante a emissão:
+- Salvar a "intenção" no Banco de Dados (IndexedDB) de forma otimista.
+- Disparar um evento via `postMessage` (Thread local) sinalizando o Service Worker.
+
+## 2. A Fila de Saída (OUT)
+Quando o Service Worker detecta que há dados para enviar (um novo contato gerado, um status lido `ack`, ou uma mensagem), ele instila um pacote na Fila `OUT`.
+- O payload é comprimido em GZIP (`fflate`).
+- É blindado na camada híbrida (AES-256-GCM envelopado com a RSA-OAEP Pública do recebedor).
+- Só então é transformado num JWT assinado e disparado via rede celular/Wi-Fi (Web Push FCM).
+- Se a rede cair no processo, o `status` do handshake permanece `pendente` e tentará automaticamente reconectar na próxima janela de rede nativa (`sync` event ou `online`).
+
+## 3. A Fila de Entrada (IN)
+O processo inverso. Quando o dispositivo "acorda" com um Push recebido pelo Sistema Operacional:
+- O Service Worker decodifica com sua Chave Privada RSA.
+- O Handshake é gerado na Fila `IN`.
+- A máquina de estados (`Processar()`) decide se injeta no DB de mensagens ou se atualiza os metadados do contato. 
+- Somente no final do processamento um aviso nativo (BroadcastChannel ou Notification) é enviado para a UI.
+
+**Segurança Garantida:** O Servidor de Proxy que fica no meio do caminho atua estritamente como um "Roteador Cego" lidando apenas com pacotes em Base64 criptografados e chaves VAPID (para o Google FCM).

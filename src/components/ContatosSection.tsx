@@ -1,23 +1,19 @@
 // src/components/ContatosSection.tsx
 import { useEffect } from 'preact/hooks';
 import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast, contatoSelecionado, contatoCompartilharHash, currentMobileView, showAdvanced } from '../signals/state.ts';
+import { showToast } from '../signals/state.ts';
 
 export function ContatosSection() {
   useEffect(() => {}, []);
 
+  // 🔥 Navegação delegada para o roteador central (URL)
   const abrirChat = (hash: string) => {
-    contatoCompartilharHash.value = null;
-    showAdvanced.value = false; // 🔥 Desliga Aba Avançada
-    contatoSelecionado.value = hash;
-    currentMobileView.value = 'chat';
+    window.location.hash = `#chat=${hash}`;
   };
 
   const abrirDetalhesContato = (e: Event, hash: string) => {
     e.stopPropagation();
-    showAdvanced.value = false; // 🔥 Desliga Aba Avançada
-    contatoCompartilharHash.value = hash;
-    currentMobileView.value = 'chat';
+    window.location.hash = `#detail=${hash}`;
   };
 
   return (

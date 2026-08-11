@@ -58,7 +58,7 @@ export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): str
   const compact = extrairDadosCompactos(target);
   const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
   const compressed = gzipSync(jsonBytes);
-  return arrayBufferToBase64Url(compressed.buffer);
+  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 }
 
 export async function gerarLinkConviteWeb(
@@ -76,7 +76,7 @@ export async function gerarLinkConviteWeb(
   const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
   const jwtBytes = new TextEncoder().encode(jwt);
   const compressed = gzipSync(jwtBytes);
-  const cjwt = arrayBufferToBase64Url(compressed.buffer);
+  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 
   return `${window.location.origin}/share.html?cjwt=${cjwt}`;
 }
@@ -105,33 +105,28 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
     }
   }
 
-  // Se nenhum parâmetro específico foi encontrado, infere pelo formato
   if (!cqr && !cjwt && !jwt && input) {
     if (input.includes('.')) {
       jwt = input.trim();
     } else {
-      // 🔥 CORREÇÃO: Nova Lógica de Fallback inspecionando o dado descomprimido
       try {
         const compressed = new Uint8Array(base64UrlToArrayBuffer(input.trim()));
         const decompressed = gunzipSync(compressed);
         const text = new TextDecoder().decode(decompressed);
         
-        // QR Codes zipam um objeto JSON bruto (inicia com "{"). 
-        // JWTs zipam uma string JWT comum.
         if (text.startsWith('{')) {
           cqr = input.trim();
         } else {
           cjwt = input.trim();
         }
-      } catch (e) {
-        cjwt = input.trim(); // fallback seguro de erro
+      } catch (_e) {
+        cjwt = input.trim();
       }
     }
   }
 
   let compactData: CompactContact | null = null;
 
-  // 1. Tenta ler o Token Comprimido (cjwt)
   if (!compactData && cjwt) {
     try {
       const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
@@ -146,7 +141,6 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
     }
   }
 
-  // 2. Tenta ler binário do QR Code (cqr)
   if (!compactData && cqr) {
     try {
       const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
@@ -161,7 +155,6 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
     }
   }
 
-  // 3. Tenta ler o Token Legado Sem Compressão (jwt)
   if (!compactData && jwt) {
     try {
       const { payload, valid } = await verificarJWT(jwt);

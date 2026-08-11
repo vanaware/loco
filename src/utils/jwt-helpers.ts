@@ -1,15 +1,10 @@
 // src/utils/jwt-helpers.ts
-
-// ============================================================
-// UTILITÁRIOS BASE64URL (Robustos e Protegidos)
-// ============================================================
-
 export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
   try {
     const bytes = new Uint8Array(buffer);
     let binary = '';
     for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+      binary += String.fromCharCode(bytes[i]!);
     }
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   } catch (e: any) {
@@ -20,7 +15,6 @@ export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
 export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
   try {
     let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    // Preenchimento rígido matemático para evitar quebra do atob
     const padLength = (4 - (base64.length % 4)) % 4;
     base64 += '='.repeat(padLength);
     
@@ -29,7 +23,7 @@ export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    return bytes.buffer;
+    return bytes.buffer as ArrayBuffer;
   } catch (e: any) {
     throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
   }
@@ -40,7 +34,7 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
     let binary = '';
     for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+      binary += String.fromCharCode(bytes[i]!);
     }
     return btoa(binary);
   } catch (e: any) {
@@ -48,17 +42,6 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   }
 }
 
-// ============================================================
-// FUNÇÃO GENÉRICA: CRIAR JWT
-// ============================================================
-
-/**
- * Cria um JWT assinado com ES256 (ECDSA P-256 + SHA-256).
- * @param payload - Objeto com os dados do payload (será convertido para JSON).
- * @param privateKeyJwk - Chave privada VAPID em formato JWK.
- * @param headerExtra - Campos extras para o header (ex: { kid: ... }).
- * @returns JWT completo (string) no formato header.payload.signature.
- */
 export async function criarJWT(
   payload: Record<string, any>,
   privateKeyJwk: JsonWebKey,
@@ -68,12 +51,15 @@ export async function criarJWT(
     const header = { alg: "ES256", ...headerExtra };
     const encoder = new TextEncoder();
 
-    const headerB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(header)));
-    const payloadB64 = arrayBufferToBase64Url(encoder.encode(JSON.stringify(payload)));
+    const headerEnc = encoder.encode(JSON.stringify(header));
+    const payloadEnc = encoder.encode(JSON.stringify(payload));
+
+    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
+    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
     const toSign = `${headerB64}.${payloadB64}`;
 
     const privateKey = await crypto.subtle.importKey(
-      "jwk",
+      "jwk" as any,
       privateKeyJwk,
       { name: "ECDSA", namedCurve: "P-256" },
       false,
@@ -93,15 +79,6 @@ export async function criarJWT(
   }
 }
 
-// ============================================================
-// FUNÇÃO GENÉRICA: VERIFICAR JWT
-// ============================================================
-
-/**
- * Verifica um JWT assinado com ES256.
- * Se publicKeyJwk for fornecido, usa-o; senão, extrai a chave do campo 'kid' do header.
- * Retorna { header, payload, signature, valid }.
- */
 export async function verificarJWT(
   jwt: string,
   publicKeyJwk?: JsonWebKey
@@ -112,7 +89,9 @@ export async function verificarJWT(
       throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
     }
 
-    const [headerB64, payloadB64, signatureB64] = parts;
+    const headerB64 = parts[0]!;
+    const payloadB64 = parts[1]!;
+    const signatureB64 = parts[2]!;
     const decoder = new TextDecoder();
 
     const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
@@ -122,7 +101,7 @@ export async function verificarJWT(
     try {
       header = JSON.parse(headerJson);
       payload = JSON.parse(payloadJson);
-    } catch (parseErr) {
+    } catch (_parseErr) {
       throw new Error("Conteúdo interno do JWT não é um JSON válido.");
     }
 
@@ -135,8 +114,8 @@ export async function verificarJWT(
     }
 
     const publicKey = await crypto.subtle.importKey(
-      "jwk",
-      publicKeyJwkFinal,
+      "jwk" as any,
+      publicKeyJwkFinal as JsonWebKey,
       { name: "ECDSA", namedCurve: "P-256" },
       false,
       ["verify"]
@@ -155,26 +134,19 @@ export async function verificarJWT(
 
     return { header, payload, signature: signatureB64, valid };
   } catch (err: any) {
-    // Retorna valid: false com o log amigável da camada superior caso quebre integridade estrutural
     throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
   }
 }
 
-// ============================================================
-// FUNÇÃO GENÉRICA: DECODIFICAR JWT (sem verificar assinatura)
-// ============================================================
-
-/**
- * Decodifica um JWT sem verificar a assinatura (apenas para leitura).
- * Retorna { header, payload, signature }.
- */
 export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
   const parts = jwt.split('.');
   if (parts.length !== 3) {
     throw new Error("JWT malformado. Leitura interrompida.");
   }
 
-  const [headerB64, payloadB64, signatureB64] = parts;
+  const headerB64 = parts[0]!;
+  const payloadB64 = parts[1]!;
+  const signatureB64 = parts[2]!;
   const decoder = new TextDecoder();
 
   try {

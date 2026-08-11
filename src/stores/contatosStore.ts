@@ -13,9 +13,6 @@ export type { Contato };
 
 export const contatosRaw = signal<Contato[]>([]);
 
-/**
- * Signal computado que mapeia os contatos junto com seus hashes SHA-256 das chaves VAPID.
- */
 export const contatosComHash = computed(() => {
   return contatosRaw.value.map((contato) => ({
     contato,
@@ -31,9 +28,6 @@ export const contatosMap = computed(() => {
   return map;
 });
 
-/**
- * Carrega a lista de contatos do IndexedDB para a memória.
- */
 export async function carregarContatos(): Promise<void> {
   try {
     const lista = await listarContatos();
@@ -49,7 +43,6 @@ let isContatosListenerInitialized = false;
 export async function initContatosStore(): Promise<void> {
   await carregarContatos();
 
-  // 🔥 Ouve mensagens do Service Worker para sincronizar atualizações em background (com trava de duplicidade)
   if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
     isContatosListenerInitialized = true;
     navigator.serviceWorker.addEventListener('message', (event) => {
@@ -60,9 +53,6 @@ export async function initContatosStore(): Promise<void> {
   }
 }
 
-/**
- * Adiciona ou atualiza um contato usando Inserção Otimista em Memória
- */
 export async function adicionarContato(contato: Contato): Promise<void> {
   try {
     const atual = contatosRaw.value;
@@ -89,9 +79,6 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   });
 }
 
-/**
- * Remove um contato com atualização local imediata
- */
 export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
     const hash = await serializarPublicKeyVapid(vapidPublicKey);
@@ -105,22 +92,21 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
   }
 }
 
-/**
- * Marca um contato como verificado/confiável (trusted: true)
- */
 export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
     const hash = await serializarPublicKeyVapid(vapidPublicKey);
     const atual = contatosRaw.value;
     const index = atual.findIndex(c => c.id === hash);
     
-    if (index >= 0) {
+    if (index >= 0 && atual[index]) {
+      const contatoAtual = atual[index];
+      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
       const novaLista = [...atual];
-      novaLista[index] = { ...novaLista[index], trusted: true, updatedAt: Date.now() };
+      novaLista[index] = contatoModificado;
       contatosRaw.value = novaLista;
       
-      await salvarContato(novaLista[index]);
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${novaLista[index].name}`);
+      await salvarContato(contatoModificado);
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
     } else {
       addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
     }
@@ -132,12 +118,14 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
 export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
   const atual = contatosRaw.value;
   const index = atual.findIndex(c => c.id === id);
-  if (index >= 0) {
+  if (index >= 0 && atual[index]) {
+    const contatoAtual = atual[index];
+    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
     const novaLista = [...atual];
-    novaLista[index] = { ...novaLista[index], me: meStatus, updatedAt: Date.now() };
+    novaLista[index] = contatoModificado;
     contatosRaw.value = novaLista;
     
-    salvarContato(novaLista[index]).catch(err => {
+    salvarContato(contatoModificado).catch(err => {
         addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
     });
   } else {

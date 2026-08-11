@@ -1,15 +1,14 @@
-// src/sw/cache.js
+// src/sw/cache.ts
 
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
+declare const __GENERATED_ASSETS__: string[];
 
 const CACHE_VERSION = "VERSION_HASH";
 const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
 
-// O script de build vai injetar a lista dentro deste array substituindo o texto
-const ASSETS_TO_CACHE = [__GENERATED_ASSETS__];
+const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
 
-// EVENTO DE INSTALAÇÃO
 self.addEventListener("install", (event) => {
   console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
   event.waitUntil(
@@ -26,7 +25,6 @@ self.addEventListener("install", (event) => {
   );
 });
 
-// EVENTO DE ATIVAÇÃO
 self.addEventListener("activate", (event) => {
   console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
   event.waitUntil(
@@ -43,8 +41,7 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// EVENTO FETCH
-self.addEventListener("fetch", (event) => {
+self.addEventListener("fetch", (event: any) => {
   if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
     return;
   }
