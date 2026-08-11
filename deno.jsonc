@@ -7,7 +7,7 @@
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.64-msoxtvzu",
+  "version": "0.2.66-msp8026l",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -20,7 +20,7 @@
 
   // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "types": ["./src/types/material-web.d.ts"],
@@ -59,6 +59,5 @@
     "clean": "rm -rf dist && mkdir -p dist",
     "export": "deno run --allow-read --allow-write export.ts"
   },
-
   "exclude": ["build/", "public/"]
 }
