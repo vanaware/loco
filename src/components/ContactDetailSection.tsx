@@ -1,4 +1,3 @@
-// src/components/ContactDetailSection.tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
@@ -7,6 +6,7 @@ import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
 import { profile } from '../stores/profileStore.ts';
 import { contatoCompartilharHash, showToast } from '../signals/state.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
 
 export function ContactDetailSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
@@ -126,13 +126,12 @@ export function ContactDetailSection() {
     isEditing.value = false;
   };
 
-  // 🔥 Navegação reativa (A URL cuida da tela)
   const handleIniciarChat = () => {
-    window.location.hash = `#chat=${hash}`;
+    navigate(`#chat=${hash}`);
   };
 
   const handleFechar = () => {
-    window.location.hash = '';
+    navigate('');
   };
 
   return (

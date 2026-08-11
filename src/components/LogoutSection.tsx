@@ -1,12 +1,8 @@
-// src/logout.tsx
-import { render } from 'preact';
 import { useSignal } from '@preact/signals';
-import { ProxyPath } from './constants/config.ts';
+import { ProxyPath } from '../constants/config.ts';
+import { navigate } from '../utils/router.ts';
 
-import "@material/web/all.js";
-import './styles.css';
-
-function LogoutApp() {
+export function LogoutSection() {
   const status = useSignal('Aguardando confirmação...');
   const executando = useSignal(false);
 
@@ -64,8 +60,8 @@ function LogoutApp() {
       if (resposta.ok) {
         status.value = "✅ Logout e Destruição de Chaves Concluídos!";
         setTimeout(() => {
-          window.location.href = '/'; 
-        }, 1500);
+          window.location.reload(); 
+        }, 1000);
       } else {
         throw new Error("Falha no servidor ao deslogar.");
       }
@@ -76,8 +72,8 @@ function LogoutApp() {
   };
 
   return (
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px;">
-      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
         <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
         <h2 style="justify-content: center;">Sair do Sistema</h2>
         
@@ -96,7 +92,7 @@ function LogoutApp() {
             <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
               ⚠️ Sim, Apagar Meus Dados e Sair
             </md-filled-button>
-            <md-outlined-button onClick={() => window.location.href = '/'} style="width: 100%;">
+            <md-outlined-button onClick={() => navigate('')} style="width: 100%;">
               Cancelar e Voltar
             </md-outlined-button>
           </div>
@@ -104,9 +100,4 @@ function LogoutApp() {
       </div>
     </div>
   );
-}
-
-const root = document.getElementById('app-logout');
-if (root) {
-  render(<LogoutApp />, root);
 }

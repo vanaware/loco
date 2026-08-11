@@ -1,4 +1,3 @@
-// src/components/ProfileSection.tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
@@ -9,6 +8,7 @@ import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils
 import { cifrarChaveVapid } from '../utils/push-utils.ts';
 import { salvarProfile } from '../utils/db-helpers.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
 
 export function ProfileSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
@@ -50,7 +50,7 @@ export function ProfileSection() {
       
       if (eraNovo) {
         showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        window.location.href = '/';
+        navigate(''); 
       } else {
         showToast(`✅ Perfil atualizado!`, "success");
       }
@@ -63,10 +63,8 @@ export function ProfileSection() {
   const handleCompartilhar = async () => {
     try {
       if (!p) return showToast("Salve o perfil primeiro.", "error");
-      // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
       const serverPublicKeyJwk = await getServerPublicKey();
 
-      
       const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
       p.vapidPrivateKeyEnvelope = novoEnvelope;
       p.updatedAt = Date.now();

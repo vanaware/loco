@@ -1,19 +1,18 @@
-// src/components/ContatosSection.tsx
 import { useEffect } from 'preact/hooks';
 import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
 import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
 
 export function ContatosSection() {
   useEffect(() => {}, []);
 
-  // 🔥 Navegação delegada para o roteador central (URL)
   const abrirChat = (hash: string) => {
-    window.location.hash = `#chat=${hash}`;
+    navigate(`#chat=${hash}`);
   };
 
   const abrirDetalhesContato = (e: Event, hash: string) => {
     e.stopPropagation();
-    window.location.hash = `#detail=${hash}`;
+    navigate(`#detail=${hash}`);
   };
 
   return (
@@ -21,7 +20,7 @@ export function ContatosSection() {
       
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
         <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
-        <md-icon-button onClick={() => window.location.href = '/share.html'} title="Adicionar / Escanear Contato">
+        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
           <md-icon>person_add</md-icon>
         </md-icon-button>
       </div>

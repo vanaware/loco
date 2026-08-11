@@ -78,7 +78,8 @@ export async function gerarLinkConviteWeb(
   const compressed = gzipSync(jwtBytes);
   const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 
-  return `${window.location.origin}/share.html?cjwt=${cjwt}`;
+  // 🔥 URL atualizada para o formato SPA do Loco
+  return `${window.location.origin}/#share=${cjwt}`;
 }
 
 export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {

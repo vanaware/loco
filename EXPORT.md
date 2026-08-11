@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.49-mso2rqks** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.57-msox5u1g** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.49-mso2rqks] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.57-msox5u1g] - Modo: MAIN
 
-Gerado automaticamente em: 8/11/2026, 12:30:44 AM
+Gerado automaticamente em: 8/11/2026, 2:13:45 PM
 
 ---
 
@@ -282,156 +282,6 @@ export function ChatSection() {
           <md-icon>send</md-icon>
         </md-filled-icon-button>
       </div>
-
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ProfileSection.tsx`
-
-```tsx
-// src/components/ProfileSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-
-export function ProfileSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const p = profile.value;
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
-
-  useEffect(() => {
-    const renderQrCode = () => {
-      if (!p) return;
-      try {
-        const payloadBinario = gerarPayloadQrCodeCompacto(p);
-        const qr = qrcode(0, 'L');
-        qr.addData(payloadBinario);
-        qr.make();
-        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
-      } catch (e) {
-        console.error("Falha ao gerar QR Code:", e);
-        qrCodeDataUrl.value = null;
-      }
-    };
-
-    if (temChaveVapid) {
-      renderQrCode();
-    } else {
-      qrCodeDataUrl.value = null;
-    }
-  }, [p, temChaveVapid]);
-
-  const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
-    try {
-      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(pNovo);
-      
-      if (eraNovo) {
-        showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        window.location.href = '/';
-      } else {
-        showToast(`✅ Perfil atualizado!`, "success");
-      }
-    } catch (err: any) {
-      addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
-    }
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      if (!p) return showToast("Salve o perfil primeiro.", "error");
-      // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
-      const serverPublicKeyJwk = await getServerPublicKey();
-
-      
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
-
-      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      
-      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
-
-  const labelBotaoPrincipal = !temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Atualizar Perfil";
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      
-      <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
-        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
-        <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
-          Este nome será visível para os contatos que você convidar.
-        </p>
-        
-        <md-outlined-text-field
-          label="Seu Nome"
-          placeholder="Ex: João da Silva"
-          value={profileName.value}
-          onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-          style="margin-bottom: 12px;"
-        ></md-outlined-text-field>
-        
-        <md-outlined-text-field
-          label="Seu E-mail"
-          placeholder="Ex: joao@email.com"
-          value={profileEmail.value}
-          onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-          style="margin-bottom: 16px;"
-        ></md-outlined-text-field>
-
-        <div style="display: flex; gap: 8px; flex-direction: column;">
-          <md-filled-button 
-            onClick={handleGerarOuCorrigir} 
-            style="width: 100%;"
-            disabled={!profileName.value.trim() || !profileEmail.value.trim() ? true : undefined}
-          >
-            {labelBotaoPrincipal}
-          </md-filled-button>
-          
-          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={!temChaveVapid ? true : undefined}>
-            🔗 Compartilhar Perfil
-          </md-outlined-button>
-        </div>
-      </div>
-
-      {qrCodeDataUrl.value && temChaveVapid && (
-        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
-            Seu QR Code de Convite
-          </h3>
-          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
-            Mostre isso para um amigo escanear pelo App Loco.
-          </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
-        </div>
-      )}
 
     </div>
   );
@@ -729,94 +579,320 @@ const styles: Record<string, JSX.CSSProperties> = {
 
 ---
 
-## Arquivo: `src/components/ContatosSection.tsx`
+## Arquivo: `src/components/LogoutSection.tsx`
 
 ```tsx
-// src/components/ContatosSection.tsx
-import { useEffect } from 'preact/hooks';
-import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast } from '../signals/state.ts';
+import { useSignal } from '@preact/signals';
+import { ProxyPath } from '../constants/config.ts';
+import { navigate } from '../utils/router.ts';
 
-export function ContatosSection() {
-  useEffect(() => {}, []);
+export function LogoutSection() {
+  const status = useSignal('Aguardando confirmação...');
+  const executando = useSignal(false);
 
-  // 🔥 Navegação delegada para o roteador central (URL)
-  const abrirChat = (hash: string) => {
-    window.location.hash = `#chat=${hash}`;
-  };
+  const handleLogout = async () => {
+    executando.value = true;
+    try {
+      status.value = "1/5 Limpando Web Storage...";
+      window.localStorage.clear();
+      window.sessionStorage.clear();
 
-  const abrirDetalhesContato = (e: Event, hash: string) => {
-    e.stopPropagation();
-    window.location.hash = `#detail=${hash}`;
+      status.value = "2/5 Apagando Cookies...";
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookieStr = cookies[i];
+        if (!cookieStr) continue;
+        const parts = cookieStr.split("=");
+        const part0 = parts[0];
+        if (!part0) continue;
+        const name = part0.trim();
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
+      }
+
+      status.value = "3/5 Apagando bancos IndexedDB...";
+      if (window.indexedDB?.databases) {
+        const dbs = await window.indexedDB.databases();
+        for (const db of dbs) if (db.name) window.indexedDB.deleteDatabase(db.name);
+      }
+
+      status.value = "4/5 Cancelando Push e Service Workers...";
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          if (registration.pushManager) {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) await subscription.unsubscribe();
+          }
+          await registration.unregister();
+        }
+      }
+
+      status.value = "5/5 Limpando disco virtual (OPFS) e Cache...";
+      if (window.caches) {
+        const cacheNames = await window.caches.keys();
+        for (const name of cacheNames) await window.caches.delete(name);
+      }
+      if (navigator.storage?.getDirectory) {
+        const root = await navigator.storage.getDirectory();
+        for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+      }
+
+      status.value = "Concluindo no servidor...";
+      const resposta = await fetch(`${ProxyPath}/logout`, { method: 'POST' });
+
+      if (resposta.ok) {
+        status.value = "✅ Logout e Destruição de Chaves Concluídos!";
+        setTimeout(() => {
+          window.location.reload(); 
+        }, 1000);
+      } else {
+        throw new Error("Falha no servidor ao deslogar.");
+      }
+    } catch (erro: any) {
+      status.value = `❌ Erro: ${erro.message}`;
+      executando.value = false;
+    }
   };
 
   return (
-    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
-      
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
-        <md-icon-button onClick={() => window.location.href = '/share.html'} title="Adicionar / Escanear Contato">
-          <md-icon>person_add</md-icon>
-        </md-icon-button>
-      </div>
-      
-      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
-        {contatosComHash.value.length === 0 ? (
-          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
+        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
+        <h2 style="justify-content: center;">Sair do Sistema</h2>
+        
+        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
+          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
+        </p>
+
+        {executando.value ? (
+          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
+            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
+            <br />
+            {status.value}
+          </div>
         ) : (
-          <md-list>
-            {contatosComHash.value.map(({ contato, hash }) => {
-              const nomeExibicao = contato.name?.trim() || "Anônimo";
-              return (
-                <md-list-item 
-                  key={hash} 
-                  onClick={() => abrirChat(hash)}
-                  style="cursor: pointer;"
-                >
-                  <md-icon slot="start">person</md-icon>
-                  
-                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
-                      <strong>{nomeExibicao}</strong>
-                    </span>
-                    {contato.trusted && (
-                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
-                    )}
-                  </div>
-                  
-                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
-                    {contato.email || 'Sem e-mail'}
-                  </span>
-                  
-                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
-                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
-                      <md-icon>qr_code_2</md-icon>
-                    </md-icon-button>
-
-                    {!contato.trusted && (
-                      <md-icon-button onClick={async (e) => {
-                        e.stopPropagation();
-                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
-                        showToast("Contato marcado como confiável!", "success");
-                      }}>
-                        <md-icon>verified</md-icon>
-                      </md-icon-button>
-                    )}
-
-                    <md-icon-button onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm(`Remover ${nomeExibicao} dos contatos?`)) {
-                        await removerContatoPorPublicKey(contato.vapidPublicKey);
-                      }
-                    }}>
-                      <md-icon>delete</md-icon>
-                    </md-icon-button>
-                  </div>
-                </md-list-item>
-              );
-            })}
-          </md-list>
+          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
+            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
+              ⚠️ Sim, Apagar Meus Dados e Sair
+            </md-filled-button>
+            <md-outlined-button onClick={() => navigate('')} style="width: 100%;">
+              Cancelar e Voltar
+            </md-outlined-button>
+          </div>
         )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/AdvancedSection.tsx`
+
+```tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { profile } from '../stores/profileStore.ts';
+import { showToast } from '../signals/state.ts';
+import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
+import { DebugPanel } from './DebugPanel.tsx';
+import { APP_VERSION } from '../constants/version.ts'; 
+import { navigate } from '../utils/router.ts';
+
+export function AdvancedSection() {
+  const diagnostic = useSignal({
+    identificacao: false, criptografia: false, blindagemServidor: false,
+    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
+    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
+    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
+    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
+    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
+    loading: true,
+  });
+
+  const runDiagnostics = async () => {
+    const p = profile.value;
+    
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch { envelopeOK = false; }
+    }
+
+    let cameraState = 'prompt', micState = 'prompt';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
+    }
+
+    let storagePersisted = false;
+    let quotaInfo = { usoMB: 0, livreMB: 0 };
+    if ('storage' in navigator) {
+      if (navigator.storage.persisted) {
+        try { storagePersisted = await navigator.storage.persisted(); } catch {}
+      }
+      if (navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          quotaInfo = {
+            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
+            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
+          };
+        } catch {}
+      }
+    }
+
+    let swControlando = false, hasBackgroundSync = false;
+    if ('serviceWorker' in navigator) {
+      swControlando = navigator.serviceWorker.controller !== null;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) hasBackgroundSync = 'sync' in reg;
+      } catch {}
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
+      inscricaoRegistrada: !!p?.subscription,
+      inscricaoValida: false,
+      swAtivoEControlando: swControlando,
+      isOnline: navigator.onLine,
+      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
+      permissaoCamera: cameraState,
+      permissaoMicrofone: micState,
+      suporteBarcodeDetector: 'BarcodeDetector' in window,
+      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
+      suporteWebRTC: 'RTCPeerConnection' in window,
+      suporteBackgroundSync: hasBackgroundSync,
+      armazenamentoPersistido: storagePersisted,
+      cotaEspaco: quotaInfo,
+      loading: false,
+    };
+
+    if (diag.permissoesNotificacao && p?.subscription) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
+        }
+      } catch {}
+    }
+
+    diagnostic.value = diag;
+  };
+
+  useEffect(() => {
+    runDiagnostics();
+    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+
+  const handleSolicitarPersistenciaManual = async () => {
+    const ok = await solicitarArmazenamentoPersistente();
+    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
+    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
+    await runDiagnostics();
+  };
+
+  const handleFechar = () => {
+    navigate(''); 
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
+            </span>
+            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+              Build Version: v{APP_VERSION}
+            </span>
+          </div>
+          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        {diag.loading ? (
+          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
+        ) : (
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                🛑 Requisitos Obrigatórios
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
+                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
+              </ul>
+            </div>
+            <md-divider></md-divider>
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                ⚡ Recursos Desejáveis & Status
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
+                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
+                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
+                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
+                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
+                <li>
+                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
+                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
+                   'ℹ️ Permissão de Câmera (Pendente)'}
+                </li>
+                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
+                  {!diag.armazenamentoPersistido && (
+                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                      Proteger Dados
+                    </md-outlined-button>
+                  )}
+                </li>
+                {diag.cotaEspaco.livreMB > 0 && (
+                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
+                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style="max-width: 600px; width: 100%;">
+        <DebugPanel />
       </div>
     </div>
   );
@@ -828,7 +904,6 @@ export function ContatosSection() {
 ## Arquivo: `src/components/ContactDetailSection.tsx`
 
 ```tsx
-// src/components/ContactDetailSection.tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
@@ -837,6 +912,7 @@ import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
 import { profile } from '../stores/profileStore.ts';
 import { contatoCompartilharHash, showToast } from '../signals/state.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
 
 export function ContactDetailSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
@@ -956,13 +1032,12 @@ export function ContactDetailSection() {
     isEditing.value = false;
   };
 
-  // 🔥 Navegação reativa (A URL cuida da tela)
   const handleIniciarChat = () => {
-    window.location.hash = `#chat=${hash}`;
+    navigate(`#chat=${hash}`);
   };
 
   const handleFechar = () => {
-    window.location.hash = '';
+    navigate('');
   };
 
   return (
@@ -1100,211 +1175,440 @@ export function ContactDetailSection() {
 
 ---
 
-## Arquivo: `src/components/AdvancedSection.tsx`
+## Arquivo: `src/components/ContatosSection.tsx`
 
 ```tsx
-// src/components/AdvancedSection.tsx
+import { useEffect } from 'preact/hooks';
+import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+
+export function ContatosSection() {
+  useEffect(() => {}, []);
+
+  const abrirChat = (hash: string) => {
+    navigate(`#chat=${hash}`);
+  };
+
+  const abrirDetalhesContato = (e: Event, hash: string) => {
+    e.stopPropagation();
+    navigate(`#detail=${hash}`);
+  };
+
+  return (
+    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
+        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
+          <md-icon>person_add</md-icon>
+        </md-icon-button>
+      </div>
+      
+      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+        {contatosComHash.value.length === 0 ? (
+          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
+        ) : (
+          <md-list>
+            {contatosComHash.value.map(({ contato, hash }) => {
+              const nomeExibicao = contato.name?.trim() || "Anônimo";
+              return (
+                <md-list-item 
+                  key={hash} 
+                  onClick={() => abrirChat(hash)}
+                  style="cursor: pointer;"
+                >
+                  <md-icon slot="start">person</md-icon>
+                  
+                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
+                      <strong>{nomeExibicao}</strong>
+                    </span>
+                    {contato.trusted && (
+                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                    )}
+                  </div>
+                  
+                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
+                    {contato.email || 'Sem e-mail'}
+                  </span>
+                  
+                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
+                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
+                      <md-icon>qr_code_2</md-icon>
+                    </md-icon-button>
+
+                    {!contato.trusted && (
+                      <md-icon-button onClick={async (e) => {
+                        e.stopPropagation();
+                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
+                        showToast("Contato marcado como confiável!", "success");
+                      }}>
+                        <md-icon>verified</md-icon>
+                      </md-icon-button>
+                    )}
+
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remover ${nomeExibicao} dos contatos?`)) {
+                        await removerContatoPorPublicKey(contato.vapidPublicKey);
+                      }
+                    }}>
+                      <md-icon>delete</md-icon>
+                    </md-icon-button>
+                  </div>
+                </md-list-item>
+              );
+            })}
+          </md-list>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
-import { profile } from '../stores/profileStore.ts';
-import { showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
-import { DebugPanel } from './DebugPanel.tsx';
-// 🔥 Importamos a versão gerada automaticamente pelo Build
-import { APP_VERSION } from '../constants/version.ts'; 
+import qrcode from 'qrcode-generator';
 
-export function AdvancedSection() {
-  const diagnostic = useSignal({
-    identificacao: false, criptografia: false, blindagemServidor: false,
-    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
-    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
-    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
-    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
-    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
-    loading: true,
-  });
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
 
-  const runDiagnostics = async () => {
-    const p = profile.value;
-    
-    let envelopeOK = false;
-    if (p?.vapidPrivateKeyEnvelope) {
-      try {
-        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
-        const envelopeDecoded = JSON.parse(envelopeJson);
-        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
-          envelopeOK = true;
-        }
-      } catch { envelopeOK = false; }
-    }
-
-    let cameraState = 'prompt', micState = 'prompt';
-    if ('navigator' in window && 'permissions' in navigator && navigator.permissions.query) {
-      try { cameraState = (await navigator.permissions.query({ name: 'camera' as any })).state; } catch {}
-      try { micState = (await navigator.permissions.query({ name: 'microphone' as any })).state; } catch {}
-    }
-
-    let storagePersisted = false;
-    let quotaInfo = { usoMB: 0, livreMB: 0 };
-    if ('storage' in navigator) {
-      if (navigator.storage.persisted) {
-        try { storagePersisted = await navigator.storage.persisted(); } catch {}
-      }
-      if (navigator.storage.estimate) {
-        try {
-          const estimate = await navigator.storage.estimate();
-          quotaInfo = {
-            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
-            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
-          };
-        } catch {}
-      }
-    }
-
-    let swControlando = false, hasBackgroundSync = false;
-    if ('serviceWorker' in navigator) {
-      swControlando = navigator.serviceWorker.controller !== null;
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) hasBackgroundSync = 'sync' in reg;
-      } catch {}
-    }
-
-    const diag = {
-      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
-      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
-      blindagemServidor: envelopeOK,
-      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
-      inscricaoRegistrada: !!p?.subscription,
-      inscricaoValida: false,
-      swAtivoEControlando: swControlando,
-      isOnline: navigator.onLine,
-      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
-      permissaoCamera: cameraState,
-      permissaoMicrofone: micState,
-      suporteBarcodeDetector: 'BarcodeDetector' in window,
-      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
-      suporteWebRTC: 'RTCPeerConnection' in window,
-      suporteBackgroundSync: hasBackgroundSync,
-      armazenamentoPersistido: storagePersisted,
-      cotaEspaco: quotaInfo,
-      loading: false,
-    };
-
-    if (diag.permissoesNotificacao && p?.subscription) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg && reg.pushManager) {
-          const sub = await reg.pushManager.getSubscription();
-          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
-        }
-      } catch {}
-    }
-
-    diagnostic.value = diag;
-  };
+export function ProfileSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
 
   useEffect(() => {
-    runDiagnostics();
-    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
+    carregarProfile();
+  }, []);
+
+  const p = profile.value;
+  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+
+  useEffect(() => {
+    const renderQrCode = () => {
+      if (!p) return;
+      try {
+        const payloadBinario = gerarPayloadQrCodeCompacto(p);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
     };
-  }, [profile.value]);
 
-  const diag = diagnostic.value;
+    if (temChaveVapid) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [p, temChaveVapid]);
 
-  const handleSolicitarPersistenciaManual = async () => {
-    const ok = await solicitarArmazenamentoPersistente();
-    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
-    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
-    await runDiagnostics();
+  const handleGerarOuCorrigir = async () => {
+    const eraNovo = !temChaveVapid;
+    try {
+      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(pNovo);
+      
+      if (eraNovo) {
+        showToast(`✅ Perfil inicializado com sucesso!`, "success");
+        navigate(''); 
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+    }
   };
 
-  // 🔥 Roteamento desacoplado
-  const handleFechar = () => {
-    window.location.hash = ''; 
+  const handleCompartilhar = async () => {
+    try {
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+      const serverPublicKeyJwk = await getServerPublicKey();
+
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  const labelBotaoPrincipal = !temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Atualizar Perfil";
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      
+      <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
+        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
+        <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
+          Este nome será visível para os contatos que você convidar.
+        </p>
+        
+        <md-outlined-text-field
+          label="Seu Nome"
+          placeholder="Ex: João da Silva"
+          value={profileName.value}
+          onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+          style="margin-bottom: 12px;"
+        ></md-outlined-text-field>
+        
+        <md-outlined-text-field
+          label="Seu E-mail"
+          placeholder="Ex: joao@email.com"
+          value={profileEmail.value}
+          onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+          style="margin-bottom: 16px;"
+        ></md-outlined-text-field>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+          <md-filled-button 
+            onClick={handleGerarOuCorrigir} 
+            style="width: 100%;"
+            disabled={!profileName.value.trim() || !profileEmail.value.trim() ? true : undefined}
+          >
+            {labelBotaoPrincipal}
+          </md-filled-button>
+          
+          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={!temChaveVapid ? true : undefined}>
+            🔗 Compartilhar Perfil
+          </md-outlined-button>
+        </div>
+      </div>
+
+      {qrCodeDataUrl.value && temChaveVapid && (
+        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+            Seu QR Code de Convite
+          </h3>
+          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
+            Mostre isso para um amigo escanear pelo App Loco.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
+        </div>
+      )}
+
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ShareSection.tsx`
+
+```tsx
+// src/components/ShareSection.tsx
+import { useEffect, useRef } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { processarQualquerConvite } from '../utils/share-utils.ts';
+import { adicionarContato } from '../stores/contatosStore.ts';
+import { serializarPublicKeyVapid } from '../utils/db-helpers.ts';
+import { showToast, sharePayload } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+import type { Contato } from '../constants/db.ts';
+
+export function ShareSection() {
+  const preview = useSignal<Partial<Contato> | null>(null);
+  const error = useSignal<string | null>(null);
+  const isScanning = useSignal<boolean>(false);
+  const manualInput = useSignal<string>('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    // Se a URL já trouxe um payload (ex: clicou num link gerado), processa direto
+    if (sharePayload.value) {
+      handleProcessar(sharePayload.value);
+    } else {
+      iniciarCamera();
+    }
+    // Desliga a câmera automaticamente quando o componente for desmontado (troca de rota)
+    return () => pararCamera();
+  }, [sharePayload.value]);
+
+  const handleProcessar = async (input: string) => {
+    try {
+      error.value = null;
+      const resultado = await processarQualquerConvite(input);
+      preview.value = resultado;
+    } catch (e: any) {
+      error.value = e.message || "Falha ao processar convite.";
+    }
+  };
+
+  const iniciarCamera = async () => {
+    if (!('BarcodeDetector' in window)) {
+      error.value = "Seu navegador não suporta a API nativa de leitura de QR Code. Tente colar o código manual abaixo.";
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        isScanning.value = true;
+        scanLoop();
+      }
+    } catch {
+      error.value = "Não foi possível acessar a câmera. Verifique as permissões do navegador.";
+    }
+  };
+
+  const pararCamera = () => {
+    isScanning.value = false;
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  const scanLoop = async () => {
+    if (!isScanning.value || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
+      if (isScanning.value) requestAnimationFrame(scanLoop);
+      return;
+    }
+    try {
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const barcodes = await detector.detect(videoRef.current);
+      if (barcodes.length > 0) {
+        pararCamera();
+        handleProcessar(barcodes[0].rawValue);
+        return; 
+      }
+    } catch (e) {
+      console.warn("Erro no BarcodeDetector:", e);
+    }
+    if (isScanning.value) requestAnimationFrame(scanLoop);
+  };
+
+  const handleManualSubmit = () => {
+    if (!manualInput.value.trim()) return;
+    pararCamera();
+    handleProcessar(manualInput.value.trim());
+  };
+
+  const confirmar = async () => {
+    if (!preview.value) return;
+    try {
+      const p = preview.value;
+      const contatoId = await serializarPublicKeyVapid(p.vapidPublicKey!);
+
+      const novoContato: Contato = {
+        id: contatoId,
+        vapidPublicKey: p.vapidPublicKey!,
+        email: p.email || '',
+        name: p.name || '', 
+        e2ePublicKey: p.e2ePublicKey!,
+        subscription: p.subscription!,
+        vapidPrivateKeyEnvelope: p.vapidPrivateKeyEnvelope!,
+        trusted: true, 
+        me: 'none', 
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      
+      await adicionarContato(novoContato);
+      
+      // Aciona o SW para disparar o Handshake de apresentação para o novo contato
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'CRIAR_HANDSHAKE_OUT',
+          payload: {
+            rotasModulo: 'contato',
+            params: { function: 'enviarSubscription', contato: contatoId, responder: false }
+          }
+        });
+      }
+
+      showToast("✅ Contato adicionado! Um pacote de sincronização foi enviado.", "success");
+      navigate(`#detail=${contatoId}`); // Leva o usuário direto para o cartão do novo contato
+    } catch (e: any) {
+      showToast("❌ Erro ao adicionar contato: " + e.message, "error");
+    }
   };
 
   return (
     <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
-            </span>
-            {/* 🔥 Exibição da versão injetada */}
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Build Version: v{APP_VERSION}
-            </span>
+        {error.value ? (
+          <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
+            <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
+            <h2 style="justify-content: center; font-size: 1.25rem;">Ops! Algo deu errado</h2>
+            <p style="color: #666; margin-bottom: 24px; font-size: 0.9rem;">{error.value}</p>
+            <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
+              Tentar Novamente
+            </md-filled-button>
           </div>
-          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        {diag.loading ? (
-          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
-        ) : (
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                🛑 Requisitos Obrigatórios
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
-                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
-                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
-                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
-                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
-                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
-                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
-              </ul>
+        ) : preview.value ? (
+          <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 480px; width: 100%;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
+              <h2 style="justify-content: center; font-size: 1.25rem;">Confirmar Contato</h2>
+              <p style="color: #666; font-size: 0.9rem;">Você está prestes a estabelecer uma conexão criptografada com este perfil.</p>
             </div>
-            <md-divider></md-divider>
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                ⚡ Recursos Desejáveis & Status
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
-                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
-                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
-                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
-                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
-                <li>
-                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
-                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
-                   'ℹ️ Permissão de Câmera (Pendente)'}
-                </li>
-                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
-                  {!diag.armazenamentoPersistido && (
-                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                      Proteger Dados
-                    </md-outlined-button>
-                  )}
-                </li>
-                {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
-                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
-                  </li>
-                )}
-              </ul>
+            
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
+              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
+              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
+              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.email || "Sem e-mail"}</p>
+            </div>
+
+            <div style="display: flex; gap: 8px; flex-direction: column;">
+              <md-filled-button onClick={confirmar} style="width: 100%;">✅ Confirmar e Adicionar</md-filled-button>
+              <md-outlined-button onClick={() => navigate('')} style="width: 100%;">Cancelar</md-outlined-button>
+            </div>
+          </div>
+        ) : (
+          <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 480px; width: 100%;">
+            <h2 style="justify-content: center; font-size: 1.25rem;">Ler QR Code</h2>
+            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo para se conectar.</p>
+            
+            <div style="position: relative; width: 100%; max-height: 400px; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden; margin: 0 auto;">
+               <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>
+               <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px dashed rgba(255,255,255,0.7); width: 70%; height: 70%; border-radius: 16px; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);"></div>
+            </div>
+
+            <div style="width: 100%; margin-top: 24px; text-align: left;">
+              <label style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">
+                Ou cole o link/código de convite:
+              </label>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <md-outlined-text-field
+                  value={manualInput.value}
+                  onInput={(e: Event) => manualInput.value = (e.target as HTMLInputElement).value}
+                  placeholder="Cole aqui..."
+                  style="flex-grow: 1; margin-bottom: 0;"
+                ></md-outlined-text-field>
+                <md-filled-button onClick={handleManualSubmit} style="height: 56px; margin-bottom: 0;">
+                  Adicionar
+                </md-filled-button>
+              </div>
             </div>
           </div>
         )}
-      </div>
-
-      <div style="max-width: 600px; width: 100%;">
-        <DebugPanel />
-      </div>
     </div>
   );
 }
@@ -1316,7 +1620,7 @@ export function AdvancedSection() {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.49-mso2rqks";
+export const APP_VERSION = "0.2.57-msox5u1g";
 
 ```
 
@@ -1481,7 +1785,6 @@ export const ProxyPath = "";
 ## Arquivo: `src/signals/state.ts`
 
 ```ts
-// src/signals/state.ts
 import { signal } from '@preact/signals';
 import { addDebugLog as emitLog } from '../utils/debug-utils.ts';
 
@@ -1492,11 +1795,13 @@ export const contatoCompartilharHash = signal<string | null>(null);
 export const showAdvanced = signal<boolean>(false);
 export const mensagemEnvio = signal<string>('');
 
+// 🔥 Novo Signal para carregar dados de convite da URL
+export const sharePayload = signal<string | null>(null);
+
 export const profileInput = signal<string>('');
 export const profileName = signal<string>('');
 export const profileEmail = signal<string>('');
 
-// 🔥 Signals dedicados para o sistema de Toast não-bloqueante (MD3)
 export interface ToastState {
   message: string;
   type: 'success' | 'error' | 'info';
@@ -1522,7 +1827,6 @@ export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'inf
     visible: true,
   };
 
-  // Oculta automaticamente após 3.5 segundos
   toastTimer = setTimeout(() => {
     toastState.value = { ...toastState.value, visible: false };
   }, 3500) as unknown as number;
@@ -1530,6 +1834,7 @@ export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'inf
 
 export function addDebugLog(
   typeOrMsg: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   moduleOrDetails?: any,
   message?: string,
   details?: unknown
@@ -3314,7 +3619,8 @@ export async function gerarLinkConviteWeb(
   const compressed = gzipSync(jwtBytes);
   const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 
-  return `${window.location.origin}/share.html?cjwt=${cjwt}`;
+  // 🔥 URL atualizada para o formato SPA do Loco
+  return `${window.location.origin}/#share=${cjwt}`;
 }
 
 export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {
@@ -3580,6 +3886,77 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
 
 ---
 
+## Arquivo: `src/utils/router.ts`
+
+```ts
+import { signal, computed, effect } from "@preact/signals";
+import {
+  contatoSelecionado,
+  contatoCompartilharHash,
+  showAdvanced,
+  currentMobileView,
+  sharePayload
+} from "../signals/state.ts";
+
+export const currentHash = signal<string>(globalThis.location?.hash || "");
+
+if (typeof globalThis !== "undefined" && globalThis.addEventListener) {
+  globalThis.addEventListener("hashchange", () => {
+    currentHash.value = globalThis.location.hash;
+  });
+}
+
+export function navigate(hash: string) {
+  if (typeof globalThis !== "undefined") {
+    globalThis.location.hash = hash;
+  }
+}
+
+effect(() => {
+  const hash = currentHash.value;
+
+  // Reset states
+  contatoSelecionado.value = '';
+  contatoCompartilharHash.value = null;
+  showAdvanced.value = false;
+  sharePayload.value = null;
+
+  if (hash.startsWith('#chat=')) {
+    contatoSelecionado.value = hash.substring(6);
+    currentMobileView.value = 'chat';
+  } else if (hash.startsWith('#detail=')) {
+    contatoCompartilharHash.value = hash.substring(8);
+    currentMobileView.value = 'chat';
+  } else if (hash === '#advanced') {
+    showAdvanced.value = true;
+    currentMobileView.value = 'chat';
+  } else if (hash === '#profile' || hash === '#logout') {
+    currentMobileView.value = 'chat'; // Ocupa a área principal
+  } else if (hash.startsWith('#share')) {
+    currentMobileView.value = 'chat';
+    // Extrai o payload caso venha via URL: #share=jwt_aqui
+    if (hash.includes('=')) {
+      sharePayload.value = hash.substring(hash.indexOf('=') + 1);
+    }
+  } else {
+    currentMobileView.value = 'list';
+  }
+});
+
+export const activeView = computed(() => {
+  const hash = currentHash.value;
+  if (hash.startsWith('#chat=')) return 'chat';
+  if (hash.startsWith('#detail=')) return 'detail';
+  if (hash === '#advanced') return 'advanced';
+  if (hash === '#profile') return 'profile';
+  if (hash === '#logout') return 'logout';
+  if (hash.startsWith('#share')) return 'share';
+  return 'home';
+});
+```
+
+---
+
 ## Arquivo: `src/styles.d.ts`
 
 ```ts
@@ -3650,96 +4027,16 @@ declare module "preact" {
     }
   }
 }
-```
 
----
-
-## Arquivo: `src/logout.html`
-
-```html
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Sair - Loco</title>
-  <link rel="icon" href="./favicon.ico" sizes="any" />
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-  <style>
-    body { margin: 0; background-color: #fbfcf9; color: #191c1a; font-family: system-ui, sans-serif; }
-  </style>
-</head>
-<body>
-  <div id="app-logout"></div>
-  <script src="./logout.tsx" type="module"></script>
-</body>
-</html>
-```
-
----
-
-## Arquivo: `src/profile.html`
-
-```html
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Perfil - Loco</title>
-  <link rel="icon" href="./favicon.ico" sizes="any" />
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      min-height: 100vh;
-      overflow-y: auto !important; /* 🔥 Libera a rolagem vertical */
-      background-color: #f0f2f5;
-      color: #191c1a;
-      font-family: system-ui, -apple-system, sans-serif;
-    }
-  </style>
-</head>
-<body>
-  <div id="app-profile"></div>
-  <script src="./profile.tsx" type="module"></script>
-</body>
-</html>
-```
-
----
-
-## Arquivo: `src/share.html`
-
-```html
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Adicionar Contato - Loco</title>
-  <link rel="icon" href="./favicon.ico" sizes="any" />
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      min-height: 100vh;
-      overflow-y: auto !important;
-      background-color: #fbfcf9;
-      color: #191c1a;
-      font-family: system-ui, -apple-system, sans-serif;
-    }
-  </style>
-</head>
-<body>
-  <div id="app-share"></div>
-  <script src="./share.tsx" type="module"></script>
-</body>
-</html>
+// 🔥 Declaração Global Centralizada para a API Nativa do BarcodeDetector
+declare global {
+  class BarcodeDetector {
+    constructor(options?: { formats: string[] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
+    static getSupportedFormats(): Promise<string[]>;
+  }
+}
 ```
 
 ---
@@ -4683,407 +4980,210 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
 ---
 
-## Arquivo: `src/profile.tsx`
+## Arquivo: `src/app.tsx`
 
 ```tsx
-// src/profile.tsx
 import { render } from 'preact';
-import { useEffect } from 'preact/hooks';
-import { profile, carregarProfile } from './stores/profileStore.ts';
+import { useEffect, useState } from 'preact/hooks';
+import type { ComponentType } from 'preact';
+
+// Componentes da Interface
+import { ContatosSection } from './components/ContatosSection.tsx';
+import { ChatSection } from './components/ChatSection.tsx'; 
+import { ContactDetailSection } from './components/ContactDetailSection.tsx';
+import { AdvancedSection } from './components/AdvancedSection.tsx';
 import { ProfileSection } from './components/ProfileSection.tsx';
+import { LogoutSection } from './components/LogoutSection.tsx';
+import { ShareSection } from './components/ShareSection.tsx';
 import { ToastSnackbar } from './components/ToastSnackbar.tsx';
+
+// Signals e Lógica de Negócio
+import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
+import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
+
+// Roteador Reativo
+import { activeView, navigate } from './utils/router.ts';
 
 import "@material/web/all.js";
 import './styles.css';
 
-function ProfileApp() {
+// Componente de Fallback/Home (Quando não há nada selecionado)
+const HomePlaceholder = () => (
+  <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888;">
+    <div style="text-align: center;">
+      <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
+      <p>Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
+    </div>
+  </div>
+);
+
+// Dicionário de Rotas
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ViewMap: Record<string, ComponentType<any>> = {
+  'chat': ChatSection,
+  'detail': ContactDetailSection,
+  'advanced': AdvancedSection,
+  'profile': () => <div style="padding: 24px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
+  'logout': LogoutSection,
+  'share': ShareSection,
+  'home': HomePlaceholder,
+};
+
+function App() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Inicialização assíncrona dos Stores locais
   useEffect(() => {
-    carregarProfile();
+    const init = async () => {
+      await initProfileStore();
+      
+      // Se não tem perfil gerado, e a rota não for perfil, força a rota (Route Guard)
+      if ((!profile.value || !profile.value.e2ePrivateKeyJwk) && activeView.value !== 'profile') {
+        navigate('#profile');
+      }
+
+      await initContatosStore();
+      await initMensagensStore();
+      addDebugLog("✅ Stores inicializados");
+      setIsLoading(false);
+    };
+    init();
   }, []);
 
-  const isExistingUser = profile.value !== null;
-
-  return (
-    <div style="display: flex; flex-direction: column; align-items: center; min-height: 100vh; height: 100%; overflow-y: auto; padding-bottom: 40px; box-sizing: border-box;">
-      
-      <header class="sidebar-header" style="width: 100%; max-width: 600px; background: transparent; border: none; padding-top: 24px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          {isExistingUser && (
-            <md-icon-button onClick={() => window.location.href = '/'}>
-              <md-icon>arrow_back</md-icon>
-            </md-icon-button>
-          )}
-          <h1 style="margin: 0; font-size: 1.5rem; color: var(--md-sys-color-primary);">
-            {isExistingUser ? "Meu Perfil" : "Configurar Conta"}
-          </h1>
-        </div>
-      </header>
-
-      <div style="width: 100%; max-width: 600px; padding: 16px; box-sizing: border-box;">
-        <ProfileSection />
+  if (isLoading) {
+    return (
+      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
+        <md-circular-progress indeterminate></md-circular-progress>
       </div>
-
-      {/* Exibição não-bloqueante de alertas */}
-      <ToastSnackbar />
-
-    </div>
-  );
-}
-
-const root = document.getElementById('app-profile');
-if (root) {
-  render(<ProfileApp />, root);
-}
-```
-
----
-
-## Arquivo: `src/share.tsx`
-
-```tsx
-// src/share.tsx
-import { render } from 'preact';
-import { useEffect, useRef } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { processarQualquerConvite } from './utils/share-utils.ts';
-import { adicionarContato, initContatosStore } from './stores/contatosStore.ts';
-import { serializarPublicKeyVapid } from './utils/db-helpers.ts';
-import { ToastSnackbar } from './components/ToastSnackbar.tsx';
-import { showToast } from './signals/state.ts';
-import type { Contato } from './constants/db.ts';
-
-import "@material/web/all.js";
-import './styles.css';
-
-declare global {
-  class BarcodeDetector {
-    constructor(options?: { formats: string[] });
-    detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
-    static getSupportedFormats(): Promise<string[]>;
+    );
   }
-}
 
-function ShareApp() {
-  const preview = useSignal<Partial<Contato> | null>(null);
-  const error = useSignal<string | null>(null);
-  const isScanning = useSignal<boolean>(false);
-  const manualInput = useSignal<string>('');
-  const videoRef = useRef<HTMLVideoElement>(null);
+  // Preparações para o Cabeçalho Responsivo (Header)
+  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
+  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
 
-  useEffect(() => {
-    initContatosStore();
-    if (window.location.search.length > 3) {
-      handleProcessar(window.location.href);
-    } else {
-      iniciarCamera();
-    }
-    return () => pararCamera();
-  }, []);
+  const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
+  const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
 
-  const handleProcessar = async (input: string) => {
-    try {
-      error.value = null;
-      const resultado = await processarQualquerConvite(input);
-      preview.value = resultado;
-    } catch (e: any) {
-      error.value = e.message || "Falha ao processar convite.";
-    }
-  };
+  const fecharAreaPrincipal = () => navigate('');
+  
+  // Lógica Dinâmica para Títulos e Ícones do Cabeçalho da Área Principal
+  let headerTitle = "Loco PWA";
+  let headerSubtitle = "";
+  let headerIcon = "forum";
 
-  const iniciarCamera = async () => {
-    if (!('BarcodeDetector' in window)) {
-      error.value = "Seu navegador não suporta a API nativa de leitura de QR Code. Tente colar o link manual abaixo.";
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        isScanning.value = true;
-        scanLoop();
-      }
-    } catch {
-      error.value = "Não foi possível acessar a câmera. Verifique as permissões do navegador.";
-    }
-  };
+  if (activeView.value === 'profile') {
+    headerTitle = profile.value ? "Meu Perfil" : "Configurar Conta";
+    headerSubtitle = "Gerencie sua identidade local e chaves";
+    headerIcon = "account_circle";
+  } else if (activeView.value === 'logout') {
+    headerTitle = "Sair do Sistema";
+    headerSubtitle = "Apagar dados locais e chaves deste dispositivo";
+    headerIcon = "logout";
+  } else if (activeView.value === 'share') {
+    headerTitle = "Adicionar Contato";
+    headerSubtitle = "Escaneie o QR Code ou cole o convite";
+    headerIcon = "person_add";
+  } else if (activeView.value === 'advanced') {
+    headerTitle = "Opções Avançadas";
+    headerSubtitle = "Diagnóstico do sistema e logs de rede";
+    headerIcon = "settings_suggest";
+  } else if (activeView.value === 'detail') {
+    headerTitle = `Cartão de ${nomeDetalhesAtivo}`;
+    headerSubtitle = "Gerencie as informações e a confiança deste contato";
+    headerIcon = "badge";
+  } else if (activeView.value === 'chat') {
+    headerTitle = contatoAtivo ? nomeContatoAtivo : "Selecione um contato";
+    headerSubtitle = contatoAtivo ? (contatoAtivo.email || "Sem e-mail") : "";
+    headerIcon = "account_circle";
+  }
 
-  const pararCamera = () => {
-    isScanning.value = false;
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-    }
-  };
-
-  const scanLoop = async () => {
-    if (!isScanning.value || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
-      if (isScanning.value) requestAnimationFrame(scanLoop);
-      return;
-    }
-    try {
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
-      const barcodes = await detector.detect(videoRef.current);
-      if (barcodes.length > 0) {
-        pararCamera();
-        handleProcessar(barcodes[0].rawValue);
-        return; 
-      }
-    } catch (e) {
-      console.warn("Erro no BarcodeDetector:", e);
-    }
-    if (isScanning.value) requestAnimationFrame(scanLoop);
-  };
-
-  const handleManualSubmit = () => {
-    if (!manualInput.value.trim()) return;
-    pararCamera();
-    handleProcessar(manualInput.value.trim());
-  };
-
-  const confirmar = async () => {
-    if (!preview.value) return;
-    try {
-      const p = preview.value;
-      const contatoId = await serializarPublicKeyVapid(p.vapidPublicKey!);
-
-      const novoContato: Contato = {
-        id: contatoId,
-        vapidPublicKey: p.vapidPublicKey!,
-        email: p.email || '',
-        name: p.name || '', 
-        e2ePublicKey: p.e2ePublicKey!,
-        subscription: p.subscription!,
-        vapidPrivateKeyEnvelope: p.vapidPrivateKeyEnvelope!,
-        trusted: true, 
-        me: 'none', 
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-      
-      await adicionarContato(novoContato);
-      
-      const reg = await navigator.serviceWorker.ready;
-      if (reg.active) {
-        reg.active.postMessage({
-          type: 'CRIAR_HANDSHAKE_OUT',
-          payload: {
-            rotasModulo: 'contato',
-            params: { function: 'enviarSubscription', contato: contatoId, responder: false }
-          }
-        });
-      }
-
-      showToast("✅ Contato adicionado! Um pacote de sincronização foi enviado.", "success");
-      setTimeout(() => {
-        window.location.href = '/'; 
-      }, 1200);
-    } catch (e: any) {
-      showToast("❌ Erro ao adicionar contato: " + e.message, "error");
-    }
-  };
-
-  const cancelar = () => {
-    pararCamera();
-    window.location.href = '/';
-  };
+  // Protege a view: se não tiver perfil, força a tela de perfil independentemente da URL
+  const viewToRender = (!profile.value && activeView.value !== 'profile') ? 'profile' : activeView.value;
+  const RouteComponent = ViewMap[viewToRender] || ViewMap['home']!;
 
   return (
-    <div style="min-height: 100vh; background-color: var(--md-sys-color-background); display: flex; flex-direction: column;">
+    <div id="app-root" class={`view-mode-${currentMobileView.value}`}>
       
-      <header class="sidebar-header" style="background: var(--md-sys-color-surface-variant); border-bottom: 1px solid #e0e0e0; padding: 16px; display: flex; align-items: center; gap: 16px;">
-        <md-icon-button onClick={cancelar}>
-          <md-icon>arrow_back</md-icon>
-        </md-icon-button>
-        <h1 style="margin: 0; font-size: 1.25rem;">Leitor / Adicionar Contato</h1>
-      </header>
-
-      <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;">
-        {error.value ? (
-          <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
-            <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
-            <h2 style="justify-content: center;">Ops! Algo deu errado</h2>
-            <p style="color: #666; margin-bottom: 24px;">{error.value}</p>
-            <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
-              Tentar Novamente
-            </md-filled-button>
+      <aside class="app-sidebar">
+        <header class="sidebar-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="position: relative;">
+              <md-icon-button id="btn-menu" onClick={() => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const menu: any = document.getElementById('main-menu');
+                if(menu) menu.open = !menu.open;
+              }}>
+                <md-icon>menu</md-icon>
+              </md-icon-button>
+              
+              <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
+                <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                  <div slot="headline">Avançado</div>
+                  <md-icon slot="start">settings_suggest</md-icon>
+                </md-menu-item>
+                <md-menu-item onClick={() => { navigate('#logout'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                  <div slot="headline">Sair do App (Logout)</div>
+                  <md-icon slot="start">logout</md-icon>
+                </md-menu-item>
+              </md-menu>
+            </div>
+            <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
           </div>
-        ) : preview.value ? (
-          <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 400px; width: 100%;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
-              <h2 style="justify-content: center;">Adicionar Contato</h2>
-              <p style="color: #666; font-size: 0.9rem;">Você foi convidado(a) para se conectar de ponta a ponta com este perfil.</p>
-            </div>
-            
-            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
-              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
-              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
-              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.email || "Sem e-mail"}</p>
-            </div>
-
-            <div style="display: flex; gap: 8px; flex-direction: column;">
-              <md-filled-button onClick={confirmar} style="width: 100%;">✅ Confirmar e Adicionar</md-filled-button>
-            </div>
+          
+          <div style="display: flex; gap: 4px;">
+            <md-icon-button onClick={() => navigate('#share')} title="Adicionar Contato">
+              <md-icon>person_add</md-icon>
+            </md-icon-button>
+            <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
+              <md-icon>account_circle</md-icon>
+            </md-icon-button>
           </div>
-        ) : (
-          <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 400px; width: 100%;">
-            <h2 style="justify-content: center;">Ler QR Code</h2>
-            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo.</p>
-            
-            <div style="position: relative; width: 100%; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden;">
-               <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>
-               <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px dashed rgba(255,255,255,0.7); width: 70%; height: 70%; border-radius: 16px; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);"></div>
-            </div>
-
-            <div style="width: 100%; margin-top: 24px; text-align: left;">
-              <label style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">
-                Ou cole o link/código de convite:
-              </label>
-              <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <md-outlined-text-field
-                  value={manualInput.value}
-                  onInput={(e: Event) => manualInput.value = (e.target as HTMLInputElement).value}
-                  placeholder="Cole aqui..."
-                  style="flex-grow: 1; margin-bottom: 0;"
-                ></md-outlined-text-field>
-                <md-filled-button onClick={handleManualSubmit} style="height: 56px; margin-bottom: 0;">
-                  Adicionar
-                </md-filled-button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Componente Global de Toast para feedback visual responsivo */}
-      <ToastSnackbar />
-    </div>
-  );
-}
-
-const root = document.getElementById('app-share');
-if (root) {
-  render(<ShareApp />, root);
-}
-```
-
----
-
-## Arquivo: `src/logout.tsx`
-
-```tsx
-// src/logout.tsx
-import { render } from 'preact';
-import { useSignal } from '@preact/signals';
-import { ProxyPath } from './constants/config.ts';
-
-import "@material/web/all.js";
-import './styles.css';
-
-function LogoutApp() {
-  const status = useSignal('Aguardando confirmação...');
-  const executando = useSignal(false);
-
-  const handleLogout = async () => {
-    executando.value = true;
-    try {
-      status.value = "1/5 Limpando Web Storage...";
-      window.localStorage.clear();
-      window.sessionStorage.clear();
-
-      status.value = "2/5 Apagando Cookies...";
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const cookieStr = cookies[i];
-        if (!cookieStr) continue;
-        const parts = cookieStr.split("=");
-        const part0 = parts[0];
-        if (!part0) continue;
-        const name = part0.trim();
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
-      }
-
-      status.value = "3/5 Apagando bancos IndexedDB...";
-      if (window.indexedDB?.databases) {
-        const dbs = await window.indexedDB.databases();
-        for (const db of dbs) if (db.name) window.indexedDB.deleteDatabase(db.name);
-      }
-
-      status.value = "4/5 Cancelando Push e Service Workers...";
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          if (registration.pushManager) {
-            const subscription = await registration.pushManager.getSubscription();
-            if (subscription) await subscription.unsubscribe();
-          }
-          await registration.unregister();
-        }
-      }
-
-      status.value = "5/5 Limpando disco virtual (OPFS) e Cache...";
-      if (window.caches) {
-        const cacheNames = await window.caches.keys();
-        for (const name of cacheNames) await window.caches.delete(name);
-      }
-      if (navigator.storage?.getDirectory) {
-        const root = await navigator.storage.getDirectory();
-        for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
-      }
-
-      status.value = "Concluindo no servidor...";
-      const resposta = await fetch(`${ProxyPath}/logout`, { method: 'POST' });
-
-      if (resposta.ok) {
-        status.value = "✅ Logout e Destruição de Chaves Concluídos!";
-        setTimeout(() => {
-          window.location.href = '/'; 
-        }, 1500);
-      } else {
-        throw new Error("Falha no servidor ao deslogar.");
-      }
-    } catch (erro: any) {
-      status.value = `❌ Erro: ${erro.message}`;
-      executando.value = false;
-    }
-  };
-
-  return (
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px;">
-      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 400px; width: 100%;">
-        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
-        <h2 style="justify-content: center;">Sair do Sistema</h2>
+        </header>
         
-        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
-          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
-        </p>
+        <div class="sidebar-content" style="padding: 0;">
+          <div style="padding: 16px; animation: fadeIn 0.3s ease;">
+            {profile.value ? <ContatosSection/> : <p style="text-align: center; color: #888; margin-top: 40px;">Configure seu perfil primeiro.</p>}
+          </div>
+        </div>
+      </aside>
 
-        {executando.value ? (
-          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
-            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
-            <br />
-            {status.value}
+      <main class="app-main">
+        <header class="chat-header">
+          <md-icon-button class="back-button" onClick={fecharAreaPrincipal}>
+            <md-icon>arrow_back</md-icon>
+          </md-icon-button>
+          
+          <div 
+            onClick={() => { if (activeView.value === 'chat' && contatoSelecionado.value) navigate(`#detail=${contatoSelecionado.value}`); }}
+            style={`display: flex; align-items: center; gap: 12px; ${activeView.value === 'chat' && contatoAtivo ? 'cursor: pointer;' : ''}`}
+          >
+            <md-icon style="font-size: 2rem; color: #555;">{headerIcon}</md-icon>
+            <div>
+              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
+                {headerTitle}
+                
+                {((activeView.value === 'detail' && contatoDetalhesAtivo?.trusted) || 
+                  (activeView.value === 'chat' && contatoAtivo?.trusted)) && (
+                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                )}
+              </h2>
+              {headerSubtitle && <span style="font-size: 0.8rem; color: #666;">{headerSubtitle}</span>}
+            </div>
           </div>
-        ) : (
-          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
-            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
-              ⚠️ Sim, Apagar Meus Dados e Sair
-            </md-filled-button>
-            <md-outlined-button onClick={() => window.location.href = '/'} style="width: 100%;">
-              Cancelar e Voltar
-            </md-outlined-button>
-          </div>
-        )}
-      </div>
+        </header>
+
+        <RouteComponent/>
+
+      </main>
+      <ToastSnackbar/>
     </div>
   );
 }
 
-const root = document.getElementById('app-logout');
+const root = document.getElementById('app');
 if (root) {
-  render(<LogoutApp />, root);
+  render(<App/>, root);
 }
 ```
 
@@ -5148,218 +5248,6 @@ self.addEventListener('message', (event: any) => {
 
 ---
 
-## Arquivo: `src/app.tsx`
-
-```tsx
-// src/app.tsx
-import { render } from 'preact';
-import { useEffect } from 'preact/hooks';
-import { ContatosSection } from './components/ContatosSection.tsx';
-import { ChatSection } from './components/ChatSection.tsx'; 
-import { ContactDetailSection } from './components/ContactDetailSection.tsx';
-import { AdvancedSection } from './components/AdvancedSection.tsx';
-import { ToastSnackbar } from './components/ToastSnackbar.tsx';
-import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
-import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
-
-import "@material/web/all.js";
-import './styles.css';
-
-function App() {
-  // 🔥 Roteador Central (Single Source of Truth: URL Hash)
-  useEffect(() => {
-    const parseHash = () => {
-      const hash = window.location.hash;
-      
-      if (hash.startsWith('#chat=')) {
-        contatoSelecionado.value = hash.substring(6);
-        contatoCompartilharHash.value = null;
-        showAdvanced.value = false;
-        currentMobileView.value = 'chat';
-      } else if (hash.startsWith('#detail=')) {
-        contatoCompartilharHash.value = hash.substring(8);
-        contatoSelecionado.value = '';
-        showAdvanced.value = false;
-        currentMobileView.value = 'chat';
-      } else if (hash === '#advanced') {
-        showAdvanced.value = true;
-        contatoSelecionado.value = '';
-        contatoCompartilharHash.value = null;
-        currentMobileView.value = 'chat';
-      } else {
-        // Raiz (Lista de Contatos)
-        contatoSelecionado.value = '';
-        contatoCompartilharHash.value = null;
-        showAdvanced.value = false;
-        currentMobileView.value = 'list';
-      }
-    };
-
-    // Lê o estado no primeiro load
-    parseHash();
-    
-    // Escuta as mudanças de hash (acionadas por cliques ou pelo botão voltar do celular)
-    window.addEventListener('hashchange', parseHash);
-    return () => window.removeEventListener('hashchange', parseHash);
-  }, []);
-
-  useEffect(() => {
-    const init = async () => {
-      await initProfileStore();
-      
-      if (!profile.value || !profile.value.e2ePrivateKeyJwk || !profile.value.vapidPrivateKeyJwk) {
-        window.location.href = '/profile.html';
-        return;
-      }
-
-      await initContatosStore();
-      await initMensagensStore();
-      addDebugLog("✅ Stores inicializados");
-    };
-    init();
-  }, []);
-
-  if (!profile.value) {
-    return (
-      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
-        <md-circular-progress indeterminate></md-circular-progress>
-      </div>
-    );
-  }
-
-  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
-  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
-
-  const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
-  const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
-
-  // 🔥 Navegação: Agora apenas alteramos a URL, o roteador fará a mágica
-  const fecharChatOuDetalhes = () => {
-    window.location.hash = ''; // Força o retorno para a lista base
-  };
-
-  const handleAbrirDetalhesDoContato = () => {
-    if (contatoSelecionado.value && !showAdvanced.value) {
-      window.location.hash = `#detail=${contatoSelecionado.value}`;
-    }
-  };
-
-  const abrirAvancado = () => {
-    const menu: any = document.getElementById('main-menu');
-    if (menu) menu.open = false;
-    window.location.hash = '#advanced';
-  };
-
-  return (
-    <div id="app-root" class={`view-mode-${currentMobileView.value}`}>
-      
-      <aside class="app-sidebar">
-        <header class="sidebar-header">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="position: relative;">
-              <md-icon-button id="btn-menu" onClick={() => {
-                const menu: any = document.getElementById('main-menu');
-                if(menu) menu.open = !menu.open;
-              }}>
-                <md-icon>menu</md-icon>
-              </md-icon-button>
-              
-              <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
-                <md-menu-item onClick={abrirAvancado}>
-                  <div slot="headline">Avançado</div>
-                  <md-icon slot="start">settings_suggest</md-icon>
-                </md-menu-item>
-                <md-menu-item onClick={() => window.location.href = '/logout.html'}>
-                  <div slot="headline">Sair do App (Logout)</div>
-                  <md-icon slot="start">logout</md-icon>
-                </md-menu-item>
-              </md-menu>
-            </div>
-            <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
-          </div>
-          
-          <md-icon-button onClick={() => window.location.href = '/profile.html'}>
-            <md-icon>account_circle</md-icon>
-          </md-icon-button>
-        </header>
-        
-        <div class="sidebar-content" style="padding: 0;">
-          <div style="padding: 16px; animation: fadeIn 0.3s ease;">
-            <ContatosSection />
-          </div>
-        </div>
-      </aside>
-
-      <main class="app-main">
-        <header class="chat-header">
-          <md-icon-button class="back-button" onClick={fecharChatOuDetalhes}>
-            <md-icon>arrow_back</md-icon>
-          </md-icon-button>
-          
-          <div 
-            onClick={!showAdvanced.value ? handleAbrirDetalhesDoContato : undefined}
-            style={`display: flex; align-items: center; gap: 12px; ${contatoAtivo && !showAdvanced.value ? 'cursor: pointer;' : ''}`}
-            title={contatoAtivo && !showAdvanced.value ? `Ver QR Code / Cartão de ${nomeContatoAtivo}` : ''}
-          >
-            <md-icon style="font-size: 2rem; color: #555;">
-              {showAdvanced.value ? 'settings_suggest' : 'account_circle'}
-            </md-icon>
-            <div>
-              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
-                {showAdvanced.value 
-                  ? "Opções Avançadas"
-                  : contatoCompartilharHash.value 
-                    ? `Cartão de ${nomeDetalhesAtivo}`
-                    : (contatoAtivo ? nomeContatoAtivo : "Selecione um contato")}
-                
-                {!showAdvanced.value && ((contatoCompartilharHash.value && contatoDetalhesAtivo?.trusted) || 
-                  (!contatoCompartilharHash.value && contatoAtivo?.trusted)) && (
-                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
-                )}
-              </h2>
-              <span style="font-size: 0.8rem; color: #666;">
-                {showAdvanced.value 
-                  ? "Diagnóstico do sistema e logs de operação"
-                  : contatoCompartilharHash.value 
-                    ? "Aponte a câmera ou copie o link para indicar este contato"
-                    : (contatoAtivo ? (contatoAtivo.email || "Sem e-mail") : "Inicie uma conversa na barra lateral")}
-              </span>
-            </div>
-
-            {contatoAtivo && !contatoCompartilharHash.value && !showAdvanced.value && (
-              <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-primary); opacity: 0.8; margin-left: 4px;">qr_code_2</md-icon>
-            )}
-          </div>
-        </header>
-
-        {showAdvanced.value ? (
-          <AdvancedSection />
-        ) : contatoCompartilharHash.value ? (
-          <ContactDetailSection />
-        ) : contatoSelecionado.value ? (
-          <ChatSection /> 
-        ) : (
-          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888;">
-            <div style="text-align: center;">
-              <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
-              <p>Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
-            </div>
-          </div>
-        )}
-      </main>
-      <ToastSnackbar />
-    </div>
-  );
-}
-
-const root = document.getElementById('app');
-if (root) {
-  render(<App />, root);
-}
-```
-
----
-
 ## Arquivo: `public/manifest.json`
 
 ```json
@@ -5401,7 +5289,7 @@ if (root) {
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.49-mso2rqks",
+  "version": "0.2.57-msox5u1g",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -5980,10 +5868,7 @@ async function build() {
   console.log("📦 Compilando página HTML ...");
   await runBundle("HTML", {
     entrypoints: [
-      join(SRC_DIR, "index.html"), 
-      join(SRC_DIR, "logout.html"),
-      join(SRC_DIR, "share.html"),
-      join(SRC_DIR, "profile.html")
+      join(SRC_DIR, "index.html")
     ],
     outputDir: DIST_DIR,
     platform: "browser",

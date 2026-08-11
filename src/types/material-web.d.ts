@@ -53,3 +53,13 @@ declare module "preact" {
     }
   }
 }
+
+// 🔥 Declaração Global Centralizada para a API Nativa do BarcodeDetector
+declare global {
+  class BarcodeDetector {
+    constructor(options?: { formats: string[] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
+    static getSupportedFormats(): Promise<string[]>;
+  }
+}

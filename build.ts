@@ -188,10 +188,7 @@ async function build() {
   console.log("📦 Compilando página HTML ...");
   await runBundle("HTML", {
     entrypoints: [
-      join(SRC_DIR, "index.html"), 
-      join(SRC_DIR, "logout.html"),
-      join(SRC_DIR, "share.html"),
-      join(SRC_DIR, "profile.html")
+      join(SRC_DIR, "index.html")
     ],
     outputDir: DIST_DIR,
     platform: "browser",

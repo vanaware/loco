@@ -1,12 +1,11 @@
-// src/components/AdvancedSection.tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { profile } from '../stores/profileStore.ts';
 import { showToast } from '../signals/state.ts';
 import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
 import { DebugPanel } from './DebugPanel.tsx';
-// 🔥 Importamos a versão gerada automaticamente pelo Build
 import { APP_VERSION } from '../constants/version.ts'; 
+import { navigate } from '../utils/router.ts';
 
 export function AdvancedSection() {
   const diagnostic = useSignal({
@@ -34,9 +33,12 @@ export function AdvancedSection() {
     }
 
     let cameraState = 'prompt', micState = 'prompt';
-    if ('navigator' in window && 'permissions' in navigator && navigator.permissions.query) {
-      try { cameraState = (await navigator.permissions.query({ name: 'camera' as any })).state; } catch {}
-      try { micState = (await navigator.permissions.query({ name: 'microphone' as any })).state; } catch {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
     }
 
     let storagePersisted = false;
@@ -119,9 +121,8 @@ export function AdvancedSection() {
     await runDiagnostics();
   };
 
-  // 🔥 Roteamento desacoplado
   const handleFechar = () => {
-    window.location.hash = ''; 
+    navigate(''); 
   };
 
   return (
@@ -133,7 +134,6 @@ export function AdvancedSection() {
             <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
               <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
             </span>
-            {/* 🔥 Exibição da versão injetada */}
             <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
               Build Version: v{APP_VERSION}
             </span>
