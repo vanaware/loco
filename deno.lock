@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@deno/installer-shell-setup@*": "0.3.4",
     "jsr:@negrel/http-ece@0.7.0": "0.7.0",
     "jsr:@negrel/webpush@0.5": "0.5.0",
     "jsr:@std/assert@1": "1.0.19",
@@ -25,6 +26,9 @@
     "jsr:@std/streams@^1.1.1": "1.1.1"
   },
   "jsr": {
+    "@deno/installer-shell-setup@0.3.4": {
+      "integrity": "48665d1a737d487cce6874bc97bba70a5aeffa7053aca3f60df93c6fab8963b4"
+    },
     "@negrel/http-ece@0.7.0": {
       "integrity": "068e61ba6f52da5454051a283cc19621607f8dd6e74d55c01bb365b8c6644076",
       "dependencies": [
