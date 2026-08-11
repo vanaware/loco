@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.57-msox5u1g** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.64-msoxtvzu** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.57-msox5u1g] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.64-msoxtvzu] - Modo: MAIN
 
-Gerado automaticamente em: 8/11/2026, 2:13:45 PM
+Gerado automaticamente em: 8/11/2026, 2:37:27 PM
 
 ---
 
@@ -1620,7 +1620,7 @@ export function ShareSection() {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.57-msox5u1g";
+export const APP_VERSION = "0.2.64-msoxtvzu";
 
 ```
 
@@ -5289,7 +5289,7 @@ self.addEventListener('message', (event: any) => {
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.57-msox5u1g",
+  "version": "0.2.64-msoxtvzu",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -5342,7 +5342,7 @@ self.addEventListener('message', (event: any) => {
     "export": "deno run --allow-read --allow-write export.ts"
   },
 
-  "exclude": ["dist/", "public/"]
+  "exclude": ["build/", "public/"]
 }
 ```
 
@@ -5353,18 +5353,32 @@ self.addEventListener('message', (event: any) => {
 ```toml
 #:schema node_modules/wrangler/config-schema.json
 
-name = "vanaware-loco"
-   main = "dist/worker.js"
-   compatibility_date = "2026-06-01"
-   # compatibility_flags = ["nodejs_compat"]
-   # routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
+# wrangler.toml
 
-   [observability]
-   enabled = true
+# Nome do seu projeto na Cloudflare
+name = "loco"
 
-   [vars]
-   # use `wrangler secret put` para a privada
-   SERVER_PUBLIC_KEY = '{"kty":"RSA","alg":"RSA-OAEP-256","n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ","e":"AQAB","key_ops":["encrypt"],"ext":true}'
+# Ponto de entrada do seu Worker (o bundle gerado pelo Deno)
+main = "build/worker.js"
+
+# Data de compatibilidade (recomenda-se manter atualizada)
+compatibility_date = "2026-06-01"
+# compatibility_flags = ["nodejs_compat"]
+# routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
+
+[observability]
+enabled = true
+
+# Configuração moderna para servir arquivos estáticos junto com o Worker
+[assets]
+# Diretório onde estão os arquivos estáticos do PWA
+directory = "build/dist"
+binding = "ASSETS" 
+
+# OPCIONAL: Variáveis de ambiente que seu proxy cego do FCM possa precisar
+[vars]
+SERVER_PUBLIC_KEY = '{"kty":"RSA","alg":"RSA-OAEP-256","n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ","e":"AQAB","key_ops":["encrypt"],"ext":true}'
+
 ```
 
 ---
@@ -5397,7 +5411,7 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
     // Deixamos o serveDir processar para entregar o arquivo estático correspondente (HTML, JS, CSS, Ícones) do ./dist.
     try {
         const staticResponse = await serveDir(req, {
-            fsRoot: "./dist",
+            fsRoot: "./build/dist",
             showDirListing: false,
             quiet: true,
         });
@@ -5683,6 +5697,7 @@ import { ensureDir, copy, walk } from "@std/fs";
 import { join } from "@std/path";
 
 const DIST_DIR = "dist";
+const BUILD_DIR = "build";
 const SRC_DIR = "src";
 const PUBLIC_DIR = "public";
 
@@ -5740,19 +5755,19 @@ async function incrementVersion(): Promise<string> {
 
 async function clean() {
   try {
-    await Deno.remove(DIST_DIR, { recursive: true });
+    await Deno.remove(BUILD_DIR, { recursive: true });
   } catch {
     // diretório não existe, ok
   }
-  await ensureDir(DIST_DIR);
+  await ensureDir(join(BUILD_DIR,DIST_DIR));
   console.log("📁 Arquivos anteriores excluídos");
 }
 
 async function copyStaticAndSyncManifest(appVersion: string) {
   try {
-    await copy(PUBLIC_DIR, DIST_DIR, { overwrite: true });
+    await copy(PUBLIC_DIR, join(BUILD_DIR,DIST_DIR), { overwrite: true });
     
-    const manifestPath = join(DIST_DIR, "manifest.json");
+    const manifestPath = join(BUILD_DIR, DIST_DIR, "manifest.json");
     try {
       const manifestText = await Deno.readTextFile(manifestPath);
       const manifestObj = JSON.parse(manifestText);
@@ -5847,9 +5862,9 @@ async function listarAssetsParaCache(): Promise<string[]> {
   const assets: string[] = [];
   const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
   
-  for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
+  for await (const entry of walk(join(BUILD_DIR,DIST_DIR), { includeDirs: false })) {
     if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
+      const webPath = entry.path.replace(join(BUILD_DIR,DIST_DIR), "").replace(/\\/g, "/");
       assets.push(webPath);
     }
   }
@@ -5870,7 +5885,7 @@ async function build() {
     entrypoints: [
       join(SRC_DIR, "index.html")
     ],
-    outputDir: DIST_DIR,
+    outputDir: join(BUILD_DIR,DIST_DIR),
     platform: "browser",
     format: "esm",
     bundle: true,
@@ -5887,7 +5902,7 @@ async function build() {
     entrypoints: [
       "./worker.ts"
     ],
-    outputDir: DIST_DIR,
+    outputDir: join(BUILD_DIR),
     platform: "browser",
     format: "esm",
     bundle: true,
@@ -5916,14 +5931,14 @@ async function build() {
     .replace(/VERSION_HASH/g, versionHash)
     .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets)); 
 
-  await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+  await Deno.writeTextFile(join(BUILD_DIR, DIST_DIR, "service-worker.js"), swCode);
 
   console.log(`✨ Service Worker gerado com sucesso! (Cache ID: ${versionHash})`);
   console.log(`    📦 ${assets.length} assets em cache`);
   console.log(`    📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
 
   const elapsed = (performance.now() - start).toFixed(0);
-  console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/\n`);
+  console.log(`\n✨ Build completo em ${elapsed}ms → ${BUILD_DIR}/\n`);
 }
 
 await build();

@@ -3,6 +3,7 @@ import { ensureDir, copy, walk } from "@std/fs";
 import { join } from "@std/path";
 
 const DIST_DIR = "dist";
+const BUILD_DIR = "build";
 const SRC_DIR = "src";
 const PUBLIC_DIR = "public";
 
@@ -60,19 +61,19 @@ async function incrementVersion(): Promise<string> {
 
 async function clean() {
   try {
-    await Deno.remove(DIST_DIR, { recursive: true });
+    await Deno.remove(BUILD_DIR, { recursive: true });
   } catch {
     // diretório não existe, ok
   }
-  await ensureDir(DIST_DIR);
+  await ensureDir(join(BUILD_DIR,DIST_DIR));
   console.log("📁 Arquivos anteriores excluídos");
 }
 
 async function copyStaticAndSyncManifest(appVersion: string) {
   try {
-    await copy(PUBLIC_DIR, DIST_DIR, { overwrite: true });
+    await copy(PUBLIC_DIR, join(BUILD_DIR,DIST_DIR), { overwrite: true });
     
-    const manifestPath = join(DIST_DIR, "manifest.json");
+    const manifestPath = join(BUILD_DIR, DIST_DIR, "manifest.json");
     try {
       const manifestText = await Deno.readTextFile(manifestPath);
       const manifestObj = JSON.parse(manifestText);
@@ -167,9 +168,9 @@ async function listarAssetsParaCache(): Promise<string[]> {
   const assets: string[] = [];
   const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
   
-  for await (const entry of walk(DIST_DIR, { includeDirs: false })) {
+  for await (const entry of walk(join(BUILD_DIR,DIST_DIR), { includeDirs: false })) {
     if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      const webPath = entry.path.replace(DIST_DIR, "").replace(/\\/g, "/");
+      const webPath = entry.path.replace(join(BUILD_DIR,DIST_DIR), "").replace(/\\/g, "/");
       assets.push(webPath);
     }
   }
@@ -190,7 +191,7 @@ async function build() {
     entrypoints: [
       join(SRC_DIR, "index.html")
     ],
-    outputDir: DIST_DIR,
+    outputDir: join(BUILD_DIR,DIST_DIR),
     platform: "browser",
     format: "esm",
     bundle: true,
@@ -207,7 +208,7 @@ async function build() {
     entrypoints: [
       "./worker.ts"
     ],
-    outputDir: DIST_DIR,
+    outputDir: join(BUILD_DIR),
     platform: "browser",
     format: "esm",
     bundle: true,
@@ -236,14 +237,14 @@ async function build() {
     .replace(/VERSION_HASH/g, versionHash)
     .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets)); 
 
-  await Deno.writeTextFile(join(DIST_DIR, "service-worker.js"), swCode);
+  await Deno.writeTextFile(join(BUILD_DIR, DIST_DIR, "service-worker.js"), swCode);
 
   console.log(`✨ Service Worker gerado com sucesso! (Cache ID: ${versionHash})`);
   console.log(`    📦 ${assets.length} assets em cache`);
   console.log(`    📄 Tamanho: ${(swCode.length / 1024).toFixed(2)} KB`);
 
   const elapsed = (performance.now() - start).toFixed(0);
-  console.log(`\n✨ Build completo em ${elapsed}ms → ${DIST_DIR}/\n`);
+  console.log(`\n✨ Build completo em ${elapsed}ms → ${BUILD_DIR}/\n`);
 }
 
 await build();

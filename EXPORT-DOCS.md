@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.3-msmh58u7** (DOCUMENTAÇÃO) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.64-msoxtvzu** (DOCUMENTAÇÃO) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.3-msmh58u7] - Modo: DOCS
+# Contexto Exportado do Projeto Loco [v0.2.64-msoxtvzu] - Modo: DOCS
 
-Gerado automaticamente em: 8/9/2026, 9:12:04 PM
+Gerado automaticamente em: 8/11/2026, 2:37:37 PM
 
 ---
 
@@ -1402,99 +1402,134 @@ Para referência técnica, os seguintes itens listados em rascunhos anteriores *
 ## Arquivo: `docs/changes.md`
 
 ````md
-Analisando o código-fonte da versão **v0.2.2-msmdcc54**, percebe-se que o projeto já possui uma arquitetura muito sólida (Preact + Signals, criptografia E2E com WebCrypto, Service Workers para background sync e push).
-
-No entanto, antes de partirmos para novas funcionalidades, identifiquei **5 áreas cruciais de refinamento (débitos técnicos e gargalos de performance)** que precisam ser resolvidas para garantir que o app escale sem travar o navegador do usuário.
-
-Aqui estão os pontos que precisamos refinar. Dê uma olhada e me diga por qual você prefere começar:
-
-### 1. Gargalo de Memória e Má Prática no Chat (`ChatSection.tsx`)
-
-Atualmente, o `ChatSection.tsx` está ignorando o seu store de mensagens e indo direto no banco de dados.
-
-* **O Problema:** A função `carregarMensagens` usa `listarMensagensEnviadas()` e `listarMensagensRecebidas()`, que carregam **todo o histórico de todos os contatos** para a RAM e depois filtram com `.filter(m => m.contatoHash === hashAtivo)`. Conforme o histórico crescer, o app vai engasgar ou travar.
-* **Solução:** O arquivo `src/stores/mensagensStore.ts` já existe e tem lógica de Signals, mas não está sendo usado pelo `ChatSection`. Precisamos refatorar o `ChatSection` para consumir os Signals computados do `mensagensStore` ou implementar uma busca paginada/indexada no `db-helpers.ts`.
-
-O ideal é chatsession consumir signals computados.
-Mas temos dois indexdb de mensagens, um para mensagens recebidas e outro para mensagens enviadas
-Podemos aproveitar e unificar em um só indexdb = chat.
-
-```js
-export interface Chat { // Substitui mensagens enviadas e recebidas
-  id: string;
-  contatoHash: string; //contatoPublicKeyVapid: string;
-  conteudo: string;
-  tipo: "in" | "out" // Indica se é mensagem recebida ou enviada
-  // status: 'nao_lida' | 'lida' | 'notificada'; substituido por datas
-  // status: 'pendente' | 'enviando' | 'enviada' | 'falha' | 'entregue'; substituido por datas
-  readAt?: number; // substitui lidaEm?: number; // se foi lida existe data, se não foi lida não existe  = status lida ou não lida
-  notifiedAt?: number; // substitui notificadaEm?: number; // se foi notificada existe data, se não foi notificada não existe  = status notificada
-  receivedAt?: number; // se foi confirmada recepção existe data, se não foi confirmado não existe - aguardando confirmação de envio  = status entregue
-  sentAt?: number; // se foi enviada existe data, se não foi enviada não existe - aguardando envio = status enviada
-  createdAt: number; //subustitui a data recebidoEm: number; informa a data que foi recebida ou pendente de envio  = status pendente ou enviando
-  updatedAt?: number;
-  errorAt?: number; // se teve erro de envio existe data, se não teve erro não existe = status falha
-  // tentativas: number; não será mais necessário o controle de envio esta em handshake
-  handshake: string; //id do handshake responsavel pelo envio ou recebimento do chat (mensagem)
-}
-```
-
-As mesnsagens mais antigas também podem ser carregadas apenas sob demanda lazy laoding
-
-
-### 2. Condição de Corrida (Race Condition) no envio de mensagens
-
-Ainda no `ChatSection.tsx`, ao enviar uma mensagem:
-
-```typescript
-// O SW fará a inserção no banco e processará a fila, 
-// então disparamos uma recarga visual rápida
-setTimeout(() => carregarMensagens(), 300);
-
-```
-
-* **O Problema:** Usar `setTimeout` de 300ms é uma "gambiarra" temporal. Se o dispositivo estiver lento e o Service Worker demorar 400ms para salvar, a mensagem enviada não vai aparecer na tela até a próxima recarga.
-* **Solução:** Fazer a **Atualização Otimista** imediata na interface inserindo o objeto direto no Signal de mensagens assim que o usuário apertar Enter, ou escutar um evento de `BroadcastChannel` do SW confirmando que o pacote foi para a fila.
-
-### 3. UX Bloqueante: Toasts usando `alert()`
-
-No arquivo `src/signals/state.ts`, o sistema de notificações para o usuário está assim:
-
-```typescript
-export function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
-  alert(`${type.toUpperCase()}: ${msg}`);
-}
-
-```
-
-* **O Problema:** A função `alert()` nativa do navegador pausa a execução da thread principal (o JavaScript congela até o usuário clicar em "OK"). Isso mata a experiência de um aplicativo descentralizado e PWA.
-* **Solução:** Como você está usando o Material Design 3 (`@material/web`), devemos criar um componente `<md-snackbar>` (ou uma `div` flutuante customizada com animação CSS) vinculada a um Signal, para exibir toasts não-bloqueantes no rodapé da tela.
-
-### 4. Risco de "QuotaExceededError" (Falta de Limpeza de Lixo)
-
-No Service Worker (`src/sw/sw-handshakes.ts`), no método `salvarHandshakeTransacional`, você mesmo deixou um aviso:
-
-```typescript
-if (e.name === 'QuotaExceededError') {
-  addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida ao salvar handshake...");
-  // TODO: Implementar estratégia de eviction (limpeza) de handshakes muito antigos
-}
-
-```
-
-* **O Problema:** Handshakes de sincronização e recibos de entrega estão sendo acumulados para sempre no IndexedDB. Com o tempo, o celular do usuário vai estourar a cota de armazenamento e o app vai parar de enviar/receber mensagens.
-* **Solução:** Criar uma função de *Garbage Collection* no `sw-utils` ou `sw-handshakes` que, toda vez que rodar a fila, delete handshakes processados e entregues (status `'processado'` ou `'entregue'`) que tenham mais de X dias de vida.
-
-### 5. Tipagem "Any" em Eventos React/Preact
-
-Embora você tenha removido vários `any` da camada de banco de dados, arquivos como `ProfileSection.tsx`, `ChatSection.tsx` e `ShareApp.tsx` estão cheios de `onInput={(e: any) => ...}`.
-
-* **O Problema:** Isso anula o propósito do TypeScript no Frontend.
-* **Solução:** Tipar corretamente os eventos como `(e: Event)` e o target como `(e.target as HTMLInputElement).value`. É um ajuste rápido, mas que evita bugs bizarros de digitação.
+Uma análise aprofundada e estendida do código-fonte do **Loco v0.2.20-msmk6qjq** revela pontos específicos de melhoria, pequenas divergências lógicas e comportamentos não harmoniosos que podem causar *bugs* sutis de concorrência, perda de sincronia visual ou *memory leaks*.
 
 ---
 
-**Como vamos proceder?** Podemos atacar a refatoração do **Chat e Stores (Pontos 1 e 2)** primeiro, pois é o coração do mensageiro, ou focar no **Garbage Collector (Ponto 4)** para garantir a estabilidade térmica. Qual a sua preferência?
+### 1. Concorrência Crítica e *Race Condition* no Carregamento de Mensagens (`src/stores/mensagensStore.ts`)
+
+* **O Problema:** A função `carregarMaisMensagens` valida o `activeChatHash` no início e logo após o `await listarChatPaginado`. Contudo, o ponteiro global `currentOffset` e o *signal* reativo `mensagensAtivas.value` sofrem mutação sem trava atômica. Se o usuário rolar a tela rapidamente para o topo (disparando múltiplos eventos de scroll simultâneos), chamadas concorrentes a `carregarMaisMensagens` podem ler o mesmo `currentOffset`, duplicando fatias ou corrompendo a ordem temporal das mensagens após o `.sort()`.
+* **Solução Proposta:** Proteger a função de lazy loader com uma variável de guarda de paginação específica para o chat ativo ou bloquear o gatilho de scroll enquanto uma requisição de paginação estiver pendente.
+
+---
+
+### 2. Vazamento de Ouve-Eventos (Listeners) de Service Worker no Mount do Chat (`src/components/ChatSection.tsx`)
+
+* **O Problema:** No componente `ChatSection`, o `useEffect` adiciona um listener global de `message` ao `navigator.serviceWorker` toda vez que o sinal `contatoSelecionado.value` muda:
+```tsx
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', handleMessage);
+}
+
+```
+
+
+Embora exista a função de limpeza (`removeEventListener`), se o componente sofrer re-renderizações rápidas com trocas de contato, o listener pode ser anexado múltiplas vezes de forma redundante antes que a desmontagem ocorra, duplicando o processamento de atualizações (`CHAT_ATUALIZADO`).
+* **Solução Proposta:** Isolar a inicialização do listener de mensagens do Service Worker em um ganho de ciclo de vida único (montagem global do app ou em uma store dedicada, similar ao que já é feito em `contatosStore.ts`).
+
+---
+
+### 3. Falta de Tratamento de Erro e Bloqueio Visual na Injeção de Perfis (`src/handshakes/hand-profile.ts`)
+
+* **O Problema:** Na rota de entrada de perfil (`hand-profile.ts`), quando um pacote de dados chega e o contato é atualizado no banco local:
+```ts
+const contato = await buscarContatoPorChave(contatoId);
+if (contato) {
+  // ... mutações e salvamento ...
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  clients.forEach(client => {
+    client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
+  });
+}
+
+```
+
+
+Se a operação de escrita no IndexedDB (`salvarContato`) falhar por estouro de cota ou concorrência de transação, a interface enviará o sinal `CONTATO_ATUALIZADO` via `postMessage` informando um estado que nunca foi gravado em disco com sucesso.
+* **Solução Proposta:** Envolver a mutação de dados e o despacho do `postMessage` em blocos de salvamento transacional rigorosos, garantindo que a UI só seja notificada após a persistência física ser confirmada.
+
+---
+
+### 4. Coerência de Tipagem e Incompatibilidade no Payload do Cache do Service Worker (`src/sw/cache.ts`)
+
+* **O Problema:** No arquivo `src/sw/cache.ts`, a linha de injeção automática de assets do build (`build.ts`) substitui a tag `__GENERATED_ASSETS__` por uma string JSON:
+```ts
+const ASSETS_TO_CACHE = [__GENERATED_ASSETS__];
+
+```
+
+
+No entanto, em `build.ts`, o array gerado é injetado diretamente sem os colchetes externos se a formatação do script não alinhar perfeitamente com os colchetes literais do arquivo `.ts` original, o que pode gerar erros de sintaxe silenciosos na execução em background do Service Worker caso o array fique malformado (`[, , ]`).
+* **Solução Proposta:** Garantir que o array gerado no script de build substitua a declaração inteira da constante `ASSETS_TO_CACHE` em vez de depender de interpolação parcial de strings.
+
+---
+
+### 5. Inconsistência no Estado de Erro de Rede do Push Proxy (`main.ts`)
+
+* **O Problema:** No servidor Deno (`main.ts`), quando o envio de uma mensagem via webpush falha com um erro que não é uma instância de `PushMessageError`, o bloco `catch` genérico formata a resposta:
+```ts
+return new Response(
+  JSON.stringify({ success: false, error: errorMessage, type: "InternalError" }),
+  { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+);
+
+```
+
+
+Retornar um status HTTP `400 (Bad Request)` para falhas internas genéricas ou de rede do servidor de push mascara erros reais de infraestrutura (como falhas de DNS ou indisponibilidade do FCM), que deveriam retornar `500 (Internal Server Error)` ou `503`.
+* **Solução Proposta:** Mapear os códigos de erro do Deno/Fetch adequadamente para evitar falsos positivos de requisição malformada no cliente.
+
+
+------
+
+Desacoplar proxy das páginas estaticas
+configgurar proxy enxuto com uma rota apenas GET e POST
+analisar de precisa do logout ou se pode ser get com parametros
+gerar uma versão para cloudflare worker
+
+contato precisa informar o proxy que deve ser usado para enviar as chaves privadas envelopadas para o proxy correto
+
+
+-------
+
+# Compatibilidade com cloudflare workers
+
+Análise de Arquitetura: Compatibilidade Híbrida Deno + Cloudflare WorkersSim, o padrão de estruturar o código no formato padrão de **Module Workers** da Cloudflare (`export default { fetch(request, env, ctx) }`) e prover um adaptador local com `Deno.serve` é uma prática amplamente utilizada e altamente recomendada no ecossistema de arquiteturas Serverless e Edge.
+
+## 🔍 Como funciona e por que é amplamente adotado
+
+Grandes frameworks edge-native e desenvolvedores independentes utilizam essa mesma estratégia para alcançar **Write Once, Run Anywhere (WORA)** entre provedores como:
+
+* **Cloudflare Workers** (runtime oficial `workerd`)
+
+* **Deno Deploy** (que também suporta nativamente o padrão `export default { fetch }`)
+
+* **Ambiente Local Deno** (via adaptador com `Deno.serve`)
+
+### Referências e Padrões da Indústria
+
+* A própria documentação oficial do Deno e ferramentas de ecossistema encorajam o uso de Module Workers padronizados baseados no padrão Web Standard para unificar o código fonte em plataformas distribuídas.
+
+* O runtime subjacente da Cloudflare (`workerd`) e o runtime do Deno compartilham a adesão estrita aos padrões Web API (`Request`, `Response`, `CryptoKey`, `fetch`), tornando a manipulação de criptografia e requests totalmente fluida.
+
+## 💡 Dicas Adicionais e Boas Práticas
+
+1. **Gerenciamento de Bindings e Variáveis de Ambiente (`env` vs `Deno.env`):**
+
+   * Na Cloudflare, segredos e chaves de infraestrutura chegam exclusivamente através do argumento `env`.
+
+   * Localmente no Deno, usamos `Deno.env.get()`. O padrão adotado no nosso `main.ts` de mesclar essas origens garante que o código funcione em ambos os mundos sem quebras.
+
+2. **Simulação Real com Wrangler:**
+
+   * Embora você possa rodar o arquivo diretamente com o Deno, a Cloudflare disponibiliza o **Wrangler** (`npx wrangler dev`), que roda o simulador oficial local (`miniflare`). Se quiser testar o comportamento exato da nuvem da Cloudflare antes do deploy, você pode configurar o Wrangler apontando para este mesmo arquivo.
+
+3. **Tratamento do `ctx.waitUntil()`:**
+
+   * Em ambientes Edge, tarefas assíncronas de background devem ser enfileiradas usando `ctx.waitUntil(promise)`. No adaptador Deno local, mockar esse comportamento garante que o fluxo assíncrono não cause encerramentos prematuros da thread ou erros não tratados.
+
+--------
+
 ````
 
 ---
@@ -2476,6 +2511,33 @@ Terá função Processar({in?:handshake.id, out?:any})
         ```
 
 -------
+
+
+# Arquitetura de Handshakes (Máquina de Estados Offline-First)
+
+O Loco PWA foi idealizado para funcionar perfeitamente sem conectividade de rede instantânea. Para garantir a imutabilidade, resiliência e entrega das mensagens (E2EE) mesmo em túneis ou viagens, implementamos o conceito de **Handshakes Assíncronos**.
+
+## 1. Princípio de Desacoplamento (UI vs Trabalhadores)
+A Interface de Usuário (Preact/Signals) **nunca** faz disparos `fetch` diretamente para enviar dados aos contatos. 
+A UI tem apenas 2 responsabilidades durante a emissão:
+- Salvar a "intenção" no Banco de Dados (IndexedDB) de forma otimista.
+- Disparar um evento via `postMessage` (Thread local) sinalizando o Service Worker.
+
+## 2. A Fila de Saída (OUT)
+Quando o Service Worker detecta que há dados para enviar (um novo contato gerado, um status lido `ack`, ou uma mensagem), ele instila um pacote na Fila `OUT`.
+- O payload é comprimido em GZIP (`fflate`).
+- É blindado na camada híbrida (AES-256-GCM envelopado com a RSA-OAEP Pública do recebedor).
+- Só então é transformado num JWT assinado e disparado via rede celular/Wi-Fi (Web Push FCM).
+- Se a rede cair no processo, o `status` do handshake permanece `pendente` e tentará automaticamente reconectar na próxima janela de rede nativa (`sync` event ou `online`).
+
+## 3. A Fila de Entrada (IN)
+O processo inverso. Quando o dispositivo "acorda" com um Push recebido pelo Sistema Operacional:
+- O Service Worker decodifica com sua Chave Privada RSA.
+- O Handshake é gerado na Fila `IN`.
+- A máquina de estados (`Processar()`) decide se injeta no DB de mensagens ou se atualiza os metadados do contato. 
+- Somente no final do processamento um aviso nativo (BroadcastChannel ou Notification) é enviado para a UI.
+
+**Segurança Garantida:** O Servidor de Proxy que fica no meio do caminho atua estritamente como um "Roteador Cego" lidando apenas com pacotes em Base64 criptografados e chaves VAPID (para o Google FCM).
 ````
 
 ---
@@ -3084,6 +3146,79 @@ O sistema de debug é um *Cross-Cutting Concern* (interesse transversal). Ele pr
 2.  **Se precisa de garantia de entrega em redes instáveis:** Use IndexedDB e delegue ao `Service Worker` (Handshakes).
 3.  **Se precisa monitorar o funcionamento do motor:** Jogue a mensagem no `BroadcastChannel` e deixe o `DebugPanel` resolver.
 ```
+
+---
+
+## Arquivo: `docs/roteamento-spa.md`
+
+````md
+
+# Arquitetura SPA e Roteamento Reativo (Signals)
+
+**Data de Atualização:** Agosto de 2026
+**Módulo:** UI / Navegação
+**Tecnologias:** Preact, `@preact/signals`, HTML5 History API (Hash)
+
+## 1. O Problema e a Motivação
+Nas versões iniciais, o Loco utilizava múltiplas páginas HTML (`index.html`, `profile.html`, `share.html`, `logout.html`) servidas pelo backend. Essa abordagem tradicional gerava alguns gargalos críticos para um **PWA Offline-First**:
+
+1. **Perda de Estado em Memória:** A cada navegação, o navegador destruía o contexto do JavaScript, forçando a recarga massiva de chaves criptográficas, contatos e histórico do IndexedDB.
+2. **Fricção Visual (Flickering):** Recarregamentos de página (mesmo cacheados pelo Service Worker) causam uma tela em branco momentânea, quebrando a sensação de "Aplicativo Nativo".
+3. **Complexidade no Build:** O script de compilação do Deno precisava mapear e injetar dependências em múltiplos pontos de entrada.
+
+## 2. A Solução: Single Page Application (SPA) Reativa
+Para resolver isso sem adicionar dependências externas pesadas (como `react-router`), o Loco adota um roteador customizado, minimalista e 100% integrado ao `@preact/signals`.
+
+A arquitetura baseia-se em **três pilares**:
+1. **A URL como Fonte da Verdade (Single Source of Truth):** Utilizamos o `hash` da URL (`#chat=123`, `#profile`) para ditar o estado da tela, garantindo que o botão "Voltar" do celular funcione nativamente.
+2. **Reatividade Nível-Zero:** Escutamos o evento nativo `hashchange` e refletimos isso instantaneamente em um Signal.
+3. **Dicionário de Rotas (O(1)):** Em vez de usar árvores de renderização ou condicionais estruturais (`if/else`), usamos um Mapa de Componentes para busca instantânea.
+
+## 3. Fluxo de Funcionamento
+
+O ciclo de vida de uma navegação no Loco ocorre da seguinte forma:
+
+1. **Gatilho de Navegação:**
+   O usuário clica em um botão, que executa a função utilitária `navigate('#profile')` (ou o usuário clica fisicamente no botão de "Voltar" do smartphone).
+   
+2. **Intercepção Global:**
+   O *Listener* nativo do navegador em `src/utils/router.ts` detecta a mudança:
+   ```typescript
+   globalThis.addEventListener("hashchange", () => {
+     currentHash.value = globalThis.location.hash;
+   });
+
+3. **Efeito Cascata (Signals):**
+    O `effect()` no roteador observa a mudança de `currentHash.value` e atualiza todos os signals de estado de negócio correspondentes (ex: `currentMobileView`, `contatoSelecionado`). Ele também extrai parâmetros da URL, como o hash do contato.
+4. **Tradução de Rota (Selector):**
+    O Signal computado (`computed`) chamado `activeView` simplifica a URL complexa em uma chave string direta:
+    `#chat=abc123hash` ➔ `'chat'`
+5. **Renderização Condicional (O(1)):**
+    No `app.tsx`, o componente raiz apenas acessa a chave mapeada e renderiza o componente associado de forma performática:
+    ```tsx
+    const ViewMap: Record<string, ComponentType<any>> = {
+    'chat': ChatSection,
+    'profile': ProfileSection,
+    // ...
+    };
+
+    // ... dentro do App()
+    const RouteComponent = ViewMap[activeView.value] || ViewMap['home'];
+    return <RouteComponent/>;
+
+    ```
+
+## 4. Vantagens desta Abordagem
+
+* **Zero Dependências:** Nenhuma biblioteca de terceiros de milhares de linhas é necessária para simplesmente ler uma string da barra de endereços.
+* **Guarda de Rotas (Route Guards) Simplificada:** Se o usuário não possui perfil configurado, o próprio `app.tsx` intercepta a view e força a renderização do `ProfileSection`, mantendo a segurança estrita do app.
+* **Economia de Bateria e CPU:** Como o `app.tsx` nunca é desmontado, todas as chaves RSA/ECDSA e as conexões ativas permanecem intactas na RAM do dispositivo.
+* **Desacoplamento UI/Lógica:** Componentes (ex: `ContactDetailSection`) não precisam saber *como* a navegação funciona, eles apenas chamam a função desacoplada `navigate()`.
+
+
+
+
+````
 
 ---
 
