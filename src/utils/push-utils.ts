@@ -1,13 +1,8 @@
 // src/utils/push-utils.ts
 import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
+import { ProxyPath } from '../constants/config.ts';
 
-// ============================================================
-// CONFIGURAÇÃO DO PROXY DE PUSH (DESACOPLADO)
-// ============================================================
-// Deixe vazio ("") se o proxy rodar na mesma origem (ex: desenvolvimento local unificado).
-// Defina a URL completa (ex: "https://vanaware-loco.workers.dev") quando o PWA estiver no GitHub Pages.
-const PROXY_URL = "";
 
 // ============================================================
 // UTILITÁRIOS DE CRIPTOGRAFIA PARA PUSH
@@ -103,7 +98,7 @@ export async function enviarParaProxy(
   }
 
   try {
-    const response = await fetch(`${PROXY_URL}/`, {
+    const response = await fetch(`${ProxyPath}/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

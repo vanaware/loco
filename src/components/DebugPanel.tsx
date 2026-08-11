@@ -1,6 +1,7 @@
 // src/components/DebugPanel.tsx
 import { signal, computed } from "@preact/signals";
 import { useEffect } from "preact/hooks";
+import type { JSX } from "preact";
 import { buscarChave, salvarChave, criarStore } from "../utils/db-helpers.ts";
 import { DB_NAMES } from "../constants/db.ts";
 
@@ -18,20 +19,16 @@ const DEBUG_LOG_PREFIX = "debug_log_";
 const MAX_LOGS = 200;
 const DEBUG_CHANNEL_NAME = "loco_debug_channel";
 
-// Store dedicada para o AppConfig_DB
 const storeConfigDB = criarStore(DB_NAMES.CONFIG);
 
-// 1. Signal reativo para o interruptor LIGADO / DESLIGADO gerenciado via Preact Signals
 export const isDebugEnabled = signal<boolean>(false);
 
-// Carrega o estado inicial do interruptor de debug diretamente do IndexedDB (AppConfig_DB)
 buscarChave<boolean>(storeConfigDB, DEBUG_CONFIG_KEY).then((val) => {
   if (val !== undefined) {
     isDebugEnabled.value = val;
   }
 });
 
-// 2. Histórico reativo de logs carregado de chaves individuais do localStorage
 export const debugLogs = signal<DebugLogEntry[]>(loadIndividualLogsFromStorage());
 
 function loadIndividualLogsFromStorage(): DebugLogEntry[] {
@@ -54,7 +51,6 @@ function loadIndividualLogsFromStorage(): DebugLogEntry[] {
       }
     }
 
-    // Ordena do mais recente para o mais antigo e limita a quantidade máxima
     logs.sort((a, b) => b.id.localeCompare(a.id));
     return logs.slice(0, MAX_LOGS);
   } catch (e) {
@@ -68,7 +64,6 @@ function persistSingleLog(entry: DebugLogEntry) {
   try {
     localStorage.setItem(`${DEBUG_LOG_PREFIX}${entry.id}`, JSON.stringify(entry));
     
-    // Controla o limite máximo de logs limpando os excedentes do localStorage
     const currentLogs = debugLogs.value;
     if (currentLogs.length > MAX_LOGS) {
       const excesso = currentLogs.slice(MAX_LOGS);
@@ -82,9 +77,6 @@ function persistSingleLog(entry: DebugLogEntry) {
   }
 }
 
-/**
- * Limpa todos os logs individuais do localStorage e da memória
- */
 export async function clearDebugLogs() {
   try {
     const keysToRemove: string[] = [];
@@ -103,14 +95,12 @@ export async function clearDebugLogs() {
   }
 }
 
-// 📻 3. Ouve o BroadcastChannel para capturar logs em tempo real
 const debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
 
 debugChannel.onmessage = (event) => {
   if (!isDebugEnabled.value) return;
 
   if (event.data && event.data.type === "LOCO_DEBUG_LOG") {
-    // 🔥 Capturamos exatamente a propriedade "entry" que o Logger agora enviará
     const entry: DebugLogEntry = event.data.entry;
     if (entry && entry.id) {
       const updated = [entry, ...debugLogs.value].slice(0, MAX_LOGS);
@@ -120,12 +110,10 @@ debugChannel.onmessage = (event) => {
   }
 };
 
-// Signals de Filtro da Interface
 const filterText = signal<string>("");
 const filterType = signal<string>("all");
 
 export function DebugPanel() {
-  // Efeito para persistir a alteração do interruptor de debug no IndexedDB (AppConfig_DB)
   useEffect(() => {
     salvarChave(storeConfigDB, DEBUG_CONFIG_KEY, isDebugEnabled.value).catch((err) => {
       console.warn("Falha ao salvar configuração de debug no IndexedDB:", err);
@@ -152,7 +140,6 @@ export function DebugPanel() {
 
   return (
     <div style={styles.container}>
-      {/* Cabeçalho */}
       <div style={styles.header}>
         <div style={styles.titleGroup}>
           <span style={styles.title}>🐞 Painel de Debug</span>
@@ -181,7 +168,6 @@ export function DebugPanel() {
         </div>
       </div>
 
-      {/* Filtros */}
       <div style={styles.filterBar}>
         <input
           type="text"
@@ -204,7 +190,6 @@ export function DebugPanel() {
         </select>
       </div>
 
-      {/* Feed de Logs */}
       <div style={styles.logList}>
         {!isDebugEnabled.value && (
           <div style={styles.disabledNotice}>
@@ -239,7 +224,7 @@ export function DebugPanel() {
   );
 }
 
-function getTypeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
+function getTypeStyle(type: DebugLogEntry["type"]): JSX.CSSProperties {
   switch (type) {
     case "error":
       return { borderLeft: "4px solid #f44336", backgroundColor: "rgba(244, 67, 54, 0.05)" };
@@ -252,7 +237,7 @@ function getTypeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
   }
 }
 
-function getTypeBadgeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
+function getTypeBadgeStyle(type: DebugLogEntry["type"]): JSX.CSSProperties {
   switch (type) {
     case "error":
       return { color: "#d32f2f" };
@@ -265,7 +250,7 @@ function getTypeBadgeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
   }
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, JSX.CSSProperties> = {
   container: {
     display: "flex", flexDirection: "column", gap: "12px", padding: "16px",
     backgroundColor: "var(--md-sys-color-surface-container, #f5f5f5)", borderRadius: "12px",

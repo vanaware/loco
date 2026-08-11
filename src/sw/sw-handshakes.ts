@@ -20,6 +20,7 @@ import {
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
+import { getServerPublicKey } from '../utils/profile-utils.ts';
 
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
@@ -227,9 +228,7 @@ export async function processarFilaHandshake() {
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
           // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
-          const res = await fetch("/?file=server-public-key");
-          if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor para cifrar envelope VAPID.");
-          const serverPublicKeyJwk = await res.json();
+          const serverPublicKeyJwk = await getServerPublicKey();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
           await salvarProfile(profile);

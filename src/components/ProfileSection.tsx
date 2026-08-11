@@ -5,7 +5,7 @@ import qrcode from 'qrcode-generator';
 
 import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
 import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto } from '../utils/profile-utils.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
 import { cifrarChaveVapid } from '../utils/push-utils.ts';
 import { salvarProfile } from '../utils/db-helpers.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
@@ -63,10 +63,9 @@ export function ProfileSection() {
   const handleCompartilhar = async () => {
     try {
       if (!p) return showToast("Salve o perfil primeiro.", "error");
+      // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
+      const serverPublicKeyJwk = await getServerPublicKey();
 
-      const resServerKey = await fetch("/?file=server-public-key");
-      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
-      const serverPublicKeyJwk = await resServerKey.json();
       
       const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
       p.vapidPrivateKeyEnvelope = novoEnvelope;

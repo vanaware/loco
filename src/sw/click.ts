@@ -1,4 +1,4 @@
-// src/sw/click.js
+// src/sw/click.ts
 
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
@@ -17,9 +17,8 @@ self.addEventListener('notificationclick', function(event) {
           if (client.url === urlParaAbrir && 'focus' in client) {
             try {
               return client.focus();
-            } catch (err) {
+            } catch (err: any) {
               console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
-              // Se falhar, continua para abrir uma nova
               break;
             }
           }
@@ -27,10 +26,8 @@ self.addEventListener('notificationclick', function(event) {
         // Se não encontrou ou não conseguiu focar, abre uma nova
         if (self.clients.openWindow) {
           return self.clients.openWindow(urlParaAbrir)
-            .catch(function(err) {
+            .catch(function(err: any) {
               console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
-              // Se falhar, tenta abrir com target _blank? Não há suporte direto, mas podemos ignorar.
-              // Retornamos uma promessa resolvida para não travar o SW.
               return Promise.resolve();
             });
         }

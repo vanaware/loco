@@ -5,6 +5,17 @@ import { registrarServiceWorker } from './sw-utils.ts';
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from './debug-utils.ts';
+import { ProxyPath } from '../constants/config.ts';
+
+export async function getServerPublicKey() {
+  const response = await fetch(`${ProxyPath}/publickey`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
+  return await response.json(); // Retorna o JsonWebKey (JWK)
+}
+
 
 export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   if ('storage' in navigator && 'persist' in navigator.storage) {
@@ -50,11 +61,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     const registration = await registrarServiceWorker();
 
     addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const resServerKey = await fetch("/?file=server-public-key");
-    if (!resServerKey.ok) {
-      throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
-    }
-    const serverPublicKeyJwk = await resServerKey.json();
+    const serverPublicKeyJwk = await getServerPublicKey();
     addDebugLog("Step 3.5: Chave do servidor recebida");
 
     let vapidKeyPair: CryptoKeyPair;

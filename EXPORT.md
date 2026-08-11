@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.40-msnt8hoo** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.45-mso13i2u** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.40-msnt8hoo] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.45-mso13i2u] - Modo: MAIN
 
-Gerado automaticamente em: 8/10/2026, 7:35:47 PM
+Gerado automaticamente em: 8/10/2026, 11:16:01 PM
 
 ---
 
@@ -107,310 +107,6 @@ export function ContatosSection() {
     </div>
   );
 }
-```
-
----
-
-## Arquivo: `src/components/DebugPanel.tsx`
-
-```tsx
-// src/components/DebugPanel.tsx
-import { signal, computed } from "@preact/signals";
-import { useEffect } from "preact/hooks";
-import { buscarChave, salvarChave, criarStore } from "../utils/db-helpers.ts";
-import { DB_NAMES } from "../constants/db.ts";
-
-export interface DebugLogEntry {
-  id: string;
-  timestamp: string;
-  type: "info" | "warn" | "error" | "success";
-  module: string;
-  message: string;
-  details?: unknown;
-}
-
-const DEBUG_CONFIG_KEY = "loco_debug_enabled";
-const DEBUG_LOG_PREFIX = "debug_log_";
-const MAX_LOGS = 200;
-const DEBUG_CHANNEL_NAME = "loco_debug_channel";
-
-// Store dedicada para o AppConfig_DB
-const storeConfigDB = criarStore(DB_NAMES.CONFIG);
-
-// 1. Signal reativo para o interruptor LIGADO / DESLIGADO gerenciado via Preact Signals
-export const isDebugEnabled = signal<boolean>(false);
-
-// Carrega o estado inicial do interruptor de debug diretamente do IndexedDB (AppConfig_DB)
-buscarChave<boolean>(storeConfigDB, DEBUG_CONFIG_KEY).then((val) => {
-  if (val !== undefined) {
-    isDebugEnabled.value = val;
-  }
-});
-
-// 2. Histórico reativo de logs carregado de chaves individuais do localStorage
-export const debugLogs = signal<DebugLogEntry[]>(loadIndividualLogsFromStorage());
-
-function loadIndividualLogsFromStorage(): DebugLogEntry[] {
-  try {
-    const logs: DebugLogEntry[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(DEBUG_LOG_PREFIX)) {
-        const value = localStorage.getItem(key);
-        if (value) {
-          try {
-            const entry = JSON.parse(value) as DebugLogEntry;
-            if (entry && entry.id) {
-              logs.push(entry);
-            }
-          } catch {
-            // Ignora itens corrompidos
-          }
-        }
-      }
-    }
-
-    // Ordena do mais recente para o mais antigo e limita a quantidade máxima
-    logs.sort((a, b) => b.id.localeCompare(a.id));
-    return logs.slice(0, MAX_LOGS);
-  } catch (e) {
-    console.warn("Falha ao carregar logs individuais do localStorage:", e);
-    return [];
-  }
-}
-
-function persistSingleLog(entry: DebugLogEntry) {
-  if (!isDebugEnabled.value) return;
-  try {
-    localStorage.setItem(`${DEBUG_LOG_PREFIX}${entry.id}`, JSON.stringify(entry));
-    
-    // Controla o limite máximo de logs limpando os excedentes do localStorage
-    const currentLogs = debugLogs.value;
-    if (currentLogs.length > MAX_LOGS) {
-      const excesso = currentLogs.slice(MAX_LOGS);
-      for (const old of excesso) {
-        localStorage.removeItem(`${DEBUG_LOG_PREFIX}${old.id}`);
-      }
-      debugLogs.value = currentLogs.slice(0, MAX_LOGS);
-    }
-  } catch (e) {
-    console.warn("Falha ao salvar log individual no localStorage:", e);
-  }
-}
-
-/**
- * Limpa todos os logs individuais do localStorage e da memória
- */
-export async function clearDebugLogs() {
-  try {
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(DEBUG_LOG_PREFIX)) {
-        keysToRemove.push(key);
-      }
-    }
-    for (const key of keysToRemove) {
-      localStorage.removeItem(key);
-    }
-    debugLogs.value = [];
-  } catch (e) {
-    console.error("Erro ao limpar logs individuais do localStorage:", e);
-  }
-}
-
-// 📻 3. Ouve o BroadcastChannel para capturar logs em tempo real
-const debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
-
-debugChannel.onmessage = (event) => {
-  if (!isDebugEnabled.value) return;
-
-  if (event.data && event.data.type === "LOCO_DEBUG_LOG") {
-    // 🔥 Capturamos exatamente a propriedade "entry" que o Logger agora enviará
-    const entry: DebugLogEntry = event.data.entry;
-    if (entry && entry.id) {
-      const updated = [entry, ...debugLogs.value].slice(0, MAX_LOGS);
-      debugLogs.value = updated;
-      persistSingleLog(entry);
-    }
-  }
-};
-
-// Signals de Filtro da Interface
-const filterText = signal<string>("");
-const filterType = signal<string>("all");
-
-export function DebugPanel() {
-  // Efeito para persistir a alteração do interruptor de debug no IndexedDB (AppConfig_DB)
-  useEffect(() => {
-    salvarChave(storeConfigDB, DEBUG_CONFIG_KEY, isDebugEnabled.value).catch((err) => {
-      console.warn("Falha ao salvar configuração de debug no IndexedDB:", err);
-    });
-  }, [isDebugEnabled.value]);
-
-  const filteredLogs = computed(() => {
-    return debugLogs.value.filter((log) => {
-      const matchesText =
-        filterText.value === "" ||
-        log.module.toLowerCase().includes(filterText.value.toLowerCase()) ||
-        log.message.toLowerCase().includes(filterText.value.toLowerCase());
-
-      const matchesType =
-        filterType.value === "all" || log.type === filterType.value;
-
-      return matchesText && matchesType;
-    });
-  });
-
-  const toggleDebug = () => {
-    isDebugEnabled.value = !isDebugEnabled.value;
-  };
-
-  return (
-    <div style={styles.container}>
-      {/* Cabeçalho */}
-      <div style={styles.header}>
-        <div style={styles.titleGroup}>
-          <span style={styles.title}>🐞 Painel de Debug</span>
-          <span style={styles.badgeCount}>{debugLogs.value.length} logs</span>
-        </div>
-
-        <div style={styles.actions}>
-          <label style={styles.switchLabel}>
-            <input
-              type="checkbox"
-              checked={isDebugEnabled.value}
-              onChange={toggleDebug}
-              style={styles.checkbox}
-            />
-            <span style={{ fontWeight: "bold", fontSize: "0.85rem" }}>
-              {isDebugEnabled.value ? "LIGADO" : "DESLIGADO"}
-            </span>
-          </label>
-
-          <md-outlined-button
-            onClick={clearDebugLogs}
-            disabled={debugLogs.value.length === 0}
-          >
-            Limpar
-          </md-outlined-button>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div style={styles.filterBar}>
-        <input
-          type="text"
-          placeholder="Filtrar por módulo ou mensagem..."
-          value={filterText.value}
-          onInput={(e) => (filterText.value = (e.target as HTMLInputElement).value)}
-          style={styles.searchInput}
-        />
-
-        <select
-          value={filterType.value}
-          onChange={(e) => (filterType.value = (e.target as HTMLSelectElement).value)}
-          style={styles.selectInput}
-        >
-          <option value="all">Todos os tipos</option>
-          <option value="info">Info</option>
-          <option value="warn">Avisos (Warn)</option>
-          <option value="error">Erros</option>
-          <option value="success">Sucesso</option>
-        </select>
-      </div>
-
-      {/* Feed de Logs */}
-      <div style={styles.logList}>
-        {!isDebugEnabled.value && (
-          <div style={styles.disabledNotice}>
-            ⚠️ O modo Debug está <strong>DESLIGADO</strong>. O painel não está registrando novas mensagens.
-          </div>
-        )}
-
-        {filteredLogs.value.length === 0 ? (
-          <div style={styles.emptyState}>Nenhum log gravado.</div>
-        ) : (
-          filteredLogs.value.map((log) => (
-            <div key={log.id} style={{ ...styles.logItem, ...getTypeStyle(log.type) }}>
-              <div style={styles.logMeta}>
-                <span style={styles.time}>{log.timestamp}</span>
-                <span style={styles.module}>[{log.module}]</span>
-                <span style={{ ...styles.typeTag, ...getTypeBadgeStyle(log.type) }}>
-                  {log.type.toUpperCase()}
-                </span>
-              </div>
-              <div style={styles.message}>{log.message}</div>
-              {log.details !== undefined && (
-                <details style={styles.details}>
-                  <summary style={styles.summary}>Ver detalhes JSON</summary>
-                  <pre style={styles.json}>{JSON.stringify(log.details, null, 2)}</pre>
-                </details>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function getTypeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
-  switch (type) {
-    case "error":
-      return { borderLeft: "4px solid #f44336", backgroundColor: "rgba(244, 67, 54, 0.05)" };
-    case "warn":
-      return { borderLeft: "4px solid #ff9800", backgroundColor: "rgba(255, 152, 0, 0.05)" };
-    case "success":
-      return { borderLeft: "4px solid #4caf50", backgroundColor: "rgba(76, 175, 80, 0.05)" };
-    default:
-      return { borderLeft: "4px solid #2196f3", backgroundColor: "rgba(33, 150, 243, 0.05)" };
-  }
-}
-
-function getTypeBadgeStyle(type: DebugLogEntry["type"]): React.CSSProperties {
-  switch (type) {
-    case "error":
-      return { color: "#d32f2f" };
-    case "warn":
-      return { color: "#ed6c02" };
-    case "success":
-      return { color: "#2e7d32" };
-    default:
-      return { color: "#0288d1" };
-  }
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    display: "flex", flexDirection: "column", gap: "12px", padding: "16px",
-    backgroundColor: "var(--md-sys-color-surface-container, #f5f5f5)", borderRadius: "12px",
-    border: "1px solid var(--md-sys-color-outline-variant, #e0e0e0)", fontFamily: "monospace",
-    fontSize: "0.85rem", maxHeight: "600px",
-  },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" },
-  titleGroup: { display: "flex", alignItems: "center", gap: "8px" },
-  title: { fontSize: "1rem", fontWeight: "bold" },
-  badgeCount: { fontSize: "0.75rem", padding: "2px 8px", borderRadius: "12px", backgroundColor: "var(--md-sys-color-secondary-container, #e0e0e0)" },
-  actions: { display: "flex", alignItems: "center", gap: "12px" },
-  switchLabel: { display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", userSelect: "none" },
-  checkbox: { cursor: "pointer", width: "16px", height: "16px" },
-  filterBar: { display: "flex", gap: "8px" },
-  searchInput: { flex: 1, padding: "6px 10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "0.85rem" },
-  selectInput: { padding: "6px 10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "0.85rem" },
-  logList: { display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", maxHeight: "450px", paddingRight: "4px" },
-  disabledNotice: { padding: "10px", backgroundColor: "#fff3cd", color: "#856404", borderRadius: "6px", fontSize: "0.8rem" },
-  emptyState: { textAlign: "center", padding: "24px", color: "#888" },
-  logItem: { padding: "8px 12px", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "4px" },
-  logMeta: { display: "flex", gap: "8px", alignItems: "center", fontSize: "0.75rem" },
-  time: { color: "#666" },
-  module: { fontWeight: "bold", color: "#333" },
-  typeTag: { fontWeight: "bold" },
-  message: { wordBreak: "break-word", whiteSpace: "pre-wrap" },
-  details: { marginTop: "4px" },
-  summary: { cursor: "pointer", color: "#0066cc", fontSize: "0.75rem" },
-  json: { margin: "4px 0 0 0", padding: "8px", backgroundColor: "#1e1e1e", color: "#00ff66", borderRadius: "4px", fontSize: "0.75rem", overflowX: "auto" },
-};
 ```
 
 ---
@@ -1195,7 +891,7 @@ import qrcode from 'qrcode-generator';
 
 import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
 import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto } from '../utils/profile-utils.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
 import { cifrarChaveVapid } from '../utils/push-utils.ts';
 import { salvarProfile } from '../utils/db-helpers.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
@@ -1253,10 +949,9 @@ export function ProfileSection() {
   const handleCompartilhar = async () => {
     try {
       if (!p) return showToast("Salve o perfil primeiro.", "error");
+      // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
+      const serverPublicKeyJwk = await getServerPublicKey();
 
-      const resServerKey = await fetch("/?file=server-public-key");
-      if (!resServerKey.ok) throw new Error("Erro ao buscar chave do servidor.");
-      const serverPublicKeyJwk = await resServerKey.json();
       
       const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
       p.vapidPrivateKeyEnvelope = novoEnvelope;
@@ -1336,11 +1031,300 @@ export function ProfileSection() {
 
 ---
 
+## Arquivo: `src/components/DebugPanel.tsx`
+
+```tsx
+// src/components/DebugPanel.tsx
+import { signal, computed } from "@preact/signals";
+import { useEffect } from "preact/hooks";
+import type { JSX } from "preact";
+import { buscarChave, salvarChave, criarStore } from "../utils/db-helpers.ts";
+import { DB_NAMES } from "../constants/db.ts";
+
+export interface DebugLogEntry {
+  id: string;
+  timestamp: string;
+  type: "info" | "warn" | "error" | "success";
+  module: string;
+  message: string;
+  details?: unknown;
+}
+
+const DEBUG_CONFIG_KEY = "loco_debug_enabled";
+const DEBUG_LOG_PREFIX = "debug_log_";
+const MAX_LOGS = 200;
+const DEBUG_CHANNEL_NAME = "loco_debug_channel";
+
+const storeConfigDB = criarStore(DB_NAMES.CONFIG);
+
+export const isDebugEnabled = signal<boolean>(false);
+
+buscarChave<boolean>(storeConfigDB, DEBUG_CONFIG_KEY).then((val) => {
+  if (val !== undefined) {
+    isDebugEnabled.value = val;
+  }
+});
+
+export const debugLogs = signal<DebugLogEntry[]>(loadIndividualLogsFromStorage());
+
+function loadIndividualLogsFromStorage(): DebugLogEntry[] {
+  try {
+    const logs: DebugLogEntry[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(DEBUG_LOG_PREFIX)) {
+        const value = localStorage.getItem(key);
+        if (value) {
+          try {
+            const entry = JSON.parse(value) as DebugLogEntry;
+            if (entry && entry.id) {
+              logs.push(entry);
+            }
+          } catch {
+            // Ignora itens corrompidos
+          }
+        }
+      }
+    }
+
+    logs.sort((a, b) => b.id.localeCompare(a.id));
+    return logs.slice(0, MAX_LOGS);
+  } catch (e) {
+    console.warn("Falha ao carregar logs individuais do localStorage:", e);
+    return [];
+  }
+}
+
+function persistSingleLog(entry: DebugLogEntry) {
+  if (!isDebugEnabled.value) return;
+  try {
+    localStorage.setItem(`${DEBUG_LOG_PREFIX}${entry.id}`, JSON.stringify(entry));
+    
+    const currentLogs = debugLogs.value;
+    if (currentLogs.length > MAX_LOGS) {
+      const excesso = currentLogs.slice(MAX_LOGS);
+      for (const old of excesso) {
+        localStorage.removeItem(`${DEBUG_LOG_PREFIX}${old.id}`);
+      }
+      debugLogs.value = currentLogs.slice(0, MAX_LOGS);
+    }
+  } catch (e) {
+    console.warn("Falha ao salvar log individual no localStorage:", e);
+  }
+}
+
+export async function clearDebugLogs() {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(DEBUG_LOG_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+    debugLogs.value = [];
+  } catch (e) {
+    console.error("Erro ao limpar logs individuais do localStorage:", e);
+  }
+}
+
+const debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
+
+debugChannel.onmessage = (event) => {
+  if (!isDebugEnabled.value) return;
+
+  if (event.data && event.data.type === "LOCO_DEBUG_LOG") {
+    const entry: DebugLogEntry = event.data.entry;
+    if (entry && entry.id) {
+      const updated = [entry, ...debugLogs.value].slice(0, MAX_LOGS);
+      debugLogs.value = updated;
+      persistSingleLog(entry);
+    }
+  }
+};
+
+const filterText = signal<string>("");
+const filterType = signal<string>("all");
+
+export function DebugPanel() {
+  useEffect(() => {
+    salvarChave(storeConfigDB, DEBUG_CONFIG_KEY, isDebugEnabled.value).catch((err) => {
+      console.warn("Falha ao salvar configuração de debug no IndexedDB:", err);
+    });
+  }, [isDebugEnabled.value]);
+
+  const filteredLogs = computed(() => {
+    return debugLogs.value.filter((log) => {
+      const matchesText =
+        filterText.value === "" ||
+        log.module.toLowerCase().includes(filterText.value.toLowerCase()) ||
+        log.message.toLowerCase().includes(filterText.value.toLowerCase());
+
+      const matchesType =
+        filterType.value === "all" || log.type === filterType.value;
+
+      return matchesText && matchesType;
+    });
+  });
+
+  const toggleDebug = () => {
+    isDebugEnabled.value = !isDebugEnabled.value;
+  };
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <div style={styles.titleGroup}>
+          <span style={styles.title}>🐞 Painel de Debug</span>
+          <span style={styles.badgeCount}>{debugLogs.value.length} logs</span>
+        </div>
+
+        <div style={styles.actions}>
+          <label style={styles.switchLabel}>
+            <input
+              type="checkbox"
+              checked={isDebugEnabled.value}
+              onChange={toggleDebug}
+              style={styles.checkbox}
+            />
+            <span style={{ fontWeight: "bold", fontSize: "0.85rem" }}>
+              {isDebugEnabled.value ? "LIGADO" : "DESLIGADO"}
+            </span>
+          </label>
+
+          <md-outlined-button
+            onClick={clearDebugLogs}
+            disabled={debugLogs.value.length === 0}
+          >
+            Limpar
+          </md-outlined-button>
+        </div>
+      </div>
+
+      <div style={styles.filterBar}>
+        <input
+          type="text"
+          placeholder="Filtrar por módulo ou mensagem..."
+          value={filterText.value}
+          onInput={(e) => (filterText.value = (e.target as HTMLInputElement).value)}
+          style={styles.searchInput}
+        />
+
+        <select
+          value={filterType.value}
+          onChange={(e) => (filterType.value = (e.target as HTMLSelectElement).value)}
+          style={styles.selectInput}
+        >
+          <option value="all">Todos os tipos</option>
+          <option value="info">Info</option>
+          <option value="warn">Avisos (Warn)</option>
+          <option value="error">Erros</option>
+          <option value="success">Sucesso</option>
+        </select>
+      </div>
+
+      <div style={styles.logList}>
+        {!isDebugEnabled.value && (
+          <div style={styles.disabledNotice}>
+            ⚠️ O modo Debug está <strong>DESLIGADO</strong>. O painel não está registrando novas mensagens.
+          </div>
+        )}
+
+        {filteredLogs.value.length === 0 ? (
+          <div style={styles.emptyState}>Nenhum log gravado.</div>
+        ) : (
+          filteredLogs.value.map((log) => (
+            <div key={log.id} style={{ ...styles.logItem, ...getTypeStyle(log.type) }}>
+              <div style={styles.logMeta}>
+                <span style={styles.time}>{log.timestamp}</span>
+                <span style={styles.module}>[{log.module}]</span>
+                <span style={{ ...styles.typeTag, ...getTypeBadgeStyle(log.type) }}>
+                  {log.type.toUpperCase()}
+                </span>
+              </div>
+              <div style={styles.message}>{log.message}</div>
+              {log.details !== undefined && (
+                <details style={styles.details}>
+                  <summary style={styles.summary}>Ver detalhes JSON</summary>
+                  <pre style={styles.json}>{JSON.stringify(log.details, null, 2)}</pre>
+                </details>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getTypeStyle(type: DebugLogEntry["type"]): JSX.CSSProperties {
+  switch (type) {
+    case "error":
+      return { borderLeft: "4px solid #f44336", backgroundColor: "rgba(244, 67, 54, 0.05)" };
+    case "warn":
+      return { borderLeft: "4px solid #ff9800", backgroundColor: "rgba(255, 152, 0, 0.05)" };
+    case "success":
+      return { borderLeft: "4px solid #4caf50", backgroundColor: "rgba(76, 175, 80, 0.05)" };
+    default:
+      return { borderLeft: "4px solid #2196f3", backgroundColor: "rgba(33, 150, 243, 0.05)" };
+  }
+}
+
+function getTypeBadgeStyle(type: DebugLogEntry["type"]): JSX.CSSProperties {
+  switch (type) {
+    case "error":
+      return { color: "#d32f2f" };
+    case "warn":
+      return { color: "#ed6c02" };
+    case "success":
+      return { color: "#2e7d32" };
+    default:
+      return { color: "#0288d1" };
+  }
+}
+
+const styles: Record<string, JSX.CSSProperties> = {
+  container: {
+    display: "flex", flexDirection: "column", gap: "12px", padding: "16px",
+    backgroundColor: "var(--md-sys-color-surface-container, #f5f5f5)", borderRadius: "12px",
+    border: "1px solid var(--md-sys-color-outline-variant, #e0e0e0)", fontFamily: "monospace",
+    fontSize: "0.85rem", maxHeight: "600px",
+  },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" },
+  titleGroup: { display: "flex", alignItems: "center", gap: "8px" },
+  title: { fontSize: "1rem", fontWeight: "bold" },
+  badgeCount: { fontSize: "0.75rem", padding: "2px 8px", borderRadius: "12px", backgroundColor: "var(--md-sys-color-secondary-container, #e0e0e0)" },
+  actions: { display: "flex", alignItems: "center", gap: "12px" },
+  switchLabel: { display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", userSelect: "none" },
+  checkbox: { cursor: "pointer", width: "16px", height: "16px" },
+  filterBar: { display: "flex", gap: "8px" },
+  searchInput: { flex: 1, padding: "6px 10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "0.85rem" },
+  selectInput: { padding: "6px 10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "0.85rem" },
+  logList: { display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", maxHeight: "450px", paddingRight: "4px" },
+  disabledNotice: { padding: "10px", backgroundColor: "#fff3cd", color: "#856404", borderRadius: "6px", fontSize: "0.8rem" },
+  emptyState: { textAlign: "center", padding: "24px", color: "#888" },
+  logItem: { padding: "8px 12px", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "4px" },
+  logMeta: { display: "flex", gap: "8px", alignItems: "center", fontSize: "0.75rem" },
+  time: { color: "#666" },
+  module: { fontWeight: "bold", color: "#333" },
+  typeTag: { fontWeight: "bold" },
+  message: { wordBreak: "break-word", whiteSpace: "pre-wrap" },
+  details: { marginTop: "4px" },
+  summary: { cursor: "pointer", color: "#0066cc", fontSize: "0.75rem" },
+  json: { margin: "4px 0 0 0", padding: "8px", backgroundColor: "#1e1e1e", color: "#00ff66", borderRadius: "4px", fontSize: "0.75rem", overflowX: "auto" },
+};
+```
+
+---
+
 ## Arquivo: `src/constants/version.ts`
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.40-msnt8hoo";
+export const APP_VERSION = "0.2.45-mso13i2u";
 
 ```
 
@@ -1484,6 +1468,20 @@ export interface EnvelopeCifrado {
   d: string;
   k: string;
 }
+```
+
+---
+
+## Arquivo: `src/constants/config.ts`
+
+```ts
+// src/config.ts
+/**
+ * Prefixo base para comunicação com o servidor proxy / Worker.
+ * Pode ser ajustado para "" (raiz) ou um sub-caminho (ex: "/proxy").
+ */
+export const ProxyPath = "";
+
 ```
 
 ---
@@ -1960,52 +1958,6 @@ self.addEventListener("fetch", (event) => {
 
 ---
 
-## Arquivo: `src/sw/click.ts`
-
-```ts
-// src/sw/click.js
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-self.addEventListener('notificationclick', function(event) {
-  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
-  event.notification.close();
-  const urlParaAbrir = new URL('/', self.location.origin).href;
-  
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(function(windowClients) {
-        // Tenta focar uma janela existente
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client.url === urlParaAbrir && 'focus' in client) {
-            try {
-              return client.focus();
-            } catch (err) {
-              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
-              // Se falhar, continua para abrir uma nova
-              break;
-            }
-          }
-        }
-        // Se não encontrou ou não conseguiu focar, abre uma nova
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(urlParaAbrir)
-            .catch(function(err) {
-              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
-              // Se falhar, tenta abrir com target _blank? Não há suporte direto, mas podemos ignorar.
-              // Retornamos uma promessa resolvida para não travar o SW.
-              return Promise.resolve();
-            });
-        }
-      })
-  );
-});
-```
-
----
-
 ## Arquivo: `src/sw/sw-utils.ts`
 
 ```ts
@@ -2128,6 +2080,7 @@ import {
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
+import { getServerPublicKey } from '../utils/profile-utils.ts';
 
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
@@ -2335,9 +2288,7 @@ export async function processarFilaHandshake() {
         let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
         if (!vapidPrivateKeyEnvelope) {
           // 🔥 Buscando chave pública na nova rota baseada em parâmetro na raiz
-          const res = await fetch("/?file=server-public-key");
-          if (!res.ok) throw new Error("Não foi possível obter chave pública do servidor para cifrar envelope VAPID.");
-          const serverPublicKeyJwk = await res.json();
+          const serverPublicKeyJwk = await getServerPublicKey();
           vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
           profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
           await salvarProfile(profile);
@@ -2406,6 +2357,49 @@ self.addEventListener('online', function (event: Event) {
 
 ---
 
+## Arquivo: `src/sw/click.ts`
+
+```ts
+// src/sw/click.ts
+
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+self.addEventListener('notificationclick', function(event) {
+  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
+  event.notification.close();
+  const urlParaAbrir = new URL('/', self.location.origin).href;
+  
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(function(windowClients) {
+        // Tenta focar uma janela existente
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          if (client.url === urlParaAbrir && 'focus' in client) {
+            try {
+              return client.focus();
+            } catch (err: any) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
+              break;
+            }
+          }
+        }
+        // Se não encontrou ou não conseguiu focar, abre uma nova
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(urlParaAbrir)
+            .catch(function(err: any) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
+              return Promise.resolve();
+            });
+        }
+      })
+  );
+});
+```
+
+---
+
 ## Arquivo: `src/utils/id-utils.ts`
 
 ```ts
@@ -2441,52 +2435,6 @@ export function gerarIdFallback(): string {
  */
 export function validarId(id: string): boolean {
   return typeof id === 'string' && id.length > 0 && id.length <= 24;
-}
-```
-
----
-
-## Arquivo: `src/utils/sw-utils.ts`
-
-```ts
-// src/utils/sw-utils.ts
-import { addDebugLog } from "./debug-utils.ts";
-
-export function logSwInfo(module: string, message: string, details?: unknown) {
-  addDebugLog("info", `SW:${module}`, message, details);
-}
-
-export function logSwError(module: string, message: string, details?: unknown) {
-  addDebugLog("error", `SW:${module}`, message, details);
-}
-
-export function logSwWarn(module: string, message: string, details?: unknown) {
-  addDebugLog("warn", `SW:${module}`, message, details);
-}
-
-export function logSwSuccess(module: string, message: string, details?: unknown) {
-  addDebugLog("success", `SW:${module}`, message, details);
-}
-
-/**
- * Registra o Service Worker principal no navegador
- */
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-  if (!("serviceWorker" in navigator)) {
-    logSwWarn("INIT", "Service Worker não é suportado neste navegador.");
-    return null;
-  }
-
-  try {
-    const registration = await navigator.serviceWorker.register("/service-worker.js", {
-      scope: "/",
-    });
-    logSwSuccess("INIT", "Service Worker registrado com sucesso", { scope: registration.scope });
-    return registration;
-  } catch (error: any) {
-    logSwError("INIT", "Falha ao registrar Service Worker", error);
-    throw error;
-  }
 }
 ```
 
@@ -3384,13 +3332,8 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
 // src/utils/push-utils.ts
 import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
+import { ProxyPath } from '../constants/config.ts';
 
-// ============================================================
-// CONFIGURAÇÃO DO PROXY DE PUSH (DESACOPLADO)
-// ============================================================
-// Deixe vazio ("") se o proxy rodar na mesma origem (ex: desenvolvimento local unificado).
-// Defina a URL completa (ex: "https://vanaware-loco.workers.dev") quando o PWA estiver no GitHub Pages.
-const PROXY_URL = "";
 
 // ============================================================
 // UTILITÁRIOS DE CRIPTOGRAFIA PARA PUSH
@@ -3486,7 +3429,7 @@ export async function enviarParaProxy(
   }
 
   try {
-    const response = await fetch(`${PROXY_URL}/`, {
+    const response = await fetch(`${ProxyPath}/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -3576,6 +3519,17 @@ import { registrarServiceWorker } from './sw-utils.ts';
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from './debug-utils.ts';
+import { ProxyPath } from '../constants/config.ts';
+
+export async function getServerPublicKey() {
+  const response = await fetch(`${ProxyPath}/publickey`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
+  return await response.json(); // Retorna o JsonWebKey (JWK)
+}
+
 
 export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   if ('storage' in navigator && 'persist' in navigator.storage) {
@@ -3621,11 +3575,7 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     const registration = await registrarServiceWorker();
 
     addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const resServerKey = await fetch("/?file=server-public-key");
-    if (!resServerKey.ok) {
-      throw new Error(`Erro ao buscar chave do servidor: ${resServerKey.status}`);
-    }
-    const serverPublicKeyJwk = await resServerKey.json();
+    const serverPublicKeyJwk = await getServerPublicKey();
     addDebugLog("Step 3.5: Chave do servidor recebida");
 
     let vapidKeyPair: CryptoKeyPair;
@@ -3735,6 +3685,52 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
   } catch (err) {
     addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
     throw err;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/sw-utils.ts`
+
+```ts
+// src/utils/sw-utils.ts
+import { addDebugLog } from "./debug-utils.ts";
+
+export function logSwInfo(module: string, message: string, details?: unknown) {
+  addDebugLog("info", `SW:${module}`, message, details);
+}
+
+export function logSwError(module: string, message: string, details?: unknown) {
+  addDebugLog("error", `SW:${module}`, message, details);
+}
+
+export function logSwWarn(module: string, message: string, details?: unknown) {
+  addDebugLog("warn", `SW:${module}`, message, details);
+}
+
+export function logSwSuccess(module: string, message: string, details?: unknown) {
+  addDebugLog("success", `SW:${module}`, message, details);
+}
+
+/**
+ * Registra o Service Worker principal no navegador
+ */
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (!("serviceWorker" in navigator)) {
+    logSwWarn("INIT", "Service Worker não é suportado neste navegador.");
+    return null;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.register("/service-worker.js", {
+      scope: "/",
+    });
+    logSwSuccess("INIT", "Service Worker registrado com sucesso", { scope: registration.scope });
+    return registration;
+  } catch (error: any) {
+    logSwError("INIT", "Falha ao registrar Service Worker", error);
+    throw error;
   }
 }
 ```
@@ -5384,6 +5380,7 @@ if (root) {
 // src/logout.tsx
 import { render } from 'preact';
 import { useSignal } from '@preact/signals';
+import { ProxyPath } from './constants/config.ts';
 
 import "@material/web/all.js";
 import './styles.css';
@@ -5437,7 +5434,7 @@ function LogoutApp() {
       }
 
       status.value = "Concluindo no servidor...";
-      const resposta = await fetch('/?logout=true', { method: 'GET' });
+      const resposta = await fetch(`${ProxyPath}/logout`, { method: 'POST' });
 
       if (resposta.ok) {
         status.value = "✅ Logout e Destruição de Chaves Concluídos!";
@@ -5533,7 +5530,7 @@ if (root) {
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.40-msnt8hoo",
+  "version": "0.2.45-mso13i2u",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -6044,6 +6041,7 @@ function lerMetadadosJJWT(jwtString: string) {
 const workerHandler = {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     const url = new URL(request.url);
+    const pathname = url.pathname;
     
     let origin = request.headers.get("origin") || "";
     if (origin === "") {
@@ -6059,7 +6057,7 @@ const workerHandler = {
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
       "Access-Control-Allow-Credentials": "true"
     };
@@ -6068,7 +6066,11 @@ const workerHandler = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    if (!isAllowedOrigin && (url.pathname.startsWith("/api/") || url.pathname === "/")) {
+    // Normalização do caminho caso exista um ProxyPath configurado via env
+    const proxyPath = env.PROXY_PATH || "";
+    const targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
+
+    if (!isAllowedOrigin) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
       return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
         status: 403,
@@ -6079,16 +6081,16 @@ const workerHandler = {
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
 
-      // 🔑 Rota GET na raiz para entregar a chave pública do servidor
-      if (request.method === "GET" && url.pathname === "/" && url.searchParams.get("file") === "server-public-key") {
+      // 🔑 Rota POST para entregar a chave pública do servidor
+      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
 
-      // 🚪 Rota GET na raiz com parâmetro ?logout=true para limpeza e destruição de sessão
-      if (request.method === "GET" && url.pathname === "/" && url.searchParams.get("logout") === "true") {
+      // 🚪 Rota POST para limpeza e destruição de sessão (Logout)
+      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
         const headers = new Headers(corsHeaders);
         deleteCookie(headers, "session_token", { path: "/" });
         headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
@@ -6099,8 +6101,9 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && url.pathname === "/") {
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida na raiz!`);
+      // 📨 Rota POST raiz para Proxy Web Push
+      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
+        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;

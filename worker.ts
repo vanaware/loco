@@ -115,6 +115,7 @@ function lerMetadadosJJWT(jwtString: string) {
 const workerHandler = {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     const url = new URL(request.url);
+    const pathname = url.pathname;
     
     let origin = request.headers.get("origin") || "";
     if (origin === "") {
@@ -130,7 +131,7 @@ const workerHandler = {
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
       "Access-Control-Allow-Credentials": "true"
     };
@@ -139,7 +140,11 @@ const workerHandler = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    if (!isAllowedOrigin && (url.pathname.startsWith("/api/") || url.pathname === "/")) {
+    // Normalização do caminho caso exista um ProxyPath configurado via env
+    const proxyPath = env.PROXY_PATH || "";
+    const targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
+
+    if (!isAllowedOrigin) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
       return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
         status: 403,
@@ -150,16 +155,16 @@ const workerHandler = {
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
 
-      // 🔑 Rota GET na raiz para entregar a chave pública do servidor
-      if (request.method === "GET" && url.pathname === "/" && url.searchParams.get("file") === "server-public-key") {
+      // 🔑 Rota POST para entregar a chave pública do servidor
+      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
 
-      // 🚪 Rota GET na raiz com parâmetro ?logout=true para limpeza e destruição de sessão
-      if (request.method === "GET" && url.pathname === "/" && url.searchParams.get("logout") === "true") {
+      // 🚪 Rota POST para limpeza e destruição de sessão (Logout)
+      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
         const headers = new Headers(corsHeaders);
         deleteCookie(headers, "session_token", { path: "/" });
         headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
@@ -170,8 +175,9 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && url.pathname === "/") {
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy recebida na raiz!`);
+      // 📨 Rota POST raiz para Proxy Web Push
+      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
+        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;

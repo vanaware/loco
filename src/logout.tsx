@@ -1,6 +1,7 @@
 // src/logout.tsx
 import { render } from 'preact';
 import { useSignal } from '@preact/signals';
+import { ProxyPath } from './constants/config.ts';
 
 import "@material/web/all.js";
 import './styles.css';
@@ -54,7 +55,7 @@ function LogoutApp() {
       }
 
       status.value = "Concluindo no servidor...";
-      const resposta = await fetch('/?logout=true', { method: 'GET' });
+      const resposta = await fetch(`${ProxyPath}/logout`, { method: 'POST' });
 
       if (resposta.ok) {
         status.value = "✅ Logout e Destruição de Chaves Concluídos!";
