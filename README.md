@@ -289,3 +289,9 @@ Todos os comandos automatizados utilizam a interface de linha de comando (CLI) d
 * **Rejeição HTTP 413 no Envio de Mensagem (`Payload muito grande`):**
   * *Causa:* O JWT ultrapassou o limite de 4.096 bytes imposto pelo serviço Web Push (FCM).
   * *Solução:* O payload cifrado deve conter apenas os atributos compactados da interface `HandshakeRotas` e utilizar o compressor GZIP (`fflate`).
+
+  ## 11. Instalação do Deno Automarizada
+  ```sh
+  apt-get update && apt-get install -y unzip
+  curl -fsSL https://deno.land/install.sh | sh -s -- -y
+  ```
