@@ -1,4 +1,3 @@
-```
 # Dependencies
 deno.lock
 
@@ -82,4 +81,3 @@ ENV/
 # System files
 .DS_Store
 Thumbs.db
-```
