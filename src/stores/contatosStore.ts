@@ -5,9 +5,11 @@ import {
   salvarContato,
   removerContato,
   serializarPublicKeyVapid,
+  buscarProfile,
 } from "../utils/db-helpers.ts";
 import type { Contato } from "../constants/db.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
+import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
 
 export type { Contato };
 
@@ -31,8 +33,26 @@ export const contatosMap = computed(() => {
 export async function carregarContatos(): Promise<void> {
   try {
     const lista = await listarContatos();
+    
+    // 🔥 Carrega o contato próprio (baseado no profile) e adiciona à lista
+    const profile = await buscarProfile();
+    if (profile) {
+      const contatoProprio = await gerarContatoProprio(profile);
+      if (contatoProprio) {
+        // Verifica se já existe na lista para não duplicar
+        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
+        if (indexExistente >= 0) {
+          // Atualiza o existente com os dados mais recentes do profile
+          lista[indexExistente] = contatoProprio;
+        } else {
+          // Adiciona o contato próprio à lista
+          lista.push(contatoProprio);
+        }
+      }
+    }
+    
     contatosRaw.value = lista;
-    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
+    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos (incluindo próprio) do banco local`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
   }
