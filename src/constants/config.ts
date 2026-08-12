@@ -1,4 +1,5 @@
-// src/config.ts
+// src/constants/config.ts
+
 /**
  * Prefixo base para comunicação com o servidor proxy / Worker.
  * Pode ser ajustado para:
@@ -12,6 +13,7 @@ export const ProxyPath: string = "";
 /**
  * Constrói uma URL completa para o proxy, garantindo compatibilidade
  * com caminhos relativos, absolutos e URLs completas.
+ * Seguro para ser executado tanto na Main Thread (Window) quanto no Service Worker (Self).
  * 
  * @param endpoint - O endpoint específico (ex: "/", "/publickey", "/logout")
  * @returns A URL completa pronta para uso no fetch
@@ -27,10 +29,14 @@ export function buildProxyUrl(endpoint: string): string {
     return `${base}/${cleanEndpoint}`;
   }
   
-  // Se ProxyPath for vazio ou relativo, usa a origem atual
+  // Se ProxyPath for vazio ou relativo, usa a origem atual (cross-environment)
   if (ProxyPath === '' || ProxyPath.startsWith('./') || ProxyPath.startsWith('../')) {
-    // Resolve URL relativa baseada na origem atual
-    const baseUrl = window.location.origin + (ProxyPath === '' ? '/' : ProxyPath);
+    // 🔥 Correção: Uso do globalThis para funcionar dentro de Service Workers
+    const origin = typeof globalThis !== 'undefined' && globalThis.location 
+      ? globalThis.location.origin 
+      : 'http://localhost';
+
+    const baseUrl = origin + (ProxyPath === '' ? '/' : ProxyPath);
     const base = baseUrl.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }
