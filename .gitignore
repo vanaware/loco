@@ -10,13 +10,41 @@ deno.lock
 .env
 .env.local
 .env.*
-!.env.example
 
 # IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+htmlcov/
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.ipynb_checkpoints/
+
+# Node.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Distribution / packaging
+.Python
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
 
 # Test coverage
 coverage/

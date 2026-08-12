@@ -144,7 +144,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       // 🔍 VERIFICA SE É MENSAGEM PARA SI MESMO (AUTO-MENSAGEM)
       const profile = await buscarProfile();
-      const ehParaSiMesmo = await ehContatoProprio(contatoId, profile);
+      const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
       
       if (ehParaSiMesmo) {
         // 🔄 FLUXO ESPECIAL: Mensagem para si mesmo (sem envio real, sem handshake)

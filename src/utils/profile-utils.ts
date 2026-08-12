@@ -5,10 +5,10 @@ import { registrarServiceWorker } from "../sw/sw-utils.ts";
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from './debug-utils.ts';
-import { ProxyPath } from '../constants/config.ts';
+import { buildProxyUrl } from '../constants/config.ts';
 
 export async function getServerPublicKey() {
-  const response = await fetch(`${ProxyPath}/publickey`, {
+  const response = await fetch(buildProxyUrl('/publickey'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
   });
