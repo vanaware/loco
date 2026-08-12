@@ -136,7 +136,8 @@ const workerHandler = {
       "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
-      "Access-Control-Allow-Credentials": "true"
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Max-Age": "86400" // Cache do preflight por 24 horas
     };
 
     if (request.method === "OPTIONS") {
@@ -208,10 +209,16 @@ const workerHandler = {
             
             // Reencaminha a mensagem para o proxy correto
             try {
-              const response = await fetch(`${destinoNormalizado}/`, {
+              // Garante que a URL tenha protocolo e barra final para evitar redirects
+              const urlDestino = destinoNormalizado.startsWith("http") 
+                ? `${destinoNormalizado}/` 
+                : `https://${destinoNormalizado}/`;
+              
+              const response = await fetch(urlDestino, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subscription, payloadText, vapid })
+                body: JSON.stringify({ subscription, payloadText, vapid }),
+                redirect: "follow" // Segue redirects automaticamente
               });
               
               const result = await response.json();
