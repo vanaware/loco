@@ -7,12 +7,14 @@ import { profile } from '../stores/profileStore.ts';
 import { contatoCompartilharHash, showToast } from '../signals/state.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
 import { navigate } from '../utils/router.ts';
+import { ehContatoProprio } from '../utils/self-contact-utils.ts';
 
 export function ContactDetailSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
   const isEditing = useSignal<boolean>(false);
   const editNome = useSignal<string>('');
   const editEmail = useSignal<string>('');
+  const isContatoProprio = useSignal<boolean>(false);
 
   const hash = contatoCompartilharHash.value;
   const item = contatosComHash.value.find(c => c.hash === hash);
@@ -22,11 +24,24 @@ export function ContactDetailSection() {
     if (!contato) {
       qrCodeDataUrl.value = null;
       isEditing.value = false;
+      isContatoProprio.value = false;
       return;
     }
 
     editNome.value = contato.name || '';
     editEmail.value = contato.email || '';
+
+    // Verifica se é o contato próprio
+    if (hash) {
+      ehContatoProprio(hash, profile.value).then((ehProprio) => {
+        isContatoProprio.value = ehProprio;
+        
+        // 🔥 Se for o próprio contato, redireciona para a tela de perfil
+        if (ehProprio) {
+          navigate('profile');
+        }
+      });
+    }
 
     try {
       const payloadBinario = gerarPayloadQrCodeCompacto(contato);
@@ -38,9 +53,12 @@ export function ContactDetailSection() {
       console.error("Erro ao gerar QR Code do contato:", e);
       qrCodeDataUrl.value = null;
     }
-  }, [contato]);
+  }, [contato, hash]);
 
   if (!contato || !hash) return null;
+  
+  // 🔥 Previne renderização se for o contato próprio (já foi redirecionado)
+  if (isContatoProprio.value) return null;
 
   const nomeExibicao = contato.name?.trim() || "Anônimo";
 
