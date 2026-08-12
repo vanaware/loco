@@ -1,7 +1,7 @@
 // src/utils/push-utils.ts
 import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
-import { ProxyPath } from '../constants/config.ts';
+import { buildProxyUrl } from '../constants/config.ts';
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   try {
@@ -82,7 +82,7 @@ export async function enviarParaProxy(
   }
 
   try {
-    const response = await fetch(`${ProxyPath}/`, {
+    const response = await fetch(buildProxyUrl('/'), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

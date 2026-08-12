@@ -1,5 +1,5 @@
 import { useSignal } from '@preact/signals';
-import { ProxyPath } from '../constants/config.ts';
+import { buildProxyUrl } from '../constants/config.ts';
 import { navigate } from '../utils/router.ts';
 
 export function LogoutSection() {
@@ -55,7 +55,7 @@ export function LogoutSection() {
       }
 
       status.value = "Concluindo no servidor...";
-      const resposta = await fetch(`${ProxyPath}/logout`, { method: 'POST' });
+      const resposta = await fetch(buildProxyUrl('/logout'), { method: 'POST' });
 
       if (resposta.ok) {
         status.value = "✅ Logout e Destruição de Chaves Concluídos!";
