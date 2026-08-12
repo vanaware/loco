@@ -198,18 +198,20 @@ const workerHandler = {
         const proxyserverDestino = jwtClaims?.proxyserver;
         if (proxyserverDestino) {
           const urlAtual = new URL(request.url);
-          const origemAtual = `${urlAtual.protocol}//${urlAtual.host}${env.PROXY_PATH || ""}`;
+          // Ignora protocolo na comparação, focando apenas em host + path
+          const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
           
-          // Normaliza ambas as URLs para comparação (remove barras finais)
+          // Remove protocolo e barras finais para comparação justa
+          const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
           const origemNormalizada = origemAtual.replace(/\/$/, "");
-          const destinoNormalizado = proxyserverDestino.replace(/\/$/, "");
+          const destinoNormalizado = destinoSemProtocolo;
           
           if (origemNormalizada !== destinoNormalizado) {
             console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
             
             // Reencaminha a mensagem para o proxy correto
             try {
-              // Garante que a URL tenha protocolo e barra final para evitar redirects
+              // Garante que a URL tenha protocolo HTTPS e barra final
               const urlDestino = destinoNormalizado.startsWith("http") 
                 ? `${destinoNormalizado}/` 
                 : `https://${destinoNormalizado}/`;
