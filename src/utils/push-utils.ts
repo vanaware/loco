@@ -82,7 +82,9 @@ export async function enviarParaProxy(
   }
 
   try {
-    const response = await fetch(buildProxyUrl('/'), {
+    // buildProxyUrl agora é assíncrono
+    const proxyUrl = await buildProxyUrl('/');
+    const response = await fetch(proxyUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

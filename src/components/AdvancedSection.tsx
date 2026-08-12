@@ -6,7 +6,7 @@ import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
 import { DebugPanel } from './DebugPanel.tsx';
 import { APP_VERSION } from '../constants/version.ts'; 
 import { navigate } from '../utils/router.ts';
-import { loadConfig, CONFIG_KEYS } from '../stores/config-store.ts';
+import { loadAllConfigs, CONFIG_KEYS } from '../stores/config-store.ts';
 
 export function AdvancedSection() {
   const diagnostic = useSignal({
@@ -23,8 +23,8 @@ export function AdvancedSection() {
   // Listener para atualizar quando a configuração mudar
   useEffect(() => {
     const updateConfig = async () => {
-      const config = await loadConfig();
-      diagnostic.value = { ...diagnostic.value, proxyPath: config[CONFIG_KEYS.PROXY_PATH] || '' };
+      const config = await loadAllConfigs();
+      diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
     };
     
     window.addEventListener('config-updated', updateConfig);

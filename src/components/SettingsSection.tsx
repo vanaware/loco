@@ -1,6 +1,6 @@
 import { useSignal, computed } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
-import { loadConfig, saveConfig, resetConfig, CONFIG_KEYS } from '../stores/config-store.ts';
+import { loadAllConfigs, saveConfig, resetConfig, CONFIG_KEYS } from '../stores/config-store.ts';
 import { showToast } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
 import { buildProxyUrl } from '../constants/config.ts';
@@ -9,15 +9,34 @@ export function SettingsSection() {
   const proxyPath = useSignal('');
   const isSaving = useSignal(false);
   const hasChanges = useSignal(false);
+  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
   
   // Carrega a configuração atual quando o componente monta
   useEffect(() => {
     const load = async () => {
-      const config = await loadConfig();
-      proxyPath.value = config[CONFIG_KEYS.PROXY_PATH] || '';
+      const config = await loadAllConfigs();
+      proxyPath.value = config.proxy_path || '';
+      // Atualiza preview das URLs
+      previewUrls.value = {
+        endpoint: await buildProxyUrl('/'),
+        publicKey: await buildProxyUrl('/publickey'),
+        logout: await buildProxyUrl('/logout')
+      };
     };
     load();
   }, []);
+  
+  // Atualiza preview quando proxyPath muda
+  useEffect(() => {
+    const updatePreview = async () => {
+      previewUrls.value = {
+        endpoint: await buildProxyUrl('/'),
+        publicKey: await buildProxyUrl('/publickey'),
+        logout: await buildProxyUrl('/logout')
+      };
+    };
+    updatePreview();
+  }, [proxyPath.value]);
   
   // Detecta mudanças no campo
   const handleProxyPathChange = (e: Event) => {
@@ -64,10 +83,10 @@ export function SettingsSection() {
     isSaving.value = true;
     
     try {
-      await saveConfig(CONFIG_KEYS.PROXY_PATH, path);
+      await saveConfig('PROXY_PATH', path);
       
       // Testa a URL construída
-      const testUrl = buildProxyUrl('/test');
+      const testUrl = await buildProxyUrl('/test');
       console.log('✅ Proxy configurado:', path);
       console.log('📍 URL de teste gerada:', testUrl);
       
@@ -103,8 +122,8 @@ export function SettingsSection() {
   
   const handleCancelar = () => {
     // Recarrega o valor original
-    loadConfig().then(config => {
-      proxyPath.value = config[CONFIG_KEYS.PROXY_PATH] || '';
+    loadAllConfigs().then(config => {
+      proxyPath.value = config.proxy_path || '';
       hasChanges.value = false;
       showToast('Alterações descartadas', 'info');
     });
@@ -158,15 +177,15 @@ export function SettingsSection() {
             <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
               <div style="display: flex; gap: 8px;">
                 <span style="color: #666; min-width: 100px;">Endpoint:</span>
-                <code style="color: #444;">{buildProxyUrl('/')}</code>
+                <code style="color: #444;">{previewUrls.value.endpoint}</code>
               </div>
               <div style="display: flex; gap: 8px;">
                 <span style="color: #666; min-width: 100px;">Public Key:</span>
-                <code style="color: #444;">{buildProxyUrl('/publickey')}</code>
+                <code style="color: #444;">{previewUrls.value.publicKey}</code>
               </div>
               <div style="display: flex; gap: 8px;">
                 <span style="color: #666; min-width: 100px;">Logout:</span>
-                <code style="color: #444;">{buildProxyUrl('/logout')}</code>
+                <code style="color: #444;">{previewUrls.value.logout}</code>
               </div>
             </div>
           </div>

@@ -1,5 +1,8 @@
 // src/config.ts
 
+import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
+import { DB_NAMES } from "./db.ts";
+
 /**
  * Prefixo base padrão para comunicação com o servidor proxy / Worker.
  * Este valor é usado apenas como fallback se não houver configuração salva no IndexedDB.
@@ -12,28 +15,77 @@
 export const DefaultProxyPath: string = "";
 
 /**
- * Obtém o ProxyPath atual, priorizando a configuração dinâmica do usuário.
- * Se não houver configuração salva, retorna o valor padrão.
- * 
- * @returns O ProxyPath configurado
+ * Chave usada no IndexedDB para armazenar o ProxyPath
  */
-export function getProxyPath(): string {
-  // Tenta obter da configuração dinâmica (se disponível no window)
-  if (typeof window !== 'undefined' && (window as any).__APP_CONFIG__) {
-    return (window as any).__APP_CONFIG__.proxyPath ?? DefaultProxyPath;
+const PROXY_PATH_KEY = 'ProxyPath';
+
+/**
+ * Cria a store de configurações para uso no Service Worker e Main Thread
+ * Lazy initialization para permitir mock em testes
+ */
+let _configStore: ReturnType<typeof createStore> | null = null;
+
+function getConfigStore() {
+  if (_configStore === null && typeof indexedDB !== 'undefined') {
+    _configStore = createStore(DB_NAMES.CONFIG, 'keyval');
   }
-  return DefaultProxyPath;
+  return _configStore;
 }
 
 /**
- * Define o ProxyPath dinamicamente (usado pelo config-store ao carregar do IndexedDB)
+ * Carrega o ProxyPath do IndexedDB (funciona no SW e na Main Thread)
+ * Lê diretamente da chave 'ProxyPath', sem agrupar em app_settings
  */
-export function setProxyPath(path: string): void {
-  if (typeof window !== 'undefined') {
-    if (!(window as any).__APP_CONFIG__) {
-      (window as any).__APP_CONFIG__ = {};
+async function loadProxyPathFromDB(): Promise<string> {
+  const configStore = getConfigStore();
+  if (!configStore) {
+    return DefaultProxyPath;
+  }
+  
+  try {
+    // Carrega da chave específica 'ProxyPath'
+    const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
+    if (stored !== undefined && stored !== null) {
+      return String(stored);
     }
-    (window as any).__APP_CONFIG__.proxyPath = path;
+    return DefaultProxyPath;
+  } catch (error) {
+    console.warn('[CONFIG] Erro ao carregar ProxyPath do IndexedDB:', error);
+    return DefaultProxyPath;
+  }
+}
+
+/**
+ * Obtém o ProxyPath atual lendo diretamente do IndexedDB.
+ * Não usa cache em memória para garantir que sempre tenha o valor mais recente.
+ * Funciona tanto na Main Thread quanto no Service Worker.
+ * 
+ * @returns Promise com o ProxyPath configurado
+ */
+export async function getProxyPath(): Promise<string> {
+  return await loadProxyPathFromDB();
+}
+
+/**
+ * Define o ProxyPath no IndexedDB.
+ * Cada configuração tem sua própria chave, não agrupa em app_settings.
+ * 
+ * @param path - O novo ProxyPath
+ * @returns Promise<void>
+ */
+export async function setProxyPath(path: string): Promise<void> {
+  const configStore = getConfigStore();
+  if (!configStore) {
+    console.error('[CONFIG] IndexedDB não disponível para salvar ProxyPath');
+    return;
+  }
+  
+  try {
+    await idbSet(PROXY_PATH_KEY, path, configStore);
+    console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
+  } catch (error) {
+    console.error('[CONFIG] Erro ao salvar ProxyPath no IndexedDB:', error);
+    throw error;
   }
 }
 
@@ -43,11 +95,11 @@ export function setProxyPath(path: string): void {
  * Seguro para ser executado tanto na Main Thread (Window) quanto no Service Worker (Self).
  * 
  * @param endpoint - O endpoint específico (ex: "/", "/publickey", "/logout")
- * @returns A URL completa pronta para uso no fetch
+ * @returns Promise com a URL completa pronta para uso no fetch
  */
-export function buildProxyUrl(endpoint: string): string {
-  // Usa o ProxyPath dinâmico ou o padrão
-  const proxyPath = getProxyPath();
+export async function buildProxyUrl(endpoint: string): Promise<string> {
+  // Usa o ProxyPath dinâmico ou o padrão (lê do IndexedDB sempre)
+  const proxyPath = await getProxyPath();
   
   // Remove barras extras do endpoint
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
@@ -64,7 +116,7 @@ export function buildProxyUrl(endpoint: string): string {
     // 🔥 Correção: Uso do globalThis para funcionar dentro de Service Workers
     const location = typeof globalThis !== 'undefined' && globalThis.location 
       ? globalThis.location 
-      : (typeof window !== 'undefined' ? window.location : null);
+      : (typeof self !== 'undefined' && (self as any).location ? (self as any).location : null);
     
     if (!location) {
       // Fallback para ambiente sem location (ex: testes Node)
