@@ -1,41 +1,83 @@
 // src/config.ts
+
 /**
- * Prefixo base para comunicação com o servidor proxy / Worker.
+ * Prefixo base padrão para comunicação com o servidor proxy / Worker.
+ * Este valor é usado apenas como fallback se não houver configuração salva no IndexedDB.
  * Pode ser ajustado para:
  * - "" (raiz relativa)
  * - "./api" (caminho relativo)
  * - "/proxy" (sub-caminho absoluto)
  * - "https://push.vanaware.com" (URL completa em outro domínio)
  */
-export const ProxyPath: string = "";
+export const DefaultProxyPath: string = "";
+
+/**
+ * Obtém o ProxyPath atual, priorizando a configuração dinâmica do usuário.
+ * Se não houver configuração salva, retorna o valor padrão.
+ * 
+ * @returns O ProxyPath configurado
+ */
+export function getProxyPath(): string {
+  // Tenta obter da configuração dinâmica (se disponível no window)
+  if (typeof window !== 'undefined' && (window as any).__APP_CONFIG__) {
+    return (window as any).__APP_CONFIG__.proxyPath ?? DefaultProxyPath;
+  }
+  return DefaultProxyPath;
+}
+
+/**
+ * Define o ProxyPath dinamicamente (usado pelo config-store ao carregar do IndexedDB)
+ */
+export function setProxyPath(path: string): void {
+  if (typeof window !== 'undefined') {
+    if (!(window as any).__APP_CONFIG__) {
+      (window as any).__APP_CONFIG__ = {};
+    }
+    (window as any).__APP_CONFIG__.proxyPath = path;
+  }
+}
 
 /**
  * Constrói uma URL completa para o proxy, garantindo compatibilidade
  * com caminhos relativos, absolutos e URLs completas.
+ * Seguro para ser executado tanto na Main Thread (Window) quanto no Service Worker (Self).
  * 
  * @param endpoint - O endpoint específico (ex: "/", "/publickey", "/logout")
  * @returns A URL completa pronta para uso no fetch
  */
 export function buildProxyUrl(endpoint: string): string {
+  // Usa o ProxyPath dinâmico ou o padrão
+  const proxyPath = getProxyPath();
+  
   // Remove barras extras do endpoint
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   
   // Se ProxyPath já for uma URL completa (começa com http:// ou https://)
-  if (ProxyPath.startsWith('http://') || ProxyPath.startsWith('https://')) {
+  if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
     // Garante que ProxyPath termine sem barra e endpoint comece com barra
-    const base = ProxyPath.replace(/\/$/, '');
+    const base = proxyPath.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }
   
-  // Se ProxyPath for vazio ou relativo, usa a origem atual
-  if (ProxyPath === '' || ProxyPath.startsWith('./') || ProxyPath.startsWith('../')) {
-    // Resolve URL relativa baseada na origem atual
-    const baseUrl = window.location.origin + (ProxyPath === '' ? '/' : ProxyPath);
+  // Se ProxyPath for vazio ou relativo, usa a origem atual (cross-environment)
+  if (proxyPath === '' || proxyPath.startsWith('./') || proxyPath.startsWith('../')) {
+    // 🔥 Correção: Uso do globalThis para funcionar dentro de Service Workers
+    const location = typeof globalThis !== 'undefined' && globalThis.location 
+      ? globalThis.location 
+      : (typeof window !== 'undefined' ? window.location : null);
+    
+    if (!location) {
+      // Fallback para ambiente sem location (ex: testes Node)
+      return `/${cleanEndpoint}`;
+    }
+    
+    const origin = location.origin;
+    const baseUrl = origin + (proxyPath === '' ? '/' : proxyPath);
     const base = baseUrl.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }
   
   // Se ProxyPath for um caminho absoluto (ex: "/proxy")
-  const base = ProxyPath.replace(/\/$/, '');
+  const base = proxyPath.replace(/\/$/, '');
   return `${base}/${cleanEndpoint}`;
 }
