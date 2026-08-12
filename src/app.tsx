@@ -10,6 +10,7 @@ import { AdvancedSection } from './components/AdvancedSection.tsx';
 import { ProfileSection } from './components/ProfileSection.tsx';
 import { LogoutSection } from './components/LogoutSection.tsx';
 import { ShareSection } from './components/ShareSection.tsx';
+import { SettingsSection } from './components/SettingsSection.tsx';
 import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 
 // Signals e Lógica de Negócio
@@ -41,6 +42,7 @@ const ViewMap: Record<string, ComponentType<any>> = {
   'profile': () => <div style="padding: 24px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
   'logout': LogoutSection,
   'share': ShareSection,
+  'settings': () => <div style="padding: 24px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><SettingsSection/></div></div>,
   'home': HomePlaceholder,
 };
 
@@ -103,6 +105,10 @@ function App() {
     headerTitle = "Opções Avançadas";
     headerSubtitle = "Diagnóstico do sistema e logs de rede";
     headerIcon = "settings_suggest";
+  } else if (activeView.value === 'settings') {
+    headerTitle = "Configurações";
+    headerSubtitle = "Configure o servidor Push Proxy e outras opções";
+    headerIcon = "settings";
   } else if (activeView.value === 'detail') {
     headerTitle = `Cartão de ${nomeDetalhesAtivo}`;
     headerSubtitle = "Gerencie as informações e a confiança deste contato";
@@ -133,6 +139,10 @@ function App() {
               </md-icon-button>
               
               <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
+                <md-menu-item onClick={() => { navigate('#settings'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                  <div slot="headline">Configurações</div>
+                  <md-icon slot="start">settings</md-icon>
+                </md-menu-item>
                 <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
                   <div slot="headline">Avançado</div>
                   <md-icon slot="start">settings_suggest</md-icon>

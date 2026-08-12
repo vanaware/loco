@@ -6,45 +6,31 @@ deno.lock
 *.tmp
 *.swp
 
-# Environment variables
+# Environment
 .env
 .env.local
 .env.*
 
-# IDE files
+# Editor/IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *.tmp
 
-# Python
+# OS
+.DS_Store
+Thumbs.db
+
+# Python (if applicable)
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-*.so
-.coverage
-htmlcov/
-.coverage.*
-.pytest_cache/
-.mypy_cache/
-.pyre/
-.pytype/
-.ipynb_checkpoints/
-
-# Node.js
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Distribution / packaging
-.Python
-*.egg-info/
-.eggs/
-.installed.cfg
-*.egg
+venv/
+.venv/
+.env
 
 # Test coverage
 coverage/

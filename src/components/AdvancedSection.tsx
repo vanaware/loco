@@ -6,6 +6,7 @@ import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
 import { DebugPanel } from './DebugPanel.tsx';
 import { APP_VERSION } from '../constants/version.ts'; 
 import { navigate } from '../utils/router.ts';
+import { loadConfig, CONFIG_KEYS } from '../stores/config-store.ts';
 
 export function AdvancedSection() {
   const diagnostic = useSignal({
@@ -15,8 +16,24 @@ export function AdvancedSection() {
     permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
     suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
     armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
+    proxyPath: '',
     loading: true,
   });
+  
+  // Listener para atualizar quando a configuração mudar
+  useEffect(() => {
+    const updateConfig = async () => {
+      const config = await loadConfig();
+      diagnostic.value = { ...diagnostic.value, proxyPath: config[CONFIG_KEYS.PROXY_PATH] || '' };
+    };
+    
+    window.addEventListener('config-updated', updateConfig);
+    updateConfig();
+    
+    return () => {
+      window.removeEventListener('config-updated', updateConfig);
+    };
+  }, []);
 
   const runDiagnostics = async () => {
     const p = profile.value;
@@ -85,6 +102,7 @@ export function AdvancedSection() {
       suporteBackgroundSync: hasBackgroundSync,
       armazenamentoPersistido: storagePersisted,
       cotaEspaco: quotaInfo,
+      proxyPath: diagnostic.value.proxyPath, // Mantém o valor atual da configuração
       loading: false,
     };
 
@@ -185,6 +203,13 @@ export function AdvancedSection() {
                       Proteger Dados
                     </md-outlined-button>
                   )}
+                </li>
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
+                  <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                    <md-icon slot="icon">edit</md-icon>
+                    Configurar
+                  </md-outlined-button>
                 </li>
                 {diag.cotaEspaco.livreMB > 0 && (
                   <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">

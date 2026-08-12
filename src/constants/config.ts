@@ -1,14 +1,41 @@
 // src/constants/config.ts
 
 /**
- * Prefixo base para comunicação com o servidor proxy / Worker.
+ * Prefixo base padrão para comunicação com o servidor proxy / Worker.
+ * Este valor é usado apenas como fallback se não houver configuração salva no IndexedDB.
  * Pode ser ajustado para:
  * - "" (raiz relativa)
  * - "./api" (caminho relativo)
  * - "/proxy" (sub-caminho absoluto)
  * - "https://push.vanaware.com" (URL completa em outro domínio)
  */
-export const ProxyPath: string = "";
+export const DefaultProxyPath: string = "";
+
+/**
+ * Obtém o ProxyPath atual, priorizando a configuração dinâmica do usuário.
+ * Se não houver configuração salva, retorna o valor padrão.
+ * 
+ * @returns O ProxyPath configurado
+ */
+export function getProxyPath(): string {
+  // Tenta obter da configuração dinâmica (se disponível no window)
+  if (typeof window !== 'undefined' && (window as any).__APP_CONFIG__) {
+    return (window as any).__APP_CONFIG__.proxyPath ?? DefaultProxyPath;
+  }
+  return DefaultProxyPath;
+}
+
+/**
+ * Define o ProxyPath dinamicamente (usado pelo config-store ao carregar do IndexedDB)
+ */
+export function setProxyPath(path: string): void {
+  if (typeof window !== 'undefined') {
+    if (!(window as any).__APP_CONFIG__) {
+      (window as any).__APP_CONFIG__ = {};
+    }
+    (window as any).__APP_CONFIG__.proxyPath = path;
+  }
+}
 
 /**
  * Constrói uma URL completa para o proxy, garantindo compatibilidade
@@ -19,13 +46,16 @@ export const ProxyPath: string = "";
  * @returns A URL completa pronta para uso no fetch
  */
 export function buildProxyUrl(endpoint: string): string {
+  // Usa o ProxyPath dinâmico ou o padrão
+  const proxyPath = getProxyPath();
+  
   // Remove barras extras do endpoint
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   
   // Se ProxyPath já for uma URL completa (começa com http:// ou https://)
-  if (ProxyPath.startsWith('http://') || ProxyPath.startsWith('https://')) {
+  if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
     // Garante que ProxyPath termine sem barra e endpoint comece com barra
-    const base = ProxyPath.replace(/\/$/, '');
+    const base = proxyPath.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }
   
@@ -42,6 +72,6 @@ export function buildProxyUrl(endpoint: string): string {
   }
   
   // Se ProxyPath for um caminho absoluto (ex: "/proxy")
-  const base = ProxyPath.replace(/\/$/, '');
+  const base = proxyPath.replace(/\/$/, '');
   return `${base}/${cleanEndpoint}`;
 }
