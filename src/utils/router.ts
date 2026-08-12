@@ -60,5 +60,6 @@ export const activeView = computed(() => {
   if (hash === '#profile') return 'profile';
   if (hash === '#logout') return 'logout';
   if (hash.startsWith('#share')) return 'share';
+  if (hash === '#settings') return 'settings';
   return 'home';
 });

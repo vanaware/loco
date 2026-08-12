@@ -55,7 +55,8 @@ export function LogoutSection() {
       }
 
       status.value = "Concluindo no servidor...";
-      const resposta = await fetch(buildProxyUrl('/logout'), { method: 'POST' });
+      const proxyUrl = await buildProxyUrl('/logout');
+      const resposta = await fetch(proxyUrl, { method: 'POST' });
 
       if (resposta.ok) {
         status.value = "✅ Logout e Destruição de Chaves Concluídos!";

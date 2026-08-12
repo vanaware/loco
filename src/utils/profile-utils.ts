@@ -8,7 +8,8 @@ import { addDebugLog } from './debug-utils.ts';
 import { buildProxyUrl } from '../constants/config.ts';
 
 export async function getServerPublicKey() {
-  const response = await fetch(buildProxyUrl('/publickey'), {
+  const proxyUrl = await buildProxyUrl('/publickey');
+  const response = await fetch(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
   });

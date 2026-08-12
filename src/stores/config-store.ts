@@ -11,59 +11,27 @@ const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
 const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
 
 /**
- * Chave onde as configurações da UI são salvas no AppConfig_DB
- * (separado do ProfileConfig que usa a chave "profile")
- */
-export const APP_SETTINGS_KEY = "app_settings";
-
-/**
  * Chaves de configuração disponíveis
+ * Cada configuração tem sua própria chave no IndexedDB
  */
 export const CONFIG_KEYS = {
-  PROXY_PATH: "proxy_path",
+  PROXY_PATH: "ProxyPath",
 } as const;
-
-export interface AppConfig {
-  proxy_path?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Carrega todas as configurações do IndexedDB
- */
-export async function loadConfig(): Promise<AppConfig> {
-  try {
-    const config = await get<AppConfig>(APP_SETTINGS_KEY, configStore) || {};
-    
-    // Se tiver proxy_path salvo, aplica dinamicamente
-    if (config.proxy_path !== undefined) {
-      setProxyPath(config.proxy_path);
-    } else {
-      // Usa o default se não houver configuração salva
-      setProxyPath(DefaultProxyPath);
-    }
-    
-    return config;
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao carregar configurações:", error);
-    return { proxy_path: DefaultProxyPath };
-  }
-}
 
 /**
  * Salva uma configuração específica no IndexedDB
+ * Cada configuração usa sua própria chave (não agrupa em app_settings)
  */
-export async function saveConfig<K extends keyof AppConfig>(key: K, value: AppConfig[K]): Promise<void> {
+export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
   try {
-    const currentConfig = await loadConfig();
-    const newConfig = { ...currentConfig, [key]: value };
+    const configKey = CONFIG_KEYS[key];
     
-    // Salva na chave app_settings (separado do profile)
-    await set(APP_SETTINGS_KEY, newConfig, configStore);
+    // Salva diretamente na chave específica
+    await set(configKey, value, configStore);
     
     // Atualiza dinamicamente se for proxy_path
-    if (key === CONFIG_KEYS.PROXY_PATH && typeof value === 'string') {
-      setProxyPath(value);
+    if (key === 'PROXY_PATH' && typeof value === 'string') {
+      await setProxyPath(value);
     }
   } catch (error) {
     console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
@@ -72,10 +40,24 @@ export async function saveConfig<K extends keyof AppConfig>(key: K, value: AppCo
 }
 
 /**
+ * Carrega uma configuração específica do IndexedDB
+ */
+export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
+  try {
+    const configKey = CONFIG_KEYS[key];
+    const value = await get<string>(configKey, configStore);
+    return value !== undefined && value !== null ? value : undefined;
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao carregar configuração:", error);
+    return undefined;
+  }
+}
+
+/**
  * Atalho para atualizar apenas o ProxyPath
  */
 export async function updateProxyPath(newPath: string): Promise<void> {
-  return saveConfig(CONFIG_KEYS.PROXY_PATH, newPath);
+  return saveConfig('PROXY_PATH', newPath);
 }
 
 /**
@@ -83,8 +65,8 @@ export async function updateProxyPath(newPath: string): Promise<void> {
  */
 export async function resetConfig(): Promise<void> {
   try {
-    await set(APP_SETTINGS_KEY, { proxy_path: DefaultProxyPath }, configStore);
-    setProxyPath(DefaultProxyPath);
+    await set(CONFIG_KEYS.PROXY_PATH, DefaultProxyPath, configStore);
+    await setProxyPath(DefaultProxyPath);
   } catch (error) {
     console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
     throw error;
@@ -92,9 +74,17 @@ export async function resetConfig(): Promise<void> {
 }
 
 /**
- * Obtém o valor de uma configuração específica
+ * Carrega todas as configurações (útil para inicialização)
  */
-export async function getConfigValue<K extends keyof AppConfig>(key: K): Promise<AppConfig[K] | undefined> {
-  const config = await loadConfig();
-  return config[key];
+export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
+  const proxy_path = await getConfigValue('PROXY_PATH');
+  
+  // Aplica o proxy path se existir
+  if (proxy_path !== undefined) {
+    await setProxyPath(proxy_path);
+  } else {
+    await setProxyPath(DefaultProxyPath);
+  }
+  
+  return { proxy_path };
 }
