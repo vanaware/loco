@@ -125,12 +125,17 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     if (!p256dhBuffer || !authBuffer) {
       throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
     }
+    
+    // Resolve o proxyserver com caminho completo
+    const proxyserver = await buildProxyUrl('/');
+    
     const subscription = {
       endpoint: existingSubscription.endpoint,
       keys: {
         p256dh: rawBufferToBase64Url(p256dhBuffer),
         auth: rawBufferToBase64Url(authBuffer)
-      }
+      },
+      proxyserver
     };
 
     let e2ePublicKey: JsonWebKey;
