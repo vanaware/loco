@@ -14,6 +14,7 @@ export function ContactDetailSection() {
   const isEditing = useSignal<boolean>(false);
   const editNome = useSignal<string>('');
   const editEmail = useSignal<string>('');
+  const editProxyserver = useSignal<string>('');
   const isContatoProprio = useSignal<boolean>(false);
 
   const hash = contatoCompartilharHash.value;
@@ -30,6 +31,7 @@ export function ContactDetailSection() {
 
     editNome.value = contato.name || '';
     editEmail.value = contato.email || '';
+    editProxyserver.value = contato.subscription?.proxyserver || '';
 
     // Verifica se é o contato próprio
     if (hash) {
@@ -127,6 +129,10 @@ export function ContactDetailSection() {
         ...contato,
         name: editNome.value.trim(),
         email: editEmail.value.trim(),
+        subscription: {
+          ...contato.subscription,
+          proxyserver: editProxyserver.value.trim()
+        },
         updatedAt: Date.now(),
       };
 
@@ -141,6 +147,7 @@ export function ContactDetailSection() {
   const handleCancelarEdicao = () => {
     editNome.value = contato.name || '';
     editEmail.value = contato.email || '';
+    editProxyserver.value = contato.subscription?.proxyserver || '';
     isEditing.value = false;
   };
 
@@ -189,6 +196,12 @@ export function ContactDetailSection() {
               onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
             ></md-outlined-text-field>
 
+            <md-outlined-text-field
+              label="Proxy Server (URL completa)"
+              value={editProxyserver.value}
+              onInput={(e: Event) => editProxyserver.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
             <div style="display: flex; gap: 8px; margin-top: 4px;">
               <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
                 💾 Salvar
@@ -210,7 +223,10 @@ export function ContactDetailSection() {
               </div>
             )}
 
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">{contato.email || 'Sem e-mail'}</p>
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
+            <p style="color: #888; font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
+              <md-icon style="font-size: 1rem; vertical-align: middle;">dns</md-icon> Proxy: {contato.subscription?.proxyserver || 'Não informado'}
+            </p>
           </>
         )}
 
