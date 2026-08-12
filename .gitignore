@@ -1,10 +1,10 @@
-```
 # Dependencies
-node_modules/
+deno.lock
 
 # Logs and temp files
 *.log
 *.tmp
+*.swp
 
 # Environment
 .env
@@ -14,6 +14,11 @@ node_modules/
 # Editors
 .vscode/
 .idea/
+
+# Test coverage
+coverage/
+htmlcov/
+*.coverage
 
 # Build artifacts
 dist/
@@ -25,51 +30,31 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Java
-*.class
-*.jar
-*.war
-*.ear
-*.war
-*.sar
-*.nar
-*.klib
-
-# C/C++
-*.o
-*.obj
+.Python
 *.so
-*.a
-*.lib
-*.dll
-*.dylib
-*.exe
-
-# Rust
-Cargo.lock
-
-# Go
-*.exe
-*.dll
-*.so
-*.dylib
-
-# Ruby
-*.gem
-*.rbc
-coverage/
-*.dSYM
+*.egg-info/
+.eggs/
 
 # Node.js
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+node_modules/
 
-# Deno
-deno.lock
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
 
-# Compressed files
+# Compiled and binary files
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.class
+*.out
+
+# Compression files
 *.zip
 *.gz
 *.tar
@@ -93,17 +78,6 @@ deno.lock
 *.tar.xz
 *.tar.zst
 
-# OS generated files
+# System files
 .DS_Store
 Thumbs.db
-ehthumbs.db
-Icon?
-```
-
-Wait, let me reconsider this. Looking at the actual files changed, they are TypeScript source files and a lock file. There are no build artifacts, dependency directories, or temporary files in the change list that would require ignoring. The deno.lock file should typically be committed, not ignored.
-
-Actually, since the changes only include source files (.ts) and a lock file that should be committed, no files need to be ignored.
-
-```
-
-```
