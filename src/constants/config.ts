@@ -1,5 +1,3 @@
-// src/constants/config.ts
-
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
 import { DB_NAMES } from "./db.ts";
 
@@ -44,6 +42,7 @@ async function loadProxyPathFromDB(): Promise<string> {
   
   try {
     // Carrega da chave específica 'ProxyPath'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
     if (stored !== undefined && stored !== null) {
       return String(stored);
@@ -104,26 +103,26 @@ export async function buildProxyUrl(endpoint: string): Promise<string> {
   // Remove barras extras do endpoint
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   
-  // Se ProxyPath já for uma URL completa (começa com http:// ou https://)
+  // Se proxyPath já for uma URL completa (começa com http:// ou https://)
   if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
-    // Garante que ProxyPath termine sem barra e endpoint comece com barra
+    // Garante que proxyPath termine sem barra e endpoint comece com barra
     const base = proxyPath.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }
   
-  // Se ProxyPath for vazio ou relativo, usa a origem atual (cross-environment)
-  if (ProxyPath === '' || ProxyPath.startsWith('./') || ProxyPath.startsWith('../')) {
+  // Se proxyPath for vazio ou relativo, usa a origem atual (cross-environment)
+  if (proxyPath === '' || proxyPath.startsWith('./') || proxyPath.startsWith('../')) {
     // 🔥 Correção: Uso do globalThis para funcionar dentro de Service Workers
     const origin = typeof globalThis !== 'undefined' && globalThis.location 
       ? globalThis.location.origin 
       : 'http://localhost';
 
-    const baseUrl = origin + (ProxyPath === '' ? '/' : ProxyPath);
+    const baseUrl = origin + (proxyPath === '' ? '/' : proxyPath);
     const base = baseUrl.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }
   
-  // Se ProxyPath for um caminho absoluto (ex: "/proxy")
+  // Se proxyPath for um caminho absoluto (ex: "/proxy")
   const base = proxyPath.replace(/\/$/, '');
   return `${base}/${cleanEndpoint}`;
 }

@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.70-mspdxawj** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.74-mspgf4cj** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.70-mspdxawj] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.74-mspgf4cj] - Modo: MAIN
 
-Gerado automaticamente em: 8/11/2026, 10:04:11 PM
+Gerado automaticamente em: 8/11/2026, 11:12:35 PM
 
 ---
 
@@ -575,218 +575,6 @@ const styles: Record<string, JSX.CSSProperties> = {
   summary: { cursor: "pointer", color: "#0066cc", fontSize: "0.75rem" },
   json: { margin: "4px 0 0 0", padding: "8px", backgroundColor: "#1e1e1e", color: "#00ff66", borderRadius: "4px", fontSize: "0.75rem", overflowX: "auto" },
 };
-```
-
----
-
-## Arquivo: `src/components/AdvancedSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { profile } from '../stores/profileStore.ts';
-import { showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
-import { DebugPanel } from './DebugPanel.tsx';
-import { APP_VERSION } from '../constants/version.ts'; 
-import { navigate } from '../utils/router.ts';
-
-export function AdvancedSection() {
-  const diagnostic = useSignal({
-    identificacao: false, criptografia: false, blindagemServidor: false,
-    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
-    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
-    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
-    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
-    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
-    loading: true,
-  });
-
-  const runDiagnostics = async () => {
-    const p = profile.value;
-    
-    let envelopeOK = false;
-    if (p?.vapidPrivateKeyEnvelope) {
-      try {
-        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
-        const envelopeDecoded = JSON.parse(envelopeJson);
-        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
-          envelopeOK = true;
-        }
-      } catch { envelopeOK = false; }
-    }
-
-    let cameraState = 'prompt', micState = 'prompt';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
-    }
-
-    let storagePersisted = false;
-    let quotaInfo = { usoMB: 0, livreMB: 0 };
-    if ('storage' in navigator) {
-      if (navigator.storage.persisted) {
-        try { storagePersisted = await navigator.storage.persisted(); } catch {}
-      }
-      if (navigator.storage.estimate) {
-        try {
-          const estimate = await navigator.storage.estimate();
-          quotaInfo = {
-            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
-            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
-          };
-        } catch {}
-      }
-    }
-
-    let swControlando = false, hasBackgroundSync = false;
-    if ('serviceWorker' in navigator) {
-      swControlando = navigator.serviceWorker.controller !== null;
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) hasBackgroundSync = 'sync' in reg;
-      } catch {}
-    }
-
-    const diag = {
-      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
-      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
-      blindagemServidor: envelopeOK,
-      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
-      inscricaoRegistrada: !!p?.subscription,
-      inscricaoValida: false,
-      swAtivoEControlando: swControlando,
-      isOnline: navigator.onLine,
-      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
-      permissaoCamera: cameraState,
-      permissaoMicrofone: micState,
-      suporteBarcodeDetector: 'BarcodeDetector' in window,
-      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
-      suporteWebRTC: 'RTCPeerConnection' in window,
-      suporteBackgroundSync: hasBackgroundSync,
-      armazenamentoPersistido: storagePersisted,
-      cotaEspaco: quotaInfo,
-      loading: false,
-    };
-
-    if (diag.permissoesNotificacao && p?.subscription) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg && reg.pushManager) {
-          const sub = await reg.pushManager.getSubscription();
-          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
-        }
-      } catch {}
-    }
-
-    diagnostic.value = diag;
-  };
-
-  useEffect(() => {
-    runDiagnostics();
-    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
-    };
-  }, [profile.value]);
-
-  const diag = diagnostic.value;
-
-  const handleSolicitarPersistenciaManual = async () => {
-    const ok = await solicitarArmazenamentoPersistente();
-    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
-    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
-    await runDiagnostics();
-  };
-
-  const handleFechar = () => {
-    navigate(''); 
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
-            </span>
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Build Version: v{APP_VERSION}
-            </span>
-          </div>
-          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        {diag.loading ? (
-          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
-        ) : (
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                🛑 Requisitos Obrigatórios
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
-                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
-                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
-                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
-                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
-                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
-                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
-              </ul>
-            </div>
-            <md-divider></md-divider>
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                ⚡ Recursos Desejáveis & Status
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
-                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
-                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
-                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
-                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
-                <li>
-                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
-                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
-                   'ℹ️ Permissão de Câmera (Pendente)'}
-                </li>
-                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
-                  {!diag.armazenamentoPersistido && (
-                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                      Proteger Dados
-                    </md-outlined-button>
-                  )}
-                </li>
-                {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
-                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
-                  </li>
-                )}
-              </ul>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style="max-width: 600px; width: 100%;">
-        <DebugPanel />
-      </div>
-    </div>
-  );
-}
 ```
 
 ---
@@ -1524,6 +1312,243 @@ export function ContactDetailSection() {
 
 ---
 
+## Arquivo: `src/components/AdvancedSection.tsx`
+
+```tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { profile } from '../stores/profileStore.ts';
+import { showToast } from '../signals/state.ts';
+import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
+import { DebugPanel } from './DebugPanel.tsx';
+import { APP_VERSION } from '../constants/version.ts'; 
+import { navigate } from '../utils/router.ts';
+import { loadAllConfigs, CONFIG_KEYS } from '../stores/config-store.ts';
+
+export function AdvancedSection() {
+  const diagnostic = useSignal({
+    identificacao: false, criptografia: false, blindagemServidor: false,
+    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
+    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
+    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
+    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
+    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
+    proxyPath: '',
+    loading: true,
+  });
+  
+  // Listener para atualizar quando a configuração mudar
+  useEffect(() => {
+    const updateConfig = async () => {
+      const config = await loadAllConfigs();
+      diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
+    };
+    
+    window.addEventListener('config-updated', updateConfig);
+    updateConfig();
+    
+    return () => {
+      window.removeEventListener('config-updated', updateConfig);
+    };
+  }, []);
+
+  const runDiagnostics = async () => {
+    const p = profile.value;
+    
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch { envelopeOK = false; }
+    }
+
+    let cameraState = 'prompt', micState = 'prompt';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
+    }
+
+    let storagePersisted = false;
+    let quotaInfo = { usoMB: 0, livreMB: 0 };
+    if ('storage' in navigator) {
+      if (navigator.storage.persisted) {
+        try { storagePersisted = await navigator.storage.persisted(); } catch {}
+      }
+      if (navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          quotaInfo = {
+            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
+            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
+          };
+        } catch {}
+      }
+    }
+
+    let swControlando = false, hasBackgroundSync = false;
+    if ('serviceWorker' in navigator) {
+      swControlando = navigator.serviceWorker.controller !== null;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) hasBackgroundSync = 'sync' in reg;
+      } catch {}
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
+      inscricaoRegistrada: !!p?.subscription,
+      inscricaoValida: false,
+      swAtivoEControlando: swControlando,
+      isOnline: navigator.onLine,
+      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
+      permissaoCamera: cameraState,
+      permissaoMicrofone: micState,
+      suporteBarcodeDetector: 'BarcodeDetector' in window,
+      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
+      suporteWebRTC: 'RTCPeerConnection' in window,
+      suporteBackgroundSync: hasBackgroundSync,
+      armazenamentoPersistido: storagePersisted,
+      cotaEspaco: quotaInfo,
+      proxyPath: diagnostic.value.proxyPath, // Mantém o valor atual da configuração
+      loading: false,
+    };
+
+    if (diag.permissoesNotificacao && p?.subscription) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
+        }
+      } catch {}
+    }
+
+    diagnostic.value = diag;
+  };
+
+  useEffect(() => {
+    runDiagnostics();
+    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+
+  const handleSolicitarPersistenciaManual = async () => {
+    const ok = await solicitarArmazenamentoPersistente();
+    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
+    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
+    await runDiagnostics();
+  };
+
+  const handleFechar = () => {
+    navigate(''); 
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
+            </span>
+            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+              Build Version: v{APP_VERSION}
+            </span>
+          </div>
+          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        {diag.loading ? (
+          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
+        ) : (
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                🛑 Requisitos Obrigatórios
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
+                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
+              </ul>
+            </div>
+            <md-divider></md-divider>
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                ⚡ Recursos Desejáveis & Status
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
+                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
+                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
+                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
+                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
+                <li>
+                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
+                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
+                   'ℹ️ Permissão de Câmera (Pendente)'}
+                </li>
+                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
+                  {!diag.armazenamentoPersistido && (
+                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                      Proteger Dados
+                    </md-outlined-button>
+                  )}
+                </li>
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
+                  <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                    <md-icon slot="icon">edit</md-icon>
+                    Configurar
+                  </md-outlined-button>
+                </li>
+                {diag.cotaEspaco.livreMB > 0 && (
+                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
+                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style="max-width: 600px; width: 100%;">
+        <DebugPanel />
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/components/LogoutSection.tsx`
 
 ```tsx
@@ -1584,7 +1609,8 @@ export function LogoutSection() {
       }
 
       status.value = "Concluindo no servidor...";
-      const resposta = await fetch(buildProxyUrl('/logout'), { method: 'POST' });
+      const proxyUrl = await buildProxyUrl('/logout');
+      const resposta = await fetch(proxyUrl, { method: 'POST' });
 
       if (resposta.ok) {
         status.value = "✅ Logout e Destruição de Chaves Concluídos!";
@@ -1630,6 +1656,243 @@ export function LogoutSection() {
     </div>
   );
 }
+```
+
+---
+
+## Arquivo: `src/components/SettingsSection.tsx`
+
+```tsx
+import { useSignal, computed } from '@preact/signals';
+import { useEffect } from 'preact/hooks';
+import { loadAllConfigs, saveConfig, resetConfig, CONFIG_KEYS } from '../stores/config-store.ts';
+import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+import { buildProxyUrl } from '../constants/config.ts';
+
+export function SettingsSection() {
+  const proxyPath = useSignal('');
+  const isSaving = useSignal(false);
+  const hasChanges = useSignal(false);
+  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
+  
+  // Carrega a configuração atual quando o componente monta
+  useEffect(() => {
+    const load = async () => {
+      const config = await loadAllConfigs();
+      proxyPath.value = config.proxy_path || '';
+      // Atualiza preview das URLs
+      previewUrls.value = {
+        endpoint: await buildProxyUrl('/'),
+        publicKey: await buildProxyUrl('/publickey'),
+        logout: await buildProxyUrl('/logout')
+      };
+    };
+    load();
+  }, []);
+  
+  // Atualiza preview quando proxyPath muda
+  useEffect(() => {
+    const updatePreview = async () => {
+      previewUrls.value = {
+        endpoint: await buildProxyUrl('/'),
+        publicKey: await buildProxyUrl('/publickey'),
+        logout: await buildProxyUrl('/logout')
+      };
+    };
+    updatePreview();
+  }, [proxyPath.value]);
+  
+  // Detecta mudanças no campo
+  const handleProxyPathChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    proxyPath.value = target.value;
+    hasChanges.value = true;
+  };
+  
+  // Valida se a URL é válida
+  const validateProxyPath = (path: string): boolean => {
+    if (!path || path.trim() === '') return true; // Vazio é válido (usa raiz relativa)
+    
+    // URLs absolutas devem começar com http:// ou https://
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      try {
+        new URL(path);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    
+    // Caminhos relativos podem começar com ./ ou ../
+    if (path.startsWith('./') || path.startsWith('../')) {
+      return true;
+    }
+    
+    // Caminhos absolutos começam com /
+    if (path.startsWith('/')) {
+      return true;
+    }
+    
+    return false;
+  };
+  
+  const handleSalvar = async () => {
+    const path = proxyPath.value.trim();
+    
+    if (!validateProxyPath(path)) {
+      showToast('❌ Formato de Proxy Path inválido. Use URL completa (https://...), caminho absoluto (/...) ou relativo (./...)', 'error');
+      return;
+    }
+    
+    isSaving.value = true;
+    
+    try {
+      await saveConfig('PROXY_PATH', path);
+      
+      // Testa a URL construída
+      const testUrl = await buildProxyUrl('/test');
+      console.log('✅ Proxy configurado:', path);
+      console.log('📍 URL de teste gerada:', testUrl);
+      
+      showToast(`✅ Configuração salva!${path ? ` Proxy: ${path}` : ' (usando raiz relativa)'}`, 'success');
+      hasChanges.value = false;
+      
+      // Recarrega diagnósticos se estiver na tela de avançado
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      console.error('Erro ao salvar configuração:', error);
+      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
+    } finally {
+      isSaving.value = false;
+    }
+  };
+  
+  const handleReset = async () => {
+    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
+      return;
+    }
+    
+    try {
+      await resetConfig();
+      proxyPath.value = '';
+      hasChanges.value = false;
+      showToast('✅ Configurações resetadas para o padrão', 'success');
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      console.error('Erro ao resetar configuração:', error);
+      showToast('❌ Erro ao resetar configuração', 'error');
+    }
+  };
+  
+  const handleCancelar = () => {
+    // Recarrega o valor original
+    loadAllConfigs().then(config => {
+      proxyPath.value = config.proxy_path || '';
+      hasChanges.value = false;
+      showToast('Alterações descartadas', 'info');
+    });
+  };
+  
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>settings</md-icon> Configurações
+            </span>
+            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+              Configure o servidor Push Proxy
+            </span>
+          </div>
+          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          
+          {/* Campo Proxy Path */}
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface);">
+              Proxy Path
+            </label>
+            <md-outlined-text-field
+              id="proxy-path"
+              value={proxyPath.value}
+              onInput={handleProxyPathChange}
+              placeholder="Ex: https://push.vanaware.com ou ./api"
+              style="width: 100%;"
+              disabled={isSaving.value}
+            >
+              <md-icon slot="leading-icon">link</md-icon>
+            </md-outlined-text-field>
+            <span style="font-size: 0.75rem; color: #666;">
+              Define o endpoint do servidor push. Pode ser uma URL completa, caminho absoluto ou relativo.
+            </span>
+          </div>
+          
+          {/* Preview da URL gerada */}
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px;">
+            <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
+              🔍 Preview das URLs geradas:
+            </span>
+            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
+              <div style="display: flex; gap: 8px;">
+                <span style="color: #666; min-width: 100px;">Endpoint:</span>
+                <code style="color: #444;">{previewUrls.value.endpoint}</code>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <span style="color: #666; min-width: 100px;">Public Key:</span>
+                <code style="color: #444;">{previewUrls.value.publicKey}</code>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <span style="color: #666; min-width: 100px;">Logout:</span>
+                <code style="color: #444;">{previewUrls.value.logout}</code>
+              </div>
+            </div>
+          </div>
+          
+          {/* Ações */}
+          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+            <md-outlined-button 
+              onClick={handleCancelar} 
+              disabled={!hasChanges.value || isSaving.value}
+            >
+              Cancelar
+            </md-outlined-button>
+            
+            <md-outlined-button 
+              onClick={handleReset} 
+              disabled={isSaving.value}
+              style="color: var(--md-sys-color-error);"
+            >
+              Resetar Padrão
+            </md-outlined-button>
+            
+            <md-filled-button 
+              onClick={handleSalvar} 
+              disabled={!hasChanges.value || isSaving.value}
+            >
+              {isSaving.value ? (
+                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
+              ) : (
+                <>
+                  <md-icon slot="icon">save</md-icon>
+                  Salvar
+                </>
+              )}
+            </md-filled-button>
+          </div>
+          
+        </div>
+      </div>
+    </div>
+  );
+}
+
 ```
 
 ---
@@ -1780,7 +2043,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.70-mspdxawj";
+export const APP_VERSION = "0.2.74-mspgf4cj";
 
 ```
 
@@ -1789,17 +2052,95 @@ export const APP_VERSION = "0.2.70-mspdxawj";
 ## Arquivo: `src/constants/config.ts`
 
 ```ts
-// src/constants/config.ts
+import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
+import { DB_NAMES } from "./db.ts";
 
 /**
- * Prefixo base para comunicação com o servidor proxy / Worker.
+ * Prefixo base padrão para comunicação com o servidor proxy / Worker.
+ * Este valor é usado apenas como fallback se não houver configuração salva no IndexedDB.
  * Pode ser ajustado para:
  * - "" (raiz relativa)
  * - "./api" (caminho relativo)
  * - "/proxy" (sub-caminho absoluto)
  * - "https://push.vanaware.com" (URL completa em outro domínio)
  */
-export const ProxyPath: string = "";
+export const DefaultProxyPath: string = "";
+
+/**
+ * Chave usada no IndexedDB para armazenar o ProxyPath
+ */
+const PROXY_PATH_KEY = 'ProxyPath';
+
+/**
+ * Cria a store de configurações para uso no Service Worker e Main Thread
+ * Lazy initialization para permitir mock em testes
+ */
+let _configStore: ReturnType<typeof createStore> | null = null;
+
+function getConfigStore() {
+  if (_configStore === null && typeof indexedDB !== 'undefined') {
+    _configStore = createStore(DB_NAMES.CONFIG, 'keyval');
+  }
+  return _configStore;
+}
+
+/**
+ * Carrega o ProxyPath do IndexedDB (funciona no SW e na Main Thread)
+ * Lê diretamente da chave 'ProxyPath', sem agrupar em app_settings
+ */
+async function loadProxyPathFromDB(): Promise<string> {
+  const configStore = getConfigStore();
+  if (!configStore) {
+    return DefaultProxyPath;
+  }
+  
+  try {
+    // Carrega da chave específica 'ProxyPath'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
+    if (stored !== undefined && stored !== null) {
+      return String(stored);
+    }
+    return DefaultProxyPath;
+  } catch (error) {
+    console.warn('[CONFIG] Erro ao carregar ProxyPath do IndexedDB:', error);
+    return DefaultProxyPath;
+  }
+}
+
+/**
+ * Obtém o ProxyPath atual lendo diretamente do IndexedDB.
+ * Não usa cache em memória para garantir que sempre tenha o valor mais recente.
+ * Funciona tanto na Main Thread quanto no Service Worker.
+ * 
+ * @returns Promise com o ProxyPath configurado
+ */
+export async function getProxyPath(): Promise<string> {
+  return await loadProxyPathFromDB();
+}
+
+/**
+ * Define o ProxyPath no IndexedDB.
+ * Cada configuração tem sua própria chave, não agrupa em app_settings.
+ * 
+ * @param path - O novo ProxyPath
+ * @returns Promise<void>
+ */
+export async function setProxyPath(path: string): Promise<void> {
+  const configStore = getConfigStore();
+  if (!configStore) {
+    console.error('[CONFIG] IndexedDB não disponível para salvar ProxyPath');
+    return;
+  }
+  
+  try {
+    await idbSet(PROXY_PATH_KEY, path, configStore);
+    console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
+  } catch (error) {
+    console.error('[CONFIG] Erro ao salvar ProxyPath no IndexedDB:', error);
+    throw error;
+  }
+}
 
 /**
  * Constrói uma URL completa para o proxy, garantindo compatibilidade
@@ -1807,33 +2148,36 @@ export const ProxyPath: string = "";
  * Seguro para ser executado tanto na Main Thread (Window) quanto no Service Worker (Self).
  * 
  * @param endpoint - O endpoint específico (ex: "/", "/publickey", "/logout")
- * @returns A URL completa pronta para uso no fetch
+ * @returns Promise com a URL completa pronta para uso no fetch
  */
-export function buildProxyUrl(endpoint: string): string {
+export async function buildProxyUrl(endpoint: string): Promise<string> {
+  // Usa o ProxyPath dinâmico ou o padrão (lê do IndexedDB sempre)
+  const proxyPath = await getProxyPath();
+  
   // Remove barras extras do endpoint
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   
-  // Se ProxyPath já for uma URL completa (começa com http:// ou https://)
-  if (ProxyPath.startsWith('http://') || ProxyPath.startsWith('https://')) {
-    // Garante que ProxyPath termine sem barra e endpoint comece com barra
-    const base = ProxyPath.replace(/\/$/, '');
+  // Se proxyPath já for uma URL completa (começa com http:// ou https://)
+  if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
+    // Garante que proxyPath termine sem barra e endpoint comece com barra
+    const base = proxyPath.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }
   
-  // Se ProxyPath for vazio ou relativo, usa a origem atual (cross-environment)
-  if (ProxyPath === '' || ProxyPath.startsWith('./') || ProxyPath.startsWith('../')) {
+  // Se proxyPath for vazio ou relativo, usa a origem atual (cross-environment)
+  if (proxyPath === '' || proxyPath.startsWith('./') || proxyPath.startsWith('../')) {
     // 🔥 Correção: Uso do globalThis para funcionar dentro de Service Workers
     const origin = typeof globalThis !== 'undefined' && globalThis.location 
       ? globalThis.location.origin 
       : 'http://localhost';
 
-    const baseUrl = origin + (ProxyPath === '' ? '/' : ProxyPath);
+    const baseUrl = origin + (proxyPath === '' ? '/' : proxyPath);
     const base = baseUrl.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }
   
-  // Se ProxyPath for um caminho absoluto (ex: "/proxy")
-  const base = ProxyPath.replace(/\/$/, '');
+  // Se proxyPath for um caminho absoluto (ex: "/proxy")
+  const base = proxyPath.replace(/\/$/, '');
   return `${base}/${cleanEndpoint}`;
 }
 ```
@@ -2238,6 +2582,104 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
     addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
 }
+```
+
+---
+
+## Arquivo: `src/stores/config-store.ts`
+
+```ts
+// src/stores/config-store.ts
+import { get, set, createStore } from "idb-keyval";
+import { DB_NAMES } from "../constants/db.ts";
+import { setProxyPath, DefaultProxyPath } from "../constants/config.ts";
+
+const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
+
+/**
+ * Cria a store de configurações usando idb-keyval
+ */
+const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
+
+/**
+ * Chaves de configuração disponíveis
+ * Cada configuração tem sua própria chave no IndexedDB
+ */
+export const CONFIG_KEYS = {
+  PROXY_PATH: "ProxyPath",
+} as const;
+
+/**
+ * Salva uma configuração específica no IndexedDB
+ * Cada configuração usa sua própria chave (não agrupa em app_settings)
+ */
+export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
+  try {
+    const configKey = CONFIG_KEYS[key];
+    
+    // Salva diretamente na chave específica
+    await set(configKey, value, configStore);
+    
+    // Atualiza dinamicamente se for proxy_path
+    if (key === 'PROXY_PATH' && typeof value === 'string') {
+      await setProxyPath(value);
+    }
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
+    throw error;
+  }
+}
+
+/**
+ * Carrega uma configuração específica do IndexedDB
+ */
+export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
+  try {
+    const configKey = CONFIG_KEYS[key];
+    const value = await get<string>(configKey, configStore);
+    return value !== undefined && value !== null ? value : undefined;
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao carregar configuração:", error);
+    return undefined;
+  }
+}
+
+/**
+ * Atalho para atualizar apenas o ProxyPath
+ */
+export async function updateProxyPath(newPath: string): Promise<void> {
+  return saveConfig('PROXY_PATH', newPath);
+}
+
+/**
+ * Reseta todas as configurações para os valores padrão
+ */
+export async function resetConfig(): Promise<void> {
+  try {
+    await set(CONFIG_KEYS.PROXY_PATH, DefaultProxyPath, configStore);
+    await setProxyPath(DefaultProxyPath);
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
+    throw error;
+  }
+}
+
+/**
+ * Carrega todas as configurações (útil para inicialização)
+ */
+export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
+  const proxy_path = await getConfigValue('PROXY_PATH');
+  
+  // Aplica o proxy path se existir
+  if (proxy_path !== undefined) {
+    await setProxyPath(proxy_path);
+  } else {
+    await setProxyPath(DefaultProxyPath);
+  }
+  
+  return { proxy_path };
+}
+
 ```
 
 ---
@@ -3441,77 +3883,6 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
 
 ---
 
-## Arquivo: `src/utils/router.ts`
-
-```ts
-import { signal, computed, effect } from "@preact/signals";
-import {
-  contatoSelecionado,
-  contatoCompartilharHash,
-  showAdvanced,
-  currentMobileView,
-  sharePayload
-} from "../signals/state.ts";
-
-export const currentHash = signal<string>(globalThis.location?.hash || "");
-
-if (typeof globalThis !== "undefined" && globalThis.addEventListener) {
-  globalThis.addEventListener("hashchange", () => {
-    currentHash.value = globalThis.location.hash;
-  });
-}
-
-export function navigate(hash: string) {
-  if (typeof globalThis !== "undefined") {
-    globalThis.location.hash = hash;
-  }
-}
-
-effect(() => {
-  const hash = currentHash.value;
-
-  // Reset states
-  contatoSelecionado.value = '';
-  contatoCompartilharHash.value = null;
-  showAdvanced.value = false;
-  sharePayload.value = null;
-
-  if (hash.startsWith('#chat=')) {
-    contatoSelecionado.value = hash.substring(6);
-    currentMobileView.value = 'chat';
-  } else if (hash.startsWith('#detail=')) {
-    contatoCompartilharHash.value = hash.substring(8);
-    currentMobileView.value = 'chat';
-  } else if (hash === '#advanced') {
-    showAdvanced.value = true;
-    currentMobileView.value = 'chat';
-  } else if (hash === '#profile' || hash === '#logout') {
-    currentMobileView.value = 'chat'; // Ocupa a área principal
-  } else if (hash.startsWith('#share')) {
-    currentMobileView.value = 'chat';
-    // Extrai o payload caso venha via URL: #share=jwt_aqui
-    if (hash.includes('=')) {
-      sharePayload.value = hash.substring(hash.indexOf('=') + 1);
-    }
-  } else {
-    currentMobileView.value = 'list';
-  }
-});
-
-export const activeView = computed(() => {
-  const hash = currentHash.value;
-  if (hash.startsWith('#chat=')) return 'chat';
-  if (hash.startsWith('#detail=')) return 'detail';
-  if (hash === '#advanced') return 'advanced';
-  if (hash === '#profile') return 'profile';
-  if (hash === '#logout') return 'logout';
-  if (hash.startsWith('#share')) return 'share';
-  return 'home';
-});
-```
-
----
-
 ## Arquivo: `src/utils/share-utils.ts`
 
 ```ts
@@ -3812,7 +4183,8 @@ import { addDebugLog } from './debug-utils.ts';
 import { buildProxyUrl } from '../constants/config.ts';
 
 export async function getServerPublicKey() {
-  const response = await fetch(buildProxyUrl('/publickey'), {
+  const proxyUrl = await buildProxyUrl('/publickey');
+  const response = await fetch(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
   });
@@ -4067,7 +4439,9 @@ export async function enviarParaProxy(
   }
 
   try {
-    const response = await fetch(buildProxyUrl('/'), {
+    // buildProxyUrl agora é assíncrono
+    const proxyUrl = await buildProxyUrl('/');
+    const response = await fetch(proxyUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4139,6 +4513,78 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
     throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
   }
 }
+```
+
+---
+
+## Arquivo: `src/utils/router.ts`
+
+```ts
+import { signal, computed, effect } from "@preact/signals";
+import {
+  contatoSelecionado,
+  contatoCompartilharHash,
+  showAdvanced,
+  currentMobileView,
+  sharePayload
+} from "../signals/state.ts";
+
+export const currentHash = signal<string>(globalThis.location?.hash || "");
+
+if (typeof globalThis !== "undefined" && globalThis.addEventListener) {
+  globalThis.addEventListener("hashchange", () => {
+    currentHash.value = globalThis.location.hash;
+  });
+}
+
+export function navigate(hash: string) {
+  if (typeof globalThis !== "undefined") {
+    globalThis.location.hash = hash;
+  }
+}
+
+effect(() => {
+  const hash = currentHash.value;
+
+  // Reset states
+  contatoSelecionado.value = '';
+  contatoCompartilharHash.value = null;
+  showAdvanced.value = false;
+  sharePayload.value = null;
+
+  if (hash.startsWith('#chat=')) {
+    contatoSelecionado.value = hash.substring(6);
+    currentMobileView.value = 'chat';
+  } else if (hash.startsWith('#detail=')) {
+    contatoCompartilharHash.value = hash.substring(8);
+    currentMobileView.value = 'chat';
+  } else if (hash === '#advanced') {
+    showAdvanced.value = true;
+    currentMobileView.value = 'chat';
+  } else if (hash === '#profile' || hash === '#logout') {
+    currentMobileView.value = 'chat'; // Ocupa a área principal
+  } else if (hash.startsWith('#share')) {
+    currentMobileView.value = 'chat';
+    // Extrai o payload caso venha via URL: #share=jwt_aqui
+    if (hash.includes('=')) {
+      sharePayload.value = hash.substring(hash.indexOf('=') + 1);
+    }
+  } else {
+    currentMobileView.value = 'list';
+  }
+});
+
+export const activeView = computed(() => {
+  const hash = currentHash.value;
+  if (hash.startsWith('#chat=')) return 'chat';
+  if (hash.startsWith('#detail=')) return 'detail';
+  if (hash === '#advanced') return 'advanced';
+  if (hash === '#profile') return 'profile';
+  if (hash === '#logout') return 'logout';
+  if (hash.startsWith('#share')) return 'share';
+  if (hash === '#settings') return 'settings';
+  return 'home';
+});
 ```
 
 ---
@@ -5199,6 +5645,65 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
 ---
 
+## Arquivo: `src/service-worker.ts`
+
+```ts
+// src/service-worker.ts
+import "./sw/cache.ts";
+import "./sw/push.ts";
+import "./sw/click.ts";
+import "./sw/sw-handshakes.ts";
+
+import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
+import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
+import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
+import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
+
+console.log("[SW] 🌌 Service Worker orquestrador carregado.");
+
+self.addEventListener('activate', (event: any) => {
+  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
+  event.waitUntil(
+    (async () => {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        await processarFilaHandshake();
+      } catch (e) {
+        console.error("[SW] Erro ao processar fila de handshakes:", e);
+      }
+    })()
+  );
+});
+
+self.addEventListener('message', (event: any) => {
+  if (!event.data) return;
+
+  const { type, payload } = event.data;
+
+  if (type === 'PROCESSAR_FILA_HANDSHAKE') {
+    processarFilaHandshake().catch(err => console.error(err));
+    return;
+  }
+
+  if (type === 'CRIAR_HANDSHAKE_OUT') {
+    const { rotasModulo, params } = payload;
+    console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);
+    
+    if (rotasModulo === 'profile') {
+      ProcessarProfile({ out: params }).catch(err => console.error("[SW] Erro no hand-profile:", err));
+    } else if (rotasModulo === 'mensagem') {
+      ProcessarMensagem({ out: params }).catch(err => console.error("[SW] Erro no hand-mensagem:", err));
+    } else if (rotasModulo === 'contato') {
+      ProcessarContato({ out: params }).catch(err => console.error("[SW] Erro no hand-contato:", err));
+    } else {
+      console.warn(`[SW] ⚠️ Módulo de rotas desconhecido ou não implementado: ${rotasModulo}`);
+    }
+  }
+});
+```
+
+---
+
 ## Arquivo: `src/app.tsx`
 
 ```tsx
@@ -5214,6 +5719,7 @@ import { AdvancedSection } from './components/AdvancedSection.tsx';
 import { ProfileSection } from './components/ProfileSection.tsx';
 import { LogoutSection } from './components/LogoutSection.tsx';
 import { ShareSection } from './components/ShareSection.tsx';
+import { SettingsSection } from './components/SettingsSection.tsx';
 import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 
 // Signals e Lógica de Negócio
@@ -5245,6 +5751,7 @@ const ViewMap: Record<string, ComponentType<any>> = {
   'profile': () => <div style="padding: 24px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
   'logout': LogoutSection,
   'share': ShareSection,
+  'settings': () => <div style="padding: 24px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><SettingsSection/></div></div>,
   'home': HomePlaceholder,
 };
 
@@ -5307,6 +5814,10 @@ function App() {
     headerTitle = "Opções Avançadas";
     headerSubtitle = "Diagnóstico do sistema e logs de rede";
     headerIcon = "settings_suggest";
+  } else if (activeView.value === 'settings') {
+    headerTitle = "Configurações";
+    headerSubtitle = "Configure o servidor Push Proxy e outras opções";
+    headerIcon = "settings";
   } else if (activeView.value === 'detail') {
     headerTitle = `Cartão de ${nomeDetalhesAtivo}`;
     headerSubtitle = "Gerencie as informações e a confiança deste contato";
@@ -5337,6 +5848,10 @@ function App() {
               </md-icon-button>
               
               <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
+                <md-menu-item onClick={() => { navigate('#settings'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                  <div slot="headline">Configurações</div>
+                  <md-icon slot="start">settings</md-icon>
+                </md-menu-item>
                 <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
                   <div slot="headline">Avançado</div>
                   <md-icon slot="start">settings_suggest</md-icon>
@@ -5404,65 +5919,6 @@ const root = document.getElementById('app');
 if (root) {
   render(<App/>, root);
 }
-```
-
----
-
-## Arquivo: `src/service-worker.ts`
-
-```ts
-// src/service-worker.ts
-import "./sw/cache.ts";
-import "./sw/push.ts";
-import "./sw/click.ts";
-import "./sw/sw-handshakes.ts";
-
-import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
-import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
-import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
-import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
-
-console.log("[SW] 🌌 Service Worker orquestrador carregado.");
-
-self.addEventListener('activate', (event: any) => {
-  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
-  event.waitUntil(
-    (async () => {
-      await new Promise(r => setTimeout(r, 1000));
-      try {
-        await processarFilaHandshake();
-      } catch (e) {
-        console.error("[SW] Erro ao processar fila de handshakes:", e);
-      }
-    })()
-  );
-});
-
-self.addEventListener('message', (event: any) => {
-  if (!event.data) return;
-
-  const { type, payload } = event.data;
-
-  if (type === 'PROCESSAR_FILA_HANDSHAKE') {
-    processarFilaHandshake().catch(err => console.error(err));
-    return;
-  }
-
-  if (type === 'CRIAR_HANDSHAKE_OUT') {
-    const { rotasModulo, params } = payload;
-    console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);
-    
-    if (rotasModulo === 'profile') {
-      ProcessarProfile({ out: params }).catch(err => console.error("[SW] Erro no hand-profile:", err));
-    } else if (rotasModulo === 'mensagem') {
-      ProcessarMensagem({ out: params }).catch(err => console.error("[SW] Erro no hand-mensagem:", err));
-    } else if (rotasModulo === 'contato') {
-      ProcessarContato({ out: params }).catch(err => console.error("[SW] Erro no hand-contato:", err));
-    } else {
-      console.warn(`[SW] ⚠️ Módulo de rotas desconhecido ou não implementado: ${rotasModulo}`);
-    }
-  }
-});
 ```
 
 ---
@@ -6106,7 +6562,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.70-mspdxawj",
+  "version": "0.2.74-mspgf4cj",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
