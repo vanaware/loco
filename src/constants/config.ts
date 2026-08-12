@@ -1,4 +1,4 @@
-// src/config.ts
+// src/constants/config.ts
 
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
 import { DB_NAMES } from "./db.ts";
@@ -112,19 +112,13 @@ export async function buildProxyUrl(endpoint: string): Promise<string> {
   }
   
   // Se ProxyPath for vazio ou relativo, usa a origem atual (cross-environment)
-  if (proxyPath === '' || proxyPath.startsWith('./') || proxyPath.startsWith('../')) {
+  if (ProxyPath === '' || ProxyPath.startsWith('./') || ProxyPath.startsWith('../')) {
     // 🔥 Correção: Uso do globalThis para funcionar dentro de Service Workers
-    const location = typeof globalThis !== 'undefined' && globalThis.location 
-      ? globalThis.location 
-      : (typeof self !== 'undefined' && (self as any).location ? (self as any).location : null);
-    
-    if (!location) {
-      // Fallback para ambiente sem location (ex: testes Node)
-      return `/${cleanEndpoint}`;
-    }
-    
-    const origin = location.origin;
-    const baseUrl = origin + (proxyPath === '' ? '/' : proxyPath);
+    const origin = typeof globalThis !== 'undefined' && globalThis.location 
+      ? globalThis.location.origin 
+      : 'http://localhost';
+
+    const baseUrl = origin + (ProxyPath === '' ? '/' : ProxyPath);
     const base = baseUrl.replace(/\/$/, '');
     return `${base}/${cleanEndpoint}`;
   }

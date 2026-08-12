@@ -1,4 +1,3 @@
-// tests/handshakes/hand-mensagem-self.test.ts
 /// <reference lib="deno.ns" />
 import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
 import type { ProfileConfig, Chat, Handshake } from "../../src/constants/db.ts";
@@ -21,26 +20,13 @@ function assertTrue(condition: boolean, msg?: string) {
 // Mock storage para simular IndexedDB
 const mockChats = new Map<string, Chat>();
 const mockHandshakes = new Map<string, Handshake>();
-let lastSavedChat: Chat | null = null;
-let lastSavedHandshake: Handshake | null = null;
 
 async function salvarChatMock(chat: Chat): Promise<void> {
   mockChats.set(chat.id, chat);
-  lastSavedChat = chat as Chat;
-}
-
-async function buscarChatMock(id: string): Promise<Chat | undefined> {
-  return mockChats.get(id) as Chat | undefined;
 }
 
 async function salvarHandshakeMock(handshake: Handshake): Promise<void> {
   mockHandshakes.set(handshake.id, handshake);
-  lastSavedHandshake = handshake as Handshake;
-}
-
-async function buscarProfileMock(): Promise<ProfileConfig | undefined> {
-  // Retorna um profile mock para testes
-  return mockProfile;
 }
 
 // Mock profile consistente para todos os testes
@@ -91,8 +77,6 @@ Deno.test("HAND-MENSAGEM SELF: Simulação de envio de mensagem para si mesmo", 
   // Limpa mocks
   mockChats.clear();
   mockHandshakes.clear();
-  lastSavedChat = null;
-  lastSavedHandshake = null;
   
   const meuHash = await obterHashProprio(mockProfile);
   assertExists(meuHash);
@@ -117,30 +101,31 @@ Deno.test("HAND-MENSAGEM SELF: Simulação de envio de mensagem para si mesmo", 
   
   await salvarChatMock(chatAuto);
   
+  // 🔥 Busca direto do Mock, evitando o erro de "never" do TypeScript
+  const savedChat = mockChats.get(msgId);
+  
   // Verifica que a mensagem foi salva
-  assertExists(lastSavedChat, "Mensagem deve ser salva");
-  const chatSalvo = lastSavedChat as Chat;
-  assertEquals(chatSalvo.id, msgId);
-  assertEquals(chatSalvo.conteudo, conteudoMensagem);
-  assertEquals(chatSalvo.tipo, 'out');
-  assertEquals(chatSalvo.contatoHash, meuHash);
+  assertExists(savedChat, "Mensagem deve ser salva no banco em memória");
+  assertEquals(savedChat.id, msgId);
+  assertEquals(savedChat.conteudo, conteudoMensagem);
+  assertEquals(savedChat.tipo, 'out');
+  assertEquals(savedChat.contatoHash, meuHash);
   
   // Verifica timestamps completos (fluxo completo simulado)
-  assertExists(chatSalvo.sentAt, "sentAt deve existir");
-  assertExists(chatSalvo.receivedAt, "receivedAt deve existir");
-  assertExists(chatSalvo.readAt, "readAt deve existir");
-  assertExists(chatSalvo.notifiedAt, "notifiedAt deve existir");
+  assertExists(savedChat.sentAt, "sentAt deve existir");
+  assertExists(savedChat.receivedAt, "receivedAt deve existir");
+  assertExists(savedChat.readAt, "readAt deve existir");
+  assertExists(savedChat.notifiedAt, "notifiedAt deve existir");
   
   // Verifica que todos os timestamps são iguais (instantâneo)
-  assertEquals(chatSalvo.sentAt, chatSalvo.receivedAt);
-  assertEquals(chatSalvo.receivedAt, chatSalvo.readAt);
-  assertEquals(chatSalvo.readAt, chatSalvo.notifiedAt);
+  assertEquals(savedChat.sentAt, savedChat.receivedAt);
+  assertEquals(savedChat.receivedAt, savedChat.readAt);
+  assertEquals(savedChat.readAt, savedChat.notifiedAt);
   
   // Verifica handshake especial
-  assertEquals(chatSalvo.handshake, 'self', "Handshake deve ser 'self'");
+  assertEquals(savedChat.handshake, 'self', "Handshake deve ser 'self'");
   
-  // Verifica que NENHUM handshake foi criado
-  assertEquals(lastSavedHandshake, null, "Nenhum handshake deve ser criado para auto-mensagem");
+  // Verifica que NENHUM handshake real foi criado
   assertEquals(mockHandshakes.size, 0, "Map de handshakes deve estar vazio");
 });
 
@@ -148,8 +133,6 @@ Deno.test("HAND-MENSAGEM SELF: Mensagem normal para outro contato cria handshake
   // Limpa mocks
   mockChats.clear();
   mockHandshakes.clear();
-  lastSavedChat = null;
-  lastSavedHandshake = null;
   
   const outroHash = "hash-de-outra-pessoa";
   const conteudoMensagem = "Mensagem para outra pessoa";
@@ -187,20 +170,23 @@ Deno.test("HAND-MENSAGEM SELF: Mensagem normal para outro contato cria handshake
   await salvarChatMock(chatOut);
   await salvarHandshakeMock(handshakeNormal);
   
+  const savedChat = mockChats.get(msgId);
+  const savedHandshake = mockHandshakes.get(handId);
+  
   // Verifica que a mensagem foi salva
-  assertExists(lastSavedChat);
-  assertEquals((lastSavedChat as Chat).id, msgId);
+  assertExists(savedChat);
+  assertEquals(savedChat.id, msgId);
   
   // Verifica que NÃO tem timestamps de recebimento/leitura (ainda não foram entregues)
-  assertFalse(!!(lastSavedChat as Chat).sentAt, "sentAt não deve existir ainda");
-  assertFalse(!!(lastSavedChat as Chat).receivedAt, "receivedAt não deve existir ainda");
-  assertFalse(!!(lastSavedChat as Chat).readAt, "readAt não deve existir ainda");
+  assertFalse(!!savedChat.sentAt, "sentAt não deve existir ainda");
+  assertFalse(!!savedChat.receivedAt, "receivedAt não deve existir ainda");
+  assertFalse(!!savedChat.readAt, "readAt não deve existir ainda");
   
   // Verifica que o handshake FOI criado
-  assertExists(lastSavedHandshake, "Handshake deve ser criado para envio normal");
-  assertEquals((lastSavedHandshake as Handshake).id, handId);
-  assertEquals((lastSavedHandshake as Handshake).aud, outroHash);
-  assertEquals((lastSavedHandshake as Handshake).out?.status, 'pendente');
+  assertExists(savedHandshake, "Handshake deve ser criado para envio normal");
+  assertEquals(savedHandshake.id, handId);
+  assertEquals(savedHandshake.aud, outroHash);
+  assertEquals(savedHandshake.out?.status, 'pendente');
 });
 
 Deno.test("HAND-MENSAGEM SELF: Comparação entre auto-mensagem e mensagem normal", async () => {
@@ -236,10 +222,10 @@ Deno.test("HAND-MENSAGEM SELF: Comparação entre auto-mensagem e mensagem norma
   };
   
   await salvarChatMock(autoMsg);
-  const savedAuto = lastSavedChat;
-  
   await salvarChatMock(normalMsg);
-  const savedNormal = lastSavedChat;
+  
+  const savedAuto = mockChats.get(autoMsg.id);
+  const savedNormal = mockChats.get(normalMsg.id);
   
   assertExists(savedAuto);
   assertExists(savedNormal);
@@ -275,11 +261,13 @@ Deno.test("HAND-MENSAGEM SELF: Múltiplas auto-mensagens não criam handshakes",
     "Terceira mensagem para mim"
   ];
   
-  for (let i = 0; i < mensagens.length; i++) {
+  // 🔥 Iterador corrigido para evitar o 'string | undefined'
+  let index = 0;
+  for (const conteudo of mensagens) {
     const msg: Chat = {
-      id: `auto-msg-${i}-${Date.now()}`,
+      id: `auto-msg-${index}-${Date.now()}`,
       contatoHash: meuHash,
-      conteudo: mensagens[i]!,
+      conteudo: conteudo,
       tipo: 'out',
       createdAt: Date.now(),
       sentAt: Date.now(),
@@ -289,6 +277,7 @@ Deno.test("HAND-MENSAGEM SELF: Múltiplas auto-mensagens não criam handshakes",
       handshake: 'self'
     };
     await salvarChatMock(msg);
+    index++;
   }
   
   // Verifica que todas as mensagens foram salvas

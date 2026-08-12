@@ -1,10 +1,10 @@
-```
 # Dependencies
-node_modules/
+deno.lock
 
 # Logs and temp files
 *.log
 *.tmp
+*.swp
 
 # Environment
 .env
@@ -25,24 +25,46 @@ venv/
 .venv/
 .env
 
-# Build outputs
+# Test coverage
+coverage/
+htmlcov/
+*.coverage
+
+# Build artifacts
 dist/
 build/
 target/
-.out
-.obj
 
-# OS generated files
-.DS_Store
-Thumbs.db
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg-info/
+.eggs/
 
-# Testing
-coverage/
-htmlcov/
-.coverage
-*.coveragerc
+# Node.js
+node_modules/
 
-# Compressed files
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Compiled and binary files
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.class
+*.out
+
+# Compression files
 *.zip
 *.gz
 *.tar
@@ -65,4 +87,7 @@ htmlcov/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
-```
+
+# System files
+.DS_Store
+Thumbs.db
