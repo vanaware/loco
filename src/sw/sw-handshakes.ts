@@ -244,7 +244,10 @@ export async function processarFilaHandshake() {
         }
 
         // 🔥 Resolve o proxyserver completo (mesmo que o usuário tenha informado relativo)
-        const proxyserverDestino = contato.subscription.proxyserver || await buildProxyUrl('/');
+        // Se o contato não tiver proxyserver definido, assume o mesmo proxy do nó A
+        const proxyserverDestino = contato.subscription.proxyserver 
+          ? await buildProxyUrl(contato.subscription.proxyserver)
+          : await buildProxyUrl('/');
 
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { 
