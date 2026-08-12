@@ -9,9 +9,10 @@ import {
   salvarHandshake,
   buscarChat,
   salvarChat,
-  buscarContatoPorChave
+  buscarContatoPorChave,
+  buscarProfile,
 } from "../utils/db-helpers.ts";
-
+import { ehContatoProprio } from "../utils/self-contact-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
 import { addDebugLog } from "../utils/debug-utils.ts"; 
 
@@ -141,6 +142,38 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const { contato: contatoId, conteudo, msgId, handshakeId, createdAt } = outParams;
       if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
 
+      // 🔍 VERIFICA SE É MENSAGEM PARA SI MESMO (AUTO-MENSAGEM)
+      const profile = await buscarProfile();
+      const ehParaSiMesmo = await ehContatoProprio(contatoId, profile);
+      
+      if (ehParaSiMesmo) {
+        // 🔄 FLUXO ESPECIAL: Mensagem para si mesmo (sem envio real, sem handshake)
+        addDebugLog(`[HAND-MENSAGEM] 🔄 Detectado envio para si mesmo. Salvando localmente sem handshake.`);
+        
+        const idReal = msgId || gerarId();
+        const agora = Date.now();
+        
+        // Cria a mensagem já com status completo (enviada, recebida, lida)
+        const chatAuto: Chat = {
+          id: idReal,
+          contatoHash: contatoId,
+          conteudo,
+          tipo: 'out',
+          createdAt: createdAt || agora,
+          sentAt: agora,        // ✅ Marcada como enviada
+          receivedAt: agora,    // ✅ Marcada como recebida
+          readAt: agora,        // ✅ Marcada como lida
+          notifiedAt: agora,    // ✅ Marcada como notificada
+          handshake: 'self'     // 🔥 Handshake especial indicando auto-envio
+        };
+        
+        await salvarChat(chatAuto);
+        notificarUI(idReal);
+        addDebugLog(`[HAND-MENSAGEM] ✅ Auto-mensagem ${idReal} salva com fluxo completo simulado.`);
+        return; // ⚠️ Sai imediatamente sem criar handshake
+      }
+
+      // 📤 FLUXO NORMAL: Mensagem para outro contato (com handshake)
       const idReal = msgId || gerarId();
       const handIdReal = handshakeId || gerarId();
       
