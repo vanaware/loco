@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.74-mspgf4cj** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.75-mspjjr50** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.74-mspgf4cj] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.75-mspjjr50] - Modo: MAIN
 
-Gerado automaticamente em: 8/11/2026, 11:12:35 PM
+Gerado automaticamente em: 8/12/2026, 12:42:26 AM
 
 ---
 
@@ -1020,298 +1020,6 @@ export function ShareSection() {
 
 ---
 
-## Arquivo: `src/components/ContactDetailSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
-import { profile } from '../stores/profileStore.ts';
-import { contatoCompartilharHash, showToast } from '../signals/state.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-import { navigate } from '../utils/router.ts';
-import { ehContatoProprio } from '../utils/self-contact-utils.ts';
-
-export function ContactDetailSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-  const editNome = useSignal<string>('');
-  const editEmail = useSignal<string>('');
-  const isContatoProprio = useSignal<boolean>(false);
-
-  const hash = contatoCompartilharHash.value;
-  const item = contatosComHash.value.find(c => c.hash === hash);
-  const contato = item?.contato;
-
-  useEffect(() => {
-    if (!contato) {
-      qrCodeDataUrl.value = null;
-      isEditing.value = false;
-      isContatoProprio.value = false;
-      return;
-    }
-
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-
-    // Verifica se é o contato próprio
-    if (hash) {
-      ehContatoProprio(hash, profile.value).then((ehProprio) => {
-        isContatoProprio.value = ehProprio;
-        
-        // 🔥 Se for o próprio contato, redireciona para a tela de perfil
-        if (ehProprio) {
-          navigate('profile');
-        }
-      });
-    }
-
-    try {
-      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
-      const qr = qrcode(0, 'L');
-      qr.addData(payloadBinario);
-      qr.make();
-      qrCodeDataUrl.value = qr.createDataURL(5, 0);
-    } catch (e) {
-      console.error("Erro ao gerar QR Code do contato:", e);
-      qrCodeDataUrl.value = null;
-    }
-  }, [contato, hash]);
-
-  if (!contato || !hash) return null;
-  
-  // 🔥 Previne renderização se for o contato próprio (já foi redirecionado)
-  if (isContatoProprio.value) return null;
-
-  const nomeExibicao = contato.name?.trim() || "Anônimo";
-
-  const handleCopiarLink = async () => {
-    const p = profile.value;
-    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
-
-    try {
-      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
-    } catch (err: any) {
-      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
-    }
-  };
-
-  const handleEnviarMeusDados = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'enviarSubscription',
-            contato: hash,
-            responder: false
-          }
-        }
-      });
-      
-      showToast("🚀 Meus dados foram enviados para o contato!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
-    }
-  };
-
-  const handleSolicitarAtualizacao = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'confirmarSubscription',
-            contato: hash,
-            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
-          }
-        }
-      });
-      
-      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
-    } catch (err: any) {
-      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
-    }
-  };
-
-  const handleSalvarEdicao = async () => {
-    try {
-      const contatoAtualizado = {
-        ...contato,
-        name: editNome.value.trim(),
-        email: editEmail.value.trim(),
-        updatedAt: Date.now(),
-      };
-
-      await adicionarContato(contatoAtualizado);
-      isEditing.value = false;
-      showToast("✅ Dados do contato atualizados!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-    isEditing.value = false;
-  };
-
-  const handleIniciarChat = () => {
-    navigate(`#chat=${hash}`);
-  };
-
-  const handleFechar = () => {
-    navigate('');
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>badge</md-icon> Cartão de Contato
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {!isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-            <md-icon-button onClick={handleFechar} title="Fechar">
-              <md-icon>close</md-icon>
-            </md-icon-button>
-          </div>
-        </div>
-
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
-            <md-outlined-text-field
-              label="Nome do Contato"
-              value={editNome.value}
-              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <md-outlined-text-field
-              label="E-mail do Contato"
-              value={editEmail.value}
-              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 4px;">
-              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
-                💾 Salvar
-              </md-filled-button>
-              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
-                Cancelar
-              </md-outlined-button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {nomeExibicao}
-            </h2>
-
-            {contato.trusted && (
-              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
-                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
-              </div>
-            )}
-
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">{contato.email || 'Sem e-mail'}</p>
-          </>
-        )}
-
-        {!isEditing.value && (
-          <>
-            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
-              
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO VOCÊ VÊ ESTE CONTATO:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.trusted ? (
-                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
-                  ) : (
-                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO ESTE CONTATO VÊ VOCÊ:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
-                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
-                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
-                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
-                </div>
-              </div>
-
-            </div>
-
-            {qrCodeDataUrl.value && (
-              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
-                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
-                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
-                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
-                </span>
-              </div>
-            )}
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Copiar Link de Indicação
-              </md-filled-button>
-
-              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
-                <md-icon slot="icon">send_to_mobile</md-icon>
-                Enviar meus dados ao contato
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
-                <md-icon slot="icon">sync</md-icon>
-                Verificar Status de Confiança
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
-                <md-icon slot="icon">chat</md-icon>
-                Iniciar Conversa
-              </md-outlined-button>
-            </div>
-          </>
-        )}
-
-      </div>
-
-    </div>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/AdvancedSection.tsx`
 
 ```tsx
@@ -1897,154 +1605,310 @@ export function SettingsSection() {
 
 ---
 
-## Arquivo: `src/constants/db.ts`
+## Arquivo: `src/components/ContactDetailSection.tsx`
 
-```ts
-// src/constants/db.ts
+```tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
 
-export const DB_NAMES = {
-  CONFIG: "AppConfig_DB",
-  CHAT: "Chat_DB", // 🔥 Unificou MensagensEnviadas e MensagensRecebidas
-  CONTATOS: "BrowserB_Contatos_DB",
-  HANDSHAKES: "Handshake_DB",
-} as const;
+import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
+import { profile } from '../stores/profileStore.ts';
+import { contatoCompartilharHash, showToast } from '../signals/state.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
+import { ehContatoProprio } from '../utils/self-contact-utils.ts';
 
-export const STORE_NAMES = {
-  KEYVAL: "keyval",
-} as const;
+export function ContactDetailSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+  const editNome = useSignal<string>('');
+  const editEmail = useSignal<string>('');
+  const editProxyserver = useSignal<string>('');
+  const isContatoProprio = useSignal<boolean>(false);
 
-export const KEY_NAMES = {
-  PROFILE: "profile",
-  CONTATO: "contato_",
-  CHAT_INDEX: "chat_index_", // 🔥 Novo prefixo para guardar os arrays de paginação
-} as const;
+  const hash = contatoCompartilharHash.value;
+  const item = contatosComHash.value.find(c => c.hash === hash);
+  const contato = item?.contato;
 
-export const MAX_TENTATIVAS = 3;
-export const MAX_PAYLOAD_SIZE = 4096;
+  useEffect(() => {
+    if (!contato) {
+      qrCodeDataUrl.value = null;
+      isEditing.value = false;
+      isContatoProprio.value = false;
+      return;
+    }
 
-export interface ProfileConfig {
-  name: string;
-  email: string;
-  vapidPublicKey: JsonWebKey;
-  vapidPrivateKeyJwk: JsonWebKey;
-  vapidPrivateKeyEnvelope: string;
-  e2ePublicKey: JsonWebKey;
-  e2ePrivateKeyJwk: JsonWebKey;
-  subscription: {
-    endpoint: string;
-    keys: {
-      p256dh: string;
-      auth: string;
-    };
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+    editProxyserver.value = contato.subscription?.proxyserver || '';
+
+    // Verifica se é o contato próprio
+    if (hash) {
+      ehContatoProprio(hash, profile.value).then((ehProprio) => {
+        isContatoProprio.value = ehProprio;
+        
+        // 🔥 Se for o próprio contato, redireciona para a tela de perfil
+        if (ehProprio) {
+          navigate('profile');
+        }
+      });
+    }
+
+    try {
+      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
+      const qr = qrcode(0, 'L');
+      qr.addData(payloadBinario);
+      qr.make();
+      qrCodeDataUrl.value = qr.createDataURL(5, 0);
+    } catch (e) {
+      console.error("Erro ao gerar QR Code do contato:", e);
+      qrCodeDataUrl.value = null;
+    }
+  }, [contato, hash]);
+
+  if (!contato || !hash) return null;
+  
+  // 🔥 Previne renderização se for o contato próprio (já foi redirecionado)
+  if (isContatoProprio.value) return null;
+
+  const nomeExibicao = contato.name?.trim() || "Anônimo";
+
+  const handleCopiarLink = async () => {
+    const p = profile.value;
+    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
+
+    try {
+      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
+    } catch (err: any) {
+      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
+    }
   };
-  createdAt: number;
-  updatedAt: number;
-}
 
-// 🔥 Nova Estrutura Unificada e Baseada em Timestamps
-export interface Chat {
-  id: string;
-  contatoHash: string;
-  conteudo: string;
-  tipo: 'in' | 'out';
-  readAt?: number;
-  notifiedAt?: number;
-  receivedAt?: number;
-  sentAt?: number;
-  createdAt: number;
-  updatedAt?: number;
-  errorAt?: number;
-  handshake: string;
-}
-
-export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
-
-export interface Contato {
-  id: string; 
-  email: string;
-  name: string;
-  vapidPublicKey: JsonWebKey;
-  e2ePublicKey: JsonWebKey;
-  subscription: {
-    endpoint: string;
-    keys: { p256dh: string; auth: string };
+  const handleEnviarMeusDados = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'enviarSubscription',
+            contato: hash,
+            responder: false
+          }
+        }
+      });
+      
+      showToast("🚀 Meus dados foram enviados para o contato!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
+    }
   };
-  vapidPrivateKeyEnvelope: string;
-  trusted: boolean;
-  me: MeStatus;
-  createdAt: number;
-  updatedAt: number;
+
+  const handleSolicitarAtualizacao = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'confirmarSubscription',
+            contato: hash,
+            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
+          }
+        }
+      });
+      
+      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
+    } catch (err: any) {
+      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
+    }
+  };
+
+  const handleSalvarEdicao = async () => {
+    try {
+      const contatoAtualizado = {
+        ...contato,
+        name: editNome.value.trim(),
+        email: editEmail.value.trim(),
+        subscription: {
+          ...contato.subscription,
+          proxyserver: editProxyserver.value.trim()
+        },
+        updatedAt: Date.now(),
+      };
+
+      await adicionarContato(contatoAtualizado);
+      isEditing.value = false;
+      showToast("✅ Dados do contato atualizados!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+    editProxyserver.value = contato.subscription?.proxyserver || '';
+    isEditing.value = false;
+  };
+
+  const handleIniciarChat = () => {
+    navigate(`#chat=${hash}`);
+  };
+
+  const handleFechar = () => {
+    navigate('');
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>badge</md-icon> Cartão de Contato
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {!isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+            <md-icon-button onClick={handleFechar} title="Fechar">
+              <md-icon>close</md-icon>
+            </md-icon-button>
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
+            <md-outlined-text-field
+              label="Nome do Contato"
+              value={editNome.value}
+              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <md-outlined-text-field
+              label="E-mail do Contato"
+              value={editEmail.value}
+              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <md-outlined-text-field
+              label="Proxy Server (URL completa)"
+              value={editProxyserver.value}
+              onInput={(e: Event) => editProxyserver.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 4px;">
+              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
+                💾 Salvar
+              </md-filled-button>
+              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                Cancelar
+              </md-outlined-button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {nomeExibicao}
+            </h2>
+
+            {contato.trusted && (
+              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
+                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
+              </div>
+            )}
+
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
+            <p style="color: #888; font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
+              <md-icon style="font-size: 1rem; vertical-align: middle;">dns</md-icon> Proxy: {contato.subscription?.proxyserver || 'Não informado'}
+            </p>
+          </>
+        )}
+
+        {!isEditing.value && (
+          <>
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
+              
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO VOCÊ VÊ ESTE CONTATO:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.trusted ? (
+                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
+                  ) : (
+                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO ESTE CONTATO VÊ VOCÊ:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
+                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
+                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
+                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
+                </div>
+              </div>
+
+            </div>
+
+            {qrCodeDataUrl.value && (
+              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
+                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
+                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
+                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
+                </span>
+              </div>
+            )}
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Copiar Link de Indicação
+              </md-filled-button>
+
+              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
+                <md-icon slot="icon">send_to_mobile</md-icon>
+                Enviar meus dados ao contato
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
+                <md-icon slot="icon">sync</md-icon>
+                Verificar Status de Confiança
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
+                <md-icon slot="icon">chat</md-icon>
+                Iniciar Conversa
+              </md-outlined-button>
+            </div>
+          </>
+        )}
+
+      </div>
+
+    </div>
+  );
 }
-
-export interface ProfileRouteData {
-  campos?: string[];
-  data?: Record<string, unknown>;
-  id?: string;
-}
-
-export interface MensagemRouteData {
-  recebida?: string;
-  enviada?: string;
-  conteudo?: string;
-  campos?: string[];
-  data?: Record<string, unknown>;
-}
-
-export interface ContatoRouteData {
-  id?: string;
-  campos?: string[];
-  data?: Record<string, unknown>;
-  sync?: Record<string, unknown>;
-}
-
-export interface HandshakeRotas { 
-  profile?: ProfileRouteData; 
-  mensagem?: MensagemRouteData; 
-  contato?: ContatoRouteData; 
-  [key: string]: unknown;
-}
-
-export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
-export type StatusOut = 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
-
-export interface FluxoIn {
-  status: StatusIn;
-  rotas: HandshakeRotas;
-  tentativas: number; 
-  erro?: string;
-}
-
-export interface FluxoOut {
-  status: StatusOut;
-  rotas: HandshakeRotas;
-  tentativas: number; 
-  erro?: string;
-}
-
-export interface Handshake { 
-  id: string; 
-  aud: string; 
-  in?: FluxoIn; 
-  out?: FluxoOut; 
-  createdAt: number; 
-  updatedAt: number; 
-}
-
-export interface EnvelopeCifrado {
-  i: string;
-  d: string;
-  k: string;
-}
-```
-
----
-
-## Arquivo: `src/constants/version.ts`
-
-```ts
-// Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.74-mspgf4cj";
-
 ```
 
 ---
@@ -2180,6 +2044,160 @@ export async function buildProxyUrl(endpoint: string): Promise<string> {
   const base = proxyPath.replace(/\/$/, '');
   return `${base}/${cleanEndpoint}`;
 }
+```
+
+---
+
+## Arquivo: `src/constants/db.ts`
+
+```ts
+// src/constants/db.ts
+
+export const DB_NAMES = {
+  CONFIG: "AppConfig_DB",
+  CHAT: "Chat_DB", // 🔥 Unificou MensagensEnviadas e MensagensRecebidas
+  CONTATOS: "BrowserB_Contatos_DB",
+  HANDSHAKES: "Handshake_DB",
+} as const;
+
+export const STORE_NAMES = {
+  KEYVAL: "keyval",
+} as const;
+
+export const KEY_NAMES = {
+  PROFILE: "profile",
+  CONTATO: "contato_",
+  CHAT_INDEX: "chat_index_", // 🔥 Novo prefixo para guardar os arrays de paginação
+} as const;
+
+export const MAX_TENTATIVAS = 3;
+export const MAX_PAYLOAD_SIZE = 4096;
+
+export interface ProfileConfig {
+  name: string;
+  email: string;
+  vapidPublicKey: JsonWebKey;
+  vapidPrivateKeyJwk: JsonWebKey;
+  vapidPrivateKeyEnvelope: string;
+  e2ePublicKey: JsonWebKey;
+  e2ePrivateKeyJwk: JsonWebKey;
+  subscription: {
+    endpoint: string;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+    proxyserver?: string;
+  };
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 🔥 Nova Estrutura Unificada e Baseada em Timestamps
+export interface Chat {
+  id: string;
+  contatoHash: string;
+  conteudo: string;
+  tipo: 'in' | 'out';
+  readAt?: number;
+  notifiedAt?: number;
+  receivedAt?: number;
+  sentAt?: number;
+  createdAt: number;
+  updatedAt?: number;
+  errorAt?: number;
+  handshake: string;
+}
+
+export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
+
+export interface Contato {
+  id: string; 
+  email: string;
+  name: string;
+  vapidPublicKey: JsonWebKey;
+  e2ePublicKey: JsonWebKey;
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    proxyserver?: string;
+  };
+  vapidPrivateKeyEnvelope: string;
+  trusted: boolean;
+  me: MeStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProfileRouteData {
+  campos?: string[];
+  data?: Record<string, unknown>;
+  id?: string;
+}
+
+export interface MensagemRouteData {
+  recebida?: string;
+  enviada?: string;
+  conteudo?: string;
+  campos?: string[];
+  data?: Record<string, unknown>;
+}
+
+export interface ContatoRouteData {
+  id?: string;
+  campos?: string[];
+  data?: Record<string, unknown>;
+  sync?: Record<string, unknown>;
+}
+
+export interface HandshakeRotas { 
+  profile?: ProfileRouteData; 
+  mensagem?: MensagemRouteData; 
+  contato?: ContatoRouteData; 
+  [key: string]: unknown;
+}
+
+export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
+export type StatusOut = 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
+
+export interface FluxoIn {
+  status: StatusIn;
+  rotas: HandshakeRotas;
+  tentativas: number; 
+  erro?: string;
+}
+
+export interface FluxoOut {
+  status: StatusOut;
+  rotas: HandshakeRotas;
+  tentativas: number; 
+  erro?: string;
+}
+
+export interface Handshake { 
+  id: string; 
+  aud: string; 
+  in?: FluxoIn; 
+  out?: FluxoOut; 
+  createdAt: number; 
+  updatedAt: number; 
+}
+
+export interface EnvelopeCifrado {
+  i: string;
+  d: string;
+  k: string;
+}
+```
+
+---
+
+## Arquivo: `src/constants/version.ts`
+
+```ts
+// Arquivo gerado automaticamente pelo build.ts
+export const APP_VERSION = "0.2.75-mspjjr50";
+
 ```
 
 ---
@@ -2861,6 +2879,42 @@ self.addEventListener("fetch", (event: any) => {
 
 ---
 
+## Arquivo: `src/sw/sw-utils.ts`
+
+```ts
+// src/sw/sw-utils.ts
+import { addDebugLog } from '../utils/debug-utils.ts';
+
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
+  addDebugLog("📡 Verificando suporte ao Service Worker...");
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker não é suportado neste navegador.");
+  }
+
+  const cacheBuster = Date.now();
+  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
+
+  try {
+    const registration = await navigator.serviceWorker.register(
+      `./service-worker.js?cacheBuster=${cacheBuster}`,
+      { scope: "/" }
+    );
+    if (!registration) {
+      throw new Error("Service Worker registration retornou null/undefined");
+    }
+    addDebugLog("✅ Service Worker registrado, aguardando ready...");
+    const readyReg = await navigator.serviceWorker.ready;
+    addDebugLog("✅ Service Worker ativo e pronto.");
+    return readyReg;
+  } catch (err: any) {
+    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
+    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/sw/sw-handshakes.ts`
 
 ```ts
@@ -2870,6 +2924,7 @@ declare const self: ServiceWorkerGlobalScope;
 
 import { gunzipSync } from "fflate";
 import { Handshake, MAX_TENTATIVAS } from "../constants/db.ts";
+import { buildProxyUrl } from "../constants/config.ts";
 import { base64UrlToArrayBuffer, criarJWT } from "../utils/jwt-helpers.ts";
 import {
   salvarHandshake,
@@ -3108,8 +3163,20 @@ export async function processarFilaHandshake() {
           h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
         }
 
+        // 🔥 Resolve o proxyserver completo (mesmo que o usuário tenha informado relativo)
+        // Se o contato não tiver proxyserver definido, assume o mesmo proxy do nó A
+        const proxyserverDestino = contato.subscription.proxyserver 
+          ? await buildProxyUrl(contato.subscription.proxyserver)
+          : await buildProxyUrl('/');
+
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
-        const payloadJwt = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
+        const payloadJwt = { 
+          sub: "hand", 
+          aud: contato.id, 
+          jti: h.id, 
+          ct: JSON.stringify(envelope),
+          proxyserver: proxyserverDestino  // 🆕 Informação fora do ct para o proxy ler
+        };
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
         
         if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
@@ -3158,42 +3225,6 @@ self.addEventListener('online', function (event: Event) {
     processarFilaHandshake();
   }
 });
-```
-
----
-
-## Arquivo: `src/sw/sw-utils.ts`
-
-```ts
-// src/sw/sw-utils.ts
-import { addDebugLog } from '../utils/debug-utils.ts';
-
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  addDebugLog("📡 Verificando suporte ao Service Worker...");
-  if (!("serviceWorker" in navigator)) {
-    throw new Error("Service Worker não é suportado neste navegador.");
-  }
-
-  const cacheBuster = Date.now();
-  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
-
-  try {
-    const registration = await navigator.serviceWorker.register(
-      `./service-worker.js?cacheBuster=${cacheBuster}`,
-      { scope: "/" }
-    );
-    if (!registration) {
-      throw new Error("Service Worker registration retornou null/undefined");
-    }
-    addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    const readyReg = await navigator.serviceWorker.ready;
-    addDebugLog("✅ Service Worker ativo e pronto.");
-    return readyReg;
-  } catch (err: any) {
-    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
-    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
-  }
-}
 ```
 
 ---
@@ -3883,188 +3914,6 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
 
 ---
 
-## Arquivo: `src/utils/share-utils.ts`
-
-```ts
-// src/utils/share-utils.ts
-import { gzipSync, gunzipSync } from 'fflate';
-import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
-import type { ProfileConfig, Contato } from '../constants/db.ts';
-
-const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
-
-export interface CompactContact {
-  req?: boolean;
-  tr?: boolean;
-  em: string;
-  nm: string;
-  vx: string;
-  vy: string;
-  en: string;
-  se: string;
-  sp: string;
-  sa: string;
-  ve: string;
-}
-
-export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
-  let ep = target.subscription.endpoint;
-  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
-
-  return {
-    req,
-    tr,
-    em: target.email || '',
-    nm: target.name || '',
-    vx: target.vapidPublicKey.x!,
-    vy: target.vapidPublicKey.y!,
-    en: target.e2ePublicKey.n!,
-    se: ep,
-    sp: target.subscription.keys.p256dh,
-    sa: target.subscription.keys.auth,
-    ve: target.vapidPrivateKeyEnvelope
-  };
-}
-
-export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
-  let ep = c.se;
-  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
-
-  return {
-    email: c.em,
-    name: c.nm,
-    vapidPublicKey: { kty: "EC", crv: "P-256", x: c.vx, y: c.vy, ext: true },
-    e2ePublicKey: { kty: "RSA", e: "AQAB", n: c.en, alg: "RSA-OAEP-256", ext: true },
-    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa } },
-    vapidPrivateKeyEnvelope: c.ve,
-    trusted: c.tr,
-    me: 'saved' 
-  };
-}
-
-export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
-  const compact = extrairDadosCompactos(target);
-  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
-  const compressed = gzipSync(jsonBytes);
-  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-}
-
-export async function gerarLinkConviteWeb(
-  target: ProfileConfig | Contato,
-  myVapidPrivateKeyJwk: JsonWebKey,
-  myVapidPublicKeyJwk: JsonWebKey,
-  baseUrl?: string
-): Promise<string> {
-  const compact = extrairDadosCompactos(target);
-  const payload = {
-    sub: "contact",
-    ...compact,
-    iat: Math.floor(Date.now() / 1000)
-  };
-
-  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
-  const jwtBytes = new TextEncoder().encode(jwt);
-  const compressed = gzipSync(jwtBytes);
-  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-
-  // 🔥 URL atualizada para o formato SPA do Loco
-  // Usa baseUrl se fornecida (para testes), caso contrário usa window.location.origin
-  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-  return `${origin}/#share=${cjwt}`;
-}
-
-export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {
-  let cqr = null, cjwt = null, jwt = null;
-
-  try {
-    const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
-      ? input 
-      : `http://localhost/?${input}`;
-    const url = new URL(fullUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-    cqr = url.searchParams.get('cqr');
-    cjwt = url.searchParams.get('cjwt');
-    jwt = url.searchParams.get('jwt');
-  } catch {
-    if (input.includes('cjwt=')) {
-      const parts = input.split('cjwt=');
-      if (parts[1]) cjwt = parts[1].split('&')[0];
-    } else if (input.includes('cqr=')) {
-      const parts = input.split('cqr=');
-      if (parts[1]) cqr = parts[1].split('&')[0];
-    } else if (input.includes('jwt=')) {
-      const parts = input.split('jwt=');
-      if (parts[1]) jwt = parts[1].split('&')[0];
-    }
-  }
-
-  if (!cqr && !cjwt && !jwt && input) {
-    if (input.includes('.')) {
-      jwt = input.trim();
-    } else {
-      try {
-        const compressed = new Uint8Array(base64UrlToArrayBuffer(input.trim()));
-        const decompressed = gunzipSync(compressed);
-        const text = new TextDecoder().decode(decompressed);
-        
-        if (text.startsWith('{')) {
-          cqr = input.trim();
-        } else {
-          cjwt = input.trim();
-        }
-      } catch (_e) {
-        cjwt = input.trim();
-      }
-    }
-  }
-
-  let compactData: CompactContact | null = null;
-
-  if (!compactData && cjwt) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      
-      const { payload, valid } = await verificarJWT(jsonText); 
-      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
-      if (payload) compactData = payload as CompactContact;
-    } catch (e) {
-      console.warn("Falha ao verificar cjwt:", e);
-    }
-  }
-
-  if (!compactData && cqr) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      const parsed = JSON.parse(jsonText);
-      if (parsed.vx && parsed.vy) {
-        compactData = parsed as CompactContact;
-      }
-    } catch (e) {
-      console.warn("Falha ao ler cqr:", e);
-    }
-  }
-
-  if (!compactData && jwt) {
-    try {
-      const { payload, valid } = await verificarJWT(jwt);
-      if (!valid) throw new Error("Assinatura do convite inválida.");
-      if (payload) compactData = payload as CompactContact;
-    } catch (e) {
-      console.warn("Falha ao verificar jwt:", e);
-    }
-  }
-
-  if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
-
-  return expandirDadosCompactos(compactData);
-}
-```
-
----
-
 ## Arquivo: `src/utils/self-contact-utils.ts`
 
 ```ts
@@ -4166,188 +4015,6 @@ export async function obterHashProprio(profile: ProfileConfig | null): Promise<s
   }
 }
 
-```
-
----
-
-## Arquivo: `src/utils/profile-utils.ts`
-
-```ts
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from './db-helpers.ts';
-import { cifrarChaveVapid } from './push-utils.ts';
-import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts';
-import { buildProxyUrl } from '../constants/config.ts';
-
-export async function getServerPublicKey() {
-  const proxyUrl = await buildProxyUrl('/publickey');
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  return await response.json();
-}
-
-export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
-  if ('storage' in navigator && 'persist' in navigator.storage) {
-    try {
-      const concedido = await navigator.storage.persist();
-      if (concedido) {
-        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
-      } else {
-        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
-      }
-      return concedido;
-    } catch (err: any) {
-      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
-      return false;
-    }
-  }
-  return false;
-}
-
-export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
-  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
-  if (!nome || !email) {
-    throw new Error("Preencha Nome e E-mail primeiro.");
-  }
-
-  try {
-    addDebugLog("Step 1: Verificando permissão de notificação...");
-    try {
-      if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida.");
-        }
-      }
-    } catch (notifErr: any) {
-      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
-    }
-
-    addDebugLog("Step 2: Registrando Service Worker...");
-    const registration = await registrarServiceWorker();
-
-    addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const serverPublicKeyJwk = await getServerPublicKey();
-    addDebugLog("Step 3.5: Chave do servidor recebida");
-
-    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
-    let publicKeyJwk: JsonWebKey | undefined = undefined;
-    let privateKeyJwk: JsonWebKey | undefined = undefined;
-
-    let existingProfile = await buscarProfile();
-    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
-      publicKeyJwk = existingProfile.vapidPublicKey;
-      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
-      try {
-        vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
-        } as CryptoKeyPair;
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
-        existingProfile = undefined;
-      }
-    }
-    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
-      addDebugLog("🔑 Gerando novas chaves VAPID...");
-      vapidKeyPair = await generateVAPIDKeys();
-      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
-      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
-    }
-
-    addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) throw new Error("Service Worker registration é null/undefined");
-    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
-    let subscriptionValida = false;
-
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        if (existingProfile) {
-           delete (existingProfile as any).subscription;
-           await salvarProfile(existingProfile);
-        }
-        existingSubscription = null;
-      }
-    }
-    
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
-
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    const subscription = {
-      endpoint: existingSubscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      }
-    };
-
-    let e2ePublicKey: JsonWebKey;
-    let e2ePrivateKeyJwk: JsonWebKey;
-
-    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      addDebugLog("📂 Chaves E2E encontradas no perfil.");
-      e2ePublicKey = existingProfile.e2ePublicKey;
-      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
-      try {
-        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
-        const newKeys = await generateE2EEKeys();
-        e2ePublicKey = newKeys.publicEncrypt;
-        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      }
-    } else {
-      addDebugLog("🔑 Gerando novas chaves E2E...");
-      const newKeys = await generateE2EEKeys();
-      e2ePublicKey = newKeys.publicEncrypt;
-      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-    }
-
-    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
-    const profile: ProfileConfig = {
-      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
-    };
-
-    await salvarProfile(profile);
-    await solicitarArmazenamentoPersistente();
-
-    addDebugLog("✅ Perfil salvo com sucesso.");
-    return profile;
-  } catch (err) {
-    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
-    throw err;
-  }
-}
 ```
 
 ---
@@ -4585,6 +4252,377 @@ export const activeView = computed(() => {
   if (hash === '#settings') return 'settings';
   return 'home';
 });
+```
+
+---
+
+## Arquivo: `src/utils/profile-utils.ts`
+
+```ts
+// src/utils/profile-utils.ts
+import { salvarProfile, buscarProfile } from './db-helpers.ts';
+import { cifrarChaveVapid } from './push-utils.ts';
+import { registrarServiceWorker } from "../sw/sw-utils.ts";
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { addDebugLog } from './debug-utils.ts';
+import { buildProxyUrl } from '../constants/config.ts';
+
+export async function getServerPublicKey() {
+  const proxyUrl = await buildProxyUrl('/publickey');
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
+  return await response.json();
+}
+
+export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const concedido = await navigator.storage.persist();
+      if (concedido) {
+        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
+      } else {
+        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
+      }
+      return concedido;
+    } catch (err: any) {
+      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
+  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
+
+  if (!nome || !email) {
+    throw new Error("Preencha Nome e E-mail primeiro.");
+  }
+
+  try {
+    addDebugLog("Step 1: Verificando permissão de notificação...");
+    try {
+      if (Notification.permission === "denied") {
+        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
+      } else if (Notification.permission === "default") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          addDebugLog("⚠️ Permissão de notificação não concedida.");
+        }
+      }
+    } catch (notifErr: any) {
+      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
+    }
+
+    addDebugLog("Step 2: Registrando Service Worker...");
+    const registration = await registrarServiceWorker();
+
+    addDebugLog("Step 3: Buscando chave pública do servidor...");
+    const serverPublicKeyJwk = await getServerPublicKey();
+    addDebugLog("Step 3.5: Chave do servidor recebida");
+
+    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
+    let publicKeyJwk: JsonWebKey | undefined = undefined;
+    let privateKeyJwk: JsonWebKey | undefined = undefined;
+
+    let existingProfile = await buscarProfile();
+    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
+      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
+      publicKeyJwk = existingProfile.vapidPublicKey;
+      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
+      try {
+        vapidKeyPair = {
+          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+        } as CryptoKeyPair;
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
+        existingProfile = undefined;
+      }
+    }
+    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
+      addDebugLog("🔑 Gerando novas chaves VAPID...");
+      vapidKeyPair = await generateVAPIDKeys();
+      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+    }
+
+    addDebugLog("Step 4: Obtendo subscription...");
+    if (!registration) throw new Error("Service Worker registration é null/undefined");
+    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
+    
+    let existingSubscription = await registration.pushManager.getSubscription();
+    let subscriptionValida = false;
+
+    if (existingSubscription) {
+      const profileSub = existingProfile?.subscription;
+      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
+        subscriptionValida = true;
+      } else {
+        await existingSubscription.unsubscribe();
+        if (existingProfile) {
+           delete (existingProfile as any).subscription;
+           await salvarProfile(existingProfile);
+        }
+        existingSubscription = null;
+      }
+    }
+    
+    if (!existingSubscription || !subscriptionValida) {
+      addDebugLog("📝 Criando nova subscription...");
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+      existingSubscription = await registration.pushManager.subscribe({
+        applicationServerKey: new Uint8Array(rawPublicKey),
+        userVisibleOnly: true
+      });
+    }
+
+    const p256dhBuffer = existingSubscription.getKey('p256dh');
+    const authBuffer = existingSubscription.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) {
+      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
+    }
+    
+    // Resolve o proxyserver com caminho completo
+    const proxyserver = await buildProxyUrl('/');
+    
+    const subscription = {
+      endpoint: existingSubscription.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      },
+      proxyserver
+    };
+
+    let e2ePublicKey: JsonWebKey;
+    let e2ePrivateKeyJwk: JsonWebKey;
+
+    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
+      addDebugLog("📂 Chaves E2E encontradas no perfil.");
+      e2ePublicKey = existingProfile.e2ePublicKey;
+      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
+      try {
+        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
+        const newKeys = await generateE2EEKeys();
+        e2ePublicKey = newKeys.publicEncrypt;
+        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+      }
+    } else {
+      addDebugLog("🔑 Gerando novas chaves E2E...");
+      const newKeys = await generateE2EEKeys();
+      e2ePublicKey = newKeys.publicEncrypt;
+      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+    }
+
+    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
+
+    const profile: ProfileConfig = {
+      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
+    };
+
+    await salvarProfile(profile);
+    await solicitarArmazenamentoPersistente();
+
+    addDebugLog("✅ Perfil salvo com sucesso.");
+    return profile;
+  } catch (err) {
+    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/share-utils.ts`
+
+```ts
+// src/utils/share-utils.ts
+import { gzipSync, gunzipSync } from 'fflate';
+import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
+import type { ProfileConfig, Contato } from '../constants/db.ts';
+
+const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
+
+export interface CompactContact {
+  req?: boolean;
+  tr?: boolean;
+  em: string;
+  nm: string;
+  vx: string;
+  vy: string;
+  en: string;
+  se: string;
+  sp: string;
+  sa: string;
+  ve: string;
+  ps?: string; // proxyserver
+}
+
+export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
+  let ep = target.subscription.endpoint;
+  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
+
+  return {
+    req,
+    tr,
+    em: target.email || '',
+    nm: target.name || '',
+    vx: target.vapidPublicKey.x!,
+    vy: target.vapidPublicKey.y!,
+    en: target.e2ePublicKey.n!,
+    se: ep,
+    sp: target.subscription.keys.p256dh,
+    sa: target.subscription.keys.auth,
+    ve: target.vapidPrivateKeyEnvelope,
+    ps: target.subscription.proxyserver
+  };
+}
+
+export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
+  let ep = c.se;
+  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
+
+  return {
+    email: c.em,
+    name: c.nm,
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: c.vx, y: c.vy, ext: true },
+    e2ePublicKey: { kty: "RSA", e: "AQAB", n: c.en, alg: "RSA-OAEP-256", ext: true },
+    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
+    vapidPrivateKeyEnvelope: c.ve,
+    trusted: c.tr,
+    me: 'saved' 
+  };
+}
+
+export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
+  const compact = extrairDadosCompactos(target);
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
+  const compressed = gzipSync(jsonBytes);
+  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+}
+
+export async function gerarLinkConviteWeb(
+  target: ProfileConfig | Contato,
+  myVapidPrivateKeyJwk: JsonWebKey,
+  myVapidPublicKeyJwk: JsonWebKey,
+  baseUrl?: string
+): Promise<string> {
+  const compact = extrairDadosCompactos(target);
+  const payload = {
+    sub: "contact",
+    ...compact,
+    iat: Math.floor(Date.now() / 1000)
+  };
+
+  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
+  const jwtBytes = new TextEncoder().encode(jwt);
+  const compressed = gzipSync(jwtBytes);
+  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+
+  // 🔥 URL atualizada para o formato SPA do Loco
+  // Usa baseUrl se fornecida (para testes), caso contrário usa window.location.origin
+  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  return `${origin}/#share=${cjwt}`;
+}
+
+export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {
+  let cqr = null, cjwt = null, jwt = null;
+
+  try {
+    const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
+      ? input 
+      : `http://localhost/?${input}`;
+    const url = new URL(fullUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    cqr = url.searchParams.get('cqr');
+    cjwt = url.searchParams.get('cjwt');
+    jwt = url.searchParams.get('jwt');
+  } catch {
+    if (input.includes('cjwt=')) {
+      const parts = input.split('cjwt=');
+      if (parts[1]) cjwt = parts[1].split('&')[0];
+    } else if (input.includes('cqr=')) {
+      const parts = input.split('cqr=');
+      if (parts[1]) cqr = parts[1].split('&')[0];
+    } else if (input.includes('jwt=')) {
+      const parts = input.split('jwt=');
+      if (parts[1]) jwt = parts[1].split('&')[0];
+    }
+  }
+
+  if (!cqr && !cjwt && !jwt && input) {
+    if (input.includes('.')) {
+      jwt = input.trim();
+    } else {
+      try {
+        const compressed = new Uint8Array(base64UrlToArrayBuffer(input.trim()));
+        const decompressed = gunzipSync(compressed);
+        const text = new TextDecoder().decode(decompressed);
+        
+        if (text.startsWith('{')) {
+          cqr = input.trim();
+        } else {
+          cjwt = input.trim();
+        }
+      } catch (_e) {
+        cjwt = input.trim();
+      }
+    }
+  }
+
+  let compactData: CompactContact | null = null;
+
+  if (!compactData && cjwt) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      
+      const { payload, valid } = await verificarJWT(jsonText); 
+      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar cjwt:", e);
+    }
+  }
+
+  if (!compactData && cqr) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      const parsed = JSON.parse(jsonText);
+      if (parsed.vx && parsed.vy) {
+        compactData = parsed as CompactContact;
+      }
+    } catch (e) {
+      console.warn("Falha ao ler cqr:", e);
+    }
+  }
+
+  if (!compactData && jwt) {
+    try {
+      const { payload, valid } = await verificarJWT(jwt);
+      if (!valid) throw new Error("Assinatura do convite inválida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar jwt:", e);
+    }
+  }
+
+  if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
+
+  return expandirDadosCompactos(compactData);
+}
 ```
 
 ---
@@ -5253,191 +5291,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
 ---
 
-## Arquivo: `src/handshakes/hand-contato.ts`
-
-```ts
-// src/handshakes/hand-contato.ts
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-import { Handshake, Contato } from "../constants/db.ts";
-import { gerarId } from "../utils/id-utils.ts";
-import {
-  buscarHandshake,
-  salvarHandshake,
-  buscarProfile,
-  buscarContatoPorChave,
-  salvarContato,
-  serializarPublicKeyVapid
-} from "../utils/db-helpers.ts";
-import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-
-interface ContatoOutParams {
-  function: string;
-  contato: string;
-  campos?: string[];
-  responder?: boolean;
-}
-
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
-  
-  if (handshakeId) {
-    const handshake = await buscarHandshake(handshakeId);
-    if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
-    const contatoReq = handshake.in.rotas.contato;
-
-    if (Array.isArray(contatoReq.campos) && contatoReq.id) {
-      addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const rotasContatoData: Record<string, unknown> = { id: handshake.aud };
-
-      if (contato) {
-        const camposSet = new Set(contatoReq.campos);
-        const cp = extrairDadosCompactos(contato);
-        
-        if (camposSet.has('vapidPublicKey')) { rotasContatoData.vx = cp.vx; rotasContatoData.vy = cp.vy; }
-        if (camposSet.has('e2ePublicKey')) rotasContatoData.en = cp.en;
-        if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; }
-        if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
-        if (camposSet.has('email')) rotasContatoData.em = cp.em;
-        if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
-        if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
-      } else {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Contato não localizado no banco local para aud: ${handshake.aud}`);
-      }
-
-      handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
-      handshake.updatedAt = Date.now();
-      await salvarHandshake(handshake);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    else if (contatoReq.data) {
-      addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const profile = await buscarProfile();
-
-      if (!contato) {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local (aud: ${handshake.aud}).`);
-        return;
-      }
-
-      if (!profile) {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Perfil local não encontrado.`);
-        return;
-      }
-
-      const d = contatoReq.data as Record<string, unknown>;
-      const mp = extrairDadosCompactos(profile);
-      let novoMeStatus = contato.me;
-
-      if (!d.se) {
-        novoMeStatus = 'none'; 
-      } else {
-        if (d.tr === true) novoMeStatus = 'trusted';
-        else novoMeStatus = 'saved';
-
-        if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
-            d.vx !== mp.vx || d.vy !== mp.vy || d.en !== mp.en || d.ve !== mp.ve) {
-          novoMeStatus = 'wrong';
-        }
-      }
-
-      if (contato.me !== novoMeStatus) {
-        const statusAnterior = contato.me;
-        contato.me = novoMeStatus;
-        contato.updatedAt = Date.now();
-        await salvarContato(contato);
-        addDebugLog(`[HAND-CONTATO] ✅ Status alterado de '${statusAnterior}' para: '${novoMeStatus}'`);
-        
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-      } else {
-        addDebugLog(`[HAND-CONTATO] ✅ Consistência avaliada. Status mantido em: '${novoMeStatus}'`);
-      }
-    }
-
-    else if (contatoReq.sync) {
-      addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
-      
-      const syncData = contatoReq.sync as unknown as CompactContact;
-      const expanded = expandirDadosCompactos(syncData);
-      const contatoAntigo = await buscarContatoPorChave(handshake.aud);
-      
-      const eleConfiaEmMim = syncData.tr === true; 
-      const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
-
-      const novoContato: Contato = {
-        id: handshake.aud,
-        vapidPublicKey: expanded.vapidPublicKey!,
-        e2ePublicKey: expanded.e2ePublicKey!,
-        email: expanded.email || '',
-        name: expanded.name || '',
-        subscription: expanded.subscription!,
-        vapidPrivateKeyEnvelope: expanded.vapidPrivateKeyEnvelope!,
-        trusted: contatoAntigo ? contatoAntigo.trusted : false, 
-        me: novoMeStatus, 
-        createdAt: contatoAntigo ? contatoAntigo.createdAt : Date.now(),
-        updatedAt: Date.now()
-      };
-
-      await salvarContato(novoContato);
-      addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
-
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-
-      if (syncData.req) {
-        addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
-        await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
-      }
-    }
-  }
-
-  if (outParams) {
-    if (outParams.function === 'confirmarSubscription') {
-      const profile = await buscarProfile();
-      if (!profile) {
-        addDebugLog(`[HAND-CONTATO] ❌ Erro ao criar Pull: Perfil local ausente.`);
-        return;
-      }
-      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
-
-      const novoHandshake: Handshake = {
-        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
-      };
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-CONTATO] ✅ Handshake de confirmação de inscrição (Pull) criado.`);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    if (outParams.function === 'enviarSubscription') {
-      const profile = await buscarProfile();
-      if (!profile) throw new Error("Perfil não encontrado.");
-
-      const contatoAlvo = await buscarContatoPorChave(outParams.contato);
-      const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
-
-      const compactSyncData = extrairDadosCompactos(profile, !outParams.responder, euConfio);
-
-      const novoHandshake: Handshake = {
-        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData as unknown as Record<string, unknown> } } }
-      };
-
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-CONTATO] ✅ Handshake de sync de contato (Push) criado.`);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-  }
-}
-```
-
----
-
 ## Arquivo: `src/handshakes/hand-mensagem.ts`
 
 ```ts
@@ -5637,6 +5490,191 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       await salvarHandshake(novoHandshake);
       addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} posta na fila de saída do SW.`);
       
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+}
+```
+
+---
+
+## Arquivo: `src/handshakes/hand-contato.ts`
+
+```ts
+// src/handshakes/hand-contato.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { Handshake, Contato } from "../constants/db.ts";
+import { gerarId } from "../utils/id-utils.ts";
+import {
+  buscarHandshake,
+  salvarHandshake,
+  buscarProfile,
+  buscarContatoPorChave,
+  salvarContato,
+  serializarPublicKeyVapid
+} from "../utils/db-helpers.ts";
+import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
+import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+
+interface ContatoOutParams {
+  function: string;
+  contato: string;
+  campos?: string[];
+  responder?: boolean;
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
+  
+  if (handshakeId) {
+    const handshake = await buscarHandshake(handshakeId);
+    if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
+    const contatoReq = handshake.in.rotas.contato;
+
+    if (Array.isArray(contatoReq.campos) && contatoReq.id) {
+      addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
+      const contato = await buscarContatoPorChave(handshake.aud);
+      const rotasContatoData: Record<string, unknown> = { id: handshake.aud };
+
+      if (contato) {
+        const camposSet = new Set(contatoReq.campos);
+        const cp = extrairDadosCompactos(contato);
+        
+        if (camposSet.has('vapidPublicKey')) { rotasContatoData.vx = cp.vx; rotasContatoData.vy = cp.vy; }
+        if (camposSet.has('e2ePublicKey')) rotasContatoData.en = cp.en;
+        if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
+        if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
+        if (camposSet.has('email')) rotasContatoData.em = cp.em;
+        if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
+        if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
+      } else {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Contato não localizado no banco local para aud: ${handshake.aud}`);
+      }
+
+      handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
+      handshake.updatedAt = Date.now();
+      await salvarHandshake(handshake);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    else if (contatoReq.data) {
+      addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
+      const contato = await buscarContatoPorChave(handshake.aud);
+      const profile = await buscarProfile();
+
+      if (!contato) {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local (aud: ${handshake.aud}).`);
+        return;
+      }
+
+      if (!profile) {
+        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Perfil local não encontrado.`);
+        return;
+      }
+
+      const d = contatoReq.data as Record<string, unknown>;
+      const mp = extrairDadosCompactos(profile);
+      let novoMeStatus = contato.me;
+
+      if (!d.se) {
+        novoMeStatus = 'none'; 
+      } else {
+        if (d.tr === true) novoMeStatus = 'trusted';
+        else novoMeStatus = 'saved';
+
+        if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
+            d.vx !== mp.vx || d.vy !== mp.vy || d.en !== mp.en || d.ve !== mp.ve) {
+          novoMeStatus = 'wrong';
+        }
+      }
+
+      if (contato.me !== novoMeStatus) {
+        const statusAnterior = contato.me;
+        contato.me = novoMeStatus;
+        contato.updatedAt = Date.now();
+        await salvarContato(contato);
+        addDebugLog(`[HAND-CONTATO] ✅ Status alterado de '${statusAnterior}' para: '${novoMeStatus}'`);
+        
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      } else {
+        addDebugLog(`[HAND-CONTATO] ✅ Consistência avaliada. Status mantido em: '${novoMeStatus}'`);
+      }
+    }
+
+    else if (contatoReq.sync) {
+      addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
+      
+      const syncData = contatoReq.sync as unknown as CompactContact;
+      const expanded = expandirDadosCompactos(syncData);
+      const contatoAntigo = await buscarContatoPorChave(handshake.aud);
+      
+      const eleConfiaEmMim = syncData.tr === true; 
+      const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
+
+      const novoContato: Contato = {
+        id: handshake.aud,
+        vapidPublicKey: expanded.vapidPublicKey!,
+        e2ePublicKey: expanded.e2ePublicKey!,
+        email: expanded.email || '',
+        name: expanded.name || '',
+        subscription: expanded.subscription!,
+        vapidPrivateKeyEnvelope: expanded.vapidPrivateKeyEnvelope!,
+        trusted: contatoAntigo ? contatoAntigo.trusted : false, 
+        me: novoMeStatus, 
+        createdAt: contatoAntigo ? contatoAntigo.createdAt : Date.now(),
+        updatedAt: Date.now()
+      };
+
+      await salvarContato(novoContato);
+      addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
+
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+
+      if (syncData.req) {
+        addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
+        await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
+      }
+    }
+  }
+
+  if (outParams) {
+    if (outParams.function === 'confirmarSubscription') {
+      const profile = await buscarProfile();
+      if (!profile) {
+        addDebugLog(`[HAND-CONTATO] ❌ Erro ao criar Pull: Perfil local ausente.`);
+        return;
+      }
+      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
+      };
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-CONTATO] ✅ Handshake de confirmação de inscrição (Pull) criado.`);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    if (outParams.function === 'enviarSubscription') {
+      const profile = await buscarProfile();
+      if (!profile) throw new Error("Perfil não encontrado.");
+
+      const contatoAlvo = await buscarContatoPorChave(outParams.contato);
+      const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
+
+      const compactSyncData = extrairDadosCompactos(profile, !outParams.responder, euConfio);
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData as unknown as Record<string, unknown> } } }
+      };
+
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-CONTATO] ✅ Handshake de sync de contato (Push) criado.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
@@ -6037,262 +6075,6 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
 
 ---
 
-## Arquivo: `worker.ts`
-
-```ts
-// worker.ts
-/// <reference lib="deno.ns" />
-
-import * as webpush from "@negrel/webpush";
-import { deleteCookie } from "@std/http/cookie";
-
-let serverPrivateKeyCache: CryptoKey | null = null;
-let serverPublicKeyJwkCache: JsonWebKey | null = null;
-
-async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
-  if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
-    return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
-  }
-
-  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
-  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
-
-  if (!publicKeyStr || !privateKeyStr) {
-    throw new Error("Chaves de infraestrutura do servidor (SERVER_PUBLIC_KEY / SERVER_PRIVATE_KEY) não encontradas!");
-  }
-
-  try {
-    const publicKeyJwk = JSON.parse(publicKeyStr);
-    const privateKeyJwk = JSON.parse(privateKeyStr);
-
-    const serverPrivateKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      privateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["decrypt"]
-    );
-
-    serverPrivateKeyCache = serverPrivateKey;
-    serverPublicKeyJwkCache = publicKeyJwk;
-
-    console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
-    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk };
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
-  }
-}
-
-async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
-  try {
-    const envelopeText = atob(base64Envelope);
-    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
-
-    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-
-    const ivBytes = fromHex(iv);
-    const dadosBytes = fromHex(dadosCifrados);
-    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
-
-    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
-      { name: "RSA-OAEP" },
-      serverPrivateKey,
-      chaveAesCifradaBytes
-    );
-
-    const chaveSimetricaAes = await crypto.subtle.importKey(
-      "raw",
-      aesChaveCruaBuffer,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
-
-    const vapidOriginalBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
-      chaveSimetricaAes,
-      dadosBytes
-    );
-
-    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
-    return JSON.parse(jsonText);
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
-    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
-  }
-}
-
-function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
-  try {
-    return {
-      publicKey: typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey,
-      privateKey: typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey
-    };
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
-  }
-}
-
-function lerMetadadosJJWT(jwtString: string) {
-  try {
-    const parts = jwtString.split(".");
-    if (parts.length !== 3) return null;
-
-    const part1 = parts[1];
-    if (!part1) return null;
-
-    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-
-    const jsonString = new TextDecoder().decode(
-      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
-    );
-    
-    return JSON.parse(jsonString);
-  } catch {
-    return null;
-  }
-}
-
-const workerHandler = {
-  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-    
-    let origin = request.headers.get("origin") || "";
-    if (origin === "") {
-      const host = request.headers.get("host") || "localhost";
-      const protocolo = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-      origin = `${protocolo}://${host}`;
-    }
-
-    const isAllowedOrigin = 
-      /^https?:\/\/localhost(:\d+)?$/.test(origin) || 
-      /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/.test(origin) ||
-      /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/.test(origin);
-
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
-      "Access-Control-Allow-Credentials": "true"
-    };
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
-    }
-
-    const proxyPath = env.PROXY_PATH || "";
-    const targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
-
-    if (!isAllowedOrigin) {
-      console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
-      return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    try {
-      const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
-
-      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
-        return new Response(JSON.stringify(serverPublicKeyJwk), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
-        const headers = new Headers(corsHeaders);
-        deleteCookie(headers, "session_token", { path: "/" });
-        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
-        headers.set("Content-Type", "application/json");
-        return new Response(JSON.stringify({ disconnected: true }), {
-          status: 200,
-          headers,
-        });
-      }
-
-      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
-        
-        const body = await request.json();
-        const { subscription, payloadText, vapid } = body;
-
-        if (!subscription || !payloadText || !vapid) {
-          return new Response(
-            JSON.stringify({ success: false, error: "Parâmetros obrigatórios ausentes no body." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        const jwtClaims = lerMetadadosJJWT(payloadText);
-        if (jwtClaims) {
-          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
-        }
-
-        let privateKeyFinal = vapid.privateKey;
-
-        if (typeof privateKeyFinal === "string") {
-          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
-          try {
-            const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
-            privateKeyFinal = decryptedPrivateKeyObj;
-            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
-          } catch (decryptErr) {
-            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
-            return new Response(
-              JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-        }
-
-        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
-        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
-        
-        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
-        const appServer = await webpush.ApplicationServer.new({
-          contactInformation: contact,
-          vapidKeys: vapidKeys,
-        });
-
-        const subscriber = appServer.subscribe(subscription);
-        await subscriber.pushTextMessage(payloadText, {});
-        
-        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
-
-        return new Response(JSON.stringify({ success: true }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      return new Response(
-        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("❌ Erro no Worker:", errorMessage);
-      return new Response(
-        JSON.stringify({ success: false, error: errorMessage }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-  }
-};
-
-export default workerHandler;
-```
-
----
-
 ## Arquivo: `build.ts`
 
 ```ts
@@ -6550,6 +6332,310 @@ await build();
 
 ---
 
+## Arquivo: `worker.ts`
+
+```ts
+// worker.ts
+/// <reference lib="deno.ns" />
+
+import * as webpush from "@negrel/webpush";
+import { deleteCookie } from "@std/http/cookie";
+
+let serverPrivateKeyCache: CryptoKey | null = null;
+let serverPublicKeyJwkCache: JsonWebKey | null = null;
+
+async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
+  if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
+    return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
+  }
+
+  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
+  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
+
+  if (!publicKeyStr || !privateKeyStr) {
+    throw new Error("Chaves de infraestrutura do servidor (SERVER_PUBLIC_KEY / SERVER_PRIVATE_KEY) não encontradas!");
+  }
+
+  try {
+    const publicKeyJwk = JSON.parse(publicKeyStr);
+    const privateKeyJwk = JSON.parse(privateKeyStr);
+
+    const serverPrivateKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      privateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["decrypt"]
+    );
+
+    serverPrivateKeyCache = serverPrivateKey;
+    serverPublicKeyJwkCache = publicKeyJwk;
+
+    console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
+    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
+  }
+}
+
+async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
+  try {
+    const envelopeText = atob(base64Envelope);
+    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+
+    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+
+    const ivBytes = fromHex(iv);
+    const dadosBytes = fromHex(dadosCifrados);
+    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+      { name: "RSA-OAEP" },
+      serverPrivateKey,
+      chaveAesCifradaBytes
+    );
+
+    const chaveSimetricaAes = await crypto.subtle.importKey(
+      "raw",
+      aesChaveCruaBuffer,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+
+    const vapidOriginalBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ivBytes },
+      chaveSimetricaAes,
+      dadosBytes
+    );
+
+    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
+    return JSON.parse(jsonText);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
+    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
+  }
+}
+
+function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
+  try {
+    return {
+      publicKey: typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey,
+      privateKey: typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
+  }
+}
+
+function lerMetadadosJJWT(jwtString: string) {
+  try {
+    const parts = jwtString.split(".");
+    if (parts.length !== 3) return null;
+
+    const part1 = parts[1];
+    if (!part1) return null;
+
+    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64Url.length % 4) base64Url += "=";
+
+    const jsonString = new TextDecoder().decode(
+      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
+    );
+    
+    return JSON.parse(jsonString);
+  } catch {
+    return null;
+  }
+}
+
+const workerHandler = {
+  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    
+    let origin = request.headers.get("origin") || "";
+    if (origin === "") {
+      const host = request.headers.get("host") || "localhost";
+      const protocolo = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+      origin = `${protocolo}://${host}`;
+    }
+
+    const isAllowedOrigin = 
+      /^https?:\/\/localhost(:\d+)?$/.test(origin) || 
+      /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/.test(origin) ||
+      /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/.test(origin);
+
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Max-Age": "86400" // Cache do preflight por 24 horas
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    const proxyPath = env.PROXY_PATH || "";
+    const targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
+
+    if (!isAllowedOrigin) {
+      console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
+      return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    try {
+      const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
+
+      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
+        return new Response(JSON.stringify(serverPublicKeyJwk), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
+        const headers = new Headers(corsHeaders);
+        deleteCookie(headers, "session_token", { path: "/" });
+        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
+        headers.set("Content-Type", "application/json");
+        return new Response(JSON.stringify({ disconnected: true }), {
+          status: 200,
+          headers,
+        });
+      }
+
+      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
+        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
+        
+        const body = await request.json();
+        const { subscription, payloadText, vapid } = body;
+
+        if (!subscription || !payloadText || !vapid) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Parâmetros obrigatórios ausentes no body." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const jwtClaims = lerMetadadosJJWT(payloadText);
+        if (jwtClaims) {
+          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+        }
+
+        // 🔥 VERIFICA SE O PROXYSERVER DE DESTINO É DIFERENTE DO ATUAL
+        const proxyserverDestino = jwtClaims?.proxyserver;
+        if (proxyserverDestino) {
+          const urlAtual = new URL(request.url);
+          // Ignora protocolo na comparação, focando apenas em host + path
+          const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
+          
+          // Remove protocolo e barras finais para comparação justa
+          const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
+          const origemNormalizada = origemAtual.replace(/\/$/, "");
+          const destinoNormalizado = destinoSemProtocolo;
+          
+          if (origemNormalizada !== destinoNormalizado) {
+            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
+            
+            // Reencaminha a mensagem para o proxy correto
+            try {
+              // Garante que a URL tenha protocolo HTTPS e barra final
+              const urlDestino = destinoNormalizado.startsWith("http") 
+                ? `${destinoNormalizado}/` 
+                : `https://${destinoNormalizado}/`;
+              
+              const response = await fetch(urlDestino, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subscription, payloadText, vapid }),
+                redirect: "follow" // Segue redirects automaticamente
+              });
+              
+              const result = await response.json();
+              console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
+              
+              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoNormalizado }), {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+              });
+            } catch (redirectErr) {
+              const errorMsg = redirectErr instanceof Error ? redirectErr.message : String(redirectErr);
+              console.error(`    ❌ [REDIRECIONAMENTO] Falha ao reencaminhar: ${errorMsg}`);
+              return new Response(
+                JSON.stringify({ success: false, error: `Falha ao reencaminhar para proxy destino: ${errorMsg}` }),
+                { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+          }
+        }
+
+        let privateKeyFinal = vapid.privateKey;
+
+        if (typeof privateKeyFinal === "string") {
+          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
+          try {
+            const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
+            privateKeyFinal = decryptedPrivateKeyObj;
+            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+          } catch (decryptErr) {
+            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
+            return new Response(
+              JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+        }
+
+        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
+        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
+        
+        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+        const appServer = await webpush.ApplicationServer.new({
+          contactInformation: contact,
+          vapidKeys: vapidKeys,
+        });
+
+        const subscriber = appServer.subscribe(subscription);
+        await subscriber.pushTextMessage(payloadText, {});
+        
+        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
+
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("❌ Erro no Worker:", errorMessage);
+      return new Response(
+        JSON.stringify({ success: false, error: errorMessage }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+  }
+};
+
+export default workerHandler;
+```
+
+---
+
 ## Arquivo: `deno.jsonc`
 
 ```json
@@ -6562,7 +6648,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.74-mspgf4cj",
+  "version": "0.2.75-mspjjr50",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
