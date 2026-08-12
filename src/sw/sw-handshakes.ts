@@ -4,6 +4,7 @@ declare const self: ServiceWorkerGlobalScope;
 
 import { gunzipSync } from "fflate";
 import { Handshake, MAX_TENTATIVAS } from "../constants/db.ts";
+import { buildProxyUrl } from "../constants/config.ts";
 import { base64UrlToArrayBuffer, criarJWT } from "../utils/jwt-helpers.ts";
 import {
   salvarHandshake,

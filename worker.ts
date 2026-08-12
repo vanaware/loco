@@ -208,7 +208,7 @@ const workerHandler = {
             
             // Reencaminha a mensagem para o proxy correto
             try {
-              const response = await fetch(`${destinoNormalizada}/`, {
+              const response = await fetch(`${destinoNormalizado}/`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ subscription, payloadText, vapid })
