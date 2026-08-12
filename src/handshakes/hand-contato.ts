@@ -41,7 +41,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         
         if (camposSet.has('vapidPublicKey')) { rotasContatoData.vx = cp.vx; rotasContatoData.vy = cp.vy; }
         if (camposSet.has('e2ePublicKey')) rotasContatoData.en = cp.en;
-        if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; }
+        if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
         if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
         if (camposSet.has('email')) rotasContatoData.em = cp.em;
         if (camposSet.has('name')) rotasContatoData.nm = cp.nm;

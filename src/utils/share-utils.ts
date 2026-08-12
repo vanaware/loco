@@ -17,6 +17,7 @@ export interface CompactContact {
   sp: string;
   sa: string;
   ve: string;
+  ps?: string; // proxyserver
 }
 
 export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
@@ -34,7 +35,8 @@ export function extrairDadosCompactos(target: ProfileConfig | Contato, req = fal
     se: ep,
     sp: target.subscription.keys.p256dh,
     sa: target.subscription.keys.auth,
-    ve: target.vapidPrivateKeyEnvelope
+    ve: target.vapidPrivateKeyEnvelope,
+    ps: target.subscription.proxyserver
   };
 }
 
@@ -47,7 +49,7 @@ export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
     name: c.nm,
     vapidPublicKey: { kty: "EC", crv: "P-256", x: c.vx, y: c.vy, ext: true },
     e2ePublicKey: { kty: "RSA", e: "AQAB", n: c.en, alg: "RSA-OAEP-256", ext: true },
-    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa } },
+    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
     vapidPrivateKeyEnvelope: c.ve,
     trusted: c.tr,
     me: 'saved' 

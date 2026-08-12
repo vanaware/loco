@@ -193,6 +193,45 @@ const workerHandler = {
           console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         }
 
+        // 🔥 VERIFICA SE O PROXYSERVER DE DESTINO É DIFERENTE DO ATUAL
+        const proxyserverDestino = jwtClaims?.proxyserver;
+        if (proxyserverDestino) {
+          const urlAtual = new URL(request.url);
+          const origemAtual = `${urlAtual.protocol}//${urlAtual.host}${env.PROXY_PATH || ""}`;
+          
+          // Normaliza ambas as URLs para comparação (remove barras finais)
+          const origemNormalizada = origemAtual.replace(/\/$/, "");
+          const destinoNormalizado = proxyserverDestino.replace(/\/$/, "");
+          
+          if (origemNormalizada !== destinoNormalizado) {
+            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
+            
+            // Reencaminha a mensagem para o proxy correto
+            try {
+              const response = await fetch(`${destinoNormalizada}/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subscription, payloadText, vapid })
+              });
+              
+              const result = await response.json();
+              console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
+              
+              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoNormalizado }), {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+              });
+            } catch (redirectErr) {
+              const errorMsg = redirectErr instanceof Error ? redirectErr.message : String(redirectErr);
+              console.error(`    ❌ [REDIRECIONAMENTO] Falha ao reencaminhar: ${errorMsg}`);
+              return new Response(
+                JSON.stringify({ success: false, error: `Falha ao reencaminhar para proxy destino: ${errorMsg}` }),
+                { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+          }
+        }
+
         let privateKeyFinal = vapid.privateKey;
 
         if (typeof privateKeyFinal === "string") {

@@ -34,6 +34,7 @@ export interface ProfileConfig {
       p256dh: string;
       auth: string;
     };
+    proxyserver?: string;
   };
   createdAt: number;
   updatedAt: number;
@@ -66,6 +67,7 @@ export interface Contato {
   subscription: {
     endpoint: string;
     keys: { p256dh: string; auth: string };
+    proxyserver?: string;
   };
   vapidPrivateKeyEnvelope: string;
   trusted: boolean;

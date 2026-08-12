@@ -242,8 +242,17 @@ export async function processarFilaHandshake() {
           h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
         }
 
+        // 🔥 Resolve o proxyserver completo (mesmo que o usuário tenha informado relativo)
+        const proxyserverDestino = contato.subscription.proxyserver || await buildProxyUrl('/');
+
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
-        const payloadJwt = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
+        const payloadJwt = { 
+          sub: "hand", 
+          aud: contato.id, 
+          jti: h.id, 
+          ct: JSON.stringify(envelope),
+          proxyserver: proxyserverDestino  // 🆕 Informação fora do ct para o proxy ler
+        };
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
         
         if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
