@@ -295,3 +295,9 @@ Todos os comandos automatizados utilizam a interface de linha de comando (CLI) d
   apt-get update && apt-get install -y unzip
   curl -fsSL https://deno.land/install.sh | sh -s -- -y
   ```
+
+  ## 12. Lançamento de nova versão
+  ```sh
+  git tag -a v0.2 - m "Release v0.2: Nova esteira de CI/CD"
+  git push origin v0.2
+  ```

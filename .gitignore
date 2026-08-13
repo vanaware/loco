@@ -567,20 +567,6 @@ test/
 *.mo
 *.pot
 
-# CI/CD
-.circleci/
-.github/
-.travis.yml
-appveyor.yml
-.codeclimate.yml
-.jenkins
-.drone.yml
-.gitlab-ci.yml
-.shippable.yml
-.codeship.services.yml
-.codeship.steps.yml
-.teamcity/
-
 # Analytics
 google-services.json
 GoogleService-Info.plist
