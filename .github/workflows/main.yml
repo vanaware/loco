@@ -87,15 +87,17 @@ jobs:
       - name: Unzip Build
         run: unzip build.zip
 
-      # Usamos a action oficial configurando o caminho estático gerado pelo build.ts
       - name: Setup Pages
         uses: actions/configure-pages@v4
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'build/dist'
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          artifact_path: 'build/dist'
 
   deploy-cloudflare:
     needs: create-release
