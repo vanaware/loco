@@ -115,6 +115,48 @@ function lerMetadadosJJWT(jwtString: string) {
   }
 }
 
+/**
+ * Valida a origem da requisição comparando com a lista estática padrão e com a variável de ambiente ALLOWED_ORIGINS.
+ */
+function checkIsAllowedOrigin(origin: string, env: any): boolean {
+  if (!origin) return false;
+
+  // Lista padrão de fallback caso a env não esteja definida
+  const defaultPatterns = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*tap\.app\.br$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/,
+    /^https?:\/\/dash\.cloudflare\.com$/
+  ];
+
+  // Verifica se bate com os padrões padrão
+  for (const pattern of defaultPatterns) {
+    if (pattern.test(origin)) return true;
+  }
+
+  // Se houver origines extras cadastradas na ENV ALLOWED_ORIGINS (separadas por vírgula)
+  const envOrigins = env?.ALLOWED_ORIGINS;
+  if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
+    const rules = envOrigins.split(",").map(s => s.trim());
+    for (const rule of rules) {
+      // Transforma string com coringa (*) em Regex segura
+      // Exemplo: https://*.exemplo.com vira /^https?:\/\/([a-zA-Z0-9-]+\.)*exemplo\.com$/
+      const escapedRule = rule
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&") // Escapa caracteres especiais de regex exceto *
+        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*"); // Substitui * por padrão de subdomínio
+
+      const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
+      if (dynamicRegex.test(origin)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 const workerHandler = {
   async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     const url = new URL(request.url);
@@ -127,10 +169,7 @@ const workerHandler = {
       origin = `${protocolo}://${host}`;
     }
 
-    const isAllowedOrigin = 
-      /^https?:\/\/localhost(:\d+)?$/.test(origin) || 
-      /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/.test(origin) ||
-      /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/.test(origin);
+    const isAllowedOrigin = checkIsAllowedOrigin(origin, env);
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
@@ -194,14 +233,11 @@ const workerHandler = {
           console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         }
 
-        // 🔥 VERIFICA SE O PROXYSERVER DE DESTINO É DIFERENTE DO ATUAL
         const proxyserverDestino = jwtClaims?.proxyserver;
         if (proxyserverDestino) {
           const urlAtual = new URL(request.url);
-          // Ignora protocolo na comparação, focando apenas em host + path
           const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
           
-          // Remove protocolo e barras finais para comparação justa
           const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
           const origemNormalizada = origemAtual.replace(/\/$/, "");
           const destinoNormalizado = destinoSemProtocolo;
@@ -209,9 +245,7 @@ const workerHandler = {
           if (origemNormalizada !== destinoNormalizado) {
             console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
             
-            // Reencaminha a mensagem para o proxy correto
             try {
-              // Garante que a URL tenha protocolo HTTPS e barra final
               const urlDestino = destinoNormalizado.startsWith("http") 
                 ? `${destinoNormalizado}/` 
                 : `https://${destinoNormalizado}/`;
@@ -220,7 +254,7 @@ const workerHandler = {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ subscription, payloadText, vapid }),
-                redirect: "follow" // Segue redirects automaticamente
+                redirect: "follow"
               });
               
               const result = await response.json();
