@@ -123,7 +123,7 @@ jobs:
             PORT
             PROXY_PATH
             ALLOWED_ORIGINS
-          env:
+        env:
           SERVER_PRIVATE_KEY: ${{ secrets.SERVER_PRIVATE_KEY }}
           SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
           PORT: ${{ secrets.PORT }}
