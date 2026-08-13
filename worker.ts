@@ -135,21 +135,17 @@ function checkIsAllowedOrigin(origin: string, env: any): boolean {
     /^https?:\/\/dash\.cloudflare\.com$/
   ];
 
-  // Verifica se bate com os padrões padrão
   for (const pattern of defaultPatterns) {
     if (pattern.test(origin)) return true;
   }
 
-  // Se houver origines extras cadastradas na ENV ALLOWED_ORIGINS (separadas por vírgula)
   const envOrigins = env?.ALLOWED_ORIGINS;
   if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
     const rules = envOrigins.split(",").map(s => s.trim());
     for (const rule of rules) {
-      // Transforma string com coringa (*) em Regex segura
-      // Exemplo: https://*.exemplo.com vira /^https?:\/\/([a-zA-Z0-9-]+\.)*exemplo\.com$/
       const escapedRule = rule
-        .replace(/[.+?^${}()|[\]\\]/g, "\\$&") // Escapa caracteres especiais de regex exceto *
-        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*"); // Substitui * por padrão de subdomínio
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*");
 
       const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
       if (dynamicRegex.test(origin)) {
@@ -180,7 +176,7 @@ const workerHandler = {
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
       "Access-Control-Allow-Credentials": "true",
-      "Access-Control-Max-Age": "86400" // Cache do preflight por 24 horas
+      "Access-Control-Max-Age": "86400"
     };
 
     if (request.method === "OPTIONS") {
@@ -188,7 +184,15 @@ const workerHandler = {
     }
 
     const proxyPath = env.PROXY_PATH || "";
-    const targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
+    
+    // 🔥 Normalização de Rota Resiliente
+    let targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
+    
+    // Garante que o targetPath sempre inicie com barra "/", corrigindo
+    // falhas de configuração onde proxyPath é "/" ou termina com barra.
+    if (!targetPath.startsWith("/")) {
+      targetPath = "/" + targetPath;
+    }
 
     if (!isAllowedOrigin) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
@@ -201,6 +205,7 @@ const workerHandler = {
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
 
+      // As verificações agora não quebram independentemente do proxy_path configurado
       if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
           status: 200,
