@@ -1,0 +1,116 @@
+name: Release and Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      version: ${{ steps.set_tag.outputs.VERSION_TAG }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Set Tag Output
+        id: set_tag
+        run: echo "VERSION_TAG=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version-file: .tool-versions
+          cache: true
+
+      - name: Run Tests
+        run: deno task tests
+
+      - name: Run Build
+        env:
+          SERVER_KEY_1: ${{ secrets.SERVER_KEY_1 }}
+          SERVER_KEY_2: ${{ secrets.SERVER_KEY_2 }}
+        run: deno task build
+
+      # Compacta a pasta build gerada
+      - name: Zip Release Files
+        run: zip -r build.zip build/
+
+      # Artefato minimalista: apenas o zip e o arquivo de configuração
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-package
+          path: |
+            build.zip
+            wrangler.toml
+          if-no-files-found: error
+          retention-days: 1
+
+  create-release:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build.zip
+          name: Release ${{ needs.test-and-build.outputs.version }}
+          tag_name: ${{ needs.test-and-build.outputs.version }}
+
+  deploy-pages:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+
+      # Descompacta o zip para recriar a pasta build/ localmente
+      - name: Unzip Build
+        run: unzip build.zip
+
+      - name: Upload GitHub Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'build/dist/'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  deploy-cloudflare:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+
+      # Descompacta o zip para que o wrangler encontre build/worker.ts e build/dist/
+      - name: Unzip Build
+        run: unzip build.zip
+
+      - name: Deploy Worker to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
