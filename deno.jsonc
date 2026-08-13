@@ -52,11 +52,12 @@
   // 🛠️ Scripts de Automação
   "tasks": {
     "test": "deno test --allow-env --allow-net tests/",
-    "typecheck": "deno check main.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
     "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
     "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno task build && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "clean": "rm -rf dist && mkdir -p dist",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
+    "tests": "deno task check && deno task test",
     "export": "deno run --allow-read --allow-write export.ts"
   },
   "exclude": ["build/", "public/"]
