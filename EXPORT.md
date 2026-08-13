@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.75-mspjjr50** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.76-msqx03i9** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.75-mspjjr50] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.76-msqx03i9] - Modo: MAIN
 
-Gerado automaticamente em: 8/12/2026, 12:42:26 AM
+Gerado automaticamente em: 8/12/2026, 11:53:59 PM
 
 ---
 
@@ -2196,7 +2196,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.75-mspjjr50";
+export const APP_VERSION = "0.2.76-msqx03i9";
 
 ```
 
@@ -6332,6 +6332,77 @@ await build();
 
 ---
 
+## Arquivo: `deno.jsonc`
+
+```json
+{
+  // ============================================================================
+  // 🚀 LOCO PWA - Manifesto do Deno
+  // Mensageiro PWA Descentralizado, Offline-First & E2EE
+  // ============================================================================
+
+  // 📋 Metadados do Projeto
+  "name": "@vanaware/loco",
+  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
+  "version": "0.2.76-msqx03i9",
+  "exports": "./main.ts",
+  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
+  "author": "Vanaware",
+  "license": "MIT",
+  
+  "workspace": [
+    "proto/_template",
+    "proto/01-push-messaging"
+  ],
+
+  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+
+  // 📦 Gerenciamento de Dependências
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/http": "jsr:@std/http@^1",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
+    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
+    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+  },
+
+  // 🛠️ Scripts de Automação
+  "tasks": {
+    "test": "deno test --allow-env --allow-net tests/",
+    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
+    "tests": "deno task check && deno task test",
+    "export": "deno run --allow-read --allow-write export.ts"
+  },
+  "exclude": ["build/", "public/"]
+}
+```
+
+---
+
 ## Arquivo: `worker.ts`
 
 ```ts
@@ -6352,8 +6423,12 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
   const publicKeyStr = env?.SERVER_PUBLIC_KEY;
   const privateKeyStr = env?.SERVER_PRIVATE_KEY;
 
-  if (!publicKeyStr || !privateKeyStr) {
-    throw new Error("Chaves de infraestrutura do servidor (SERVER_PUBLIC_KEY / SERVER_PRIVATE_KEY) não encontradas!");
+  if (!publicKeyStr) {
+    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada! Configure-a no arquivo wrangler.toml ou via dashboard da Cloudflare.");
+  }
+  
+  if (!privateKeyStr) {
+    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare (ex: wrangler secret put SERVER_PRIVATE_KEY).");
   }
 
   try {
@@ -6452,6 +6527,48 @@ function lerMetadadosJJWT(jwtString: string) {
   }
 }
 
+/**
+ * Valida a origem da requisição comparando com a lista estática padrão e com a variável de ambiente ALLOWED_ORIGINS.
+ */
+function checkIsAllowedOrigin(origin: string, env: any): boolean {
+  if (!origin) return false;
+
+  // Lista padrão de fallback caso a env não esteja definida
+  const defaultPatterns = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*tap\.app\.br$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/,
+    /^https?:\/\/dash\.cloudflare\.com$/
+  ];
+
+  // Verifica se bate com os padrões padrão
+  for (const pattern of defaultPatterns) {
+    if (pattern.test(origin)) return true;
+  }
+
+  // Se houver origines extras cadastradas na ENV ALLOWED_ORIGINS (separadas por vírgula)
+  const envOrigins = env?.ALLOWED_ORIGINS;
+  if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
+    const rules = envOrigins.split(",").map(s => s.trim());
+    for (const rule of rules) {
+      // Transforma string com coringa (*) em Regex segura
+      // Exemplo: https://*.exemplo.com vira /^https?:\/\/([a-zA-Z0-9-]+\.)*exemplo\.com$/
+      const escapedRule = rule
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&") // Escapa caracteres especiais de regex exceto *
+        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*"); // Substitui * por padrão de subdomínio
+
+      const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
+      if (dynamicRegex.test(origin)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 const workerHandler = {
   async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     const url = new URL(request.url);
@@ -6464,10 +6581,7 @@ const workerHandler = {
       origin = `${protocolo}://${host}`;
     }
 
-    const isAllowedOrigin = 
-      /^https?:\/\/localhost(:\d+)?$/.test(origin) || 
-      /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/.test(origin) ||
-      /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/.test(origin);
+    const isAllowedOrigin = checkIsAllowedOrigin(origin, env);
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
@@ -6531,14 +6645,11 @@ const workerHandler = {
           console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
         }
 
-        // 🔥 VERIFICA SE O PROXYSERVER DE DESTINO É DIFERENTE DO ATUAL
         const proxyserverDestino = jwtClaims?.proxyserver;
         if (proxyserverDestino) {
           const urlAtual = new URL(request.url);
-          // Ignora protocolo na comparação, focando apenas em host + path
           const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
           
-          // Remove protocolo e barras finais para comparação justa
           const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
           const origemNormalizada = origemAtual.replace(/\/$/, "");
           const destinoNormalizado = destinoSemProtocolo;
@@ -6546,9 +6657,7 @@ const workerHandler = {
           if (origemNormalizada !== destinoNormalizado) {
             console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
             
-            // Reencaminha a mensagem para o proxy correto
             try {
-              // Garante que a URL tenha protocolo HTTPS e barra final
               const urlDestino = destinoNormalizado.startsWith("http") 
                 ? `${destinoNormalizado}/` 
                 : `https://${destinoNormalizado}/`;
@@ -6557,7 +6666,7 @@ const workerHandler = {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ subscription, payloadText, vapid }),
-                redirect: "follow" // Segue redirects automaticamente
+                redirect: "follow"
               });
               
               const result = await response.json();
@@ -6632,76 +6741,6 @@ const workerHandler = {
 };
 
 export default workerHandler;
-```
-
----
-
-## Arquivo: `deno.jsonc`
-
-```json
-{
-  // ============================================================================
-  // 🚀 LOCO PWA - Manifesto do Deno
-  // Mensageiro PWA Descentralizado, Offline-First & E2EE
-  // ============================================================================
-
-  // 📋 Metadados do Projeto
-  "name": "@vanaware/loco",
-  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.75-mspjjr50",
-  "exports": "./main.ts",
-  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
-  "author": "Vanaware",
-  "license": "MIT",
-  
-  "workspace": [
-    "proto/_template",
-    "proto/01-push-messaging"
-  ],
-
-  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-
-  // 📦 Gerenciamento de Dependências
-  "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
-    "@std/fs": "jsr:@std/fs@^1",
-    "@std/http": "jsr:@std/http@^1",
-    "@std/path": "jsr:@std/path@^1",
-    "@std/http/file-server": "jsr:@std/http@^1/file-server",
-    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
-    "preact": "https://esm.sh/preact@10.29.7",
-    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
-    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
-  },
-
-  // 🛠️ Scripts de Automação
-  "tasks": {
-    "test": "deno test --allow-env --allow-net tests/",
-    "typecheck": "deno check main.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno task build && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "clean": "rm -rf dist && mkdir -p dist",
-    "export": "deno run --allow-read --allow-write export.ts"
-  },
-  "exclude": ["build/", "public/"]
-}
 ```
 
 ---

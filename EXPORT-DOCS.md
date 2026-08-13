@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.64-msoxtvzu** (DOCUMENTAÇÃO) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.76-msqx03i9** (DOCUMENTAÇÃO) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.64-msoxtvzu] - Modo: DOCS
+# Contexto Exportado do Projeto Loco [v0.2.76-msqx03i9] - Modo: DOCS
 
-Gerado automaticamente em: 8/11/2026, 2:37:37 PM
+Gerado automaticamente em: 8/12/2026, 11:54:03 PM
 
 ---
 
@@ -3516,6 +3516,18 @@ Todos os comandos automatizados utilizam a interface de linha de comando (CLI) d
 * **Rejeição HTTP 413 no Envio de Mensagem (`Payload muito grande`):**
   * *Causa:* O JWT ultrapassou o limite de 4.096 bytes imposto pelo serviço Web Push (FCM).
   * *Solução:* O payload cifrado deve conter apenas os atributos compactados da interface `HandshakeRotas` e utilizar o compressor GZIP (`fflate`).
+
+  ## 11. Instalação do Deno Automarizada
+  ```sh
+  apt-get update && apt-get install -y unzip
+  curl -fsSL https://deno.land/install.sh | sh -s -- -y
+  ```
+
+  ## 12. Lançamento de nova versão
+  ```sh
+  git tag -a v0.2 - m "Release v0.2: Nova esteira de CI/CD"
+  git push origin v0.2
+  ```
 ````
 
 ---

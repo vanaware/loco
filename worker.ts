@@ -15,8 +15,12 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
   const publicKeyStr = env?.SERVER_PUBLIC_KEY;
   const privateKeyStr = env?.SERVER_PRIVATE_KEY;
 
-  if (!publicKeyStr || !privateKeyStr) {
-    throw new Error("Chaves de infraestrutura do servidor (SERVER_PUBLIC_KEY / SERVER_PRIVATE_KEY) não encontradas!");
+  if (!publicKeyStr) {
+    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada! Configure-a no arquivo wrangler.toml ou via dashboard da Cloudflare.");
+  }
+  
+  if (!privateKeyStr) {
+    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare (ex: wrangler secret put SERVER_PRIVATE_KEY).");
   }
 
   try {

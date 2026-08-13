@@ -117,3 +117,15 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
+          secrets: |
+            SERVER_PRIVATE_KEY
+            SERVER_PUBLIC_KEY
+            PORT
+            PROXY_PATH
+            ALLOWED_ORIGINS
+          env:
+          SERVER_PRIVATE_KEY: ${{ secrets.SERVER_PRIVATE_KEY }}
+          SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
+          PORT: ${{ secrets.PORT }}
+          PROXY_PATH: ${{ secrets.PROXY_PATH }}
+          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
