@@ -125,3 +125,22 @@ Grandes frameworks edge-native e desenvolvedores independentes utilizam essa mes
    * Em ambientes Edge, tarefas assíncronas de background devem ser enfileiradas usando `ctx.waitUntil(promise)`. No adaptador Deno local, mockar esse comportamento garante que o fluxo assíncrono não cause encerramentos prematuros da thread ou erros não tratados.
 
 --------
+
+## Ativar o Gemini Nano no Chrome
+chrome://flags/#optimization-guide-on-device-model
+  Na opção Enables optimization guide on device, mude o status de Default para Enabled BypassPerfRequirement (isso força a ativação mesmo se o Chrome achar seu hardware modesto).
+
+chrome://flags/#prompt-api-for-gemini-nano
+  Na opção Prompt API for Gemini Nano, mude para Enabled
+
+chrome://components
+  Procure pela linha Optimization Guide On Device Mode. Se a versão estiver 0.0.0.0 ou o status indicar que precisa de atualização, clique no botão Check for update
+
+## Interagindo com o Gemini Nano (Pelo Console)
+Interagindo com o Gemini Nano (Pelo Console)
+```js
+ai.languageModel.capabilities();
+ai.languageModel.create();
+resposta = await sessao.prompt("Explique o que é um PWA em uma frase curta.");
+console.log(resposta);
+```
