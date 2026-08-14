@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.86-mss9n23b** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.87-mssa453e** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.86-mss9n23b] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.87-mssa453e] - Modo: MAIN
 
-Gerado automaticamente em: 8/13/2026, 10:26:03 PM
+Gerado automaticamente em: 8/13/2026, 10:39:24 PM
 
 ---
 
@@ -2085,7 +2085,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.86-mss9n23b";
+export const APP_VERSION = "0.2.87-mssa453e";
 
 ```
 
@@ -3757,187 +3757,6 @@ export async function removerHandshake(id: string): Promise<void> {
 
 ---
 
-## Arquivo: `src/utils/jwt-helpers.ts`
-
-```ts
-// src/utils/jwt-helpers.ts
-import { minifyVapidPublic, expandVapidPublic } from "./crypto-utils.ts";
-
-export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
-  }
-}
-
-export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
-  try {
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const padLength = (4 - (base64.length % 4)) % 4;
-    base64 += '='.repeat(padLength);
-    
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer as ArrayBuffer;
-  } catch (e: any) {
-    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
-  }
-}
-
-export function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
-  }
-}
-
-export async function criarJWT(
-  payload: Record<string, any>,
-  privateKeyJwk: JsonWebKey,
-  headerExtra: Record<string, any> = {}
-): Promise<string> {
-  try {
-    // 🔥 ARQUITETURA: Minifica o 'kid' antes de criar a assinatura para o Token ficar menor
-    if (headerExtra.kid && (headerExtra.kid.kty || headerExtra.kid.x)) {
-      headerExtra.kid = minifyVapidPublic(headerExtra.kid);
-    }
-
-    const header = { alg: "ES256", ...headerExtra };
-    const encoder = new TextEncoder();
-
-    const headerEnc = encoder.encode(JSON.stringify(header));
-    const payloadEnc = encoder.encode(JSON.stringify(payload));
-
-    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
-    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
-    const toSign = `${headerB64}.${payloadB64}`;
-
-    const privateKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      privateKeyJwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"]
-    );
-
-    const signature = await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      privateKey,
-      encoder.encode(toSign)
-    );
-    const sigB64 = arrayBufferToBase64Url(signature);
-
-    return `${toSign}.${sigB64}`;
-  } catch (err: any) {
-    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
-  }
-}
-
-export async function verificarJWT(
-  jwt: string,
-  publicKeyJwk?: JsonWebKey
-): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
-  try {
-    const parts = jwt.split('.');
-    if (parts.length !== 3) {
-      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
-    }
-
-    const headerB64 = parts[0]!;
-    const payloadB64 = parts[1]!;
-    const signatureB64 = parts[2]!;
-    const decoder = new TextDecoder();
-
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-    
-    let header, payload;
-    try {
-      header = JSON.parse(headerJson);
-      payload = JSON.parse(payloadJson);
-    } catch (_parseErr) {
-      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
-    }
-
-    let publicKeyJwkFinal = publicKeyJwk;
-    if (!publicKeyJwkFinal) {
-      if (!header.kid) {
-        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
-      }
-      // 🔥 Expande a chave minificada recebida da rede para a validação ocorrer com sucesso
-      publicKeyJwkFinal = expandVapidPublic(header.kid);
-    } else {
-      publicKeyJwkFinal = expandVapidPublic(publicKeyJwkFinal);
-    }
-
-    const publicKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      publicKeyJwkFinal as JsonWebKey,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["verify"]
-    );
-
-    const toSign = `${headerB64}.${payloadB64}`;
-    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
-
-    const encoder = new TextEncoder();
-    const valid = await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      publicKey,
-      signatureBytes,
-      encoder.encode(toSign)
-    );
-
-    return { header, payload, signature: signatureB64, valid };
-  } catch (err: any) {
-    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
-  }
-}
-
-export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
-  const parts = jwt.split('.');
-  if (parts.length !== 3) {
-    throw new Error("JWT malformado. Leitura interrompida.");
-  }
-
-  const headerB64 = parts[0]!;
-  const payloadB64 = parts[1]!;
-  const signatureB64 = parts[2]!;
-  const decoder = new TextDecoder();
-
-  try {
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-
-    return {
-      header: JSON.parse(headerJson),
-      payload: JSON.parse(payloadJson),
-      signature: signatureB64
-    };
-  } catch (err: any) {
-    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/push-utils.ts`
 
 ```ts
@@ -4103,199 +3922,6 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
     addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
     throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
   }
-}
-```
-
----
-
-## Arquivo: `src/utils/share-utils.ts`
-
-```ts
-// src/utils/share-utils.ts
-import { gzipSync, gunzipSync } from 'fflate';
-import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
-import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
-import type { ProfileConfig, Contato } from '../constants/db.ts';
-
-const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
-
-export interface CompactContact {
-  req?: boolean;
-  tr?: boolean;
-  em: string;
-  nm: string;
-  vp: any; // 🔥 Chave VAPID Pública Minificada
-  ep: any; // 🔥 Chave RSA Pública E2E Minificada
-  se: string;
-  sp: string;
-  sa: string;
-  ve: string;
-  ps?: string; // proxyserver
-}
-
-export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
-  let ep = target.subscription.endpoint;
-  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
-
-  return {
-    req,
-    tr,
-    em: target.email || '',
-    nm: target.name || '',
-    // 🔥 Delega a minificação para o módulo criptográfico oficial
-    vp: minifyVapidPublic(target.vapidPublicKey),
-    ep: minifyRsaPublic(target.e2ePublicKey),
-    se: ep,
-    sp: target.subscription.keys.p256dh,
-    sa: target.subscription.keys.auth,
-    ve: target.vapidPrivateKeyEnvelope,
-    ps: target.subscription.proxyserver
-  };
-}
-
-export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
-  let ep = c.se;
-  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
-
-  return {
-    email: c.em,
-    name: c.nm,
-    // 🔥 Expande a partir dos moldes estáticos padronizados
-    vapidPublicKey: expandVapidPublic(c.vp),
-    e2ePublicKey: expandRsaPublic(c.ep),
-    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
-    vapidPrivateKeyEnvelope: c.ve,
-    trusted: c.tr,
-    me: 'saved' 
-  };
-}
-
-export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
-  const compact = extrairDadosCompactos(target);
-  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
-  const compressed = gzipSync(jsonBytes);
-  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-}
-
-export async function gerarLinkConviteWeb(
-  target: ProfileConfig | Contato,
-  myVapidPrivateKeyJwk: JsonWebKey,
-  myVapidPublicKeyJwk: JsonWebKey,
-  baseUrl?: string
-): Promise<string> {
-  const compact = extrairDadosCompactos(target);
-  const payload = {
-    sub: "contact",
-    ...compact,
-    iat: Math.floor(Date.now() / 1000)
-  };
-
-  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
-  const jwtBytes = new TextEncoder().encode(jwt);
-  const compressed = gzipSync(jwtBytes);
-  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-
-  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-  return `${origin}/#share=${cjwt}`;
-}
-
-export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {
-  let cqr = null, cjwt = null, jwt = null;
-
-  try {
-    const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
-      ? input 
-      : `http://localhost/?${input}`;
-    const url = new URL(fullUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-    cqr = url.searchParams.get('cqr');
-    cjwt = url.searchParams.get('cjwt');
-    jwt = url.searchParams.get('jwt');
-  } catch {
-    if (input.includes('cjwt=')) {
-      const parts = input.split('cjwt=');
-      if (parts[1]) cjwt = parts[1].split('&')[0];
-    } else if (input.includes('cqr=')) {
-      const parts = input.split('cqr=');
-      if (parts[1]) cqr = parts[1].split('&')[0];
-    } else if (input.includes('jwt=')) {
-      const parts = input.split('jwt=');
-      if (parts[1]) jwt = parts[1].split('&')[0];
-    }
-  }
-
-  if (!cqr && !cjwt && !jwt && input) {
-    if (input.includes('.')) {
-      jwt = input.trim();
-    } else {
-      try {
-        const compressed = new Uint8Array(base64UrlToArrayBuffer(input.trim()));
-        const decompressed = gunzipSync(compressed);
-        const text = new TextDecoder().decode(decompressed);
-        
-        if (text.startsWith('{')) {
-          cqr = input.trim();
-        } else {
-          cjwt = input.trim();
-        }
-      } catch (_e) {
-        cjwt = input.trim();
-      }
-    }
-  }
-
-  let compactData: CompactContact | null = null;
-
-  if (!compactData && cjwt) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      
-      const { payload, valid } = await verificarJWT(jsonText); 
-      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
-      if (payload) compactData = payload as CompactContact;
-    } catch (e) {
-      console.warn("Falha ao verificar cjwt:", e);
-    }
-  }
-
-  if (!compactData && cqr) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      const parsed = JSON.parse(jsonText);
-      
-      // Valida tanto o formato novo quanto o antigo
-      if (parsed.vp || (parsed.vx && parsed.vy)) {
-        compactData = parsed as CompactContact;
-      }
-    } catch (e) {
-      console.warn("Falha ao ler cqr:", e);
-    }
-  }
-
-  if (!compactData && jwt) {
-    try {
-      const { payload, valid } = await verificarJWT(jwt);
-      if (!valid) throw new Error("Assinatura do convite inválida.");
-      if (payload) compactData = payload as CompactContact;
-    } catch (e) {
-      console.warn("Falha ao verificar jwt:", e);
-    }
-  }
-
-  if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
-
-  // 🔥 Camada de Retrocompatibilidade O(1):
-  // Se escaneou um QR Code antigo que usava vx/vy/en separadamente,
-  // nós transmutamos na RAM para a estrutura unificada (vp/ep) antes de expandir.
-  if ((compactData as any).vx && !compactData.vp) {
-    compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
-    compactData.ep = { n: (compactData as any).en };
-  }
-
-  return expandirDadosCompactos(compactData);
 }
 ```
 
@@ -4854,6 +4480,379 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
     addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
     throw err;
   }
+}
+```
+
+---
+
+## Arquivo: `src/utils/jwt-helpers.ts`
+
+```ts
+// src/utils/jwt-helpers.ts
+import { minifyVapidPublic, expandVapidPublic } from "./crypto-utils.ts";
+
+export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
+  }
+}
+
+export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
+  try {
+    // 🔥 ARQUITETURA: Regex /\s+/g expurga TODAS as quebras de linha e espaços 
+    // que possam ter vindo acidentalmente no Ctrl+C / Ctrl+V do usuário.
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '');
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer as ArrayBuffer;
+  } catch (e: any) {
+    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
+  }
+}
+
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
+  }
+}
+
+export async function criarJWT(
+  payload: Record<string, any>,
+  privateKeyJwk: JsonWebKey,
+  headerExtra: Record<string, any> = {}
+): Promise<string> {
+  try {
+    if (headerExtra.kid && (headerExtra.kid.kty || headerExtra.kid.x)) {
+      headerExtra.kid = minifyVapidPublic(headerExtra.kid);
+    }
+
+    const header = { alg: "ES256", ...headerExtra };
+    const encoder = new TextEncoder();
+
+    const headerEnc = encoder.encode(JSON.stringify(header));
+    const payloadEnc = encoder.encode(JSON.stringify(payload));
+
+    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
+    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
+    const toSign = `${headerB64}.${payloadB64}`;
+
+    const privateKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      privateKeyJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      encoder.encode(toSign)
+    );
+    const sigB64 = arrayBufferToBase64Url(signature);
+
+    return `${toSign}.${sigB64}`;
+  } catch (err: any) {
+    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
+  }
+}
+
+export async function verificarJWT(
+  jwt: string,
+  publicKeyJwk?: JsonWebKey
+): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) {
+      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
+    }
+
+    const headerB64 = parts[0]!;
+    const payloadB64 = parts[1]!;
+    const signatureB64 = parts[2]!;
+    const decoder = new TextDecoder();
+
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+    
+    let header, payload;
+    try {
+      header = JSON.parse(headerJson);
+      payload = JSON.parse(payloadJson);
+    } catch (_parseErr) {
+      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
+    }
+
+    let publicKeyJwkFinal = publicKeyJwk;
+    if (!publicKeyJwkFinal) {
+      if (!header.kid) {
+        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
+      }
+      publicKeyJwkFinal = expandVapidPublic(header.kid);
+    } else {
+      publicKeyJwkFinal = expandVapidPublic(publicKeyJwkFinal);
+    }
+
+    const publicKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyJwkFinal as JsonWebKey,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+
+    const toSign = `${headerB64}.${payloadB64}`;
+    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
+
+    const encoder = new TextEncoder();
+    const valid = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      signatureBytes,
+      encoder.encode(toSign)
+    );
+
+    return { header, payload, signature: signatureB64, valid };
+  } catch (err: any) {
+    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
+  }
+}
+
+export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error("JWT malformado. Leitura interrompida.");
+  }
+
+  const headerB64 = parts[0]!;
+  const payloadB64 = parts[1]!;
+  const signatureB64 = parts[2]!;
+  const decoder = new TextDecoder();
+
+  try {
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+
+    return {
+      header: JSON.parse(headerJson),
+      payload: JSON.parse(payloadJson),
+      signature: signatureB64
+    };
+  } catch (err: any) {
+    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/share-utils.ts`
+
+```ts
+// src/utils/share-utils.ts
+import { gzipSync, gunzipSync } from 'fflate';
+import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
+import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
+import type { ProfileConfig, Contato } from '../constants/db.ts';
+
+const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
+
+export interface CompactContact {
+  req?: boolean;
+  tr?: boolean;
+  em: string;
+  nm: string;
+  vp: any; 
+  ep: any; 
+  se: string;
+  sp: string;
+  sa: string;
+  ve: string;
+  ps?: string; 
+}
+
+export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
+  let ep = target.subscription.endpoint;
+  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
+
+  return {
+    req,
+    tr,
+    em: target.email || '',
+    nm: target.name || '',
+    vp: minifyVapidPublic(target.vapidPublicKey),
+    ep: minifyRsaPublic(target.e2ePublicKey),
+    se: ep,
+    sp: target.subscription.keys.p256dh,
+    sa: target.subscription.keys.auth,
+    ve: target.vapidPrivateKeyEnvelope,
+    ps: target.subscription.proxyserver
+  };
+}
+
+export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
+  let ep = c.se;
+  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
+
+  return {
+    email: c.em,
+    name: c.nm,
+    vapidPublicKey: expandVapidPublic(c.vp),
+    e2ePublicKey: expandRsaPublic(c.ep),
+    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
+    vapidPrivateKeyEnvelope: c.ve,
+    trusted: c.tr,
+    me: 'saved' 
+  };
+}
+
+export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
+  const compact = extrairDadosCompactos(target);
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
+  const compressed = gzipSync(jsonBytes);
+  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+}
+
+export async function gerarLinkConviteWeb(
+  target: ProfileConfig | Contato,
+  myVapidPrivateKeyJwk: JsonWebKey,
+  myVapidPublicKeyJwk: JsonWebKey,
+  baseUrl?: string
+): Promise<string> {
+  const compact = extrairDadosCompactos(target);
+  const payload = {
+    sub: "contact",
+    ...compact,
+    iat: Math.floor(Date.now() / 1000)
+  };
+
+  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
+  const jwtBytes = new TextEncoder().encode(jwt);
+  const compressed = gzipSync(jwtBytes);
+  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+
+  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  return `${origin}/#share=${cjwt}`;
+}
+
+export async function processarQualquerConvite(rawInput: string): Promise<Partial<Contato>> {
+  let cqr = null, cjwt = null, jwt = null;
+
+  // 🔥 ARQUITETURA: Higienização rigorosa da entrada do usuário.
+  // Remove todos os espaços e quebras de linha invisíveis (comuns em copy-paste).
+  const input = rawInput.trim().replace(/\s+/g, '');
+
+  try {
+    const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
+      ? input 
+      : `http://localhost/?${input}`;
+    const url = new URL(fullUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    cqr = url.searchParams.get('cqr');
+    cjwt = url.searchParams.get('cjwt');
+    jwt = url.searchParams.get('jwt');
+  } catch {
+    if (input.includes('cjwt=')) {
+      const parts = input.split('cjwt=');
+      if (parts[1]) cjwt = parts[1].split('&')[0];
+    } else if (input.includes('cqr=')) {
+      const parts = input.split('cqr=');
+      if (parts[1]) cqr = parts[1].split('&')[0];
+    } else if (input.includes('jwt=')) {
+      const parts = input.split('jwt=');
+      if (parts[1]) jwt = parts[1].split('&')[0];
+    }
+  }
+
+  if (!cqr && !cjwt && !jwt && input) {
+    if (input.includes('.')) {
+      jwt = input;
+    } else {
+      try {
+        const compressed = new Uint8Array(base64UrlToArrayBuffer(input));
+        const decompressed = gunzipSync(compressed);
+        const text = new TextDecoder().decode(decompressed);
+        
+        if (text.startsWith('{')) {
+          cqr = input;
+        } else {
+          cjwt = input;
+        }
+      } catch (_e) {
+        cjwt = input;
+      }
+    }
+  }
+
+  let compactData: CompactContact | null = null;
+
+  if (!compactData && cjwt) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      
+      const { payload, valid } = await verificarJWT(jsonText); 
+      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar cjwt:", e);
+    }
+  }
+
+  if (!compactData && cqr) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      const parsed = JSON.parse(jsonText);
+      
+      if (parsed.vp || (parsed.vx && parsed.vy)) {
+        compactData = parsed as CompactContact;
+      }
+    } catch (e) {
+      console.warn("Falha ao ler cqr:", e);
+    }
+  }
+
+  if (!compactData && jwt) {
+    try {
+      const { payload, valid } = await verificarJWT(jwt);
+      if (!valid) throw new Error("Assinatura do convite inválida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar jwt:", e);
+    }
+  }
+
+  if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
+
+  // Camada de Retrocompatibilidade O(1):
+  if ((compactData as any).vx && !compactData.vp) {
+    compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
+    compactData.ep = { n: (compactData as any).en };
+  }
+
+  return expandirDadosCompactos(compactData);
 }
 ```
 
@@ -6333,7 +6332,7 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.86-mss9n23b",
+  "version": "0.2.87-mssa453e",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
