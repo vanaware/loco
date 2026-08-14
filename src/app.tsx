@@ -16,6 +16,7 @@ import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 // Signals e Lógica de Negócio
 import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
+import { loadAllConfigs } from './stores/config-store.ts';
 
 // Roteador Reativo
 import { activeView, navigate } from './utils/router.ts';
@@ -49,9 +50,15 @@ const ViewMap: Record<string, ComponentType<any>> = {
 function App() {
   const [isLoading, setIsLoading] = useState(true);
 
-  // Inicialização assíncrona dos Stores locais
+  // Inicialização assíncrona dos Stores locais e Infraestrutura
   useEffect(() => {
     const init = async () => {
+      // 🔥 ARQUITETURA: Auto-Discovery Executado Globalmente no Boot!
+      // Garante que o PWA descubra a rota correta do Proxy (Raiz ou Cloudflare)
+      // ANTES do usuário interagir com qualquer botão de rede.
+      addDebugLog("info", "SYSTEM", "Iniciando Auto-Discovery de Rede...");
+      await loadAllConfigs();
+
       await initProfileStore();
       
       // Se não tem perfil gerado, e a rota não for perfil, força a rota (Route Guard)
@@ -61,7 +68,7 @@ function App() {
 
       await initContatosStore();
       await initMensagensStore();
-      addDebugLog("✅ Stores inicializados");
+      addDebugLog("info", "SYSTEM", "✅ Stores e Infraestrutura inicializados");
       setIsLoading(false);
     };
     init();

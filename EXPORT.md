@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.87-mssa453e** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.88-mst7og91** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.87-mssa453e] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.88-mst7og91] - Modo: MAIN
 
-Gerado automaticamente em: 8/13/2026, 10:39:24 PM
+Gerado automaticamente em: 8/14/2026, 2:19:18 PM
 
 ---
 
@@ -2081,16 +2081,6 @@ export interface EnvelopeCifrado {
 
 ---
 
-## Arquivo: `src/constants/version.ts`
-
-```ts
-// Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.87-mssa453e";
-
-```
-
----
-
 ## Arquivo: `src/constants/config.ts`
 
 ```ts
@@ -2225,6 +2215,16 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     return false;
   }
 }
+```
+
+---
+
+## Arquivo: `src/constants/version.ts`
+
+```ts
+// Arquivo gerado automaticamente pelo build.ts
+export const APP_VERSION = "0.2.88-mst7og91";
+
 ```
 
 ---
@@ -6008,6 +6008,7 @@ import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 // Signals e Lógica de Negócio
 import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
+import { loadAllConfigs } from './stores/config-store.ts';
 
 // Roteador Reativo
 import { activeView, navigate } from './utils/router.ts';
@@ -6041,9 +6042,15 @@ const ViewMap: Record<string, ComponentType<any>> = {
 function App() {
   const [isLoading, setIsLoading] = useState(true);
 
-  // Inicialização assíncrona dos Stores locais
+  // Inicialização assíncrona dos Stores locais e Infraestrutura
   useEffect(() => {
     const init = async () => {
+      // 🔥 ARQUITETURA: Auto-Discovery Executado Globalmente no Boot!
+      // Garante que o PWA descubra a rota correta do Proxy (Raiz ou Cloudflare)
+      // ANTES do usuário interagir com qualquer botão de rede.
+      addDebugLog("info", "SYSTEM", "Iniciando Auto-Discovery de Rede...");
+      await loadAllConfigs();
+
       await initProfileStore();
       
       // Se não tem perfil gerado, e a rota não for perfil, força a rota (Route Guard)
@@ -6053,7 +6060,7 @@ function App() {
 
       await initContatosStore();
       await initMensagensStore();
-      addDebugLog("✅ Stores inicializados");
+      addDebugLog("info", "SYSTEM", "✅ Stores e Infraestrutura inicializados");
       setIsLoading(false);
     };
     init();
@@ -6316,77 +6323,6 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
 
 });
 
-```
-
----
-
-## Arquivo: `deno.jsonc`
-
-```json
-{
-  // ============================================================================
-  // 🚀 LOCO PWA - Manifesto do Deno
-  // Mensageiro PWA Descentralizado, Offline-First & E2EE
-  // ============================================================================
-
-  // 📋 Metadados do Projeto
-  "name": "@vanaware/loco",
-  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.87-mssa453e",
-  "exports": "./main.ts",
-  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
-  "author": "Vanaware",
-  "license": "MIT",
-  
-  "workspace": [
-    "proto/_template",
-    "proto/01-push-messaging"
-  ],
-
-  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-
-  // 📦 Gerenciamento de Dependências
-  "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
-    "@std/fs": "jsr:@std/fs@^1",
-    "@std/http": "jsr:@std/http@^1",
-    "@std/path": "jsr:@std/path@^1",
-    "@std/http/file-server": "jsr:@std/http@^1/file-server",
-    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
-    "preact": "https://esm.sh/preact@10.29.7",
-    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
-    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
-  },
-
-  // 🛠️ Scripts de Automação
-  "tasks": {
-    "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
-    "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write export.ts"
-  },
-  "exclude": ["build/", "public/"]
-}
 ```
 
 ---
@@ -7059,6 +6995,77 @@ const workerHandler = {
 };
 
 export default workerHandler;
+```
+
+---
+
+## Arquivo: `deno.jsonc`
+
+```json
+{
+  // ============================================================================
+  // 🚀 LOCO PWA - Manifesto do Deno
+  // Mensageiro PWA Descentralizado, Offline-First & E2EE
+  // ============================================================================
+
+  // 📋 Metadados do Projeto
+  "name": "@vanaware/loco",
+  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
+  "version": "0.2.88-mst7og91",
+  "exports": "./main.ts",
+  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
+  "author": "Vanaware",
+  "license": "MIT",
+  
+  "workspace": [
+    "proto/_template",
+    "proto/01-push-messaging"
+  ],
+
+  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+
+  // 📦 Gerenciamento de Dependências
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/http": "jsr:@std/http@^1",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
+    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
+    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+  },
+
+  // 🛠️ Scripts de Automação
+  "tasks": {
+    "test": "deno test --allow-env --allow-net tests/",
+    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
+    "tests": "deno task check && deno task test",
+    "export": "deno run --allow-read --allow-write export.ts"
+  },
+  "exclude": ["build/", "public/"]
+}
 ```
 
 ---
