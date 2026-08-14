@@ -77,13 +77,15 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
   userB.e2ePrivateKeyJwk = e2eKeysB.privateDecryptJwk;
 
   // Teste 1: Extrair dados compactos do Profile A
-  console.log("📦 Teste 1: Extraindo dados compactos do Profile A");
+  console.log("📦 Teste 1: Extraindo dados compactos do Profile A (Static Schema Compression)");
   const compactDataA = extrairDadosCompactos(userA);
   assertEquals(compactDataA.nm, "Usuário A", "Nome deve ser extraído corretamente");
   assertEquals(compactDataA.em, "usuario.a@teste.com", "Email deve ser extraído corretamente");
-  assertEquals(compactDataA.vx, userA.vapidPublicKey.x, "Chave VAPID X deve ser extraída");
-  assertEquals(compactDataA.vy, userA.vapidPublicKey.y, "Chave VAPID Y deve ser extraída");
-  assert(compactDataA.en !== undefined, "Chave E2E deve ser extraída");
+  
+  // 🔥 ARQUITETURA: Testando as novas propriedades minificadas 'vp' e 'ep'
+  assertEquals(compactDataA.vp.x, userA.vapidPublicKey.x, "Chave VAPID X deve ser extraída no bloco VP");
+  assertEquals(compactDataA.vp.y, userA.vapidPublicKey.y, "Chave VAPID Y deve ser extraída no bloco VP");
+  assert(compactDataA.ep.n !== undefined, "Módulo 'n' da Chave E2E deve ser extraído no bloco EP");
 
   // Teste 2: Expandir dados compactos de volta para formato Contato
   console.log("🔄 Teste 2: Expandindo dados compactos para formato Contato");

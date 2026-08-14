@@ -1,4 +1,3 @@
-// export.ts
 /**
  * @file export.ts
  * @description Script de consolidação de contexto para IAs com suporte a parâmetros via CLI,
@@ -6,22 +5,22 @@
  * 
  * USO VIA DENO TASKS:
  * - deno task export        -> Exporta Código Fonte para EXPORT.md
- * - deno task export main   -> Exporta Código Fonte para EXPORT.md
  * - deno task export docs   -> Exporta Documentação para EXPORT-DOCS.md
+ * - deno task export tests  -> Exporta Testes para EXPORT-TESTS.md
  */
 
 import { walk } from "jsr:@std/fs/walk";
 import { relative } from "jsr:@std/path/relative";
 import { APP_VERSION } from "./src/constants/version.ts";
 
-type ModoExportacao = "main" | "docs";
+type ModoExportacao = "main" | "docs" | "tests";
 
 // 1. Leitura do parâmetro via CLI nativo do Deno
 const argModo = Deno.args[0]?.toLowerCase();
-const modo: ModoExportacao = argModo === "docs" ? "docs" : "main";
+const modo: ModoExportacao = (argModo === "docs" || argModo === "tests") ? argModo : "main";
 
 // Nomes de arquivos de saída distintos para cada modo de operação
-const ARQUIVO_SAIDA = modo === "docs" ? "EXPORT-DOCS.md" : "EXPORT.md";
+const ARQUIVO_SAIDA = modo === "docs" ? "EXPORT-DOCS.md" : modo === "tests" ? "EXPORT-TESTS.md" : "EXPORT.md";
 
 // Lista de extensões válidas de texto/código
 const EXTENSOES_PERMITIDAS = [
@@ -48,20 +47,21 @@ function calcularCraseWrapper(texto: string): string {
  * Avalia se o arquivo deve ser incluído com base no modo selecionado.
  */
 function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): boolean {
-  // Ignora arquivos de exportação para evitar loops de leitura
-  if (caminhoRelativo === "EXPORT.md" || caminhoRelativo === "EXPORT-DOCS.md") {
+  if (caminhoRelativo === "EXPORT.md" || caminhoRelativo === "EXPORT-DOCS.md" || caminhoRelativo === "EXPORT-TESTS.md") {
     return false;
   }
 
   const caminhoMinusculo = caminhoRelativo.toLowerCase();
 
   if (modo === "docs") {
-    // Modo DOCUMENTAÇÃO: Pega docs/ e arquivos de licença/readme
     if (caminhoRelativo.startsWith("docs/") || caminhoRelativo.startsWith("docs\\")) {
       return EXTENSOES_PERMITIDAS.some(ext => caminhoMinusculo.endsWith(ext));
     }
     const arquivosDocsRaiz = ["readme.md", "readme", "license", "license.md", "license.txt"];
     return arquivosDocsRaiz.includes(caminhoMinusculo);
+  } else if (modo === "tests") {
+    // Modo TESTES: Pega tudo dentro da pasta /tests
+    return caminhoRelativo.startsWith("tests/") || caminhoRelativo.startsWith("tests\\");
   } else {
     // Modo MAIN (Padrão): Pega arquivos da raiz e pastas src/ e public/
     const arquivosRaizPermitidos = ["main.ts", "worker.ts", "build.ts", "deno.json", "deno.jsonc", "wrangler.toml"];
@@ -85,9 +85,9 @@ function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): bool
   return false;
 }
 
-// 2. Montagem do cabeçalho instrucional dinâmico com a versão sincronizada
+// 2. Montagem do cabeçalho instrucional dinâmico
 let conteudoFinal = `> **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v${APP_VERSION}** (${modo === "docs" ? "DOCUMENTAÇÃO" : "CÓDIGO FONTE"}) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v${APP_VERSION}** (${modo === "docs" ? "DOCUMENTAÇÃO" : modo === "tests" ? "TESTES" : "CÓDIGO FONTE"}) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: \`## Arquivo: src/main.ts\`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 

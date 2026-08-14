@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.76-msqx03i9** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.83-mss814vj** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.76-msqx03i9] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.83-mss814vj] - Modo: MAIN
 
-Gerado automaticamente em: 8/13/2026, 12:17:33 AM
+Gerado automaticamente em: 8/13/2026, 9:41:03 PM
 
 ---
 
@@ -2196,7 +2196,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.76-msqx03i9";
+export const APP_VERSION = "0.2.83-mss814vj";
 
 ```
 
@@ -2763,47 +2763,6 @@ self.addEventListener('push', function (event) {
 
 ---
 
-## Arquivo: `src/sw/click.ts`
-
-```ts
-// src/sw/click.ts
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-self.addEventListener('notificationclick', function(event: any) {
-  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
-  event.notification.close();
-  const urlParaAbrir = new URL('/', self.location.origin).href;
-  
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(function(windowClients) {
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client && client.url === urlParaAbrir && 'focus' in client) {
-            try {
-              return client.focus();
-            } catch (err: any) {
-              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
-              break;
-            }
-          }
-        }
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(urlParaAbrir)
-            .catch(function(err: any) {
-              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
-              return Promise.resolve();
-            });
-        }
-      })
-  );
-});
-```
-
----
-
 ## Arquivo: `src/sw/cache.ts`
 
 ```ts
@@ -2875,42 +2834,6 @@ self.addEventListener("fetch", (event: any) => {
       })
   );
 });
-```
-
----
-
-## Arquivo: `src/sw/sw-utils.ts`
-
-```ts
-// src/sw/sw-utils.ts
-import { addDebugLog } from '../utils/debug-utils.ts';
-
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  addDebugLog("📡 Verificando suporte ao Service Worker...");
-  if (!("serviceWorker" in navigator)) {
-    throw new Error("Service Worker não é suportado neste navegador.");
-  }
-
-  const cacheBuster = Date.now();
-  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
-
-  try {
-    const registration = await navigator.serviceWorker.register(
-      `./service-worker.js?cacheBuster=${cacheBuster}`,
-      { scope: "/" }
-    );
-    if (!registration) {
-      throw new Error("Service Worker registration retornou null/undefined");
-    }
-    addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    const readyReg = await navigator.serviceWorker.ready;
-    addDebugLog("✅ Service Worker ativo e pronto.");
-    return readyReg;
-  } catch (err: any) {
-    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
-    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
-  }
-}
 ```
 
 ---
@@ -3229,6 +3152,88 @@ self.addEventListener('online', function (event: Event) {
 
 ---
 
+## Arquivo: `src/sw/sw-utils.ts`
+
+```ts
+// src/sw/sw-utils.ts
+import { addDebugLog } from '../utils/debug-utils.ts';
+
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
+  addDebugLog("📡 Verificando suporte ao Service Worker...");
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker não é suportado neste navegador.");
+  }
+
+  const cacheBuster = Date.now();
+  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
+
+  try {
+    const registration = await navigator.serviceWorker.register(
+      `./service-worker.js?cacheBuster=${cacheBuster}`,
+      // 🔥 ARQUITETURA: Escopo relativo ("./") garante funcionamento em 
+      // subdiretórios como GitHub Pages, Vercel ou IPFS.
+      { scope: "./" }
+    );
+    if (!registration) {
+      throw new Error("Service Worker registration retornou null/undefined");
+    }
+    addDebugLog("✅ Service Worker registrado, aguardando ready...");
+    const readyReg = await navigator.serviceWorker.ready;
+    addDebugLog("✅ Service Worker ativo e pronto.");
+    return readyReg;
+  } catch (err: any) {
+    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
+    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
+  }
+}
+```
+
+---
+
+## Arquivo: `src/sw/click.ts`
+
+```ts
+// src/sw/click.ts
+
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+self.addEventListener('notificationclick', function(event: any) {
+  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
+  event.notification.close();
+  
+  // 🔥 ARQUITETURA: Usa o escopo do Service Worker registrado em vez de '/' hardcoded.
+  // Isso garante que o clique na notificação abra o app no diretório correto (ex: Github Pages).
+  const urlParaAbrir = new URL(self.registration.scope).href;
+  
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(function(windowClients) {
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          if (client && client.url === urlParaAbrir && 'focus' in client) {
+            try {
+              return client.focus();
+            } catch (err: any) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
+              break;
+            }
+          }
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(urlParaAbrir)
+            .catch(function(err: any) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
+              return Promise.resolve();
+            });
+        }
+      })
+  );
+});
+```
+
+---
+
 ## Arquivo: `src/utils/id-utils.ts`
 
 ```ts
@@ -3350,570 +3355,6 @@ export function addDebugLog(
 
 ---
 
-## Arquivo: `src/utils/db-helpers.ts`
-
-```ts
-// src/utils/db-helpers.ts
-import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type {
-  ProfileConfig,
-  Chat,
-  Contato,
-  Handshake,
-} from "../constants/db.ts";
-
-// ============================================================
-// Criação de Stores
-// ============================================================
-
-export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
-  return createStore(nome, storeName);
-}
-
-const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeChat = criarStore(DB_NAMES.CHAT); // 🔥 Unificado
-export const storeContatos = criarStore(DB_NAMES.CONTATOS);
-export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
-
-// ============================================================
-// Funções Genéricas
-// ============================================================
-
-export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
-  return set(key, value, store);
-}
-
-export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
-  return get(key, store);
-}
-
-export async function removerChave(store: any, key: string): Promise<void> {
-  return del(key, store);
-}
-
-export async function listarChaves<T>(store: any): Promise<[string, T][]> {
-  return entries(store) as Promise<[string, T][]>;
-}
-
-export async function listarValores<T>(store: any): Promise<T[]> {
-  return values(store) as Promise<T[]>;
-}
-
-// ============================================================
-// Gerenciamento do Perfil (ProfileConfig)
-// ============================================================
-
-export async function salvarProfile(profile: ProfileConfig): Promise<void> {
-  profile.updatedAt = Date.now();
-  if (!profile.createdAt) {
-    profile.createdAt = Date.now();
-  }
-  await salvarChave(storeConfig, KEY_NAMES.PROFILE, profile);
-}
-
-export async function buscarProfile(): Promise<ProfileConfig | undefined> {
-  return buscarChave<ProfileConfig>(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function removerProfile(): Promise<void> {
-  await removerChave(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function buscarChaveDecript(): Promise<CryptoKey | null> {
-  try {
-    const profile = await buscarProfile();
-    if (!profile) return null;
-    if (!profile.e2ePrivateKeyJwk) return null;
-
-    return await crypto.subtle.importKey(
-      "jwk",
-      profile.e2ePrivateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["decrypt"]
-    );
-  } catch (err) {
-    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
-    return null;
-  }
-}
-
-// ============================================================
-// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
-// ============================================================
-
-/**
- * Salva a mensagem e adiciona seu ID ao índice de paginação do contato.
- */
-export async function salvarChat(chat: Chat): Promise<void> {
-  chat.updatedAt = Date.now();
-  await salvarChave(storeChat, chat.id, chat);
-
-  // Mantém um índice ordenado por data para não precisar carregar o DB inteiro
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  
-  if (!index.includes(chat.id)) {
-    index.push(chat.id);
-    await salvarChave(storeChat, indexKey, index);
-  }
-}
-
-export async function buscarChat(id: string): Promise<Chat | undefined> {
-  return buscarChave<Chat>(storeChat, id);
-}
-
-/**
- * 🔥 Lazy Loading Paginado: Carrega apenas uma fatia de mensagens de um contato.
- * O `offset` dita de onde começar de baixo para cima (mais recentes primeiro).
- */
-export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-
-  // Pega do final do array (mais recentes) para o começo
-  const total = index.length;
-  if (total === 0 || offset >= total) return [];
-
-  const startIndex = Math.max(0, total - offset - limit);
-  const endIndex = total - offset;
-  
-  // Pega os IDs da fatia solicitada
-  const sliceIds = index.slice(startIndex, endIndex);
-
-  // Busca os dados físicos desses IDs em batch
-  const records = await getMany(sliceIds, storeChat);
-  return records.filter(Boolean) as Chat[];
-}
-
-export async function removerChat(id: string, contatoHash: string): Promise<void> {
-  await removerChave(storeChat, id);
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  index = index.filter(x => x !== id);
-  await salvarChave(storeChat, indexKey, index);
-}
-
-// ============================================================
-// Contatos
-// ============================================================
-
-async function sha256(message: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
-  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
-  return await sha256(raw);
-}
-
-export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
-  if (typeof input === 'string') return input;
-  if (typeof input === 'object' && input !== null && 'kty' in input) {
-    return await serializarPublicKeyVapid(input);
-  }
-  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
-}
-
-export async function salvarContato(contato: Contato): Promise<void> {
-  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
-  await salvarChave(storeContatos, key, contato);
-}
-
-export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  return await buscarChave<Contato>(storeContatos, key);
-}
-
-export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
-  const key = await normalizarChaveContato(chaveOuJwk);
-  return await buscarChave<Contato>(storeContatos, key);
-}
-
-export async function listarContatos(): Promise<Contato[]> {
-  const entriesList = await listarChaves<Contato>(storeContatos);
-  return entriesList.map(([_, c]) => c);
-}
-
-export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  await removerChave(storeContatos, key);
-}
-
-// ============================================================
-// Handshakes
-// ============================================================
-
-export async function salvarHandshake(handshake: Handshake): Promise<void> {
-  handshake.updatedAt = Date.now();
-  if (!handshake.createdAt) {
-    handshake.createdAt = Date.now();
-  }
-  await salvarChave(storeHandshakes, handshake.id, handshake);
-}
-
-export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
-  return buscarChave<Handshake>(storeHandshakes, id);
-}
-
-export async function listarHandshakes(): Promise<Handshake[]> {
-  return listarValores<Handshake>(storeHandshakes);
-}
-
-export async function removerHandshake(id: string): Promise<void> {
-  await removerChave(storeHandshakes, id);
-}
-```
-
----
-
-## Arquivo: `src/utils/crypto-utils.ts`
-
-```ts
-// src/utils/crypto-utils.ts
-import { addDebugLog } from "./debug-utils.ts";
-
-export function bufferToBase64Url(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO", "Falha crítica ao converter Buffer para Base64Url", err.message);
-    throw new Error(`Buffer conversion failed: ${err.message}`);
-  }
-}
-
-export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
-  return bufferToBase64Url(buffer);
-}
-
-export function base64UrlToBuffer(base64url: string): ArrayBuffer {
-  try {
-    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-    const padLength = (4 - (base64.length % 4)) % 4;
-    base64 += '='.repeat(padLength);
-    
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer as ArrayBuffer;
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO", "Tentativa de decodificar Base64Url malformado ou corrompido", err.message);
-    throw new Error("Formato Base64Url inválido.");
-  }
-}
-
-export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
-  try {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["sign", "verify"]
-    );
-    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
-    return keyPair;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha de Hardware/Browser ao gerar VAPID: ${error.message}`, error);
-    throw new Error("Este navegador não suporta geração de chaves ECDSA P-256 necessárias para o funcionamento offline.");
-  }
-}
-
-export async function generateE2EEKeys(): Promise<{
-  publicEncrypt: JsonWebKey;
-  privateDecryptJwk: JsonWebKey;
-}> {
-  try {
-    const keyPair = await crypto.subtle.generateKey(
-      {
-        name: "RSA-OAEP",
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash: "SHA-256",
-      },
-      true,
-      ["encrypt", "decrypt"]
-    );
-
-    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-
-    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
-    return { publicEncrypt, privateDecryptJwk };
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA E2E: ${error.message}`, error);
-    throw new Error("Este dispositivo não suporta geração de chaves RSA-OAEP de 2048 bits.");
-  }
-}
-
-export async function encryptTextAES(
-  key: CryptoKey,
-  plainText: string
-): Promise<{ cipherTextBase64: string; ivBase64: string }> {
-  try {
-    const enc = new TextEncoder();
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encodedText = enc.encode(plainText);
-
-    const cipherBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      encodedText
-    );
-
-    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
-
-    return {
-      cipherTextBase64: bufferToBase64Url(cipherBuffer),
-      ivBase64: bufferToBase64Url(iv.buffer as ArrayBuffer),
-    };
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha interna no motor AES-GCM (Encrypt): ${error.message}`, error);
-    throw new Error("Não foi possível criptografar os dados.");
-  }
-}
-
-export async function decryptTextAES(
-  key: CryptoKey,
-  cipherTextBase64: string,
-  ivBase64: string
-): Promise<string> {
-  try {
-    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
-    const ivBuffer = base64UrlToBuffer(ivBase64);
-
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
-      key,
-      cipherBuffer
-    );
-
-    const dec = new TextDecoder();
-    return dec.decode(decryptedBuffer);
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha de decifragem AES-GCM (Chave incorreta ou corrompido): ${error.message}`, error);
-    throw new Error("A decodificação falhou. Dados corrompidos ou chave inválida.");
-  }
-}
-
-export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
-  try {
-    const jwk = await crypto.subtle.exportKey("jwk", key);
-    return jwk;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Erro ao extrair chave (não extraível?): ${error.message}`, error);
-    throw new Error("Falha ao exportar a chave para formato seguro.");
-  }
-}
-
-export async function importJWKToKey(
-  jwk: JsonWebKey,
-  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
-  extractable: boolean,
-  keyUsages: KeyUsage[]
-): Promise<CryptoKey> {
-  try {
-    const key = await crypto.subtle.importKey(
-      "jwk" as any,
-      jwk,
-      algorithm,
-      extractable,
-      keyUsages
-    );
-    return key;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Erro estrutural ao importar chave JWK: ${error.message}`, error);
-    throw new Error("A chave de criptografia fornecida está corrompida ou é incompatível.");
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/jwt-helpers.ts`
-
-```ts
-// src/utils/jwt-helpers.ts
-export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
-  }
-}
-
-export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
-  try {
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const padLength = (4 - (base64.length % 4)) % 4;
-    base64 += '='.repeat(padLength);
-    
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer as ArrayBuffer;
-  } catch (e: any) {
-    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
-  }
-}
-
-export function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
-  }
-}
-
-export async function criarJWT(
-  payload: Record<string, any>,
-  privateKeyJwk: JsonWebKey,
-  headerExtra: Record<string, any> = {}
-): Promise<string> {
-  try {
-    const header = { alg: "ES256", ...headerExtra };
-    const encoder = new TextEncoder();
-
-    const headerEnc = encoder.encode(JSON.stringify(header));
-    const payloadEnc = encoder.encode(JSON.stringify(payload));
-
-    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
-    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
-    const toSign = `${headerB64}.${payloadB64}`;
-
-    const privateKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      privateKeyJwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"]
-    );
-
-    const signature = await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      privateKey,
-      encoder.encode(toSign)
-    );
-    const sigB64 = arrayBufferToBase64Url(signature);
-
-    return `${toSign}.${sigB64}`;
-  } catch (err: any) {
-    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
-  }
-}
-
-export async function verificarJWT(
-  jwt: string,
-  publicKeyJwk?: JsonWebKey
-): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
-  try {
-    const parts = jwt.split('.');
-    if (parts.length !== 3) {
-      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
-    }
-
-    const headerB64 = parts[0]!;
-    const payloadB64 = parts[1]!;
-    const signatureB64 = parts[2]!;
-    const decoder = new TextDecoder();
-
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-    
-    let header, payload;
-    try {
-      header = JSON.parse(headerJson);
-      payload = JSON.parse(payloadJson);
-    } catch (_parseErr) {
-      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
-    }
-
-    let publicKeyJwkFinal = publicKeyJwk;
-    if (!publicKeyJwkFinal) {
-      if (!header.kid) {
-        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
-      }
-      publicKeyJwkFinal = header.kid;
-    }
-
-    const publicKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      publicKeyJwkFinal as JsonWebKey,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["verify"]
-    );
-
-    const toSign = `${headerB64}.${payloadB64}`;
-    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
-
-    const encoder = new TextEncoder();
-    const valid = await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      publicKey,
-      signatureBytes,
-      encoder.encode(toSign)
-    );
-
-    return { header, payload, signature: signatureB64, valid };
-  } catch (err: any) {
-    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
-  }
-}
-
-export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
-  const parts = jwt.split('.');
-  if (parts.length !== 3) {
-    throw new Error("JWT malformado. Leitura interrompida.");
-  }
-
-  const headerB64 = parts[0]!;
-  const payloadB64 = parts[1]!;
-  const signatureB64 = parts[2]!;
-  const decoder = new TextDecoder();
-
-  try {
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-
-    return {
-      header: JSON.parse(headerJson),
-      payload: JSON.parse(payloadJson),
-      signature: signatureB64
-    };
-  } catch (err: any) {
-    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/self-contact-utils.ts`
 
 ```ts
@@ -4015,243 +3456,6 @@ export async function obterHashProprio(profile: ProfileConfig | null): Promise<s
   }
 }
 
-```
-
----
-
-## Arquivo: `src/utils/push-utils.ts`
-
-```ts
-// src/utils/push-utils.ts
-import { gzipSync } from "fflate";
-import { addDebugLog } from "./debug-utils.ts";
-import { buildProxyUrl } from '../constants/config.ts';
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
-  }
-}
-
-export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
-  i: string;
-  d: string;
-  k: string;
-}> {
-  try {
-    const encoder = new TextEncoder();
-    const jsonString = JSON.stringify(payloadObj);
-    const bytes = encoder.encode(jsonString);
-    
-    const compressed = gzipSync(bytes);
-    
-    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
-    if (compressed.length > 3000) {
-       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
-    }
-
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      compressed as unknown as BufferSource
-    );
-
-    const cryptoKeyDestino = await crypto.subtle.importKey(
-      "jwk" as any,
-      publicKeyRSA,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyEncrypted = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      cryptoKeyDestino,
-      aesKeyRaw
-    );
-
-    return {
-      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
-      d: arrayBufferToBase64(encryptedBuffer),
-      k: arrayBufferToBase64(aesKeyEncrypted)
-    };
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
-    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
-  }
-}
-
-export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  payloadText: string,
-  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
-): Promise<void> {
-  const payloadSize = new Blob([payloadText]).size;
-  if (payloadSize > 4096) {
-    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
-    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
-  }
-
-  try {
-    // buildProxyUrl agora é assíncrono
-    const proxyUrl = await buildProxyUrl('/');
-    const response = await fetch(proxyUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscription,
-        payloadText,
-        vapid: {
-          subject: vapid.subject,
-          publicKey: vapid.publicKey,
-          privateKey: vapid.privateKey
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err: any) {
-     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
-     throw err;
-  }
-}
-
-export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
-  try {
-    const serverKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      serverPublicKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoder = new TextEncoder();
-    const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
-    
-    const vapidCifrado = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      vapidBytes as unknown as BufferSource
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyCifrado = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      serverKey,
-      aesKeyRaw
-    );
-
-    const toHex = (buf: ArrayBuffer) =>
-      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    const envelope = {
-      iv: toHex(iv.buffer as ArrayBuffer),
-      dadosCifrados: toHex(vapidCifrado),
-      chaveAesCifrada: toHex(aesKeyCifrado)
-    };
-    
-    return btoa(JSON.stringify(envelope));
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
-    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/router.ts`
-
-```ts
-import { signal, computed, effect } from "@preact/signals";
-import {
-  contatoSelecionado,
-  contatoCompartilharHash,
-  showAdvanced,
-  currentMobileView,
-  sharePayload
-} from "../signals/state.ts";
-
-export const currentHash = signal<string>(globalThis.location?.hash || "");
-
-if (typeof globalThis !== "undefined" && globalThis.addEventListener) {
-  globalThis.addEventListener("hashchange", () => {
-    currentHash.value = globalThis.location.hash;
-  });
-}
-
-export function navigate(hash: string) {
-  if (typeof globalThis !== "undefined") {
-    globalThis.location.hash = hash;
-  }
-}
-
-effect(() => {
-  const hash = currentHash.value;
-
-  // Reset states
-  contatoSelecionado.value = '';
-  contatoCompartilharHash.value = null;
-  showAdvanced.value = false;
-  sharePayload.value = null;
-
-  if (hash.startsWith('#chat=')) {
-    contatoSelecionado.value = hash.substring(6);
-    currentMobileView.value = 'chat';
-  } else if (hash.startsWith('#detail=')) {
-    contatoCompartilharHash.value = hash.substring(8);
-    currentMobileView.value = 'chat';
-  } else if (hash === '#advanced') {
-    showAdvanced.value = true;
-    currentMobileView.value = 'chat';
-  } else if (hash === '#profile' || hash === '#logout') {
-    currentMobileView.value = 'chat'; // Ocupa a área principal
-  } else if (hash.startsWith('#share')) {
-    currentMobileView.value = 'chat';
-    // Extrai o payload caso venha via URL: #share=jwt_aqui
-    if (hash.includes('=')) {
-      sharePayload.value = hash.substring(hash.indexOf('=') + 1);
-    }
-  } else {
-    currentMobileView.value = 'list';
-  }
-});
-
-export const activeView = computed(() => {
-  const hash = currentHash.value;
-  if (hash.startsWith('#chat=')) return 'chat';
-  if (hash.startsWith('#detail=')) return 'detail';
-  if (hash === '#advanced') return 'advanced';
-  if (hash === '#profile') return 'profile';
-  if (hash === '#logout') return 'logout';
-  if (hash.startsWith('#share')) return 'share';
-  if (hash === '#settings') return 'settings';
-  return 'home';
-});
 ```
 
 ---
@@ -4443,12 +3647,624 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
 
 ---
 
+## Arquivo: `src/utils/db-helpers.ts`
+
+```ts
+// src/utils/db-helpers.ts
+import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
+import type { ProfileConfig, Chat, Contato, Handshake } from "../constants/db.ts";
+import { 
+  minifyVapidPublic, expandVapidPublic, 
+  minifyVapidPrivate, expandVapidPrivate, 
+  minifyRsaPublic, expandRsaPublic, 
+  minifyRsaPrivate, expandRsaPrivate 
+} from "./crypto-utils.ts";
+
+// ============================================================
+// Criação de Stores
+// ============================================================
+
+export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
+  return createStore(nome, storeName);
+}
+
+const storeConfig = criarStore(DB_NAMES.CONFIG);
+export const storeChat = criarStore(DB_NAMES.CHAT); 
+export const storeContatos = criarStore(DB_NAMES.CONTATOS);
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
+
+// ============================================================
+// Funções Genéricas
+// ============================================================
+
+export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
+  return set(key, value, store);
+}
+
+export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
+  return get(key, store);
+}
+
+export async function removerChave(store: any, key: string): Promise<void> {
+  return del(key, store);
+}
+
+export async function listarChaves<T>(store: any): Promise<[string, T][]> {
+  return entries(store) as Promise<[string, T][]>;
+}
+
+export async function listarValores<T>(store: any): Promise<T[]> {
+  return values(store) as Promise<T[]>;
+}
+
+// ============================================================
+// Interceptadores de Compressão (DB Middlewares)
+// ============================================================
+
+function compactarProfile(p: ProfileConfig): any {
+  return {
+    ...p,
+    vapidPublicKey: minifyVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: minifyVapidPrivate(p.vapidPrivateKeyJwk),
+    e2ePublicKey: minifyRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: minifyRsaPrivate(p.e2ePrivateKeyJwk)
+  };
+}
+
+function expandirProfile(p: any): ProfileConfig | undefined {
+  if (!p) return undefined;
+  return {
+    ...p,
+    vapidPublicKey: expandVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: expandVapidPrivate(p.vapidPrivateKeyJwk, p.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: expandRsaPrivate(p.e2ePrivateKeyJwk, p.e2ePublicKey)
+  } as ProfileConfig;
+}
+
+function compactarContato(c: Contato): any {
+  return {
+    ...c,
+    vapidPublicKey: minifyVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: minifyRsaPublic(c.e2ePublicKey)
+  };
+}
+
+function expandirContato(c: any): Contato | undefined {
+  if (!c) return undefined;
+  return {
+    ...c,
+    vapidPublicKey: expandVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(c.e2ePublicKey)
+  } as Contato;
+}
+
+// ============================================================
+// Gerenciamento do Perfil (ProfileConfig)
+// ============================================================
+
+export async function salvarProfile(profile: ProfileConfig): Promise<void> {
+  profile.updatedAt = Date.now();
+  if (!profile.createdAt) {
+    profile.createdAt = Date.now();
+  }
+  await salvarChave(storeConfig, KEY_NAMES.PROFILE, compactarProfile(profile));
+}
+
+export async function buscarProfile(): Promise<ProfileConfig | undefined> {
+  const p = await buscarChave<any>(storeConfig, KEY_NAMES.PROFILE);
+  return expandirProfile(p);
+}
+
+export async function removerProfile(): Promise<void> {
+  await removerChave(storeConfig, KEY_NAMES.PROFILE);
+}
+
+export async function buscarChaveDecript(): Promise<CryptoKey | null> {
+  try {
+    const profile = await buscarProfile();
+    if (!profile || !profile.e2ePrivateKeyJwk) return null;
+
+    return await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+  } catch (err) {
+    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
+    return null;
+  }
+}
+
+// ============================================================
+// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
+// ============================================================
+
+export async function salvarChat(chat: Chat): Promise<void> {
+  chat.updatedAt = Date.now();
+  await salvarChave(storeChat, chat.id, chat);
+
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  if (!index.includes(chat.id)) {
+    index.push(chat.id);
+    await salvarChave(storeChat, indexKey, index);
+  }
+}
+
+export async function buscarChat(id: string): Promise<Chat | undefined> {
+  return buscarChave<Chat>(storeChat, id);
+}
+
+export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+
+  const total = index.length;
+  if (total === 0 || offset >= total) return [];
+
+  const startIndex = Math.max(0, total - offset - limit);
+  const endIndex = total - offset;
+  
+  const sliceIds = index.slice(startIndex, endIndex);
+
+  const records = await getMany(sliceIds, storeChat);
+  return records.filter(Boolean) as Chat[];
+}
+
+export async function removerChat(id: string, contatoHash: string): Promise<void> {
+  await removerChave(storeChat, id);
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  index = index.filter(x => x !== id);
+  await salvarChave(storeChat, indexKey, index);
+}
+
+// ============================================================
+// Contatos
+// ============================================================
+
+async function sha256(message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  
+  // 🔥 Essencial: Sempre expandir a chave antes de gerar o hash, garantindo que
+  // chaves previamente geradas mantenham o mesmo ID e não quebrem o app.
+  const expanded = expandVapidPublic(jwk);
+  const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object' && input !== null && ('kty' in input || 'x' in input)) {
+    return await serializarPublicKeyVapid(input as JsonWebKey);
+  }
+  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
+}
+
+export async function salvarContato(contato: Contato): Promise<void> {
+  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
+  await salvarChave(storeContatos, key, compactarContato(contato));
+}
+
+export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
+}
+
+export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
+  const key = await normalizarChaveContato(chaveOuJwk);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
+}
+
+export async function listarContatos(): Promise<Contato[]> {
+  const entriesList = await listarChaves<any>(storeContatos);
+  return entriesList.map(([_, c]) => expandirContato(c) as Contato);
+}
+
+export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  await removerChave(storeContatos, key);
+}
+
+// ============================================================
+// Handshakes
+// ============================================================
+
+export async function salvarHandshake(handshake: Handshake): Promise<void> {
+  handshake.updatedAt = Date.now();
+  if (!handshake.createdAt) {
+    handshake.createdAt = Date.now();
+  }
+  await salvarChave(storeHandshakes, handshake.id, handshake);
+}
+
+export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
+  return buscarChave<Handshake>(storeHandshakes, id);
+}
+
+export async function listarHandshakes(): Promise<Handshake[]> {
+  return listarValores<Handshake>(storeHandshakes);
+}
+
+export async function removerHandshake(id: string): Promise<void> {
+  await removerChave(storeHandshakes, id);
+}
+```
+
+---
+
+## Arquivo: `src/utils/jwt-helpers.ts`
+
+```ts
+// src/utils/jwt-helpers.ts
+import { minifyVapidPublic, expandVapidPublic } from "./crypto-utils.ts";
+
+export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
+  }
+}
+
+export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
+  try {
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer as ArrayBuffer;
+  } catch (e: any) {
+    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
+  }
+}
+
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
+  }
+}
+
+export async function criarJWT(
+  payload: Record<string, any>,
+  privateKeyJwk: JsonWebKey,
+  headerExtra: Record<string, any> = {}
+): Promise<string> {
+  try {
+    // 🔥 ARQUITETURA: Minifica o 'kid' antes de criar a assinatura para o Token ficar menor
+    if (headerExtra.kid && (headerExtra.kid.kty || headerExtra.kid.x)) {
+      headerExtra.kid = minifyVapidPublic(headerExtra.kid);
+    }
+
+    const header = { alg: "ES256", ...headerExtra };
+    const encoder = new TextEncoder();
+
+    const headerEnc = encoder.encode(JSON.stringify(header));
+    const payloadEnc = encoder.encode(JSON.stringify(payload));
+
+    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
+    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
+    const toSign = `${headerB64}.${payloadB64}`;
+
+    const privateKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      privateKeyJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      encoder.encode(toSign)
+    );
+    const sigB64 = arrayBufferToBase64Url(signature);
+
+    return `${toSign}.${sigB64}`;
+  } catch (err: any) {
+    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
+  }
+}
+
+export async function verificarJWT(
+  jwt: string,
+  publicKeyJwk?: JsonWebKey
+): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) {
+      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
+    }
+
+    const headerB64 = parts[0]!;
+    const payloadB64 = parts[1]!;
+    const signatureB64 = parts[2]!;
+    const decoder = new TextDecoder();
+
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+    
+    let header, payload;
+    try {
+      header = JSON.parse(headerJson);
+      payload = JSON.parse(payloadJson);
+    } catch (_parseErr) {
+      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
+    }
+
+    let publicKeyJwkFinal = publicKeyJwk;
+    if (!publicKeyJwkFinal) {
+      if (!header.kid) {
+        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
+      }
+      // 🔥 Expande a chave minificada recebida da rede para a validação ocorrer com sucesso
+      publicKeyJwkFinal = expandVapidPublic(header.kid);
+    } else {
+      publicKeyJwkFinal = expandVapidPublic(publicKeyJwkFinal);
+    }
+
+    const publicKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyJwkFinal as JsonWebKey,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+
+    const toSign = `${headerB64}.${payloadB64}`;
+    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
+
+    const encoder = new TextEncoder();
+    const valid = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      signatureBytes,
+      encoder.encode(toSign)
+    );
+
+    return { header, payload, signature: signatureB64, valid };
+  } catch (err: any) {
+    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
+  }
+}
+
+export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error("JWT malformado. Leitura interrompida.");
+  }
+
+  const headerB64 = parts[0]!;
+  const payloadB64 = parts[1]!;
+  const signatureB64 = parts[2]!;
+  const decoder = new TextDecoder();
+
+  try {
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+
+    return {
+      header: JSON.parse(headerJson),
+      payload: JSON.parse(payloadJson),
+      signature: signatureB64
+    };
+  } catch (err: any) {
+    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/push-utils.ts`
+
+```ts
+// src/utils/push-utils.ts
+import { gzipSync } from "fflate";
+import { addDebugLog } from "./debug-utils.ts";
+import { buildProxyUrl } from '../constants/config.ts';
+import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
+  }
+}
+
+export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
+  i: string;
+  d: string;
+  k: string;
+}> {
+  try {
+    const encoder = new TextEncoder();
+    const jsonString = JSON.stringify(payloadObj);
+    const bytes = encoder.encode(jsonString);
+    
+    const compressed = gzipSync(bytes);
+    
+    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
+    if (compressed.length > 3000) {
+       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
+    }
+
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      compressed as unknown as BufferSource
+    );
+
+    const cryptoKeyDestino = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyRSA,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyEncrypted = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoKeyDestino,
+      aesKeyRaw
+    );
+
+    return {
+      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
+      d: arrayBufferToBase64(encryptedBuffer),
+      k: arrayBufferToBase64(aesKeyEncrypted)
+    };
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
+    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
+  }
+}
+
+export async function enviarParaProxy(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payloadText: string,
+  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
+): Promise<void> {
+  const payloadSize = new Blob([payloadText]).size;
+  if (payloadSize > 4096) {
+    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
+    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
+  }
+
+  try {
+    const proxyUrl = await buildProxyUrl('/');
+    const response = await fetch(proxyUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription,
+        payloadText,
+        vapid: {
+          subject: vapid.subject,
+          // 🔥 Minifica a chave pública para transitar na rede de forma enxuta
+          publicKey: minifyVapidPublic(vapid.publicKey),
+          privateKey: vapid.privateKey
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
+    }
+  } catch (err: any) {
+     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
+     throw err;
+  }
+}
+
+export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  try {
+    const serverKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      serverPublicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    
+    // 🔥 ARQUITETURA: Cortando o peso do Envelope 
+    // Só ciframos a propriedade `{ d: "..." }`
+    const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
+    const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
+    
+    const vapidCifrado = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      vapidBytes as unknown as BufferSource
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyCifrado = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      serverKey,
+      aesKeyRaw
+    );
+
+    const toHex = (buf: ArrayBuffer) =>
+      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    const envelope = {
+      iv: toHex(iv.buffer as ArrayBuffer),
+      dadosCifrados: toHex(vapidCifrado),
+      chaveAesCifrada: toHex(aesKeyCifrado)
+    };
+    
+    return btoa(JSON.stringify(envelope));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
+    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/utils/share-utils.ts`
 
 ```ts
 // src/utils/share-utils.ts
 import { gzipSync, gunzipSync } from 'fflate';
 import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
+import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
 import type { ProfileConfig, Contato } from '../constants/db.ts';
 
 const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
@@ -4458,9 +4274,8 @@ export interface CompactContact {
   tr?: boolean;
   em: string;
   nm: string;
-  vx: string;
-  vy: string;
-  en: string;
+  vp: any; // 🔥 Chave VAPID Pública Minificada
+  ep: any; // 🔥 Chave RSA Pública E2E Minificada
   se: string;
   sp: string;
   sa: string;
@@ -4477,9 +4292,9 @@ export function extrairDadosCompactos(target: ProfileConfig | Contato, req = fal
     tr,
     em: target.email || '',
     nm: target.name || '',
-    vx: target.vapidPublicKey.x!,
-    vy: target.vapidPublicKey.y!,
-    en: target.e2ePublicKey.n!,
+    // 🔥 Delega a minificação para o módulo criptográfico oficial
+    vp: minifyVapidPublic(target.vapidPublicKey),
+    ep: minifyRsaPublic(target.e2ePublicKey),
     se: ep,
     sp: target.subscription.keys.p256dh,
     sa: target.subscription.keys.auth,
@@ -4495,8 +4310,9 @@ export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
   return {
     email: c.em,
     name: c.nm,
-    vapidPublicKey: { kty: "EC", crv: "P-256", x: c.vx, y: c.vy, ext: true },
-    e2ePublicKey: { kty: "RSA", e: "AQAB", n: c.en, alg: "RSA-OAEP-256", ext: true },
+    // 🔥 Expande a partir dos moldes estáticos padronizados
+    vapidPublicKey: expandVapidPublic(c.vp),
+    e2ePublicKey: expandRsaPublic(c.ep),
     subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
     vapidPrivateKeyEnvelope: c.ve,
     trusted: c.tr,
@@ -4529,8 +4345,6 @@ export async function gerarLinkConviteWeb(
   const compressed = gzipSync(jwtBytes);
   const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 
-  // 🔥 URL atualizada para o formato SPA do Loco
-  // Usa baseUrl se fornecida (para testes), caso contrário usa window.location.origin
   const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
   return `${origin}/#share=${cjwt}`;
 }
@@ -4601,7 +4415,9 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
       const decompressed = gunzipSync(compressed);
       const jsonText = new TextDecoder().decode(decompressed);
       const parsed = JSON.parse(jsonText);
-      if (parsed.vx && parsed.vy) {
+      
+      // Valida tanto o formato novo quanto o antigo
+      if (parsed.vp || (parsed.vx && parsed.vy)) {
         compactData = parsed as CompactContact;
       }
     } catch (e) {
@@ -4621,8 +4437,378 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
 
   if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
 
+  // 🔥 Camada de Retrocompatibilidade O(1):
+  // Se escaneou um QR Code antigo que usava vx/vy/en separadamente,
+  // nós transmutamos na RAM para a estrutura unificada (vp/ep) antes de expandir.
+  if ((compactData as any).vx && !compactData.vp) {
+    compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
+    compactData.ep = { n: (compactData as any).en };
+  }
+
   return expandirDadosCompactos(compactData);
 }
+```
+
+---
+
+## Arquivo: `src/utils/crypto-utils.ts`
+
+```ts
+// src/utils/crypto-utils.ts
+import { addDebugLog } from "./debug-utils.ts";
+
+export function bufferToBase64Url(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO", "Falha crítica ao converter Buffer para Base64Url", err.message);
+    throw new Error(`Buffer conversion failed: ${err.message}`);
+  }
+}
+
+export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
+  return bufferToBase64Url(buffer);
+}
+
+export function base64UrlToBuffer(base64url: string): ArrayBuffer {
+  try {
+    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer as ArrayBuffer;
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO", "Tentativa de decodificar Base64Url malformado ou corrompido", err.message);
+    throw new Error("Formato Base64Url inválido.");
+  }
+}
+
+// ============================================================
+// 🔥 COMPRESSÃO POR ESQUEMA ESTÁTICO (Static Schema Compression)
+// ============================================================
+
+export function minifyVapidPublic(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk; 
+  return { x: jwk.x, y: jwk.y };
+}
+
+export function expandVapidPublic(minified: any): JsonWebKey {
+  // Defensive Programming: Previne falhas se recebermos string ou lixo da rede
+  if (typeof minified === "string") {
+    try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
+  }
+  if (!minified || typeof minified !== "object") return {} as JsonWebKey;
+  
+  // Se a chave já possui 'kty', ela não está minificada, devolve como está
+  if (minified.kty) return minified as JsonWebKey;
+  
+  // Reconstrói a chave injetando a 'gordura' estática da curva P-256
+  // Fallbacks (vx, vy) mantidos para garantir retrocompatibilidade com QR Codes antigos
+  return { 
+    kty: "EC", 
+    crv: "P-256", 
+    x: minified.x || minified.vx, 
+    y: minified.y || minified.vy, 
+    ext: true, 
+    key_ops: ["verify"] 
+  };
+}
+
+export function minifyVapidPrivate(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  // A chave privada de Curva Elíptica é apenas o escalar "d".
+  // "x" e "y" são removidos porque nós já temos eles na Chave Pública.
+  return { d: jwk.d }; 
+}
+
+export function expandVapidPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKey {
+  if (typeof minifiedPriv === "string") {
+    try { minifiedPriv = JSON.parse(minifiedPriv); } catch { return {} as JsonWebKey; }
+  }
+  if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
+  if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
+  
+  // Reconstrói a chave privada importando 'x' e 'y' da chave pública que sempre viaja junto
+  return { 
+    kty: "EC", 
+    crv: "P-256", 
+    x: minifiedPub.x || minifiedPub.vx, 
+    y: minifiedPub.y || minifiedPub.vy, 
+    d: minifiedPriv.d, 
+    ext: true, 
+    key_ops: ["sign"] 
+  };
+}
+
+export function minifyRsaPublic(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  // Para RSA com expoente público fixo (65537), apenas o Módulo "n" é a variável matemática
+  return { n: jwk.n };
+}
+
+export function expandRsaPublic(minified: any): JsonWebKey {
+  if (typeof minified === "string") {
+    try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
+  }
+  if (!minified || typeof minified !== "object") return {} as JsonWebKey;
+  if (minified.kty) return minified as JsonWebKey;
+  
+  // Injeta o esquema estático RSA-OAEP e o expoente 'AQAB'
+  return { 
+    kty: "RSA", 
+    alg: "RSA-OAEP-256", 
+    e: "AQAB", 
+    n: minified.n || minified.en, 
+    ext: true, 
+    key_ops: ["encrypt"] 
+  };
+}
+
+export function minifyRsaPrivate(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  // Extrai apenas os fatores primos estritamente secretos e o expoente 'd'
+  return { d: jwk.d, p: jwk.p, q: jwk.q, dp: jwk.dp, dq: jwk.dq, qi: jwk.qi };
+}
+
+export function expandRsaPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKey {
+  if (typeof minifiedPriv === "string") {
+    try { minifiedPriv = JSON.parse(minifiedPriv); } catch { return {} as JsonWebKey; }
+  }
+  if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
+  if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
+  
+  // Remonta a chave RSA Privada buscando o 'n' na Chave Pública correspondente
+  return { 
+    kty: "RSA", 
+    alg: "RSA-OAEP-256", 
+    e: "AQAB", 
+    n: minifiedPub.n || minifiedPub.en, 
+    d: minifiedPriv.d, 
+    p: minifiedPriv.p, 
+    q: minifiedPriv.q, 
+    dp: minifiedPriv.dp, 
+    dq: minifiedPriv.dq, 
+    qi: minifiedPriv.qi, 
+    ext: true, 
+    key_ops: ["decrypt"] 
+  };
+}
+
+// ============================================================
+// GERAÇÃO E OPERAÇÕES DA WEBCRYPTO API
+// ============================================================
+
+export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
+    return keyPair;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha de Hardware/Browser ao gerar VAPID: ${error.message}`, error);
+    throw new Error("Este navegador não suporta geração de chaves ECDSA P-256 necessárias para o funcionamento offline.");
+  }
+}
+
+export async function generateE2EEKeys(): Promise<{
+  publicEncrypt: JsonWebKey;
+  privateDecryptJwk: JsonWebKey;
+}> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      {
+        name: "RSA-OAEP",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]), // Corresponde a "AQAB" em Base64Url
+        hash: "SHA-256",
+      },
+      true,
+      ["encrypt", "decrypt"]
+    );
+
+    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+
+    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
+    return { publicEncrypt, privateDecryptJwk };
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA E2E: ${error.message}`, error);
+    throw new Error("Este dispositivo não suporta geração de chaves RSA-OAEP de 2048 bits.");
+  }
+}
+
+export async function encryptTextAES(
+  key: CryptoKey,
+  plainText: string
+): Promise<{ cipherTextBase64: string; ivBase64: string }> {
+  try {
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encodedText = enc.encode(plainText);
+
+    const cipherBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encodedText
+    );
+
+    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
+
+    return {
+      cipherTextBase64: bufferToBase64Url(cipherBuffer),
+      ivBase64: bufferToBase64Url(iv.buffer as ArrayBuffer),
+    };
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha interna no motor AES-GCM (Encrypt): ${error.message}`, error);
+    throw new Error("Não foi possível criptografar os dados.");
+  }
+}
+
+export async function decryptTextAES(
+  key: CryptoKey,
+  cipherTextBase64: string,
+  ivBase64: string
+): Promise<string> {
+  try {
+    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
+    const ivBuffer = base64UrlToBuffer(ivBase64);
+
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
+      key,
+      cipherBuffer
+    );
+
+    const dec = new TextDecoder();
+    return dec.decode(decryptedBuffer);
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha de decifragem AES-GCM (Chave incorreta ou corrompido): ${error.message}`, error);
+    throw new Error("A decodificação falhou. Dados corrompidos ou chave inválida.");
+  }
+}
+
+export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
+  try {
+    const jwk = await crypto.subtle.exportKey("jwk", key);
+    return jwk;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Erro ao extrair chave (não extraível?): ${error.message}`, error);
+    throw new Error("Falha ao exportar a chave para formato seguro.");
+  }
+}
+
+export async function importJWKToKey(
+  jwk: JsonWebKey,
+  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
+  extractable: boolean,
+  keyUsages: KeyUsage[]
+): Promise<CryptoKey> {
+  try {
+    // A função importJWKToKey espera sempre o formato completo, garantindo que
+    // as camadas superiores do App (db-helpers, etc) já tenham inflado a chave.
+    const key = await crypto.subtle.importKey(
+      "jwk" as any,
+      jwk,
+      algorithm,
+      extractable,
+      keyUsages
+    );
+    return key;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Erro estrutural ao importar chave JWK: ${error.message}`, error);
+    throw new Error("A chave de criptografia fornecida está corrompida ou é incompatível.");
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/router.ts`
+
+```ts
+import { signal, computed, effect } from "@preact/signals";
+import {
+  contatoSelecionado,
+  contatoCompartilharHash,
+  showAdvanced,
+  currentMobileView,
+  sharePayload
+} from "../signals/state.ts";
+
+export const currentHash = signal<string>(globalThis.location?.hash || "");
+
+if (typeof globalThis !== "undefined" && globalThis.addEventListener) {
+  globalThis.addEventListener("hashchange", () => {
+    currentHash.value = globalThis.location.hash;
+  });
+}
+
+export function navigate(hash: string) {
+  if (typeof globalThis !== "undefined") {
+    globalThis.location.hash = hash;
+  }
+}
+
+effect(() => {
+  const hash = currentHash.value;
+
+  // Reset states
+  contatoSelecionado.value = '';
+  contatoCompartilharHash.value = null;
+  showAdvanced.value = false;
+  sharePayload.value = null;
+
+  if (hash.startsWith('#chat=')) {
+    contatoSelecionado.value = hash.substring(6);
+    currentMobileView.value = 'chat';
+  } else if (hash.startsWith('#detail=')) {
+    contatoCompartilharHash.value = hash.substring(8);
+    currentMobileView.value = 'chat';
+  } else if (hash === '#advanced') {
+    showAdvanced.value = true;
+    currentMobileView.value = 'chat';
+  // 🔥 CORREÇÃO: Adicionamos '#settings' para que ele ocupe a área principal no mobile
+  } else if (hash === '#profile' || hash === '#logout' || hash === '#settings') {
+    currentMobileView.value = 'chat'; 
+  } else if (hash.startsWith('#share')) {
+    currentMobileView.value = 'chat';
+    // Extrai o payload caso venha via URL: #share=jwt_aqui
+    if (hash.includes('=')) {
+      sharePayload.value = hash.substring(hash.indexOf('=') + 1);
+    }
+  } else {
+    // Se não for nenhuma das telas acima, volta para a lista (sidebar)
+    currentMobileView.value = 'list';
+  }
+});
+
+export const activeView = computed(() => {
+  const hash = currentHash.value;
+  if (hash.startsWith('#chat=')) return 'chat';
+  if (hash.startsWith('#detail=')) return 'detail';
+  if (hash === '#advanced') return 'advanced';
+  if (hash === '#profile') return 'profile';
+  if (hash === '#logout') return 'logout';
+  if (hash.startsWith('#share')) return 'share';
+  if (hash === '#settings') return 'settings';
+  return 'home';
+});
 ```
 
 ---
@@ -5147,150 +5333,6 @@ label {
 
 ---
 
-## Arquivo: `src/handshakes/hand-profile.ts`
-
-```ts
-// src/handshakes/hand-profile.ts
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-import { Handshake } from "../constants/db.ts";
-import { gerarId } from "../utils/id-utils.ts";
-import {
-  buscarHandshake,
-  salvarHandshake,
-  buscarProfile,
-  buscarContatoPorChave,
-  salvarContato,
-  serializarPublicKeyVapid
-} from "../utils/db-helpers.ts";
-
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-
-// 🔥 Interface estrita de Saída
-interface ProfileOutParams {
-  function: string;
-  contato: string;
-  campos?: string[];
-}
-
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ProfileOutParams }) {
-  
-  if (handshakeId) {
-    addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
-    const handshake = await buscarHandshake(handshakeId);
-    
-    if (!handshake || !handshake.in || !handshake.in.rotas.profile) {
-      addDebugLog(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
-      return;
-    }
-
-    const profileReq = handshake.in.rotas.profile;
-
-    if (Array.isArray(profileReq.campos)) {
-      addDebugLog(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
-      
-      const profile = await buscarProfile();
-      if (!profile) throw new Error("Perfil local não encontrado para responder à requisição.");
-
-      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
-      
-      const rotasProfileData: Record<string, unknown> = { id: meuHash };
-      const camposSet = new Set(profileReq.campos);
-
-      if (camposSet.has('name')) rotasProfileData.name = profile.name;
-      if (camposSet.has('email')) rotasProfileData.email = profile.email;
-      if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = profile.vapidPublicKey;
-      if (camposSet.has('vapidPrivateKeyEnvelope')) rotasProfileData.vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
-      if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = profile.e2ePublicKey;
-      if (camposSet.has('subscription')) rotasProfileData.subscription = profile.subscription;
-
-      handshake.out = {
-        status: 'pendente',
-        tentativas: 0,
-        rotas: {
-          profile: {
-            data: rotasProfileData
-          }
-        }
-      };
-      
-      handshake.updatedAt = Date.now();
-      await salvarHandshake(handshake);
-
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    else if (profileReq.data && typeof profileReq.data.id === 'string') {
-      addDebugLog(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
-      
-      const contatoId = profileReq.data.id;
-      const contato = await buscarContatoPorChave(contatoId);
-      
-      if (contato) {
-        const d = profileReq.data;
-        
-        // Validação Estrita de Tipos antes da mutação
-        if (typeof d.name === 'string') contato.name = d.name;
-        if (typeof d.email === 'string') contato.email = d.email;
-        if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = d.vapidPublicKey as JsonWebKey;
-        if (typeof d.vapidPrivateKeyEnvelope === 'string') contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
-        if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = d.e2ePublicKey as JsonWebKey;
-        if (d.subscription !== undefined) contato.subscription = d.subscription as any;
-
-        contato.updatedAt = Date.now();
-        await salvarContato(contato);
-        addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
-
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => {
-          client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
-        });
-      } else {
-        addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
-      }
-    }
-  }
-  
-  if (outParams) {
-    addDebugLog(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
-    
-    if (outParams.function === 'solicitarPerfil') {
-      const contatoId = outParams.contato;
-      const campos = outParams.campos;
-
-      if (!contatoId || !campos) {
-        throw new Error("Parâmetros inválidos para solicitarPerfil. Exigido 'contato' e 'campos'.");
-      }
-
-      const novoHandshake: Handshake = {
-        id: gerarId(),
-        aud: contatoId,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        out: {
-          status: 'pendente',
-          tentativas: 0,
-          rotas: {
-            profile: {
-              campos: campos
-            }
-          }
-        }
-      };
-
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
-      
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-  }
-}
-```
-
----
-
 ## Arquivo: `src/handshakes/hand-mensagem.ts`
 
 ```ts
@@ -5498,6 +5540,151 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
 ---
 
+## Arquivo: `src/handshakes/hand-profile.ts`
+
+```ts
+// src/handshakes/hand-profile.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { Handshake } from "../constants/db.ts";
+import { gerarId } from "../utils/id-utils.ts";
+import {
+  buscarHandshake,
+  salvarHandshake,
+  buscarProfile,
+  buscarContatoPorChave,
+  salvarContato,
+  serializarPublicKeyVapid
+} from "../utils/db-helpers.ts";
+import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from "../utils/crypto-utils.ts";
+import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+
+interface ProfileOutParams {
+  function: string;
+  contato: string;
+  campos?: string[];
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ProfileOutParams }) {
+  
+  if (handshakeId) {
+    addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
+    const handshake = await buscarHandshake(handshakeId);
+    
+    if (!handshake || !handshake.in || !handshake.in.rotas.profile) {
+      addDebugLog(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
+      return;
+    }
+
+    const profileReq = handshake.in.rotas.profile;
+
+    if (Array.isArray(profileReq.campos)) {
+      addDebugLog(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
+      
+      const profile = await buscarProfile();
+      if (!profile) throw new Error("Perfil local não encontrado para responder à requisição.");
+
+      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
+      
+      const rotasProfileData: Record<string, unknown> = { id: meuHash };
+      const camposSet = new Set(profileReq.campos);
+
+      if (camposSet.has('name')) rotasProfileData.name = profile.name;
+      if (camposSet.has('email')) rotasProfileData.email = profile.email;
+      // 🔥 Enviamos o payload totalmente minificado pela rede
+      if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = minifyVapidPublic(profile.vapidPublicKey);
+      if (camposSet.has('vapidPrivateKeyEnvelope')) rotasProfileData.vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
+      if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = minifyRsaPublic(profile.e2ePublicKey);
+      if (camposSet.has('subscription')) rotasProfileData.subscription = profile.subscription;
+
+      handshake.out = {
+        status: 'pendente',
+        tentativas: 0,
+        rotas: {
+          profile: {
+            data: rotasProfileData
+          }
+        }
+      };
+      
+      handshake.updatedAt = Date.now();
+      await salvarHandshake(handshake);
+
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    else if (profileReq.data && typeof profileReq.data.id === 'string') {
+      addDebugLog(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
+      
+      const contatoId = profileReq.data.id;
+      const contato = await buscarContatoPorChave(contatoId);
+      
+      if (contato) {
+        const d = profileReq.data;
+        
+        if (typeof d.name === 'string') contato.name = d.name;
+        if (typeof d.email === 'string') contato.email = d.email;
+        if (typeof d.vapidPrivateKeyEnvelope === 'string') contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
+        if (d.subscription !== undefined) contato.subscription = d.subscription as any;
+
+        // 🔥 Expandimos as chaves minificadas que chegaram da rede para o padrão JWK antes de persistir em RAM
+        if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = expandVapidPublic(d.vapidPublicKey);
+        if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = expandRsaPublic(d.e2ePublicKey);
+
+        contato.updatedAt = Date.now();
+        await salvarContato(contato);
+        addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
+
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => {
+          client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
+        });
+      } else {
+        addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
+      }
+    }
+  }
+  
+  if (outParams) {
+    addDebugLog(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
+    
+    if (outParams.function === 'solicitarPerfil') {
+      const contatoId = outParams.contato;
+      const campos = outParams.campos;
+
+      if (!contatoId || !campos) {
+        throw new Error("Parâmetros inválidos para solicitarPerfil. Exigido 'contato' e 'campos'.");
+      }
+
+      const novoHandshake: Handshake = {
+        id: gerarId(),
+        aud: contatoId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        out: {
+          status: 'pendente',
+          tentativas: 0,
+          rotas: {
+            profile: {
+              campos: campos
+            }
+          }
+        }
+      };
+
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
+      
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/handshakes/hand-contato.ts`
 
 ```ts
@@ -5542,8 +5729,9 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         const camposSet = new Set(contatoReq.campos);
         const cp = extrairDadosCompactos(contato);
         
-        if (camposSet.has('vapidPublicKey')) { rotasContatoData.vx = cp.vx; rotasContatoData.vy = cp.vy; }
-        if (camposSet.has('e2ePublicKey')) rotasContatoData.en = cp.en;
+        // 🔥 Usa o esquema minificado limpo `vp` e `ep`
+        if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
+        if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
         if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
         if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
         if (camposSet.has('email')) rotasContatoData.em = cp.em;
@@ -5584,8 +5772,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (d.tr === true) novoMeStatus = 'trusted';
         else novoMeStatus = 'saved';
 
+        // Lida com a estrutura nova ou aplica a de retrocompatibilidade
+        const d_vp = d.vp as any || { x: d.vx, y: d.vy };
+        const d_ep = d.ep as any || { n: d.en };
+
+        // Compara com base no nosso profile extraído (mp)
         if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
-            d.vx !== mp.vx || d.vy !== mp.vy || d.en !== mp.en || d.ve !== mp.ve) {
+            d_vp.x !== mp.vp.x || d_vp.y !== mp.vp.y || d_ep.n !== mp.ep.n || d.ve !== mp.ve) {
           novoMeStatus = 'wrong';
         }
       }
@@ -5608,6 +5801,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
       
       const syncData = contatoReq.sync as unknown as CompactContact;
+      
+      // Aplica retrocompatibilidade antes de expandir
+      if ((syncData as any).vx && !syncData.vp) {
+        syncData.vp = { x: (syncData as any).vx, y: (syncData as any).vy };
+        syncData.ep = { n: (syncData as any).en };
+      }
+
       const expanded = expandirDadosCompactos(syncData);
       const contatoAntigo = await buscarContatoPorChave(handshake.aud);
       
@@ -5965,19 +6165,19 @@ if (root) {
 
 ```json
 {
-  "start_url": "/index.html",
-  "scope": "/",
+  "start_url": "./index.html",
+  "scope": "./",
   "name": "loco",
   "short_name": "loco",
   "lang": "pt-BR",
   "icons": [
     {
-      "src": "/android-chrome-192x192.png",
+      "src": "./android-chrome-192x192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/android-chrome-512x512.png",
+      "src": "./android-chrome-512x512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
@@ -6071,6 +6271,454 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
 
 });
 
+```
+
+---
+
+## Arquivo: `deno.jsonc`
+
+```json
+{
+  // ============================================================================
+  // 🚀 LOCO PWA - Manifesto do Deno
+  // Mensageiro PWA Descentralizado, Offline-First & E2EE
+  // ============================================================================
+
+  // 📋 Metadados do Projeto
+  "name": "@vanaware/loco",
+  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
+  "version": "0.2.83-mss814vj",
+  "exports": "./main.ts",
+  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
+  "author": "Vanaware",
+  "license": "MIT",
+  
+  "workspace": [
+    "proto/_template",
+    "proto/01-push-messaging"
+  ],
+
+  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+
+  // 📦 Gerenciamento de Dependências
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/http": "jsr:@std/http@^1",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
+    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
+    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+  },
+
+  // 🛠️ Scripts de Automação
+  "tasks": {
+    "test": "deno test --allow-env --allow-net tests/",
+    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
+    "tests": "deno task check && deno task test",
+    "export": "deno run --allow-read --allow-write export.ts"
+  },
+  "exclude": ["build/", "public/"]
+}
+```
+
+---
+
+## Arquivo: `worker.ts`
+
+```ts
+// worker.ts
+/// <reference lib="deno.ns" />
+
+import * as webpush from "@negrel/webpush";
+import { deleteCookie } from "@std/http/cookie";
+
+let serverPrivateKeyCache: CryptoKey | null = null;
+let serverPublicKeyJwkCache: JsonWebKey | null = null;
+
+async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
+  if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
+    return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
+  }
+
+  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
+  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
+
+  if (!publicKeyStr) {
+    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada! Configure-a no arquivo wrangler.toml ou via dashboard da Cloudflare.");
+  }
+  
+  if (!privateKeyStr) {
+    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare.");
+  }
+
+  try {
+    let publicKeyJwk = JSON.parse(publicKeyStr);
+    let privateKeyJwk = JSON.parse(privateKeyStr);
+
+    if (!publicKeyJwk.kty) {
+      publicKeyJwk = {
+        kty: "RSA",
+        alg: "RSA-OAEP-256",
+        n: publicKeyJwk.n,
+        e: "AQAB",
+        ext: true,
+        key_ops: ["encrypt"]
+      };
+    }
+
+    if (!privateKeyJwk.kty) {
+      privateKeyJwk = {
+        kty: "RSA",
+        alg: "RSA-OAEP-256",
+        e: publicKeyJwk.e,
+        n: publicKeyJwk.n,
+        ext: true,
+        key_ops: ["decrypt"],
+        d: privateKeyJwk.d,
+        p: privateKeyJwk.p,
+        q: privateKeyJwk.q,
+        dp: privateKeyJwk.dp,
+        dq: privateKeyJwk.dq,
+        qi: privateKeyJwk.qi
+      };
+    }
+
+    const serverPrivateKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      privateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["decrypt"]
+    );
+
+    serverPrivateKeyCache = serverPrivateKey;
+    serverPublicKeyJwkCache = publicKeyJwk;
+
+    console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
+    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
+  }
+}
+
+async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
+  try {
+    const envelopeText = atob(base64Envelope);
+    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+
+    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+
+    const ivBytes = fromHex(iv);
+    const dadosBytes = fromHex(dadosCifrados);
+    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+      { name: "RSA-OAEP" },
+      serverPrivateKey,
+      chaveAesCifradaBytes
+    );
+
+    const chaveSimetricaAes = await crypto.subtle.importKey(
+      "raw",
+      aesChaveCruaBuffer,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+
+    const vapidOriginalBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ivBytes },
+      chaveSimetricaAes,
+      dadosBytes
+    );
+
+    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
+    return JSON.parse(jsonText);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
+    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
+  }
+}
+
+function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
+  try {
+    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
+    const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
+
+    // 🔥 ARQUITETURA: Reconstrução Inteligente VAPID
+    const expandedPub = pub.kty ? pub : {
+      kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"]
+    };
+
+    const expandedPriv = priv.kty ? priv : {
+      kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"]
+    };
+
+    return { publicKey: expandedPub, privateKey: expandedPriv };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
+  }
+}
+
+function lerMetadadosJJWT(jwtString: string) {
+  try {
+    const parts = jwtString.split(".");
+    if (parts.length !== 3) return null;
+
+    const part1 = parts[1];
+    if (!part1) return null;
+
+    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64Url.length % 4) base64Url += "=";
+
+    const jsonString = new TextDecoder().decode(
+      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
+    );
+    
+    return JSON.parse(jsonString);
+  } catch {
+    return null;
+  }
+}
+
+function checkIsAllowedOrigin(origin: string, env: any): boolean {
+  if (!origin) return false;
+
+  const defaultPatterns = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*tap\.app\.br$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/,
+    /^https?:\/\/dash\.cloudflare\.com$/
+  ];
+
+  for (const pattern of defaultPatterns) {
+    if (pattern.test(origin)) return true;
+  }
+
+  const envOrigins = env?.ALLOWED_ORIGINS;
+  if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
+    const rules = envOrigins.split(",").map(s => s.trim());
+    for (const rule of rules) {
+      const escapedRule = rule
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*");
+
+      const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
+      if (dynamicRegex.test(origin)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+const workerHandler = {
+  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    
+    let origin = request.headers.get("origin") || "";
+    if (origin === "") {
+      const host = request.headers.get("host") || "localhost";
+      const protocolo = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+      origin = `${protocolo}://${host}`;
+    }
+
+    const isAllowedOrigin = checkIsAllowedOrigin(origin, env);
+
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Max-Age": "86400"
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    const proxyPath = env.PROXY_PATH || "";
+    
+    let targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
+    
+    if (!targetPath.startsWith("/")) {
+      targetPath = "/" + targetPath;
+    }
+
+    if (!isAllowedOrigin) {
+      console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
+      return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    try {
+      const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
+
+      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
+        return new Response(JSON.stringify(serverPublicKeyJwk), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
+        const headers = new Headers(corsHeaders);
+        deleteCookie(headers, "session_token", { path: "/" });
+        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
+        headers.set("Content-Type", "application/json");
+        return new Response(JSON.stringify({ disconnected: true }), {
+          status: 200,
+          headers,
+        });
+      }
+
+      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
+        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
+        
+        const body = await request.json();
+        const { subscription, payloadText, vapid } = body;
+
+        if (!subscription || !payloadText || !vapid) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Parâmetros obrigatórios ausentes no body." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const jwtClaims = lerMetadadosJJWT(payloadText);
+        if (jwtClaims) {
+          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+        }
+
+        const proxyserverDestino = jwtClaims?.proxyserver;
+        if (proxyserverDestino) {
+          const urlAtual = new URL(request.url);
+          const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
+          
+          const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
+          const origemNormalizada = origemAtual.replace(/\/$/, "");
+          const destinoNormalizado = destinoSemProtocolo;
+          
+          if (origemNormalizada !== destinoNormalizado) {
+            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
+            
+            try {
+              const urlDestino = destinoNormalizado.startsWith("http") 
+                ? `${destinoNormalizado}/` 
+                : `https://${destinoNormalizado}/`;
+              
+              const response = await fetch(urlDestino, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subscription, payloadText, vapid }),
+                redirect: "follow"
+              });
+              
+              const result = await response.json();
+              console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
+              
+              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoNormalizado }), {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+              });
+            } catch (redirectErr) {
+              const errorMsg = redirectErr instanceof Error ? redirectErr.message : String(redirectErr);
+              console.error(`    ❌ [REDIRECIONAMENTO] Falha ao reencaminhar: ${errorMsg}`);
+              return new Response(
+                JSON.stringify({ success: false, error: `Falha ao reencaminhar para proxy destino: ${errorMsg}` }),
+                { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+          }
+        }
+
+        let privateKeyFinal = vapid.privateKey;
+
+        if (typeof privateKeyFinal === "string") {
+          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
+          try {
+            const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
+            privateKeyFinal = decryptedPrivateKeyObj;
+            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+          } catch (decryptErr) {
+            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
+            return new Response(
+              JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+        }
+
+        // 🔥 Aqui a mágica da remontagem ocorre de forma limpa!
+        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
+        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
+        
+        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+        const appServer = await webpush.ApplicationServer.new({
+          contactInformation: contact,
+          vapidKeys: vapidKeys,
+        });
+
+        const subscriber = appServer.subscribe(subscription);
+        await subscriber.pushTextMessage(payloadText, {});
+        
+        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
+
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("❌ Erro no Worker:", errorMessage);
+      return new Response(
+        JSON.stringify({ success: false, error: errorMessage }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+  }
+};
+
+export default workerHandler;
 ```
 
 ---
@@ -6213,11 +6861,13 @@ async function runBundle(name: string, bundleOpts: BundleOptions): Promise<Bundl
 async function gerarOuCarregarChavesServidor() {
   let publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
   let privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
+  
   if (publicKey && privateKey) {
     console.log("🔑 Chaves do servidor carregadas do .env");
     return;
   }
-  console.log("🔐 Gerando novas chaves RSA do servidor...");
+  
+  console.log("🔐 Gerando novas chaves RSA do servidor (Formato Minificado Duplo)...");
   const keyPair = await crypto.subtle.generateKey(
     {
       name: "RSA-OAEP",
@@ -6228,12 +6878,29 @@ async function gerarOuCarregarChavesServidor() {
     true,
     ["encrypt", "decrypt"]
   );
+  
   const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
   const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-  const publicKeyStr = JSON.stringify(publicJwk);
-  const privateKeyStr = JSON.stringify(privateJwk);
+  
+  const compactPublicJwk = {
+    n: publicJwk.n
+  };
+
+  const compactPrivateJwk = {
+    d: privateJwk.d,
+    p: privateJwk.p,
+    q: privateJwk.q,
+    dp: privateJwk.dp,
+    dq: privateJwk.dq,
+    qi: privateJwk.qi
+  };
+
+  const publicKeyStr = JSON.stringify(compactPublicJwk);
+  const privateKeyStr = JSON.stringify(compactPrivateJwk);
+  
   Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
   Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
+  
   await Deno.writeTextFile(
     '.env',
     `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
@@ -6250,7 +6917,16 @@ async function listarAssetsParaCache(): Promise<string[]> {
   
   for await (const entry of walk(join(BUILD_DIR,DIST_DIR), { includeDirs: false })) {
     if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      const webPath = entry.path.replace(join(BUILD_DIR,DIST_DIR), "").replace(/\\/g, "/");
+      let webPath = entry.path.replace(join(BUILD_DIR,DIST_DIR), "").replace(/\\/g, "/");
+      
+      // 🔥 ARQUITETURA: Garante que os caminhos gerados para o cache sejam relativos.
+      // Substitui "/index.html" por "./index.html" para rodar em subdiretórios.
+      if (webPath.startsWith('/')) {
+        webPath = '.' + webPath;
+      } else {
+        webPath = './' + webPath;
+      }
+      
       assets.push(webPath);
     }
   }
@@ -6328,424 +7004,6 @@ async function build() {
 }
 
 await build();
-```
-
----
-
-## Arquivo: `deno.jsonc`
-
-```json
-{
-  // ============================================================================
-  // 🚀 LOCO PWA - Manifesto do Deno
-  // Mensageiro PWA Descentralizado, Offline-First & E2EE
-  // ============================================================================
-
-  // 📋 Metadados do Projeto
-  "name": "@vanaware/loco",
-  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.76-msqx03i9",
-  "exports": "./main.ts",
-  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
-  "author": "Vanaware",
-  "license": "MIT",
-  
-  "workspace": [
-    "proto/_template",
-    "proto/01-push-messaging"
-  ],
-
-  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-
-  // 📦 Gerenciamento de Dependências
-  "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
-    "@std/fs": "jsr:@std/fs@^1",
-    "@std/http": "jsr:@std/http@^1",
-    "@std/path": "jsr:@std/path@^1",
-    "@std/http/file-server": "jsr:@std/http@^1/file-server",
-    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
-    "preact": "https://esm.sh/preact@10.29.7",
-    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
-    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
-  },
-
-  // 🛠️ Scripts de Automação
-  "tasks": {
-    "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
-    "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write export.ts"
-  },
-  "exclude": ["build/", "public/"]
-}
-```
-
----
-
-## Arquivo: `worker.ts`
-
-```ts
-// worker.ts
-/// <reference lib="deno.ns" />
-
-import * as webpush from "@negrel/webpush";
-import { deleteCookie } from "@std/http/cookie";
-
-let serverPrivateKeyCache: CryptoKey | null = null;
-let serverPublicKeyJwkCache: JsonWebKey | null = null;
-
-async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
-  if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
-    return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
-  }
-
-  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
-  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
-
-  if (!publicKeyStr) {
-    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada! Configure-a no arquivo wrangler.toml ou via dashboard da Cloudflare.");
-  }
-  
-  if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare (ex: wrangler secret put SERVER_PRIVATE_KEY).");
-  }
-
-  try {
-    const publicKeyJwk = JSON.parse(publicKeyStr);
-    const privateKeyJwk = JSON.parse(privateKeyStr);
-
-    const serverPrivateKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      privateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["decrypt"]
-    );
-
-    serverPrivateKeyCache = serverPrivateKey;
-    serverPublicKeyJwkCache = publicKeyJwk;
-
-    console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
-    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk };
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
-  }
-}
-
-async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
-  try {
-    const envelopeText = atob(base64Envelope);
-    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
-
-    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-
-    const ivBytes = fromHex(iv);
-    const dadosBytes = fromHex(dadosCifrados);
-    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
-
-    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
-      { name: "RSA-OAEP" },
-      serverPrivateKey,
-      chaveAesCifradaBytes
-    );
-
-    const chaveSimetricaAes = await crypto.subtle.importKey(
-      "raw",
-      aesChaveCruaBuffer,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
-
-    const vapidOriginalBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
-      chaveSimetricaAes,
-      dadosBytes
-    );
-
-    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
-    return JSON.parse(jsonText);
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
-    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
-  }
-}
-
-function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
-  try {
-    return {
-      publicKey: typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey,
-      privateKey: typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey
-    };
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
-  }
-}
-
-function lerMetadadosJJWT(jwtString: string) {
-  try {
-    const parts = jwtString.split(".");
-    if (parts.length !== 3) return null;
-
-    const part1 = parts[1];
-    if (!part1) return null;
-
-    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-
-    const jsonString = new TextDecoder().decode(
-      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
-    );
-    
-    return JSON.parse(jsonString);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Valida a origem da requisição comparando com a lista estática padrão e com a variável de ambiente ALLOWED_ORIGINS.
- */
-function checkIsAllowedOrigin(origin: string, env: any): boolean {
-  if (!origin) return false;
-
-  // Lista padrão de fallback caso a env não esteja definida
-  const defaultPatterns = [
-    /^https?:\/\/localhost(:\d+)?$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*tap\.app\.br$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/,
-    /^https?:\/\/dash\.cloudflare\.com$/
-  ];
-
-  for (const pattern of defaultPatterns) {
-    if (pattern.test(origin)) return true;
-  }
-
-  const envOrigins = env?.ALLOWED_ORIGINS;
-  if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
-    const rules = envOrigins.split(",").map(s => s.trim());
-    for (const rule of rules) {
-      const escapedRule = rule
-        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*");
-
-      const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
-      if (dynamicRegex.test(origin)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-const workerHandler = {
-  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-    
-    let origin = request.headers.get("origin") || "";
-    if (origin === "") {
-      const host = request.headers.get("host") || "localhost";
-      const protocolo = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-      origin = `${protocolo}://${host}`;
-    }
-
-    const isAllowedOrigin = checkIsAllowedOrigin(origin, env);
-
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
-      "Access-Control-Allow-Credentials": "true",
-      "Access-Control-Max-Age": "86400"
-    };
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
-    }
-
-    const proxyPath = env.PROXY_PATH || "";
-    
-    // 🔥 Normalização de Rota Resiliente
-    let targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
-    
-    // Garante que o targetPath sempre inicie com barra "/", corrigindo
-    // falhas de configuração onde proxyPath é "/" ou termina com barra.
-    if (!targetPath.startsWith("/")) {
-      targetPath = "/" + targetPath;
-    }
-
-    if (!isAllowedOrigin) {
-      console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
-      return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    try {
-      const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
-
-      // As verificações agora não quebram independentemente do proxy_path configurado
-      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
-        return new Response(JSON.stringify(serverPublicKeyJwk), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
-        const headers = new Headers(corsHeaders);
-        deleteCookie(headers, "session_token", { path: "/" });
-        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
-        headers.set("Content-Type", "application/json");
-        return new Response(JSON.stringify({ disconnected: true }), {
-          status: 200,
-          headers,
-        });
-      }
-
-      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
-        
-        const body = await request.json();
-        const { subscription, payloadText, vapid } = body;
-
-        if (!subscription || !payloadText || !vapid) {
-          return new Response(
-            JSON.stringify({ success: false, error: "Parâmetros obrigatórios ausentes no body." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        const jwtClaims = lerMetadadosJJWT(payloadText);
-        if (jwtClaims) {
-          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
-        }
-
-        const proxyserverDestino = jwtClaims?.proxyserver;
-        if (proxyserverDestino) {
-          const urlAtual = new URL(request.url);
-          const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
-          
-          const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
-          const origemNormalizada = origemAtual.replace(/\/$/, "");
-          const destinoNormalizado = destinoSemProtocolo;
-          
-          if (origemNormalizada !== destinoNormalizado) {
-            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
-            
-            try {
-              const urlDestino = destinoNormalizado.startsWith("http") 
-                ? `${destinoNormalizado}/` 
-                : `https://${destinoNormalizado}/`;
-              
-              const response = await fetch(urlDestino, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subscription, payloadText, vapid }),
-                redirect: "follow"
-              });
-              
-              const result = await response.json();
-              console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
-              
-              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoNormalizado }), {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-              });
-            } catch (redirectErr) {
-              const errorMsg = redirectErr instanceof Error ? redirectErr.message : String(redirectErr);
-              console.error(`    ❌ [REDIRECIONAMENTO] Falha ao reencaminhar: ${errorMsg}`);
-              return new Response(
-                JSON.stringify({ success: false, error: `Falha ao reencaminhar para proxy destino: ${errorMsg}` }),
-                { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-              );
-            }
-          }
-        }
-
-        let privateKeyFinal = vapid.privateKey;
-
-        if (typeof privateKeyFinal === "string") {
-          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
-          try {
-            const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
-            privateKeyFinal = decryptedPrivateKeyObj;
-            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
-          } catch (decryptErr) {
-            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
-            return new Response(
-              JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-        }
-
-        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
-        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
-        
-        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
-        const appServer = await webpush.ApplicationServer.new({
-          contactInformation: contact,
-          vapidKeys: vapidKeys,
-        });
-
-        const subscriber = appServer.subscribe(subscription);
-        await subscriber.pushTextMessage(payloadText, {});
-        
-        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
-
-        return new Response(JSON.stringify({ success: true }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      return new Response(
-        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("❌ Erro no Worker:", errorMessage);
-      return new Response(
-        JSON.stringify({ success: false, error: errorMessage }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-  }
-};
-
-export default workerHandler;
 ```
 
 ---

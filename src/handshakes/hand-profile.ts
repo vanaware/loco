@@ -12,11 +12,10 @@ import {
   salvarContato,
   serializarPublicKeyVapid
 } from "../utils/db-helpers.ts";
-
+import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from "../utils/crypto-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 
-// 🔥 Interface estrita de Saída
 interface ProfileOutParams {
   function: string;
   contato: string;
@@ -49,9 +48,10 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       if (camposSet.has('name')) rotasProfileData.name = profile.name;
       if (camposSet.has('email')) rotasProfileData.email = profile.email;
-      if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = profile.vapidPublicKey;
+      // 🔥 Enviamos o payload totalmente minificado pela rede
+      if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = minifyVapidPublic(profile.vapidPublicKey);
       if (camposSet.has('vapidPrivateKeyEnvelope')) rotasProfileData.vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
-      if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = profile.e2ePublicKey;
+      if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = minifyRsaPublic(profile.e2ePublicKey);
       if (camposSet.has('subscription')) rotasProfileData.subscription = profile.subscription;
 
       handshake.out = {
@@ -79,13 +79,14 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       if (contato) {
         const d = profileReq.data;
         
-        // Validação Estrita de Tipos antes da mutação
         if (typeof d.name === 'string') contato.name = d.name;
         if (typeof d.email === 'string') contato.email = d.email;
-        if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = d.vapidPublicKey as JsonWebKey;
         if (typeof d.vapidPrivateKeyEnvelope === 'string') contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
-        if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = d.e2ePublicKey as JsonWebKey;
         if (d.subscription !== undefined) contato.subscription = d.subscription as any;
+
+        // 🔥 Expandimos as chaves minificadas que chegaram da rede para o padrão JWK antes de persistir em RAM
+        if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = expandVapidPublic(d.vapidPublicKey);
+        if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = expandRsaPublic(d.e2ePublicKey);
 
         contato.updatedAt = Date.now();
         await salvarContato(contato);

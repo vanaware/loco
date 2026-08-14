@@ -1,12 +1,13 @@
 // src/utils/db-helpers.ts
 import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
 import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type {
-  ProfileConfig,
-  Chat,
-  Contato,
-  Handshake,
-} from "../constants/db.ts";
+import type { ProfileConfig, Chat, Contato, Handshake } from "../constants/db.ts";
+import { 
+  minifyVapidPublic, expandVapidPublic, 
+  minifyVapidPrivate, expandVapidPrivate, 
+  minifyRsaPublic, expandRsaPublic, 
+  minifyRsaPrivate, expandRsaPrivate 
+} from "./crypto-utils.ts";
 
 // ============================================================
 // Criação de Stores
@@ -17,7 +18,7 @@ export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL)
 }
 
 const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeChat = criarStore(DB_NAMES.CHAT); // 🔥 Unificado
+export const storeChat = criarStore(DB_NAMES.CHAT); 
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
 export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
 
@@ -46,6 +47,48 @@ export async function listarValores<T>(store: any): Promise<T[]> {
 }
 
 // ============================================================
+// Interceptadores de Compressão (DB Middlewares)
+// ============================================================
+
+function compactarProfile(p: ProfileConfig): any {
+  return {
+    ...p,
+    vapidPublicKey: minifyVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: minifyVapidPrivate(p.vapidPrivateKeyJwk),
+    e2ePublicKey: minifyRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: minifyRsaPrivate(p.e2ePrivateKeyJwk)
+  };
+}
+
+function expandirProfile(p: any): ProfileConfig | undefined {
+  if (!p) return undefined;
+  return {
+    ...p,
+    vapidPublicKey: expandVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: expandVapidPrivate(p.vapidPrivateKeyJwk, p.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: expandRsaPrivate(p.e2ePrivateKeyJwk, p.e2ePublicKey)
+  } as ProfileConfig;
+}
+
+function compactarContato(c: Contato): any {
+  return {
+    ...c,
+    vapidPublicKey: minifyVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: minifyRsaPublic(c.e2ePublicKey)
+  };
+}
+
+function expandirContato(c: any): Contato | undefined {
+  if (!c) return undefined;
+  return {
+    ...c,
+    vapidPublicKey: expandVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(c.e2ePublicKey)
+  } as Contato;
+}
+
+// ============================================================
 // Gerenciamento do Perfil (ProfileConfig)
 // ============================================================
 
@@ -54,11 +97,12 @@ export async function salvarProfile(profile: ProfileConfig): Promise<void> {
   if (!profile.createdAt) {
     profile.createdAt = Date.now();
   }
-  await salvarChave(storeConfig, KEY_NAMES.PROFILE, profile);
+  await salvarChave(storeConfig, KEY_NAMES.PROFILE, compactarProfile(profile));
 }
 
 export async function buscarProfile(): Promise<ProfileConfig | undefined> {
-  return buscarChave<ProfileConfig>(storeConfig, KEY_NAMES.PROFILE);
+  const p = await buscarChave<any>(storeConfig, KEY_NAMES.PROFILE);
+  return expandirProfile(p);
 }
 
 export async function removerProfile(): Promise<void> {
@@ -68,8 +112,7 @@ export async function removerProfile(): Promise<void> {
 export async function buscarChaveDecript(): Promise<CryptoKey | null> {
   try {
     const profile = await buscarProfile();
-    if (!profile) return null;
-    if (!profile.e2ePrivateKeyJwk) return null;
+    if (!profile || !profile.e2ePrivateKeyJwk) return null;
 
     return await crypto.subtle.importKey(
       "jwk",
@@ -88,14 +131,10 @@ export async function buscarChaveDecript(): Promise<CryptoKey | null> {
 // Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
 // ============================================================
 
-/**
- * Salva a mensagem e adiciona seu ID ao índice de paginação do contato.
- */
 export async function salvarChat(chat: Chat): Promise<void> {
   chat.updatedAt = Date.now();
   await salvarChave(storeChat, chat.id, chat);
 
-  // Mantém um índice ordenado por data para não precisar carregar o DB inteiro
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
   const index = await buscarChave<string[]>(storeChat, indexKey) || [];
   
@@ -109,25 +148,18 @@ export async function buscarChat(id: string): Promise<Chat | undefined> {
   return buscarChave<Chat>(storeChat, id);
 }
 
-/**
- * 🔥 Lazy Loading Paginado: Carrega apenas uma fatia de mensagens de um contato.
- * O `offset` dita de onde começar de baixo para cima (mais recentes primeiro).
- */
 export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
   const index = await buscarChave<string[]>(storeChat, indexKey) || [];
 
-  // Pega do final do array (mais recentes) para o começo
   const total = index.length;
   if (total === 0 || offset >= total) return [];
 
   const startIndex = Math.max(0, total - offset - limit);
   const endIndex = total - offset;
   
-  // Pega os IDs da fatia solicitada
   const sliceIds = index.slice(startIndex, endIndex);
 
-  // Busca os dados físicos desses IDs em batch
   const records = await getMany(sliceIds, storeChat);
   return records.filter(Boolean) as Chat[];
 }
@@ -153,36 +185,42 @@ async function sha256(message: string): Promise<string> {
 
 export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
   if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  
+  // 🔥 Essencial: Sempre expandir a chave antes de gerar o hash, garantindo que
+  // chaves previamente geradas mantenham o mesmo ID e não quebrem o app.
+  const expanded = expandVapidPublic(jwk);
+  const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
   return await sha256(raw);
 }
 
 export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
   if (typeof input === 'string') return input;
-  if (typeof input === 'object' && input !== null && 'kty' in input) {
-    return await serializarPublicKeyVapid(input);
+  if (typeof input === 'object' && input !== null && ('kty' in input || 'x' in input)) {
+    return await serializarPublicKeyVapid(input as JsonWebKey);
   }
   throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
 }
 
 export async function salvarContato(contato: Contato): Promise<void> {
   const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
-  await salvarChave(storeContatos, key, contato);
+  await salvarChave(storeContatos, key, compactarContato(contato));
 }
 
 export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
   const key = await serializarPublicKeyVapid(vapidPublicKey);
-  return await buscarChave<Contato>(storeContatos, key);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
 }
 
 export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
   const key = await normalizarChaveContato(chaveOuJwk);
-  return await buscarChave<Contato>(storeContatos, key);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
 }
 
 export async function listarContatos(): Promise<Contato[]> {
-  const entriesList = await listarChaves<Contato>(storeContatos);
-  return entriesList.map(([_, c]) => c);
+  const entriesList = await listarChaves<any>(storeContatos);
+  return entriesList.map(([_, c]) => expandirContato(c) as Contato);
 }
 
 export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {

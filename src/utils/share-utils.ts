@@ -1,6 +1,7 @@
 // src/utils/share-utils.ts
 import { gzipSync, gunzipSync } from 'fflate';
 import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
+import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
 import type { ProfileConfig, Contato } from '../constants/db.ts';
 
 const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
@@ -10,9 +11,8 @@ export interface CompactContact {
   tr?: boolean;
   em: string;
   nm: string;
-  vx: string;
-  vy: string;
-  en: string;
+  vp: any; // 🔥 Chave VAPID Pública Minificada
+  ep: any; // 🔥 Chave RSA Pública E2E Minificada
   se: string;
   sp: string;
   sa: string;
@@ -29,9 +29,9 @@ export function extrairDadosCompactos(target: ProfileConfig | Contato, req = fal
     tr,
     em: target.email || '',
     nm: target.name || '',
-    vx: target.vapidPublicKey.x!,
-    vy: target.vapidPublicKey.y!,
-    en: target.e2ePublicKey.n!,
+    // 🔥 Delega a minificação para o módulo criptográfico oficial
+    vp: minifyVapidPublic(target.vapidPublicKey),
+    ep: minifyRsaPublic(target.e2ePublicKey),
     se: ep,
     sp: target.subscription.keys.p256dh,
     sa: target.subscription.keys.auth,
@@ -47,8 +47,9 @@ export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
   return {
     email: c.em,
     name: c.nm,
-    vapidPublicKey: { kty: "EC", crv: "P-256", x: c.vx, y: c.vy, ext: true },
-    e2ePublicKey: { kty: "RSA", e: "AQAB", n: c.en, alg: "RSA-OAEP-256", ext: true },
+    // 🔥 Expande a partir dos moldes estáticos padronizados
+    vapidPublicKey: expandVapidPublic(c.vp),
+    e2ePublicKey: expandRsaPublic(c.ep),
     subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
     vapidPrivateKeyEnvelope: c.ve,
     trusted: c.tr,
@@ -81,8 +82,6 @@ export async function gerarLinkConviteWeb(
   const compressed = gzipSync(jwtBytes);
   const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 
-  // 🔥 URL atualizada para o formato SPA do Loco
-  // Usa baseUrl se fornecida (para testes), caso contrário usa window.location.origin
   const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
   return `${origin}/#share=${cjwt}`;
 }
@@ -153,7 +152,9 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
       const decompressed = gunzipSync(compressed);
       const jsonText = new TextDecoder().decode(decompressed);
       const parsed = JSON.parse(jsonText);
-      if (parsed.vx && parsed.vy) {
+      
+      // Valida tanto o formato novo quanto o antigo
+      if (parsed.vp || (parsed.vx && parsed.vy)) {
         compactData = parsed as CompactContact;
       }
     } catch (e) {
@@ -172,6 +173,14 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
   }
 
   if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
+
+  // 🔥 Camada de Retrocompatibilidade O(1):
+  // Se escaneou um QR Code antigo que usava vx/vy/en separadamente,
+  // nós transmutamos na RAM para a estrutura unificada (vp/ep) antes de expandir.
+  if ((compactData as any).vx && !compactData.vp) {
+    compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
+    compactData.ep = { n: (compactData as any).en };
+  }
 
   return expandirDadosCompactos(compactData);
 }

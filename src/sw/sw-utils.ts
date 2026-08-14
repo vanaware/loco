@@ -13,7 +13,9 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
   try {
     const registration = await navigator.serviceWorker.register(
       `./service-worker.js?cacheBuster=${cacheBuster}`,
-      { scope: "/" }
+      // 🔥 ARQUITETURA: Escopo relativo ("./") garante funcionamento em 
+      // subdiretórios como GitHub Pages, Vercel ou IPFS.
+      { scope: "./" }
     );
     if (!registration) {
       throw new Error("Service Worker registration retornou null/undefined");

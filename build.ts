@@ -133,11 +133,13 @@ async function runBundle(name: string, bundleOpts: BundleOptions): Promise<Bundl
 async function gerarOuCarregarChavesServidor() {
   let publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
   let privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
+  
   if (publicKey && privateKey) {
     console.log("🔑 Chaves do servidor carregadas do .env");
     return;
   }
-  console.log("🔐 Gerando novas chaves RSA do servidor...");
+  
+  console.log("🔐 Gerando novas chaves RSA do servidor (Formato Minificado Duplo)...");
   const keyPair = await crypto.subtle.generateKey(
     {
       name: "RSA-OAEP",
@@ -148,12 +150,29 @@ async function gerarOuCarregarChavesServidor() {
     true,
     ["encrypt", "decrypt"]
   );
+  
   const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
   const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-  const publicKeyStr = JSON.stringify(publicJwk);
-  const privateKeyStr = JSON.stringify(privateJwk);
+  
+  const compactPublicJwk = {
+    n: publicJwk.n
+  };
+
+  const compactPrivateJwk = {
+    d: privateJwk.d,
+    p: privateJwk.p,
+    q: privateJwk.q,
+    dp: privateJwk.dp,
+    dq: privateJwk.dq,
+    qi: privateJwk.qi
+  };
+
+  const publicKeyStr = JSON.stringify(compactPublicJwk);
+  const privateKeyStr = JSON.stringify(compactPrivateJwk);
+  
   Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
   Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
+  
   await Deno.writeTextFile(
     '.env',
     `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
@@ -170,7 +189,16 @@ async function listarAssetsParaCache(): Promise<string[]> {
   
   for await (const entry of walk(join(BUILD_DIR,DIST_DIR), { includeDirs: false })) {
     if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
-      const webPath = entry.path.replace(join(BUILD_DIR,DIST_DIR), "").replace(/\\/g, "/");
+      let webPath = entry.path.replace(join(BUILD_DIR,DIST_DIR), "").replace(/\\/g, "/");
+      
+      // 🔥 ARQUITETURA: Garante que os caminhos gerados para o cache sejam relativos.
+      // Substitui "/index.html" por "./index.html" para rodar em subdiretórios.
+      if (webPath.startsWith('/')) {
+        webPath = '.' + webPath;
+      } else {
+        webPath = './' + webPath;
+      }
+      
       assets.push(webPath);
     }
   }

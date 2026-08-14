@@ -39,8 +39,9 @@ effect(() => {
   } else if (hash === '#advanced') {
     showAdvanced.value = true;
     currentMobileView.value = 'chat';
-  } else if (hash === '#profile' || hash === '#logout') {
-    currentMobileView.value = 'chat'; // Ocupa a área principal
+  // 🔥 CORREÇÃO: Adicionamos '#settings' para que ele ocupe a área principal no mobile
+  } else if (hash === '#profile' || hash === '#logout' || hash === '#settings') {
+    currentMobileView.value = 'chat'; 
   } else if (hash.startsWith('#share')) {
     currentMobileView.value = 'chat';
     // Extrai o payload caso venha via URL: #share=jwt_aqui
@@ -48,6 +49,7 @@ effect(() => {
       sharePayload.value = hash.substring(hash.indexOf('=') + 1);
     }
   } else {
+    // Se não for nenhuma das telas acima, volta para a lista (sidebar)
     currentMobileView.value = 'list';
   }
 });

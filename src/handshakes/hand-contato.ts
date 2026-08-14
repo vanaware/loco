@@ -39,8 +39,9 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         const camposSet = new Set(contatoReq.campos);
         const cp = extrairDadosCompactos(contato);
         
-        if (camposSet.has('vapidPublicKey')) { rotasContatoData.vx = cp.vx; rotasContatoData.vy = cp.vy; }
-        if (camposSet.has('e2ePublicKey')) rotasContatoData.en = cp.en;
+        // 🔥 Usa o esquema minificado limpo `vp` e `ep`
+        if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
+        if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
         if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
         if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
         if (camposSet.has('email')) rotasContatoData.em = cp.em;
@@ -81,8 +82,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (d.tr === true) novoMeStatus = 'trusted';
         else novoMeStatus = 'saved';
 
+        // Lida com a estrutura nova ou aplica a de retrocompatibilidade
+        const d_vp = d.vp as any || { x: d.vx, y: d.vy };
+        const d_ep = d.ep as any || { n: d.en };
+
+        // Compara com base no nosso profile extraído (mp)
         if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
-            d.vx !== mp.vx || d.vy !== mp.vy || d.en !== mp.en || d.ve !== mp.ve) {
+            d_vp.x !== mp.vp.x || d_vp.y !== mp.vp.y || d_ep.n !== mp.ep.n || d.ve !== mp.ve) {
           novoMeStatus = 'wrong';
         }
       }
@@ -105,6 +111,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
       
       const syncData = contatoReq.sync as unknown as CompactContact;
+      
+      // Aplica retrocompatibilidade antes de expandir
+      if ((syncData as any).vx && !syncData.vp) {
+        syncData.vp = { x: (syncData as any).vx, y: (syncData as any).vy };
+        syncData.ep = { n: (syncData as any).en };
+      }
+
       const expanded = expandirDadosCompactos(syncData);
       const contatoAntigo = await buscarContatoPorChave(handshake.aud);
       

@@ -20,12 +20,40 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
   }
   
   if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare (ex: wrangler secret put SERVER_PRIVATE_KEY).");
+    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare.");
   }
 
   try {
-    const publicKeyJwk = JSON.parse(publicKeyStr);
-    const privateKeyJwk = JSON.parse(privateKeyStr);
+    let publicKeyJwk = JSON.parse(publicKeyStr);
+    let privateKeyJwk = JSON.parse(privateKeyStr);
+
+    if (!publicKeyJwk.kty) {
+      publicKeyJwk = {
+        kty: "RSA",
+        alg: "RSA-OAEP-256",
+        n: publicKeyJwk.n,
+        e: "AQAB",
+        ext: true,
+        key_ops: ["encrypt"]
+      };
+    }
+
+    if (!privateKeyJwk.kty) {
+      privateKeyJwk = {
+        kty: "RSA",
+        alg: "RSA-OAEP-256",
+        e: publicKeyJwk.e,
+        n: publicKeyJwk.n,
+        ext: true,
+        key_ops: ["decrypt"],
+        d: privateKeyJwk.d,
+        p: privateKeyJwk.p,
+        q: privateKeyJwk.q,
+        dp: privateKeyJwk.dp,
+        dq: privateKeyJwk.dq,
+        qi: privateKeyJwk.qi
+      };
+    }
 
     const serverPrivateKey = await crypto.subtle.importKey(
       "jwk" as any,
@@ -88,10 +116,19 @@ async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: Cr
 
 function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
   try {
-    return {
-      publicKey: typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey,
-      privateKey: typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey
+    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
+    const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
+
+    // 🔥 ARQUITETURA: Reconstrução Inteligente VAPID
+    const expandedPub = pub.kty ? pub : {
+      kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"]
     };
+
+    const expandedPriv = priv.kty ? priv : {
+      kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"]
+    };
+
+    return { publicKey: expandedPub, privateKey: expandedPriv };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
@@ -119,13 +156,9 @@ function lerMetadadosJJWT(jwtString: string) {
   }
 }
 
-/**
- * Valida a origem da requisição comparando com a lista estática padrão e com a variável de ambiente ALLOWED_ORIGINS.
- */
 function checkIsAllowedOrigin(origin: string, env: any): boolean {
   if (!origin) return false;
 
-  // Lista padrão de fallback caso a env não esteja definida
   const defaultPatterns = [
     /^https?:\/\/localhost(:\d+)?$/,
     /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
@@ -185,11 +218,8 @@ const workerHandler = {
 
     const proxyPath = env.PROXY_PATH || "";
     
-    // 🔥 Normalização de Rota Resiliente
     let targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
     
-    // Garante que o targetPath sempre inicie com barra "/", corrigindo
-    // falhas de configuração onde proxyPath é "/" ou termina com barra.
     if (!targetPath.startsWith("/")) {
       targetPath = "/" + targetPath;
     }
@@ -205,7 +235,6 @@ const workerHandler = {
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
 
-      // As verificações agora não quebram independentemente do proxy_path configurado
       if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
           status: 200,
@@ -301,6 +330,7 @@ const workerHandler = {
           }
         }
 
+        // 🔥 Aqui a mágica da remontagem ocorre de forma limpa!
         let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
         let vapidKeys = await webpush.importVapidKeys(jwkKeys);
         

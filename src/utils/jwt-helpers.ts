@@ -1,4 +1,6 @@
 // src/utils/jwt-helpers.ts
+import { minifyVapidPublic, expandVapidPublic } from "./crypto-utils.ts";
+
 export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
   try {
     const bytes = new Uint8Array(buffer);
@@ -48,6 +50,11 @@ export async function criarJWT(
   headerExtra: Record<string, any> = {}
 ): Promise<string> {
   try {
+    // 🔥 ARQUITETURA: Minifica o 'kid' antes de criar a assinatura para o Token ficar menor
+    if (headerExtra.kid && (headerExtra.kid.kty || headerExtra.kid.x)) {
+      headerExtra.kid = minifyVapidPublic(headerExtra.kid);
+    }
+
     const header = { alg: "ES256", ...headerExtra };
     const encoder = new TextEncoder();
 
@@ -110,7 +117,10 @@ export async function verificarJWT(
       if (!header.kid) {
         throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
       }
-      publicKeyJwkFinal = header.kid;
+      // 🔥 Expande a chave minificada recebida da rede para a validação ocorrer com sucesso
+      publicKeyJwkFinal = expandVapidPublic(header.kid);
+    } else {
+      publicKeyJwkFinal = expandVapidPublic(publicKeyJwkFinal);
     }
 
     const publicKey = await crypto.subtle.importKey(

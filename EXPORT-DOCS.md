@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.76-msqx03i9** (DOCUMENTAÇÃO) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.80-mss6up14** (DOCUMENTAÇÃO) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.76-msqx03i9] - Modo: DOCS
+# Contexto Exportado do Projeto Loco [v0.2.80-mss6up14] - Modo: DOCS
 
-Gerado automaticamente em: 8/12/2026, 11:54:03 PM
+Gerado automaticamente em: 8/13/2026, 9:10:10 PM
 
 ---
 

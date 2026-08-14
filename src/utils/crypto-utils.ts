@@ -40,6 +40,121 @@ export function base64UrlToBuffer(base64url: string): ArrayBuffer {
   }
 }
 
+// ============================================================
+// 🔥 COMPRESSÃO POR ESQUEMA ESTÁTICO (Static Schema Compression)
+// ============================================================
+
+export function minifyVapidPublic(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk; 
+  return { x: jwk.x, y: jwk.y };
+}
+
+export function expandVapidPublic(minified: any): JsonWebKey {
+  // Defensive Programming: Previne falhas se recebermos string ou lixo da rede
+  if (typeof minified === "string") {
+    try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
+  }
+  if (!minified || typeof minified !== "object") return {} as JsonWebKey;
+  
+  // Se a chave já possui 'kty', ela não está minificada, devolve como está
+  if (minified.kty) return minified as JsonWebKey;
+  
+  // Reconstrói a chave injetando a 'gordura' estática da curva P-256
+  // Fallbacks (vx, vy) mantidos para garantir retrocompatibilidade com QR Codes antigos
+  return { 
+    kty: "EC", 
+    crv: "P-256", 
+    x: minified.x || minified.vx, 
+    y: minified.y || minified.vy, 
+    ext: true, 
+    key_ops: ["verify"] 
+  };
+}
+
+export function minifyVapidPrivate(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  // A chave privada de Curva Elíptica é apenas o escalar "d".
+  // "x" e "y" são removidos porque nós já temos eles na Chave Pública.
+  return { d: jwk.d }; 
+}
+
+export function expandVapidPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKey {
+  if (typeof minifiedPriv === "string") {
+    try { minifiedPriv = JSON.parse(minifiedPriv); } catch { return {} as JsonWebKey; }
+  }
+  if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
+  if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
+  
+  // Reconstrói a chave privada importando 'x' e 'y' da chave pública que sempre viaja junto
+  return { 
+    kty: "EC", 
+    crv: "P-256", 
+    x: minifiedPub.x || minifiedPub.vx, 
+    y: minifiedPub.y || minifiedPub.vy, 
+    d: minifiedPriv.d, 
+    ext: true, 
+    key_ops: ["sign"] 
+  };
+}
+
+export function minifyRsaPublic(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  // Para RSA com expoente público fixo (65537), apenas o Módulo "n" é a variável matemática
+  return { n: jwk.n };
+}
+
+export function expandRsaPublic(minified: any): JsonWebKey {
+  if (typeof minified === "string") {
+    try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
+  }
+  if (!minified || typeof minified !== "object") return {} as JsonWebKey;
+  if (minified.kty) return minified as JsonWebKey;
+  
+  // Injeta o esquema estático RSA-OAEP e o expoente 'AQAB'
+  return { 
+    kty: "RSA", 
+    alg: "RSA-OAEP-256", 
+    e: "AQAB", 
+    n: minified.n || minified.en, 
+    ext: true, 
+    key_ops: ["encrypt"] 
+  };
+}
+
+export function minifyRsaPrivate(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  // Extrai apenas os fatores primos estritamente secretos e o expoente 'd'
+  return { d: jwk.d, p: jwk.p, q: jwk.q, dp: jwk.dp, dq: jwk.dq, qi: jwk.qi };
+}
+
+export function expandRsaPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKey {
+  if (typeof minifiedPriv === "string") {
+    try { minifiedPriv = JSON.parse(minifiedPriv); } catch { return {} as JsonWebKey; }
+  }
+  if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
+  if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
+  
+  // Remonta a chave RSA Privada buscando o 'n' na Chave Pública correspondente
+  return { 
+    kty: "RSA", 
+    alg: "RSA-OAEP-256", 
+    e: "AQAB", 
+    n: minifiedPub.n || minifiedPub.en, 
+    d: minifiedPriv.d, 
+    p: minifiedPriv.p, 
+    q: minifiedPriv.q, 
+    dp: minifiedPriv.dp, 
+    dq: minifiedPriv.dq, 
+    qi: minifiedPriv.qi, 
+    ext: true, 
+    key_ops: ["decrypt"] 
+  };
+}
+
+// ============================================================
+// GERAÇÃO E OPERAÇÕES DA WEBCRYPTO API
+// ============================================================
+
 export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   try {
     const keyPair = await crypto.subtle.generateKey(
@@ -64,7 +179,7 @@ export async function generateE2EEKeys(): Promise<{
       {
         name: "RSA-OAEP",
         modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
+        publicExponent: new Uint8Array([1, 0, 1]), // Corresponde a "AQAB" em Base64Url
         hash: "SHA-256",
       },
       true,
@@ -149,6 +264,8 @@ export async function importJWKToKey(
   keyUsages: KeyUsage[]
 ): Promise<CryptoKey> {
   try {
+    // A função importJWKToKey espera sempre o formato completo, garantindo que
+    // as camadas superiores do App (db-helpers, etc) já tenham inflado a chave.
     const key = await crypto.subtle.importKey(
       "jwk" as any,
       jwk,

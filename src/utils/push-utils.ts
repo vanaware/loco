@@ -2,6 +2,7 @@
 import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
 import { buildProxyUrl } from '../constants/config.ts';
+import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   try {
@@ -82,7 +83,6 @@ export async function enviarParaProxy(
   }
 
   try {
-    // buildProxyUrl agora é assíncrono
     const proxyUrl = await buildProxyUrl('/');
     const response = await fetch(proxyUrl, {
       method: "POST",
@@ -92,7 +92,8 @@ export async function enviarParaProxy(
         payloadText,
         vapid: {
           subject: vapid.subject,
-          publicKey: vapid.publicKey,
+          // 🔥 Minifica a chave pública para transitar na rede de forma enxuta
+          publicKey: minifyVapidPublic(vapid.publicKey),
           privateKey: vapid.privateKey
         }
       })
@@ -126,7 +127,11 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
     
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoder = new TextEncoder();
-    const vapidBytes = encoder.encode(JSON.stringify(privateKeyJwk));
+    
+    // 🔥 ARQUITETURA: Cortando o peso do Envelope 
+    // Só ciframos a propriedade `{ d: "..." }`
+    const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
+    const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
     
     const vapidCifrado = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv },
