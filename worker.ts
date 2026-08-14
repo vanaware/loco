@@ -119,7 +119,6 @@ function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
     const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
     const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
 
-    // 🔥 ARQUITETURA: Reconstrução Inteligente VAPID
     const expandedPub = pub.kty ? pub : {
       kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"]
     };
@@ -206,7 +205,7 @@ const workerHandler = {
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Methods": "POST, OPTIONS", // 🔥 Restaurado para aceitar apenas POST
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Max-Age": "86400"
@@ -234,6 +233,18 @@ const workerHandler = {
 
     try {
       const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
+
+      // 🔥 ARQUITETURA: Agora a rota /ping recebe o POST
+      if (request.method === "POST" && (targetPath === "/ping" || targetPath === "/ping/")) {
+        return new Response(JSON.stringify({ 
+          status: "ok", 
+          service: "loco-proxy",
+          timestamp: Date.now()
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
 
       if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
         return new Response(JSON.stringify(serverPublicKeyJwk), {
@@ -330,7 +341,6 @@ const workerHandler = {
           }
         }
 
-        // 🔥 Aqui a mágica da remontagem ocorre de forma limpa!
         let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
         let vapidKeys = await webpush.importVapidKeys(jwkKeys);
         

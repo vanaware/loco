@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.83-mss814vj** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.84-mss8g2g2** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.83-mss814vj] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.84-mss8g2g2] - Modo: MAIN
 
-Gerado automaticamente em: 8/13/2026, 9:41:03 PM
+Gerado automaticamente em: 8/13/2026, 10:10:34 PM
 
 ---
 
@@ -1368,243 +1368,6 @@ export function LogoutSection() {
 
 ---
 
-## Arquivo: `src/components/SettingsSection.tsx`
-
-```tsx
-import { useSignal, computed } from '@preact/signals';
-import { useEffect } from 'preact/hooks';
-import { loadAllConfigs, saveConfig, resetConfig, CONFIG_KEYS } from '../stores/config-store.ts';
-import { showToast } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
-import { buildProxyUrl } from '../constants/config.ts';
-
-export function SettingsSection() {
-  const proxyPath = useSignal('');
-  const isSaving = useSignal(false);
-  const hasChanges = useSignal(false);
-  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
-  
-  // Carrega a configuração atual quando o componente monta
-  useEffect(() => {
-    const load = async () => {
-      const config = await loadAllConfigs();
-      proxyPath.value = config.proxy_path || '';
-      // Atualiza preview das URLs
-      previewUrls.value = {
-        endpoint: await buildProxyUrl('/'),
-        publicKey: await buildProxyUrl('/publickey'),
-        logout: await buildProxyUrl('/logout')
-      };
-    };
-    load();
-  }, []);
-  
-  // Atualiza preview quando proxyPath muda
-  useEffect(() => {
-    const updatePreview = async () => {
-      previewUrls.value = {
-        endpoint: await buildProxyUrl('/'),
-        publicKey: await buildProxyUrl('/publickey'),
-        logout: await buildProxyUrl('/logout')
-      };
-    };
-    updatePreview();
-  }, [proxyPath.value]);
-  
-  // Detecta mudanças no campo
-  const handleProxyPathChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
-    proxyPath.value = target.value;
-    hasChanges.value = true;
-  };
-  
-  // Valida se a URL é válida
-  const validateProxyPath = (path: string): boolean => {
-    if (!path || path.trim() === '') return true; // Vazio é válido (usa raiz relativa)
-    
-    // URLs absolutas devem começar com http:// ou https://
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      try {
-        new URL(path);
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    
-    // Caminhos relativos podem começar com ./ ou ../
-    if (path.startsWith('./') || path.startsWith('../')) {
-      return true;
-    }
-    
-    // Caminhos absolutos começam com /
-    if (path.startsWith('/')) {
-      return true;
-    }
-    
-    return false;
-  };
-  
-  const handleSalvar = async () => {
-    const path = proxyPath.value.trim();
-    
-    if (!validateProxyPath(path)) {
-      showToast('❌ Formato de Proxy Path inválido. Use URL completa (https://...), caminho absoluto (/...) ou relativo (./...)', 'error');
-      return;
-    }
-    
-    isSaving.value = true;
-    
-    try {
-      await saveConfig('PROXY_PATH', path);
-      
-      // Testa a URL construída
-      const testUrl = await buildProxyUrl('/test');
-      console.log('✅ Proxy configurado:', path);
-      console.log('📍 URL de teste gerada:', testUrl);
-      
-      showToast(`✅ Configuração salva!${path ? ` Proxy: ${path}` : ' (usando raiz relativa)'}`, 'success');
-      hasChanges.value = false;
-      
-      // Recarrega diagnósticos se estiver na tela de avançado
-      window.dispatchEvent(new CustomEvent('config-updated'));
-    } catch (error) {
-      console.error('Erro ao salvar configuração:', error);
-      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
-    } finally {
-      isSaving.value = false;
-    }
-  };
-  
-  const handleReset = async () => {
-    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
-      return;
-    }
-    
-    try {
-      await resetConfig();
-      proxyPath.value = '';
-      hasChanges.value = false;
-      showToast('✅ Configurações resetadas para o padrão', 'success');
-      window.dispatchEvent(new CustomEvent('config-updated'));
-    } catch (error) {
-      console.error('Erro ao resetar configuração:', error);
-      showToast('❌ Erro ao resetar configuração', 'error');
-    }
-  };
-  
-  const handleCancelar = () => {
-    // Recarrega o valor original
-    loadAllConfigs().then(config => {
-      proxyPath.value = config.proxy_path || '';
-      hasChanges.value = false;
-      showToast('Alterações descartadas', 'info');
-    });
-  };
-  
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>settings</md-icon> Configurações
-            </span>
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Configure o servidor Push Proxy
-            </span>
-          </div>
-          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        <div style="display: flex; flex-direction: column; gap: 16px;">
-          
-          {/* Campo Proxy Path */}
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface);">
-              Proxy Path
-            </label>
-            <md-outlined-text-field
-              id="proxy-path"
-              value={proxyPath.value}
-              onInput={handleProxyPathChange}
-              placeholder="Ex: https://push.vanaware.com ou ./api"
-              style="width: 100%;"
-              disabled={isSaving.value}
-            >
-              <md-icon slot="leading-icon">link</md-icon>
-            </md-outlined-text-field>
-            <span style="font-size: 0.75rem; color: #666;">
-              Define o endpoint do servidor push. Pode ser uma URL completa, caminho absoluto ou relativo.
-            </span>
-          </div>
-          
-          {/* Preview da URL gerada */}
-          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px;">
-            <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
-              🔍 Preview das URLs geradas:
-            </span>
-            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
-              <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 100px;">Endpoint:</span>
-                <code style="color: #444;">{previewUrls.value.endpoint}</code>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 100px;">Public Key:</span>
-                <code style="color: #444;">{previewUrls.value.publicKey}</code>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 100px;">Logout:</span>
-                <code style="color: #444;">{previewUrls.value.logout}</code>
-              </div>
-            </div>
-          </div>
-          
-          {/* Ações */}
-          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
-            <md-outlined-button 
-              onClick={handleCancelar} 
-              disabled={!hasChanges.value || isSaving.value}
-            >
-              Cancelar
-            </md-outlined-button>
-            
-            <md-outlined-button 
-              onClick={handleReset} 
-              disabled={isSaving.value}
-              style="color: var(--md-sys-color-error);"
-            >
-              Resetar Padrão
-            </md-outlined-button>
-            
-            <md-filled-button 
-              onClick={handleSalvar} 
-              disabled={!hasChanges.value || isSaving.value}
-            >
-              {isSaving.value ? (
-                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
-              ) : (
-                <>
-                  <md-icon slot="icon">save</md-icon>
-                  Salvar
-                </>
-              )}
-            </md-filled-button>
-          </div>
-          
-        </div>
-      </div>
-    </div>
-  );
-}
-
-```
-
----
-
 ## Arquivo: `src/components/ContactDetailSection.tsx`
 
 ```tsx
@@ -1913,136 +1676,203 @@ export function ContactDetailSection() {
 
 ---
 
-## Arquivo: `src/constants/config.ts`
+## Arquivo: `src/components/SettingsSection.tsx`
 
-```ts
-import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
-import { DB_NAMES } from "./db.ts";
+```tsx
+import { useSignal, computed } from '@preact/signals';
+import { useEffect } from 'preact/hooks';
+import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
+import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+import { buildProxyUrl, pingProxy } from '../constants/config.ts';
 
-/**
- * Prefixo base padrão para comunicação com o servidor proxy / Worker.
- * Este valor é usado apenas como fallback se não houver configuração salva no IndexedDB.
- * Pode ser ajustado para:
- * - "" (raiz relativa)
- * - "./api" (caminho relativo)
- * - "/proxy" (sub-caminho absoluto)
- * - "https://push.vanaware.com" (URL completa em outro domínio)
- */
-export const DefaultProxyPath: string = "";
-
-/**
- * Chave usada no IndexedDB para armazenar o ProxyPath
- */
-const PROXY_PATH_KEY = 'ProxyPath';
-
-/**
- * Cria a store de configurações para uso no Service Worker e Main Thread
- * Lazy initialization para permitir mock em testes
- */
-let _configStore: ReturnType<typeof createStore> | null = null;
-
-function getConfigStore() {
-  if (_configStore === null && typeof indexedDB !== 'undefined') {
-    _configStore = createStore(DB_NAMES.CONFIG, 'keyval');
-  }
-  return _configStore;
-}
-
-/**
- * Carrega o ProxyPath do IndexedDB (funciona no SW e na Main Thread)
- * Lê diretamente da chave 'ProxyPath', sem agrupar em app_settings
- */
-async function loadProxyPathFromDB(): Promise<string> {
-  const configStore = getConfigStore();
-  if (!configStore) {
-    return DefaultProxyPath;
-  }
+export function SettingsSection() {
+  const proxyPath = useSignal('');
+  const isSaving = useSignal(false);
+  const isTesting = useSignal(false);
+  const hasChanges = useSignal(false);
+  const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
+  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
   
-  try {
-    // Carrega da chave específica 'ProxyPath'
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
-    if (stored !== undefined && stored !== null) {
-      return String(stored);
+  useEffect(() => {
+    const load = async () => {
+      const config = await loadAllConfigs();
+      proxyPath.value = config.proxy_path || '';
+      await updatePreview(config.proxy_path || '');
+    };
+    load();
+  }, []);
+  
+  const updatePreview = async (path: string) => {
+    previewUrls.value = {
+      endpoint: await buildProxyUrl('/', path),
+      publicKey: await buildProxyUrl('/publickey', path),
+      logout: await buildProxyUrl('/logout', path)
+    };
+    serverStatus.value = 'unknown'; // reseta status visual ao digitar
+  };
+
+  const handleProxyPathChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    proxyPath.value = target.value;
+    hasChanges.value = true;
+    updatePreview(target.value);
+  };
+  
+  const handleTestarConexao = async () => {
+    isTesting.value = true;
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
+    
+    try {
+      const isAlive = await pingProxy(path);
+      if (isAlive) {
+        serverStatus.value = 'ok';
+        showToast('✅ Servidor detectado com sucesso!', 'success');
+      } else {
+        serverStatus.value = 'error';
+        showToast('❌ Servidor não respondeu ou não é um Loco Proxy.', 'error');
+      }
+    } catch {
+      serverStatus.value = 'error';
+      showToast('❌ Falha na conexão de rede.', 'error');
+    } finally {
+      isTesting.value = false;
     }
-    return DefaultProxyPath;
-  } catch (error) {
-    console.warn('[CONFIG] Erro ao carregar ProxyPath do IndexedDB:', error);
-    return DefaultProxyPath;
-  }
-}
+  };
 
-/**
- * Obtém o ProxyPath atual lendo diretamente do IndexedDB.
- * Não usa cache em memória para garantir que sempre tenha o valor mais recente.
- * Funciona tanto na Main Thread quanto no Service Worker.
- * 
- * @returns Promise com o ProxyPath configurado
- */
-export async function getProxyPath(): Promise<string> {
-  return await loadProxyPathFromDB();
-}
-
-/**
- * Define o ProxyPath no IndexedDB.
- * Cada configuração tem sua própria chave, não agrupa em app_settings.
- * 
- * @param path - O novo ProxyPath
- * @returns Promise<void>
- */
-export async function setProxyPath(path: string): Promise<void> {
-  const configStore = getConfigStore();
-  if (!configStore) {
-    console.error('[CONFIG] IndexedDB não disponível para salvar ProxyPath');
-    return;
-  }
+  const handleSalvar = async () => {
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
+    isSaving.value = true;
+    
+    try {
+      // Opcional: Impedir salvar se o ping falhar, mas vamos ser permissivos
+      // e só avisar, vai que o usuário está offline na hora.
+      await saveConfig('PROXY_PATH', path);
+      showToast(`✅ Configuração salva: ${path}`, 'success');
+      hasChanges.value = false;
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      console.error('Erro ao salvar configuração:', error);
+      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
+    } finally {
+      isSaving.value = false;
+    }
+  };
   
-  try {
-    await idbSet(PROXY_PATH_KEY, path, configStore);
-    console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
-  } catch (error) {
-    console.error('[CONFIG] Erro ao salvar ProxyPath no IndexedDB:', error);
-    throw error;
-  }
-}
-
-/**
- * Constrói uma URL completa para o proxy, garantindo compatibilidade
- * com caminhos relativos, absolutos e URLs completas.
- * Seguro para ser executado tanto na Main Thread (Window) quanto no Service Worker (Self).
- * 
- * @param endpoint - O endpoint específico (ex: "/", "/publickey", "/logout")
- * @returns Promise com a URL completa pronta para uso no fetch
- */
-export async function buildProxyUrl(endpoint: string): Promise<string> {
-  // Usa o ProxyPath dinâmico ou o padrão (lê do IndexedDB sempre)
-  const proxyPath = await getProxyPath();
+  const handleReset = async () => {
+    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
+      return;
+    }
+    try {
+      await resetConfig();
+      const config = await loadAllConfigs(); // engatilha auto-discovery
+      proxyPath.value = config.proxy_path || '/';
+      hasChanges.value = false;
+      serverStatus.value = 'unknown';
+      showToast('✅ Auto-Discovery resetado', 'success');
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      showToast('❌ Erro ao resetar', 'error');
+    }
+  };
   
-  // Remove barras extras do endpoint
-  const cleanEndpoint = endpoint.replace(/^\/+/, '');
+  const handleCancelar = () => {
+    loadAllConfigs().then(config => {
+      proxyPath.value = config.proxy_path || '';
+      hasChanges.value = false;
+      serverStatus.value = 'unknown';
+      showToast('Alterações descartadas', 'info');
+    });
+  };
   
-  // Se proxyPath já for uma URL completa (começa com http:// ou https://)
-  if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
-    // Garante que proxyPath termine sem barra e endpoint comece com barra
-    const base = proxyPath.replace(/\/$/, '');
-    return `${base}/${cleanEndpoint}`;
-  }
-  
-  // Se proxyPath for vazio ou relativo, usa a origem atual (cross-environment)
-  if (proxyPath === '' || proxyPath.startsWith('./') || proxyPath.startsWith('../')) {
-    // 🔥 Correção: Uso do globalThis para funcionar dentro de Service Workers
-    const origin = typeof globalThis !== 'undefined' && globalThis.location 
-      ? globalThis.location.origin 
-      : 'http://localhost';
-
-    const baseUrl = origin + (proxyPath === '' ? '/' : proxyPath);
-    const base = baseUrl.replace(/\/$/, '');
-    return `${base}/${cleanEndpoint}`;
-  }
-  
-  // Se proxyPath for um caminho absoluto (ex: "/proxy")
-  const base = proxyPath.replace(/\/$/, '');
-  return `${base}/${cleanEndpoint}`;
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>settings</md-icon> Configurações de Rede
+            </span>
+            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+              Ajuste o Roteamento de Mensagens
+            </span>
+          </div>
+          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
+              Servidor Proxy
+              {serverStatus.value === 'ok' && <span style="color: green; font-size: 0.75rem; font-weight: bold;">(Online)</span>}
+              {serverStatus.value === 'error' && <span style="color: red; font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
+            </label>
+            <div style="display: flex; gap: 8px;">
+              <md-outlined-text-field
+                id="proxy-path"
+                value={proxyPath.value}
+                onInput={handleProxyPathChange}
+                placeholder="Ex: /, /api ou https://push.com"
+                style="flex-grow: 1;"
+                disabled={isSaving.value || isTesting.value}
+              >
+                <md-icon slot="leading-icon">dns</md-icon>
+              </md-outlined-text-field>
+              
+              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px;">
+                 {isTesting.value ? '...' : 'Testar'}
+              </md-filled-tonal-button>
+            </div>
+            <span style="font-size: 0.75rem; color: #666;">
+              Se o PWA foi instalado via GitHub Pages ou IPFS e não possui um servidor nativo, informe a URL absoluta de um Worker ativo do Loco.
+            </span>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px;">
+            <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
+              🔍 Resolução Dinâmica (Preview):
+            </span>
+            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
+              <div style="display: flex; gap: 8px;">
+                <span style="color: #666; min-width: 80px;">Push URL:</span>
+                <code style="color: #444;">{previewUrls.value.endpoint}</code>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <span style="color: #666; min-width: 80px;">Ping Test:</span>
+                <code style="color: #444;">{previewUrls.value.endpoint}/ping</code>
+              </div>
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+            <md-outlined-button onClick={handleCancelar} disabled={!hasChanges.value || isSaving.value || isTesting.value}>
+              Cancelar
+            </md-outlined-button>
+            
+            <md-outlined-button onClick={handleReset} disabled={isSaving.value || isTesting.value} style="color: var(--md-sys-color-error);">
+              Auto-Discovery
+            </md-outlined-button>
+            
+            <md-filled-button onClick={handleSalvar} disabled={!hasChanges.value || isSaving.value || isTesting.value}>
+              {isSaving.value ? (
+                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
+              ) : (
+                <>
+                  <md-icon slot="icon">save</md-icon>
+                  Salvar
+                </>
+              )}
+            </md-filled-button>
+          </div>
+          
+        </div>
+      </div>
+    </div>
+  );
 }
 ```
 
@@ -2196,8 +2026,146 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.83-mss814vj";
+export const APP_VERSION = "0.2.84-mss8g2g2";
 
+```
+
+---
+
+## Arquivo: `src/constants/config.ts`
+
+```ts
+// src/constants/config.ts
+import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
+import { DB_NAMES } from "./db.ts";
+
+/**
+ * 🔥 O Padrão agora é "/" (Raiz Relativa do PWA).
+ */
+export const DefaultProxyPath: string = "/";
+
+/**
+ * 🔥 O Fallback Absoluto (Workers Seguro).
+ */
+export const FallbackAbsoluteProxy: string = "https://loco.arvati.workers.dev";
+
+const PROXY_PATH_KEY = 'ProxyPath';
+
+let _configStore: ReturnType<typeof createStore> | null = null;
+
+function getConfigStore() {
+  if (_configStore === null && typeof indexedDB !== 'undefined') {
+    _configStore = createStore(DB_NAMES.CONFIG, 'keyval');
+  }
+  return _configStore;
+}
+
+async function loadProxyPathFromDB(): Promise<string> {
+  const configStore = getConfigStore();
+  if (!configStore) return DefaultProxyPath;
+  
+  try {
+    const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
+    if (stored !== undefined && stored !== null) {
+      return String(stored);
+    }
+    return DefaultProxyPath;
+  } catch (error) {
+    console.warn('[CONFIG] Erro ao carregar ProxyPath do IndexedDB:', error);
+    return DefaultProxyPath;
+  }
+}
+
+export async function getProxyPath(): Promise<string> {
+  return await loadProxyPathFromDB();
+}
+
+export async function setProxyPath(path: string): Promise<void> {
+  const configStore = getConfigStore();
+  if (!configStore) return;
+  try {
+    await idbSet(PROXY_PATH_KEY, path, configStore);
+    console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
+  } catch (error) {
+    console.error('[CONFIG] Erro ao salvar ProxyPath no IndexedDB:', error);
+    throw error;
+  }
+}
+
+/**
+ * Resolve o BasePath nativo (ex: "/" ou "/loco/")
+ */
+function getAppBasePath(): string {
+  if (typeof globalThis === 'undefined' || !globalThis.location) return '/';
+  let basePath = globalThis.location.pathname;
+  if (basePath.split('/').pop()?.includes('.')) {
+    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+  } else if (!basePath.endsWith('/')) {
+    basePath += '/';
+  }
+  return basePath;
+}
+
+/**
+ * Constrói uma URL completa de API com inteligência de rotas relativas vs absolutas.
+ */
+export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
+  let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
+  
+  // Normalização de input: se o usuário deixou vazio, tratamos como "/"
+  if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
+
+  const cleanEndpoint = endpoint.replace(/^\/+/, '');
+  let base = "";
+
+  // Cenário 1: É uma URL Absoluta Externa (https://...)
+  if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
+    base = proxyPath;
+  } 
+  // Cenário 2: Caminho Relativo local (ex: "/", "/api", "./api")
+  else {
+    const origin = typeof globalThis !== 'undefined' && globalThis.location 
+      ? globalThis.location.origin 
+      : 'http://localhost';
+    
+    const appBase = getAppBasePath(); // Ex: "/" ou "/loco/"
+    
+    // Removemos possíveis "/", "./" ou "../" do começo do proxyPath do usuário
+    const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
+    
+    base = origin + appBase + cleanProxyPath;
+  }
+
+  base = base.replace(/\/$/, ''); // Tira barra do final da base
+  return `${base}/${cleanEndpoint}`;
+}
+
+/**
+ * Dispara um Heartbeat para testar a validade da URL
+ */
+export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
+  try {
+    const url = await buildProxyUrl('/ping', proxyUrlToCheck);
+    
+    // Configura um timeout de 3 segundos para não travar a aplicação
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    const res = await fetch(url, { 
+      method: 'POST', // 🔥 ARQUITETURA: POST para furar o cache do navegador e Edge Nodes
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) return false;
+    
+    const data = await res.json();
+    return data && data.status === "ok" && data.service === "loco-proxy";
+  } catch (err) {
+    return false;
+  }
+}
 ```
 
 ---
@@ -2610,35 +2578,19 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
 // src/stores/config-store.ts
 import { get, set, createStore } from "idb-keyval";
 import { DB_NAMES } from "../constants/db.ts";
-import { setProxyPath, DefaultProxyPath } from "../constants/config.ts";
+import { setProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../constants/config.ts";
 
 const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
-
-/**
- * Cria a store de configurações usando idb-keyval
- */
 const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
 
-/**
- * Chaves de configuração disponíveis
- * Cada configuração tem sua própria chave no IndexedDB
- */
 export const CONFIG_KEYS = {
   PROXY_PATH: "ProxyPath",
 } as const;
 
-/**
- * Salva uma configuração específica no IndexedDB
- * Cada configuração usa sua própria chave (não agrupa em app_settings)
- */
 export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
   try {
     const configKey = CONFIG_KEYS[key];
-    
-    // Salva diretamente na chave específica
     await set(configKey, value, configStore);
-    
-    // Atualiza dinamicamente se for proxy_path
     if (key === 'PROXY_PATH' && typeof value === 'string') {
       await setProxyPath(value);
     }
@@ -2648,9 +2600,6 @@ export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, val
   }
 }
 
-/**
- * Carrega uma configuração específica do IndexedDB
- */
 export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
   try {
     const configKey = CONFIG_KEYS[key];
@@ -2662,16 +2611,6 @@ export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K)
   }
 }
 
-/**
- * Atalho para atualizar apenas o ProxyPath
- */
-export async function updateProxyPath(newPath: string): Promise<void> {
-  return saveConfig('PROXY_PATH', newPath);
-}
-
-/**
- * Reseta todas as configurações para os valores padrão
- */
 export async function resetConfig(): Promise<void> {
   try {
     await set(CONFIG_KEYS.PROXY_PATH, DefaultProxyPath, configStore);
@@ -2683,21 +2622,45 @@ export async function resetConfig(): Promise<void> {
 }
 
 /**
- * Carrega todas as configurações (útil para inicialização)
+ * Carrega e Executa Auto-Discovery de Servidor (Fallback Cascade)
  */
 export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
-  const proxy_path = await getConfigValue('PROXY_PATH');
+  let proxy_path = await getConfigValue('PROXY_PATH');
   
-  // Aplica o proxy path se existir
-  if (proxy_path !== undefined) {
-    await setProxyPath(proxy_path);
-  } else {
-    await setProxyPath(DefaultProxyPath);
+  // 1. O app acabou de ser instalado? Começa tentando a raiz
+  if (proxy_path === undefined) {
+    proxy_path = DefaultProxyPath;
   }
-  
+
+  // 2. Pinga a rota atual para ver se está viva
+  console.log(`[AUTO-DISCOVERY] Testando Heartbeat no Proxy Atual: "${proxy_path}"`);
+  const isAlive = await pingProxy(proxy_path);
+
+  if (isAlive) {
+    console.log(`[AUTO-DISCOVERY] ✅ Proxy local/atual respondeu! Mantendo: "${proxy_path}"`);
+    await setProxyPath(proxy_path);
+    return { proxy_path };
+  }
+
+  console.log(`[AUTO-DISCOVERY] ⚠️ Proxy atual indisponível. Iniciando Fallback...`);
+
+  // 3. Fallback: Tentativa na URL Cloudflare Absoluta (Se não for a que já falhou)
+  if (proxy_path !== FallbackAbsoluteProxy) {
+    console.log(`[AUTO-DISCOVERY] Testando Fallback Cloudflare: "${FallbackAbsoluteProxy}"`);
+    const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
+    
+    if (isFallbackAlive) {
+      console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Salvando: "${FallbackAbsoluteProxy}"`);
+      await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+      return { proxy_path: FallbackAbsoluteProxy };
+    }
+  }
+
+  // 4. Último Recurso: Mantém o que estava configurado, mas avisa que está offline.
+  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu.`);
+  await setProxyPath(proxy_path);
   return { proxy_path };
 }
-
 ```
 
 ---
@@ -3152,44 +3115,6 @@ self.addEventListener('online', function (event: Event) {
 
 ---
 
-## Arquivo: `src/sw/sw-utils.ts`
-
-```ts
-// src/sw/sw-utils.ts
-import { addDebugLog } from '../utils/debug-utils.ts';
-
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  addDebugLog("📡 Verificando suporte ao Service Worker...");
-  if (!("serviceWorker" in navigator)) {
-    throw new Error("Service Worker não é suportado neste navegador.");
-  }
-
-  const cacheBuster = Date.now();
-  addDebugLog("⏳ Registrando/Atualizando Service Worker...");
-
-  try {
-    const registration = await navigator.serviceWorker.register(
-      `./service-worker.js?cacheBuster=${cacheBuster}`,
-      // 🔥 ARQUITETURA: Escopo relativo ("./") garante funcionamento em 
-      // subdiretórios como GitHub Pages, Vercel ou IPFS.
-      { scope: "./" }
-    );
-    if (!registration) {
-      throw new Error("Service Worker registration retornou null/undefined");
-    }
-    addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    const readyReg = await navigator.serviceWorker.ready;
-    addDebugLog("✅ Service Worker ativo e pronto.");
-    return readyReg;
-  } catch (err: any) {
-    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
-    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
-  }
-}
-```
-
----
-
 ## Arquivo: `src/sw/click.ts`
 
 ```ts
@@ -3230,6 +3155,59 @@ self.addEventListener('notificationclick', function(event: any) {
       })
   );
 });
+```
+
+---
+
+## Arquivo: `src/sw/sw-utils.ts`
+
+```ts
+// src/sw/sw-utils.ts
+import { addDebugLog } from '../utils/debug-utils.ts';
+
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
+  addDebugLog("📡 Verificando suporte ao Service Worker...");
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker não é suportado neste navegador.");
+  }
+
+  // 🔥 ARQUITETURA: Resolução Dinâmica de Rota Base (Environment Agnostic)
+  // Lemos a URL atual para descobrir se estamos rodando na raiz (/) ou em um subdiretório (/loco/)
+  let basePath = globalThis.location.pathname;
+  
+  // Se a URL aponta para um arquivo (ex: /loco/index.html), extraímos apenas o diretório
+  if (basePath.split('/').pop()?.includes('.')) {
+    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+  } else if (!basePath.endsWith('/')) {
+    // Se a URL é /loco (sem barra no final), forçamos a barra. 
+    // Isso evita que o navegador interprete "loco" como arquivo e tente registrar o SW na raiz "/".
+    basePath += '/';
+  }
+
+  const cacheBuster = Date.now();
+  addDebugLog(`⏳ Registrando Service Worker no escopo: ${basePath}`);
+
+  try {
+    // Injetamos o basePath absoluto calculado na hora
+    const registration = await navigator.serviceWorker.register(
+      `${basePath}service-worker.js?cacheBuster=${cacheBuster}`,
+      { scope: basePath }
+    );
+    
+    if (!registration) {
+      throw new Error("Service Worker registration retornou null/undefined");
+    }
+    
+    addDebugLog("✅ Service Worker registrado, aguardando ready...");
+    const readyReg = await navigator.serviceWorker.ready;
+    addDebugLog("✅ Service Worker ativo e pronto.");
+    
+    return readyReg;
+  } catch (err: any) {
+    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
+    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
+  }
+}
 ```
 
 ---
@@ -6287,7 +6265,7 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.83-mss814vj",
+  "version": "0.2.84-mss8g2g2",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -6342,383 +6320,6 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
   },
   "exclude": ["build/", "public/"]
 }
-```
-
----
-
-## Arquivo: `worker.ts`
-
-```ts
-// worker.ts
-/// <reference lib="deno.ns" />
-
-import * as webpush from "@negrel/webpush";
-import { deleteCookie } from "@std/http/cookie";
-
-let serverPrivateKeyCache: CryptoKey | null = null;
-let serverPublicKeyJwkCache: JsonWebKey | null = null;
-
-async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
-  if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
-    return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
-  }
-
-  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
-  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
-
-  if (!publicKeyStr) {
-    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada! Configure-a no arquivo wrangler.toml ou via dashboard da Cloudflare.");
-  }
-  
-  if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare.");
-  }
-
-  try {
-    let publicKeyJwk = JSON.parse(publicKeyStr);
-    let privateKeyJwk = JSON.parse(privateKeyStr);
-
-    if (!publicKeyJwk.kty) {
-      publicKeyJwk = {
-        kty: "RSA",
-        alg: "RSA-OAEP-256",
-        n: publicKeyJwk.n,
-        e: "AQAB",
-        ext: true,
-        key_ops: ["encrypt"]
-      };
-    }
-
-    if (!privateKeyJwk.kty) {
-      privateKeyJwk = {
-        kty: "RSA",
-        alg: "RSA-OAEP-256",
-        e: publicKeyJwk.e,
-        n: publicKeyJwk.n,
-        ext: true,
-        key_ops: ["decrypt"],
-        d: privateKeyJwk.d,
-        p: privateKeyJwk.p,
-        q: privateKeyJwk.q,
-        dp: privateKeyJwk.dp,
-        dq: privateKeyJwk.dq,
-        qi: privateKeyJwk.qi
-      };
-    }
-
-    const serverPrivateKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      privateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["decrypt"]
-    );
-
-    serverPrivateKeyCache = serverPrivateKey;
-    serverPublicKeyJwkCache = publicKeyJwk;
-
-    console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
-    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk };
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
-  }
-}
-
-async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
-  try {
-    const envelopeText = atob(base64Envelope);
-    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
-
-    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-
-    const ivBytes = fromHex(iv);
-    const dadosBytes = fromHex(dadosCifrados);
-    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
-
-    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
-      { name: "RSA-OAEP" },
-      serverPrivateKey,
-      chaveAesCifradaBytes
-    );
-
-    const chaveSimetricaAes = await crypto.subtle.importKey(
-      "raw",
-      aesChaveCruaBuffer,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
-
-    const vapidOriginalBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
-      chaveSimetricaAes,
-      dadosBytes
-    );
-
-    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
-    return JSON.parse(jsonText);
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
-    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
-  }
-}
-
-function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
-  try {
-    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
-    const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
-
-    // 🔥 ARQUITETURA: Reconstrução Inteligente VAPID
-    const expandedPub = pub.kty ? pub : {
-      kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"]
-    };
-
-    const expandedPriv = priv.kty ? priv : {
-      kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"]
-    };
-
-    return { publicKey: expandedPub, privateKey: expandedPriv };
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
-  }
-}
-
-function lerMetadadosJJWT(jwtString: string) {
-  try {
-    const parts = jwtString.split(".");
-    if (parts.length !== 3) return null;
-
-    const part1 = parts[1];
-    if (!part1) return null;
-
-    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-
-    const jsonString = new TextDecoder().decode(
-      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
-    );
-    
-    return JSON.parse(jsonString);
-  } catch {
-    return null;
-  }
-}
-
-function checkIsAllowedOrigin(origin: string, env: any): boolean {
-  if (!origin) return false;
-
-  const defaultPatterns = [
-    /^https?:\/\/localhost(:\d+)?$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*tap\.app\.br$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/,
-    /^https?:\/\/dash\.cloudflare\.com$/
-  ];
-
-  for (const pattern of defaultPatterns) {
-    if (pattern.test(origin)) return true;
-  }
-
-  const envOrigins = env?.ALLOWED_ORIGINS;
-  if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
-    const rules = envOrigins.split(",").map(s => s.trim());
-    for (const rule of rules) {
-      const escapedRule = rule
-        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*");
-
-      const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
-      if (dynamicRegex.test(origin)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-const workerHandler = {
-  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-    
-    let origin = request.headers.get("origin") || "";
-    if (origin === "") {
-      const host = request.headers.get("host") || "localhost";
-      const protocolo = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-      origin = `${protocolo}://${host}`;
-    }
-
-    const isAllowedOrigin = checkIsAllowedOrigin(origin, env);
-
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
-      "Access-Control-Allow-Credentials": "true",
-      "Access-Control-Max-Age": "86400"
-    };
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
-    }
-
-    const proxyPath = env.PROXY_PATH || "";
-    
-    let targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
-    
-    if (!targetPath.startsWith("/")) {
-      targetPath = "/" + targetPath;
-    }
-
-    if (!isAllowedOrigin) {
-      console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
-      return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    try {
-      const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
-
-      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
-        return new Response(JSON.stringify(serverPublicKeyJwk), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
-        const headers = new Headers(corsHeaders);
-        deleteCookie(headers, "session_token", { path: "/" });
-        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
-        headers.set("Content-Type", "application/json");
-        return new Response(JSON.stringify({ disconnected: true }), {
-          status: 200,
-          headers,
-        });
-      }
-
-      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
-        
-        const body = await request.json();
-        const { subscription, payloadText, vapid } = body;
-
-        if (!subscription || !payloadText || !vapid) {
-          return new Response(
-            JSON.stringify({ success: false, error: "Parâmetros obrigatórios ausentes no body." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        const jwtClaims = lerMetadadosJJWT(payloadText);
-        if (jwtClaims) {
-          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
-        }
-
-        const proxyserverDestino = jwtClaims?.proxyserver;
-        if (proxyserverDestino) {
-          const urlAtual = new URL(request.url);
-          const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
-          
-          const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
-          const origemNormalizada = origemAtual.replace(/\/$/, "");
-          const destinoNormalizado = destinoSemProtocolo;
-          
-          if (origemNormalizada !== destinoNormalizado) {
-            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
-            
-            try {
-              const urlDestino = destinoNormalizado.startsWith("http") 
-                ? `${destinoNormalizado}/` 
-                : `https://${destinoNormalizado}/`;
-              
-              const response = await fetch(urlDestino, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subscription, payloadText, vapid }),
-                redirect: "follow"
-              });
-              
-              const result = await response.json();
-              console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
-              
-              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoNormalizado }), {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-              });
-            } catch (redirectErr) {
-              const errorMsg = redirectErr instanceof Error ? redirectErr.message : String(redirectErr);
-              console.error(`    ❌ [REDIRECIONAMENTO] Falha ao reencaminhar: ${errorMsg}`);
-              return new Response(
-                JSON.stringify({ success: false, error: `Falha ao reencaminhar para proxy destino: ${errorMsg}` }),
-                { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-              );
-            }
-          }
-        }
-
-        let privateKeyFinal = vapid.privateKey;
-
-        if (typeof privateKeyFinal === "string") {
-          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
-          try {
-            const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
-            privateKeyFinal = decryptedPrivateKeyObj;
-            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
-          } catch (decryptErr) {
-            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
-            return new Response(
-              JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-        }
-
-        // 🔥 Aqui a mágica da remontagem ocorre de forma limpa!
-        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
-        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
-        
-        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
-        const appServer = await webpush.ApplicationServer.new({
-          contactInformation: contact,
-          vapidKeys: vapidKeys,
-        });
-
-        const subscriber = appServer.subscribe(subscription);
-        await subscriber.pushTextMessage(payloadText, {});
-        
-        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
-
-        return new Response(JSON.stringify({ success: true }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      return new Response(
-        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("❌ Erro no Worker:", errorMessage);
-      return new Response(
-        JSON.stringify({ success: false, error: errorMessage }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-  }
-};
-
-export default workerHandler;
 ```
 
 ---
@@ -7004,6 +6605,393 @@ async function build() {
 }
 
 await build();
+```
+
+---
+
+## Arquivo: `worker.ts`
+
+```ts
+// worker.ts
+/// <reference lib="deno.ns" />
+
+import * as webpush from "@negrel/webpush";
+import { deleteCookie } from "@std/http/cookie";
+
+let serverPrivateKeyCache: CryptoKey | null = null;
+let serverPublicKeyJwkCache: JsonWebKey | null = null;
+
+async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
+  if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
+    return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
+  }
+
+  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
+  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
+
+  if (!publicKeyStr) {
+    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada! Configure-a no arquivo wrangler.toml ou via dashboard da Cloudflare.");
+  }
+  
+  if (!privateKeyStr) {
+    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare.");
+  }
+
+  try {
+    let publicKeyJwk = JSON.parse(publicKeyStr);
+    let privateKeyJwk = JSON.parse(privateKeyStr);
+
+    if (!publicKeyJwk.kty) {
+      publicKeyJwk = {
+        kty: "RSA",
+        alg: "RSA-OAEP-256",
+        n: publicKeyJwk.n,
+        e: "AQAB",
+        ext: true,
+        key_ops: ["encrypt"]
+      };
+    }
+
+    if (!privateKeyJwk.kty) {
+      privateKeyJwk = {
+        kty: "RSA",
+        alg: "RSA-OAEP-256",
+        e: publicKeyJwk.e,
+        n: publicKeyJwk.n,
+        ext: true,
+        key_ops: ["decrypt"],
+        d: privateKeyJwk.d,
+        p: privateKeyJwk.p,
+        q: privateKeyJwk.q,
+        dp: privateKeyJwk.dp,
+        dq: privateKeyJwk.dq,
+        qi: privateKeyJwk.qi
+      };
+    }
+
+    const serverPrivateKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      privateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["decrypt"]
+    );
+
+    serverPrivateKeyCache = serverPrivateKey;
+    serverPublicKeyJwkCache = publicKeyJwk;
+
+    console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
+    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
+  }
+}
+
+async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
+  try {
+    const envelopeText = atob(base64Envelope);
+    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+
+    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+
+    const ivBytes = fromHex(iv);
+    const dadosBytes = fromHex(dadosCifrados);
+    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+      { name: "RSA-OAEP" },
+      serverPrivateKey,
+      chaveAesCifradaBytes
+    );
+
+    const chaveSimetricaAes = await crypto.subtle.importKey(
+      "raw",
+      aesChaveCruaBuffer,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+
+    const vapidOriginalBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ivBytes },
+      chaveSimetricaAes,
+      dadosBytes
+    );
+
+    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
+    return JSON.parse(jsonText);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
+    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
+  }
+}
+
+function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
+  try {
+    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
+    const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
+
+    const expandedPub = pub.kty ? pub : {
+      kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"]
+    };
+
+    const expandedPriv = priv.kty ? priv : {
+      kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"]
+    };
+
+    return { publicKey: expandedPub, privateKey: expandedPriv };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
+  }
+}
+
+function lerMetadadosJJWT(jwtString: string) {
+  try {
+    const parts = jwtString.split(".");
+    if (parts.length !== 3) return null;
+
+    const part1 = parts[1];
+    if (!part1) return null;
+
+    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64Url.length % 4) base64Url += "=";
+
+    const jsonString = new TextDecoder().decode(
+      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
+    );
+    
+    return JSON.parse(jsonString);
+  } catch {
+    return null;
+  }
+}
+
+function checkIsAllowedOrigin(origin: string, env: any): boolean {
+  if (!origin) return false;
+
+  const defaultPatterns = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*tap\.app\.br$/,
+    /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/,
+    /^https?:\/\/dash\.cloudflare\.com$/
+  ];
+
+  for (const pattern of defaultPatterns) {
+    if (pattern.test(origin)) return true;
+  }
+
+  const envOrigins = env?.ALLOWED_ORIGINS;
+  if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
+    const rules = envOrigins.split(",").map(s => s.trim());
+    for (const rule of rules) {
+      const escapedRule = rule
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*");
+
+      const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
+      if (dynamicRegex.test(origin)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+const workerHandler = {
+  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    
+    let origin = request.headers.get("origin") || "";
+    if (origin === "") {
+      const host = request.headers.get("host") || "localhost";
+      const protocolo = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+      origin = `${protocolo}://${host}`;
+    }
+
+    const isAllowedOrigin = checkIsAllowedOrigin(origin, env);
+
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS", // 🔥 Restaurado para aceitar apenas POST
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Max-Age": "86400"
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    const proxyPath = env.PROXY_PATH || "";
+    
+    let targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
+    
+    if (!targetPath.startsWith("/")) {
+      targetPath = "/" + targetPath;
+    }
+
+    if (!isAllowedOrigin) {
+      console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
+      return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    try {
+      const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
+
+      // 🔥 ARQUITETURA: Agora a rota /ping recebe o POST
+      if (request.method === "POST" && (targetPath === "/ping" || targetPath === "/ping/")) {
+        return new Response(JSON.stringify({ 
+          status: "ok", 
+          service: "loco-proxy",
+          timestamp: Date.now()
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
+        return new Response(JSON.stringify(serverPublicKeyJwk), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
+        const headers = new Headers(corsHeaders);
+        deleteCookie(headers, "session_token", { path: "/" });
+        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
+        headers.set("Content-Type", "application/json");
+        return new Response(JSON.stringify({ disconnected: true }), {
+          status: 200,
+          headers,
+        });
+      }
+
+      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
+        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
+        
+        const body = await request.json();
+        const { subscription, payloadText, vapid } = body;
+
+        if (!subscription || !payloadText || !vapid) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Parâmetros obrigatórios ausentes no body." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const jwtClaims = lerMetadadosJJWT(payloadText);
+        if (jwtClaims) {
+          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+        }
+
+        const proxyserverDestino = jwtClaims?.proxyserver;
+        if (proxyserverDestino) {
+          const urlAtual = new URL(request.url);
+          const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
+          
+          const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
+          const origemNormalizada = origemAtual.replace(/\/$/, "");
+          const destinoNormalizado = destinoSemProtocolo;
+          
+          if (origemNormalizada !== destinoNormalizado) {
+            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
+            
+            try {
+              const urlDestino = destinoNormalizado.startsWith("http") 
+                ? `${destinoNormalizado}/` 
+                : `https://${destinoNormalizado}/`;
+              
+              const response = await fetch(urlDestino, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subscription, payloadText, vapid }),
+                redirect: "follow"
+              });
+              
+              const result = await response.json();
+              console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
+              
+              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoNormalizado }), {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+              });
+            } catch (redirectErr) {
+              const errorMsg = redirectErr instanceof Error ? redirectErr.message : String(redirectErr);
+              console.error(`    ❌ [REDIRECIONAMENTO] Falha ao reencaminhar: ${errorMsg}`);
+              return new Response(
+                JSON.stringify({ success: false, error: `Falha ao reencaminhar para proxy destino: ${errorMsg}` }),
+                { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+          }
+        }
+
+        let privateKeyFinal = vapid.privateKey;
+
+        if (typeof privateKeyFinal === "string") {
+          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
+          try {
+            const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
+            privateKeyFinal = decryptedPrivateKeyObj;
+            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+          } catch (decryptErr) {
+            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
+            return new Response(
+              JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+        }
+
+        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
+        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
+        
+        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+        const appServer = await webpush.ApplicationServer.new({
+          contactInformation: contact,
+          vapidKeys: vapidKeys,
+        });
+
+        const subscriber = appServer.subscribe(subscription);
+        await subscriber.pushTextMessage(payloadText, {});
+        
+        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
+
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("❌ Erro no Worker:", errorMessage);
+      return new Response(
+        JSON.stringify({ success: false, error: errorMessage }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+  }
+};
+
+export default workerHandler;
 ```
 
 ---

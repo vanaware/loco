@@ -1,35 +1,19 @@
 // src/stores/config-store.ts
 import { get, set, createStore } from "idb-keyval";
 import { DB_NAMES } from "../constants/db.ts";
-import { setProxyPath, DefaultProxyPath } from "../constants/config.ts";
+import { setProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../constants/config.ts";
 
 const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
-
-/**
- * Cria a store de configurações usando idb-keyval
- */
 const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
 
-/**
- * Chaves de configuração disponíveis
- * Cada configuração tem sua própria chave no IndexedDB
- */
 export const CONFIG_KEYS = {
   PROXY_PATH: "ProxyPath",
 } as const;
 
-/**
- * Salva uma configuração específica no IndexedDB
- * Cada configuração usa sua própria chave (não agrupa em app_settings)
- */
 export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
   try {
     const configKey = CONFIG_KEYS[key];
-    
-    // Salva diretamente na chave específica
     await set(configKey, value, configStore);
-    
-    // Atualiza dinamicamente se for proxy_path
     if (key === 'PROXY_PATH' && typeof value === 'string') {
       await setProxyPath(value);
     }
@@ -39,9 +23,6 @@ export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, val
   }
 }
 
-/**
- * Carrega uma configuração específica do IndexedDB
- */
 export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
   try {
     const configKey = CONFIG_KEYS[key];
@@ -53,16 +34,6 @@ export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K)
   }
 }
 
-/**
- * Atalho para atualizar apenas o ProxyPath
- */
-export async function updateProxyPath(newPath: string): Promise<void> {
-  return saveConfig('PROXY_PATH', newPath);
-}
-
-/**
- * Reseta todas as configurações para os valores padrão
- */
 export async function resetConfig(): Promise<void> {
   try {
     await set(CONFIG_KEYS.PROXY_PATH, DefaultProxyPath, configStore);
@@ -74,17 +45,42 @@ export async function resetConfig(): Promise<void> {
 }
 
 /**
- * Carrega todas as configurações (útil para inicialização)
+ * Carrega e Executa Auto-Discovery de Servidor (Fallback Cascade)
  */
 export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
-  const proxy_path = await getConfigValue('PROXY_PATH');
+  let proxy_path = await getConfigValue('PROXY_PATH');
   
-  // Aplica o proxy path se existir
-  if (proxy_path !== undefined) {
-    await setProxyPath(proxy_path);
-  } else {
-    await setProxyPath(DefaultProxyPath);
+  // 1. O app acabou de ser instalado? Começa tentando a raiz
+  if (proxy_path === undefined) {
+    proxy_path = DefaultProxyPath;
   }
-  
+
+  // 2. Pinga a rota atual para ver se está viva
+  console.log(`[AUTO-DISCOVERY] Testando Heartbeat no Proxy Atual: "${proxy_path}"`);
+  const isAlive = await pingProxy(proxy_path);
+
+  if (isAlive) {
+    console.log(`[AUTO-DISCOVERY] ✅ Proxy local/atual respondeu! Mantendo: "${proxy_path}"`);
+    await setProxyPath(proxy_path);
+    return { proxy_path };
+  }
+
+  console.log(`[AUTO-DISCOVERY] ⚠️ Proxy atual indisponível. Iniciando Fallback...`);
+
+  // 3. Fallback: Tentativa na URL Cloudflare Absoluta (Se não for a que já falhou)
+  if (proxy_path !== FallbackAbsoluteProxy) {
+    console.log(`[AUTO-DISCOVERY] Testando Fallback Cloudflare: "${FallbackAbsoluteProxy}"`);
+    const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
+    
+    if (isFallbackAlive) {
+      console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Salvando: "${FallbackAbsoluteProxy}"`);
+      await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+      return { proxy_path: FallbackAbsoluteProxy };
+    }
+  }
+
+  // 4. Último Recurso: Mantém o que estava configurado, mas avisa que está offline.
+  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu.`);
+  await setProxyPath(proxy_path);
   return { proxy_path };
 }

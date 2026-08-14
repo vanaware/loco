@@ -1,26 +1,19 @@
+// src/constants/config.ts
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
 import { DB_NAMES } from "./db.ts";
 
 /**
- * Prefixo base padrão para comunicação com o servidor proxy / Worker.
- * Este valor é usado apenas como fallback se não houver configuração salva no IndexedDB.
- * Pode ser ajustado para:
- * - "" (raiz relativa)
- * - "./api" (caminho relativo)
- * - "/proxy" (sub-caminho absoluto)
- * - "https://push.vanaware.com" (URL completa em outro domínio)
+ * 🔥 O Padrão agora é "/" (Raiz Relativa do PWA).
  */
-export const DefaultProxyPath: string = "";
+export const DefaultProxyPath: string = "/";
 
 /**
- * Chave usada no IndexedDB para armazenar o ProxyPath
+ * 🔥 O Fallback Absoluto (Workers Seguro).
  */
+export const FallbackAbsoluteProxy: string = "https://loco.arvati.workers.dev";
+
 const PROXY_PATH_KEY = 'ProxyPath';
 
-/**
- * Cria a store de configurações para uso no Service Worker e Main Thread
- * Lazy initialization para permitir mock em testes
- */
 let _configStore: ReturnType<typeof createStore> | null = null;
 
 function getConfigStore() {
@@ -30,19 +23,11 @@ function getConfigStore() {
   return _configStore;
 }
 
-/**
- * Carrega o ProxyPath do IndexedDB (funciona no SW e na Main Thread)
- * Lê diretamente da chave 'ProxyPath', sem agrupar em app_settings
- */
 async function loadProxyPathFromDB(): Promise<string> {
   const configStore = getConfigStore();
-  if (!configStore) {
-    return DefaultProxyPath;
-  }
+  if (!configStore) return DefaultProxyPath;
   
   try {
-    // Carrega da chave específica 'ProxyPath'
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
     if (stored !== undefined && stored !== null) {
       return String(stored);
@@ -54,31 +39,13 @@ async function loadProxyPathFromDB(): Promise<string> {
   }
 }
 
-/**
- * Obtém o ProxyPath atual lendo diretamente do IndexedDB.
- * Não usa cache em memória para garantir que sempre tenha o valor mais recente.
- * Funciona tanto na Main Thread quanto no Service Worker.
- * 
- * @returns Promise com o ProxyPath configurado
- */
 export async function getProxyPath(): Promise<string> {
   return await loadProxyPathFromDB();
 }
 
-/**
- * Define o ProxyPath no IndexedDB.
- * Cada configuração tem sua própria chave, não agrupa em app_settings.
- * 
- * @param path - O novo ProxyPath
- * @returns Promise<void>
- */
 export async function setProxyPath(path: string): Promise<void> {
   const configStore = getConfigStore();
-  if (!configStore) {
-    console.error('[CONFIG] IndexedDB não disponível para salvar ProxyPath');
-    return;
-  }
-  
+  if (!configStore) return;
   try {
     await idbSet(PROXY_PATH_KEY, path, configStore);
     console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
@@ -89,40 +56,76 @@ export async function setProxyPath(path: string): Promise<void> {
 }
 
 /**
- * Constrói uma URL completa para o proxy, garantindo compatibilidade
- * com caminhos relativos, absolutos e URLs completas.
- * Seguro para ser executado tanto na Main Thread (Window) quanto no Service Worker (Self).
- * 
- * @param endpoint - O endpoint específico (ex: "/", "/publickey", "/logout")
- * @returns Promise com a URL completa pronta para uso no fetch
+ * Resolve o BasePath nativo (ex: "/" ou "/loco/")
  */
-export async function buildProxyUrl(endpoint: string): Promise<string> {
-  // Usa o ProxyPath dinâmico ou o padrão (lê do IndexedDB sempre)
-  const proxyPath = await getProxyPath();
-  
-  // Remove barras extras do endpoint
-  const cleanEndpoint = endpoint.replace(/^\/+/, '');
-  
-  // Se proxyPath já for uma URL completa (começa com http:// ou https://)
-  if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
-    // Garante que proxyPath termine sem barra e endpoint comece com barra
-    const base = proxyPath.replace(/\/$/, '');
-    return `${base}/${cleanEndpoint}`;
+function getAppBasePath(): string {
+  if (typeof globalThis === 'undefined' || !globalThis.location) return '/';
+  let basePath = globalThis.location.pathname;
+  if (basePath.split('/').pop()?.includes('.')) {
+    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+  } else if (!basePath.endsWith('/')) {
+    basePath += '/';
   }
+  return basePath;
+}
+
+/**
+ * Constrói uma URL completa de API com inteligência de rotas relativas vs absolutas.
+ */
+export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
+  let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
   
-  // Se proxyPath for vazio ou relativo, usa a origem atual (cross-environment)
-  if (proxyPath === '' || proxyPath.startsWith('./') || proxyPath.startsWith('../')) {
-    // 🔥 Correção: Uso do globalThis para funcionar dentro de Service Workers
+  // Normalização de input: se o usuário deixou vazio, tratamos como "/"
+  if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
+
+  const cleanEndpoint = endpoint.replace(/^\/+/, '');
+  let base = "";
+
+  // Cenário 1: É uma URL Absoluta Externa (https://...)
+  if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
+    base = proxyPath;
+  } 
+  // Cenário 2: Caminho Relativo local (ex: "/", "/api", "./api")
+  else {
     const origin = typeof globalThis !== 'undefined' && globalThis.location 
       ? globalThis.location.origin 
       : 'http://localhost';
-
-    const baseUrl = origin + (proxyPath === '' ? '/' : proxyPath);
-    const base = baseUrl.replace(/\/$/, '');
-    return `${base}/${cleanEndpoint}`;
+    
+    const appBase = getAppBasePath(); // Ex: "/" ou "/loco/"
+    
+    // Removemos possíveis "/", "./" ou "../" do começo do proxyPath do usuário
+    const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
+    
+    base = origin + appBase + cleanProxyPath;
   }
-  
-  // Se proxyPath for um caminho absoluto (ex: "/proxy")
-  const base = proxyPath.replace(/\/$/, '');
+
+  base = base.replace(/\/$/, ''); // Tira barra do final da base
   return `${base}/${cleanEndpoint}`;
+}
+
+/**
+ * Dispara um Heartbeat para testar a validade da URL
+ */
+export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
+  try {
+    const url = await buildProxyUrl('/ping', proxyUrlToCheck);
+    
+    // Configura um timeout de 3 segundos para não travar a aplicação
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    const res = await fetch(url, { 
+      method: 'POST', // 🔥 ARQUITETURA: POST para furar o cache do navegador e Edge Nodes
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) return false;
+    
+    const data = await res.json();
+    return data && data.status === "ok" && data.service === "loco-proxy";
+  } catch (err) {
+    return false;
+  }
 }

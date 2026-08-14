@@ -1,99 +1,74 @@
 import { useSignal, computed } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
-import { loadAllConfigs, saveConfig, resetConfig, CONFIG_KEYS } from '../stores/config-store.ts';
+import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
 import { showToast } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
-import { buildProxyUrl } from '../constants/config.ts';
+import { buildProxyUrl, pingProxy } from '../constants/config.ts';
 
 export function SettingsSection() {
   const proxyPath = useSignal('');
   const isSaving = useSignal(false);
+  const isTesting = useSignal(false);
   const hasChanges = useSignal(false);
+  const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
   const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
   
-  // Carrega a configuração atual quando o componente monta
   useEffect(() => {
     const load = async () => {
       const config = await loadAllConfigs();
       proxyPath.value = config.proxy_path || '';
-      // Atualiza preview das URLs
-      previewUrls.value = {
-        endpoint: await buildProxyUrl('/'),
-        publicKey: await buildProxyUrl('/publickey'),
-        logout: await buildProxyUrl('/logout')
-      };
+      await updatePreview(config.proxy_path || '');
     };
     load();
   }, []);
   
-  // Atualiza preview quando proxyPath muda
-  useEffect(() => {
-    const updatePreview = async () => {
-      previewUrls.value = {
-        endpoint: await buildProxyUrl('/'),
-        publicKey: await buildProxyUrl('/publickey'),
-        logout: await buildProxyUrl('/logout')
-      };
+  const updatePreview = async (path: string) => {
+    previewUrls.value = {
+      endpoint: await buildProxyUrl('/', path),
+      publicKey: await buildProxyUrl('/publickey', path),
+      logout: await buildProxyUrl('/logout', path)
     };
-    updatePreview();
-  }, [proxyPath.value]);
-  
-  // Detecta mudanças no campo
+    serverStatus.value = 'unknown'; // reseta status visual ao digitar
+  };
+
   const handleProxyPathChange = (e: Event) => {
     const target = e.target as HTMLInputElement;
     proxyPath.value = target.value;
     hasChanges.value = true;
+    updatePreview(target.value);
   };
   
-  // Valida se a URL é válida
-  const validateProxyPath = (path: string): boolean => {
-    if (!path || path.trim() === '') return true; // Vazio é válido (usa raiz relativa)
+  const handleTestarConexao = async () => {
+    isTesting.value = true;
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
     
-    // URLs absolutas devem começar com http:// ou https://
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      try {
-        new URL(path);
-        return true;
-      } catch {
-        return false;
+    try {
+      const isAlive = await pingProxy(path);
+      if (isAlive) {
+        serverStatus.value = 'ok';
+        showToast('✅ Servidor detectado com sucesso!', 'success');
+      } else {
+        serverStatus.value = 'error';
+        showToast('❌ Servidor não respondeu ou não é um Loco Proxy.', 'error');
       }
+    } catch {
+      serverStatus.value = 'error';
+      showToast('❌ Falha na conexão de rede.', 'error');
+    } finally {
+      isTesting.value = false;
     }
-    
-    // Caminhos relativos podem começar com ./ ou ../
-    if (path.startsWith('./') || path.startsWith('../')) {
-      return true;
-    }
-    
-    // Caminhos absolutos começam com /
-    if (path.startsWith('/')) {
-      return true;
-    }
-    
-    return false;
   };
-  
+
   const handleSalvar = async () => {
-    const path = proxyPath.value.trim();
-    
-    if (!validateProxyPath(path)) {
-      showToast('❌ Formato de Proxy Path inválido. Use URL completa (https://...), caminho absoluto (/...) ou relativo (./...)', 'error');
-      return;
-    }
-    
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
     isSaving.value = true;
     
     try {
+      // Opcional: Impedir salvar se o ping falhar, mas vamos ser permissivos
+      // e só avisar, vai que o usuário está offline na hora.
       await saveConfig('PROXY_PATH', path);
-      
-      // Testa a URL construída
-      const testUrl = await buildProxyUrl('/test');
-      console.log('✅ Proxy configurado:', path);
-      console.log('📍 URL de teste gerada:', testUrl);
-      
-      showToast(`✅ Configuração salva!${path ? ` Proxy: ${path}` : ' (usando raiz relativa)'}`, 'success');
+      showToast(`✅ Configuração salva: ${path}`, 'success');
       hasChanges.value = false;
-      
-      // Recarrega diagnósticos se estiver na tela de avançado
       window.dispatchEvent(new CustomEvent('config-updated'));
     } catch (error) {
       console.error('Erro ao salvar configuração:', error);
@@ -107,24 +82,24 @@ export function SettingsSection() {
     if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
       return;
     }
-    
     try {
       await resetConfig();
-      proxyPath.value = '';
+      const config = await loadAllConfigs(); // engatilha auto-discovery
+      proxyPath.value = config.proxy_path || '/';
       hasChanges.value = false;
-      showToast('✅ Configurações resetadas para o padrão', 'success');
+      serverStatus.value = 'unknown';
+      showToast('✅ Auto-Discovery resetado', 'success');
       window.dispatchEvent(new CustomEvent('config-updated'));
     } catch (error) {
-      console.error('Erro ao resetar configuração:', error);
-      showToast('❌ Erro ao resetar configuração', 'error');
+      showToast('❌ Erro ao resetar', 'error');
     }
   };
   
   const handleCancelar = () => {
-    // Recarrega o valor original
     loadAllConfigs().then(config => {
       proxyPath.value = config.proxy_path || '';
       hasChanges.value = false;
+      serverStatus.value = 'unknown';
       showToast('Alterações descartadas', 'info');
     });
   };
@@ -136,10 +111,10 @@ export function SettingsSection() {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <div style="display: flex; flex-direction: column;">
             <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>settings</md-icon> Configurações
+              <md-icon>settings</md-icon> Configurações de Rede
             </span>
             <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Configure o servidor Push Proxy
+              Ajuste o Roteamento de Mensagens
             </span>
           </div>
           <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
@@ -149,68 +124,59 @@ export function SettingsSection() {
         
         <div style="display: flex; flex-direction: column; gap: 16px;">
           
-          {/* Campo Proxy Path */}
           <div style="display: flex; flex-direction: column; gap: 8px;">
-            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface);">
-              Proxy Path
+            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
+              Servidor Proxy
+              {serverStatus.value === 'ok' && <span style="color: green; font-size: 0.75rem; font-weight: bold;">(Online)</span>}
+              {serverStatus.value === 'error' && <span style="color: red; font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
             </label>
-            <md-outlined-text-field
-              id="proxy-path"
-              value={proxyPath.value}
-              onInput={handleProxyPathChange}
-              placeholder="Ex: https://push.vanaware.com ou ./api"
-              style="width: 100%;"
-              disabled={isSaving.value}
-            >
-              <md-icon slot="leading-icon">link</md-icon>
-            </md-outlined-text-field>
+            <div style="display: flex; gap: 8px;">
+              <md-outlined-text-field
+                id="proxy-path"
+                value={proxyPath.value}
+                onInput={handleProxyPathChange}
+                placeholder="Ex: /, /api ou https://push.com"
+                style="flex-grow: 1;"
+                disabled={isSaving.value || isTesting.value}
+              >
+                <md-icon slot="leading-icon">dns</md-icon>
+              </md-outlined-text-field>
+              
+              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px;">
+                 {isTesting.value ? '...' : 'Testar'}
+              </md-filled-tonal-button>
+            </div>
             <span style="font-size: 0.75rem; color: #666;">
-              Define o endpoint do servidor push. Pode ser uma URL completa, caminho absoluto ou relativo.
+              Se o PWA foi instalado via GitHub Pages ou IPFS e não possui um servidor nativo, informe a URL absoluta de um Worker ativo do Loco.
             </span>
           </div>
           
-          {/* Preview da URL gerada */}
           <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px;">
             <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
-              🔍 Preview das URLs geradas:
+              🔍 Resolução Dinâmica (Preview):
             </span>
             <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
               <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 100px;">Endpoint:</span>
+                <span style="color: #666; min-width: 80px;">Push URL:</span>
                 <code style="color: #444;">{previewUrls.value.endpoint}</code>
               </div>
               <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 100px;">Public Key:</span>
-                <code style="color: #444;">{previewUrls.value.publicKey}</code>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 100px;">Logout:</span>
-                <code style="color: #444;">{previewUrls.value.logout}</code>
+                <span style="color: #666; min-width: 80px;">Ping Test:</span>
+                <code style="color: #444;">{previewUrls.value.endpoint}/ping</code>
               </div>
             </div>
           </div>
           
-          {/* Ações */}
           <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
-            <md-outlined-button 
-              onClick={handleCancelar} 
-              disabled={!hasChanges.value || isSaving.value}
-            >
+            <md-outlined-button onClick={handleCancelar} disabled={!hasChanges.value || isSaving.value || isTesting.value}>
               Cancelar
             </md-outlined-button>
             
-            <md-outlined-button 
-              onClick={handleReset} 
-              disabled={isSaving.value}
-              style="color: var(--md-sys-color-error);"
-            >
-              Resetar Padrão
+            <md-outlined-button onClick={handleReset} disabled={isSaving.value || isTesting.value} style="color: var(--md-sys-color-error);">
+              Auto-Discovery
             </md-outlined-button>
             
-            <md-filled-button 
-              onClick={handleSalvar} 
-              disabled={!hasChanges.value || isSaving.value}
-            >
+            <md-filled-button onClick={handleSalvar} disabled={!hasChanges.value || isSaving.value || isTesting.value}>
               {isSaving.value ? (
                 <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
               ) : (

@@ -45,6 +45,7 @@ export function ProfileSection() {
   const handleGerarOuCorrigir = async () => {
     const eraNovo = !temChaveVapid;
     try {
+      // 🔥 O e-mail agora pode ser passado em branco tranquilamente
       const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
       await atualizarProfile(pNovo);
       
@@ -101,7 +102,7 @@ export function ProfileSection() {
         ></md-outlined-text-field>
         
         <md-outlined-text-field
-          label="Seu E-mail"
+          label="Seu E-mail (Opcional)"
           placeholder="Ex: joao@email.com"
           value={profileEmail.value}
           onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
@@ -112,7 +113,8 @@ export function ProfileSection() {
           <md-filled-button 
             onClick={handleGerarOuCorrigir} 
             style="width: 100%;"
-            disabled={!profileName.value.trim() || !profileEmail.value.trim() ? true : undefined}
+            // 🔥 ARQUITETURA: Removida a validação restritiva do e-mail. Apenas o nome é obrigatório agora.
+            disabled={!profileName.value.trim() ? true : undefined}
           >
             {labelBotaoPrincipal}
           </md-filled-button>

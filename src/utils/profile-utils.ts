@@ -35,11 +35,13 @@ export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   return false;
 }
 
-export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
+// 🔥 ARQUITETURA: Tornamos o e-mail explicitamente opcional através de um fallback no parâmetro
+export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
   addDebugLog("📦 Gerando/Atualizando perfil unificado...");
 
-  if (!nome || !email) {
-    throw new Error("Preencha Nome e E-mail primeiro.");
+  // Exigimos estritamente apenas o Nome para não quebrar a UI
+  if (!nome || nome.trim() === "") {
+    throw new Error("Preencha pelo menos o seu Nome.");
   }
 
   try {
@@ -163,9 +165,16 @@ export async function gerarProfileCompleto(nome: string, email: string): Promise
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
     const profile: ProfileConfig = {
-      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
+      name: nome.trim(), 
+      email: email.trim(), // 🔥 Sanitiza a string antes de salvar
+      vapidPublicKey: publicKeyJwk, 
+      vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
+      e2ePublicKey: e2ePublicKey, 
+      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, 
+      createdAt: existingProfile?.createdAt || Date.now(), 
+      updatedAt: Date.now()
     };
 
     await salvarProfile(profile);
