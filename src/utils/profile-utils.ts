@@ -2,19 +2,41 @@
 import { salvarProfile, buscarProfile } from './db-helpers.ts';
 import { cifrarChaveVapid } from './push-utils.ts';
 import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from './debug-utils.ts';
 import { buildProxyUrl } from '../constants/config.ts';
+import { getConfigValue, saveConfig } from '../stores/config-store.ts';
 
 export async function getServerPublicKey() {
+  try {
+    const cachedKey = await getConfigValue('SERVER_PUBLIC_KEY');
+    if (cachedKey) {
+      addDebugLog("info", "CRYPTO", "Chave do servidor carregada instantaneamente do cache local.");
+      // 🔥 ARQUITETURA: O cache no IndexedDB guarda apenas o {"n": "..."}.
+      // Expandimos para o formato JWK completo exigido pela WebCrypto API na RAM.
+      return expandRsaPublic(JSON.parse(cachedKey));
+    }
+  } catch (e) {
+    addDebugLog("warn", "CRYPTO", "Falha ao ler cache da chave do servidor. Recarregando da rede...");
+  }
+
+  addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
   const proxyUrl = await buildProxyUrl('/publickey');
   const response = await fetch(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
   });
+  
   if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  return await response.json();
+  
+  const keyData = await response.json();
+  
+  // 🔥 ARQUITETURA: Salvamos exatamente o que veio da rede (A versão minificada {"n": "..."})
+  await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
+  
+  // Expandimos para uso imediato em memória
+  return expandRsaPublic(keyData);
 }
 
 export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
@@ -35,11 +57,9 @@ export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   return false;
 }
 
-// 🔥 ARQUITETURA: Tornamos o e-mail explicitamente opcional através de um fallback no parâmetro
 export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
   addDebugLog("📦 Gerando/Atualizando perfil unificado...");
 
-  // Exigimos estritamente apenas o Nome para não quebrar a UI
   if (!nome || nome.trim() === "") {
     throw new Error("Preencha pelo menos o seu Nome.");
   }
@@ -64,7 +84,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
 
     addDebugLog("Step 3: Buscando chave pública do servidor...");
     const serverPublicKeyJwk = await getServerPublicKey();
-    addDebugLog("Step 3.5: Chave do servidor recebida");
+    addDebugLog("Step 3.5: Chave do servidor garantida");
 
     let vapidKeyPair: CryptoKeyPair | undefined = undefined;
     let publicKeyJwk: JsonWebKey | undefined = undefined;
@@ -162,11 +182,12 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
     }
 
+    // A chave pública do servidor usada aqui é a que acabou de ser obtida (da rede ou do disco)
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
     const profile: ProfileConfig = {
       name: nome.trim(), 
-      email: email.trim(), // 🔥 Sanitiza a string antes de salvar
+      email: email.trim(), 
       vapidPublicKey: publicKeyJwk, 
       vapidPrivateKeyJwk: privateKeyJwk,
       vapidPrivateKeyEnvelope: privateKeyEncrypted, 

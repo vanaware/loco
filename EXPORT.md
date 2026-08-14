@@ -7,7 +7,7 @@
 
 # Contexto Exportado do Projeto Loco [v0.2.88-mst7og91] - Modo: MAIN
 
-Gerado automaticamente em: 8/14/2026, 2:19:18 PM
+Gerado automaticamente em: 8/14/2026, 5:36:41 PM
 
 ---
 
@@ -2635,7 +2635,7 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
 
 ```ts
 // src/stores/config-store.ts
-import { get, set, createStore } from "idb-keyval";
+import { get, set, del, createStore } from "idb-keyval";
 import { DB_NAMES } from "../constants/db.ts";
 import { setProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../constants/config.ts";
 
@@ -2644,14 +2644,21 @@ const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
 
 export const CONFIG_KEYS = {
   PROXY_PATH: "ProxyPath",
+  SERVER_PUBLIC_KEY: "ServerPublicKey", // 🔥 ARQUITETURA: Nova chave para cache
 } as const;
 
 export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
   try {
     const configKey = CONFIG_KEYS[key];
     await set(configKey, value, configStore);
+    
+    // 🔥 ARQUITETURA: Invalidação de Cache Atrelada
+    // Se o Proxy mudar, a chave pública do servidor antigo torna-se letal para a criptografia.
+    // Nós a apagamos imediatamente para forçar um novo download seguro na próxima operação.
     if (key === 'PROXY_PATH' && typeof value === 'string') {
       await setProxyPath(value);
+      await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
+      console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
     }
   } catch (error) {
     console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
@@ -2672,8 +2679,9 @@ export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K)
 
 export async function resetConfig(): Promise<void> {
   try {
-    await set(CONFIG_KEYS.PROXY_PATH, DefaultProxyPath, configStore);
-    await setProxyPath(DefaultProxyPath);
+    await del(CONFIG_KEYS.PROXY_PATH, configStore);
+    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); // Expurgamos a chave no reset também
+    await setProxyPath(DefaultProxyPath); 
   } catch (error) {
     console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
     throw error;
@@ -2681,44 +2689,46 @@ export async function resetConfig(): Promise<void> {
 }
 
 /**
- * Carrega e Executa Auto-Discovery de Servidor (Fallback Cascade)
+ * Carrega as configurações. 
+ * Executa o Auto-Discovery de Rede apenas se for a primeira inicialização.
  */
 export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
-  let proxy_path = await getConfigValue('PROXY_PATH');
+  const proxy_path = await getConfigValue('PROXY_PATH');
   
-  // 1. O app acabou de ser instalado? Começa tentando a raiz
-  if (proxy_path === undefined) {
-    proxy_path = DefaultProxyPath;
-  }
-
-  // 2. Pinga a rota atual para ver se está viva
-  console.log(`[AUTO-DISCOVERY] Testando Heartbeat no Proxy Atual: "${proxy_path}"`);
-  const isAlive = await pingProxy(proxy_path);
-
-  if (isAlive) {
-    console.log(`[AUTO-DISCOVERY] ✅ Proxy local/atual respondeu! Mantendo: "${proxy_path}"`);
+  if (proxy_path !== undefined) {
     await setProxyPath(proxy_path);
     return { proxy_path };
   }
 
-  console.log(`[AUTO-DISCOVERY] ⚠️ Proxy atual indisponível. Iniciando Fallback...`);
-
-  // 3. Fallback: Tentativa na URL Cloudflare Absoluta (Se não for a que já falhou)
-  if (proxy_path !== FallbackAbsoluteProxy) {
-    console.log(`[AUTO-DISCOVERY] Testando Fallback Cloudflare: "${FallbackAbsoluteProxy}"`);
-    const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
-    
-    if (isFallbackAlive) {
-      console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Salvando: "${FallbackAbsoluteProxy}"`);
-      await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-      return { proxy_path: FallbackAbsoluteProxy };
-    }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    console.warn(`[AUTO-DISCOVERY] 🔌 Offline no primeiro acesso. Assumindo Cloudflare Worker nativo.`);
+    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+    return { proxy_path: FallbackAbsoluteProxy };
   }
 
-  // 4. Último Recurso: Mantém o que estava configurado, mas avisa que está offline.
-  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu.`);
-  await setProxyPath(proxy_path);
-  return { proxy_path };
+  console.log(`[AUTO-DISCOVERY] Primeira inicialização detectada. Avaliando ambiente...`);
+  
+  const isLocalAlive = await pingProxy(DefaultProxyPath);
+
+  if (isLocalAlive) {
+    console.log(`[AUTO-DISCOVERY] ✅ Servidor nativo da hospedagem respondeu! Mantendo rota relativa.`);
+    await saveConfig('PROXY_PATH', DefaultProxyPath);
+    return { proxy_path: DefaultProxyPath };
+  }
+
+  console.log(`[AUTO-DISCOVERY] ⚠️ Servidor nativo indisponível ou estático (Ex: GitHub Pages). Iniciando Fallback...`);
+
+  const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
+  
+  if (isFallbackAlive) {
+    console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Conectado ao nó Edge!`);
+    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+    return { proxy_path: FallbackAbsoluteProxy };
+  }
+
+  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
+  await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+  return { proxy_path: FallbackAbsoluteProxy };
 }
 ```
 
@@ -4289,202 +4299,6 @@ export const activeView = computed(() => {
 
 ---
 
-## Arquivo: `src/utils/profile-utils.ts`
-
-```ts
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from './db-helpers.ts';
-import { cifrarChaveVapid } from './push-utils.ts';
-import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts';
-import { buildProxyUrl } from '../constants/config.ts';
-
-export async function getServerPublicKey() {
-  const proxyUrl = await buildProxyUrl('/publickey');
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  return await response.json();
-}
-
-export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
-  if ('storage' in navigator && 'persist' in navigator.storage) {
-    try {
-      const concedido = await navigator.storage.persist();
-      if (concedido) {
-        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
-      } else {
-        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
-      }
-      return concedido;
-    } catch (err: any) {
-      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
-      return false;
-    }
-  }
-  return false;
-}
-
-// 🔥 ARQUITETURA: Tornamos o e-mail explicitamente opcional através de um fallback no parâmetro
-export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
-  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
-  // Exigimos estritamente apenas o Nome para não quebrar a UI
-  if (!nome || nome.trim() === "") {
-    throw new Error("Preencha pelo menos o seu Nome.");
-  }
-
-  try {
-    addDebugLog("Step 1: Verificando permissão de notificação...");
-    try {
-      if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida.");
-        }
-      }
-    } catch (notifErr: any) {
-      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
-    }
-
-    addDebugLog("Step 2: Registrando Service Worker...");
-    const registration = await registrarServiceWorker();
-
-    addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const serverPublicKeyJwk = await getServerPublicKey();
-    addDebugLog("Step 3.5: Chave do servidor recebida");
-
-    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
-    let publicKeyJwk: JsonWebKey | undefined = undefined;
-    let privateKeyJwk: JsonWebKey | undefined = undefined;
-
-    let existingProfile = await buscarProfile();
-    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
-      publicKeyJwk = existingProfile.vapidPublicKey;
-      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
-      try {
-        vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
-        } as CryptoKeyPair;
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
-        existingProfile = undefined;
-      }
-    }
-    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
-      addDebugLog("🔑 Gerando novas chaves VAPID...");
-      vapidKeyPair = await generateVAPIDKeys();
-      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
-      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
-    }
-
-    addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) throw new Error("Service Worker registration é null/undefined");
-    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
-    let subscriptionValida = false;
-
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        if (existingProfile) {
-           delete (existingProfile as any).subscription;
-           await salvarProfile(existingProfile);
-        }
-        existingSubscription = null;
-      }
-    }
-    
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
-
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    
-    // Resolve o proxyserver com caminho completo
-    const proxyserver = await buildProxyUrl('/');
-    
-    const subscription = {
-      endpoint: existingSubscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      },
-      proxyserver
-    };
-
-    let e2ePublicKey: JsonWebKey;
-    let e2ePrivateKeyJwk: JsonWebKey;
-
-    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      addDebugLog("📂 Chaves E2E encontradas no perfil.");
-      e2ePublicKey = existingProfile.e2ePublicKey;
-      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
-      try {
-        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
-        const newKeys = await generateE2EEKeys();
-        e2ePublicKey = newKeys.publicEncrypt;
-        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      }
-    } else {
-      addDebugLog("🔑 Gerando novas chaves E2E...");
-      const newKeys = await generateE2EEKeys();
-      e2ePublicKey = newKeys.publicEncrypt;
-      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-    }
-
-    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
-    const profile: ProfileConfig = {
-      name: nome.trim(), 
-      email: email.trim(), // 🔥 Sanitiza a string antes de salvar
-      vapidPublicKey: publicKeyJwk, 
-      vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
-      e2ePublicKey: e2ePublicKey, 
-      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, 
-      createdAt: existingProfile?.createdAt || Date.now(), 
-      updatedAt: Date.now()
-    };
-
-    await salvarProfile(profile);
-    await solicitarArmazenamentoPersistente();
-
-    addDebugLog("✅ Perfil salvo com sucesso.");
-    return profile;
-  } catch (err) {
-    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
-    throw err;
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/jwt-helpers.ts`
 
 ```ts
@@ -4853,6 +4667,223 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
   }
 
   return expandirDadosCompactos(compactData);
+}
+```
+
+---
+
+## Arquivo: `src/utils/profile-utils.ts`
+
+```ts
+// src/utils/profile-utils.ts
+import { salvarProfile, buscarProfile } from './db-helpers.ts';
+import { cifrarChaveVapid } from './push-utils.ts';
+import { registrarServiceWorker } from "../sw/sw-utils.ts";
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { addDebugLog } from './debug-utils.ts';
+import { buildProxyUrl } from '../constants/config.ts';
+import { getConfigValue, saveConfig } from '../stores/config-store.ts';
+
+export async function getServerPublicKey() {
+  try {
+    const cachedKey = await getConfigValue('SERVER_PUBLIC_KEY');
+    if (cachedKey) {
+      addDebugLog("info", "CRYPTO", "Chave do servidor carregada instantaneamente do cache local.");
+      // 🔥 ARQUITETURA: O cache no IndexedDB guarda apenas o {"n": "..."}.
+      // Expandimos para o formato JWK completo exigido pela WebCrypto API na RAM.
+      return expandRsaPublic(JSON.parse(cachedKey));
+    }
+  } catch (e) {
+    addDebugLog("warn", "CRYPTO", "Falha ao ler cache da chave do servidor. Recarregando da rede...");
+  }
+
+  addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
+  const proxyUrl = await buildProxyUrl('/publickey');
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  
+  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
+  
+  const keyData = await response.json();
+  
+  // 🔥 ARQUITETURA: Salvamos exatamente o que veio da rede (A versão minificada {"n": "..."})
+  await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
+  
+  // Expandimos para uso imediato em memória
+  return expandRsaPublic(keyData);
+}
+
+export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const concedido = await navigator.storage.persist();
+      if (concedido) {
+        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
+      } else {
+        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
+      }
+      return concedido;
+    } catch (err: any) {
+      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
+  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
+
+  if (!nome || nome.trim() === "") {
+    throw new Error("Preencha pelo menos o seu Nome.");
+  }
+
+  try {
+    addDebugLog("Step 1: Verificando permissão de notificação...");
+    try {
+      if (Notification.permission === "denied") {
+        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
+      } else if (Notification.permission === "default") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          addDebugLog("⚠️ Permissão de notificação não concedida.");
+        }
+      }
+    } catch (notifErr: any) {
+      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
+    }
+
+    addDebugLog("Step 2: Registrando Service Worker...");
+    const registration = await registrarServiceWorker();
+
+    addDebugLog("Step 3: Buscando chave pública do servidor...");
+    const serverPublicKeyJwk = await getServerPublicKey();
+    addDebugLog("Step 3.5: Chave do servidor garantida");
+
+    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
+    let publicKeyJwk: JsonWebKey | undefined = undefined;
+    let privateKeyJwk: JsonWebKey | undefined = undefined;
+
+    let existingProfile = await buscarProfile();
+    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
+      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
+      publicKeyJwk = existingProfile.vapidPublicKey;
+      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
+      try {
+        vapidKeyPair = {
+          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+        } as CryptoKeyPair;
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
+        existingProfile = undefined;
+      }
+    }
+    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
+      addDebugLog("🔑 Gerando novas chaves VAPID...");
+      vapidKeyPair = await generateVAPIDKeys();
+      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+    }
+
+    addDebugLog("Step 4: Obtendo subscription...");
+    if (!registration) throw new Error("Service Worker registration é null/undefined");
+    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
+    
+    let existingSubscription = await registration.pushManager.getSubscription();
+    let subscriptionValida = false;
+
+    if (existingSubscription) {
+      const profileSub = existingProfile?.subscription;
+      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
+        subscriptionValida = true;
+      } else {
+        await existingSubscription.unsubscribe();
+        if (existingProfile) {
+           delete (existingProfile as any).subscription;
+           await salvarProfile(existingProfile);
+        }
+        existingSubscription = null;
+      }
+    }
+    
+    if (!existingSubscription || !subscriptionValida) {
+      addDebugLog("📝 Criando nova subscription...");
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+      existingSubscription = await registration.pushManager.subscribe({
+        applicationServerKey: new Uint8Array(rawPublicKey),
+        userVisibleOnly: true
+      });
+    }
+
+    const p256dhBuffer = existingSubscription.getKey('p256dh');
+    const authBuffer = existingSubscription.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) {
+      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
+    }
+    
+    // Resolve o proxyserver com caminho completo
+    const proxyserver = await buildProxyUrl('/');
+    
+    const subscription = {
+      endpoint: existingSubscription.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      },
+      proxyserver
+    };
+
+    let e2ePublicKey: JsonWebKey;
+    let e2ePrivateKeyJwk: JsonWebKey;
+
+    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
+      addDebugLog("📂 Chaves E2E encontradas no perfil.");
+      e2ePublicKey = existingProfile.e2ePublicKey;
+      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
+      try {
+        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
+        const newKeys = await generateE2EEKeys();
+        e2ePublicKey = newKeys.publicEncrypt;
+        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+      }
+    } else {
+      addDebugLog("🔑 Gerando novas chaves E2E...");
+      const newKeys = await generateE2EEKeys();
+      e2ePublicKey = newKeys.publicEncrypt;
+      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+    }
+
+    // A chave pública do servidor usada aqui é a que acabou de ser obtida (da rede ou do disco)
+    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
+
+    const profile: ProfileConfig = {
+      name: nome.trim(), 
+      email: email.trim(), 
+      vapidPublicKey: publicKeyJwk, 
+      vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
+      e2ePublicKey: e2ePublicKey, 
+      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, 
+      createdAt: existingProfile?.createdAt || Date.now(), 
+      updatedAt: Date.now()
+    };
+
+    await salvarProfile(profile);
+    await solicitarArmazenamentoPersistente();
+
+    addDebugLog("✅ Perfil salvo com sucesso.");
+    return profile;
+  } catch (err) {
+    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
 }
 ```
 
@@ -6612,6 +6643,77 @@ await build();
 
 ---
 
+## Arquivo: `deno.jsonc`
+
+```json
+{
+  // ============================================================================
+  // 🚀 LOCO PWA - Manifesto do Deno
+  // Mensageiro PWA Descentralizado, Offline-First & E2EE
+  // ============================================================================
+
+  // 📋 Metadados do Projeto
+  "name": "@vanaware/loco",
+  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
+  "version": "0.2.88-mst7og91",
+  "exports": "./main.ts",
+  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
+  "author": "Vanaware",
+  "license": "MIT",
+  
+  "workspace": [
+    "proto/_template",
+    "proto/01-push-messaging"
+  ],
+
+  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+
+  // 📦 Gerenciamento de Dependências
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/http": "jsr:@std/http@^1",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
+    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
+    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+  },
+
+  // 🛠️ Scripts de Automação
+  "tasks": {
+    "test": "deno test --allow-env --allow-net tests/",
+    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
+    "tests": "deno task check && deno task test",
+    "export": "deno run --allow-read --allow-write export.ts"
+  },
+  "exclude": ["build/", "public/"]
+}
+```
+
+---
+
 ## Arquivo: `worker.ts`
 
 ```ts
@@ -6623,10 +6725,15 @@ import { deleteCookie } from "@std/http/cookie";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
+let serverPublicKeyMinifiedCache: any | null = null; // 🔥 Cache dedicado para a versão enxuta
 
 async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
-  if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
-    return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
+  if (serverPrivateKeyCache && serverPublicKeyJwkCache && serverPublicKeyMinifiedCache) {
+    return { 
+      serverPrivateKey: serverPrivateKeyCache, 
+      serverPublicKeyJwk: serverPublicKeyJwkCache,
+      serverPublicKeyMinified: serverPublicKeyMinifiedCache
+    };
   }
 
   const publicKeyStr = env?.SERVER_PUBLIC_KEY;
@@ -6641,8 +6748,12 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
   }
 
   try {
-    let publicKeyJwk = JSON.parse(publicKeyStr);
+    const rawPublicKeyJwk = JSON.parse(publicKeyStr);
+    let publicKeyJwk = { ...rawPublicKeyJwk };
     let privateKeyJwk = JSON.parse(privateKeyStr);
+
+    // 🔥 ARQUITETURA: Mantém a versão original (minificada) para servir via API
+    const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
 
     if (!publicKeyJwk.kty) {
       publicKeyJwk = {
@@ -6682,9 +6793,14 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
 
     serverPrivateKeyCache = serverPrivateKey;
     serverPublicKeyJwkCache = publicKeyJwk;
+    serverPublicKeyMinifiedCache = minifiedPublicKey;
 
     console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
-    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk };
+    return { 
+      serverPrivateKey, 
+      serverPublicKeyJwk: publicKeyJwk,
+      serverPublicKeyMinified: minifiedPublicKey 
+    };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
@@ -6822,7 +6938,7 @@ const workerHandler = {
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS", // 🔥 Restaurado para aceitar apenas POST
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Max-Age": "86400"
@@ -6832,13 +6948,9 @@ const workerHandler = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    const proxyPath = env.PROXY_PATH || "";
-    
-    let targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
-    
-    if (!targetPath.startsWith("/")) {
-      targetPath = "/" + targetPath;
-    }
+    const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
+    const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
+    const isLogout = pathname.endsWith("/logout") || pathname.endsWith("/logout/");
 
     if (!isAllowedOrigin) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
@@ -6849,10 +6961,9 @@ const workerHandler = {
     }
 
     try {
-      const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
+      const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
 
-      // 🔥 ARQUITETURA: Agora a rota /ping recebe o POST
-      if (request.method === "POST" && (targetPath === "/ping" || targetPath === "/ping/")) {
+      if ((request.method === "POST" || request.method === "GET") && isPing) {
         return new Response(JSON.stringify({ 
           status: "ok", 
           service: "loco-proxy",
@@ -6863,14 +6974,15 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
-        return new Response(JSON.stringify(serverPublicKeyJwk), {
+      // 🔥 ARQUITETURA: Agora a API devolve estritamente a chave minificada!
+      if (request.method === "POST" && isPublicKey) {
+        return new Response(JSON.stringify(serverPublicKeyMinified), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
 
-      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
+      if (request.method === "POST" && isLogout) {
         const headers = new Headers(corsHeaders);
         deleteCookie(headers, "session_token", { path: "/" });
         headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
@@ -6881,7 +6993,7 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
+      if (request.method === "POST" && !isPing && !isPublicKey && !isLogout) {
         console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
         const body = await request.json();
@@ -6995,77 +7107,6 @@ const workerHandler = {
 };
 
 export default workerHandler;
-```
-
----
-
-## Arquivo: `deno.jsonc`
-
-```json
-{
-  // ============================================================================
-  // 🚀 LOCO PWA - Manifesto do Deno
-  // Mensageiro PWA Descentralizado, Offline-First & E2EE
-  // ============================================================================
-
-  // 📋 Metadados do Projeto
-  "name": "@vanaware/loco",
-  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.88-mst7og91",
-  "exports": "./main.ts",
-  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
-  "author": "Vanaware",
-  "license": "MIT",
-  
-  "workspace": [
-    "proto/_template",
-    "proto/01-push-messaging"
-  ],
-
-  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-
-  // 📦 Gerenciamento de Dependências
-  "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
-    "@std/fs": "jsr:@std/fs@^1",
-    "@std/http": "jsr:@std/http@^1",
-    "@std/path": "jsr:@std/path@^1",
-    "@std/http/file-server": "jsr:@std/http@^1/file-server",
-    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
-    "preact": "https://esm.sh/preact@10.29.7",
-    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
-    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
-  },
-
-  // 🛠️ Scripts de Automação
-  "tasks": {
-    "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
-    "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write export.ts"
-  },
-  "exclude": ["build/", "public/"]
-}
 ```
 
 ---

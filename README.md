@@ -9,7 +9,7 @@ O **Loco** é um Progressive Web App (PWA) de mensagens instantâneas descentral
 No Loco, **cada navegador é um nó autônomo** que mantém seu próprio histórico local e suas próprias chaves criptográficas.
 
 * **Sem Servidor de Mensagens:** O servidor backend (Deno 2.x) atua exclusivamente como um *proxy cego* de entrega de notificações Web Push e provedor de infraestrutura de chaves temporárias para envelopes VAPID.
-* **Privacidade por Design:** O servidor não armazena logs de conversas, listas de contatos, metadados ou conteúdo de mensagens.
+* **Privacidade e Anonimato por Design:** A criação do perfil exige apenas um Nome ou pseudônimo (o E-mail é estritamente opcional). O servidor não armazena logs de conversas, listas de contatos, metadados ou conteúdo de mensagens.
 * **Resistência à Evicção:** Os dados do usuário residem unicamente no dispositivo local através do IndexedDB e Origin Private File System (OPFS), protegidos por solicitações de Armazenamento Persistente.
 
 ```text
@@ -39,35 +39,6 @@ O Roteador (`sw-handshakes.ts`) funciona como uma "Máquina de Estados" assíncr
 * **`FluxoIn` (Entrada):** Pacotes recebidos, descriptografados pelo Service Worker e enfileirados para processamento local por módulos especializados.
 * **`FluxoOut` (Saída):** Pacotes preparados pela UI/SW, enfileirados, comprimidos e cifrados para envio à rede (com controle de até 3 tentativas e fallback em restabelecimento de conexão).
 
-```text
-               +-----------------------------------+
-               |     Ações do Usuário / PUSH       |
-               +-----------------+-----------------+
-                                 |
-                                 v
-               +-----------------+-----------------+
-               |     IndexedDB: Handshake_DB       |
-               +--------+-----------------+--------+
-                        |                 |
-             +----------+                 +----------+
-             |                                       |
-             v                                       v
-   +-------------------+                   +-------------------+
-   |   FluxoIn (IN)    |                   |   FluxoOut (OUT)  |
-   | Status: recebido  |                   | Status: pendente  |
-   |   -> processado   |                   |   -> enviado      |
-   +---------+---------+                   +---------+---------+
-             |                                       |
-             v                                       v
-   +-------------------+                   +-------------------+
-   | Módulos Handshake |                   |  Proxy Web Push   |
-   | (mensagem,        |                   |  (AES-GCM +       |
-   |  contato,         |                   |   RSA + JWT)      |
-   |  profile)         |                   +-------------------+
-   +-------------------+
-
-```
-
 ### 2.1. Módulos Especializados (As Rotas)
 
 O Roteador distribui os payloads descodificados para módulos especialistas localizados em `src/handshakes/`:
@@ -90,10 +61,6 @@ Para garantir resiliência extrema em redes instáveis ou quando contatos atuali
 2. **Zero `localStorage`:** É terminantemente proibido utilizar `localStorage` devido a bloqueios síncronos da I/O thread do navegador. Todo o estado persistente utiliza a camada IndexedDB (`src/utils/db-helpers.ts`) via `idb-keyval`.
 3. **Isolamento de Processamento:** Operações síncronas pesadas (compressão GZIP com `fflate`, geração de chaves RSA/ECDSA com WebCrypto, parsing de QR Code, Minificação de Chaves) são executadas em segundo plano ou no Service Worker para manter a UI fluída em 60 FPS.
 4. **Interface Reativa:** Construída com **Preact**, gerenciamento de estado via **Signals** (`@preact/signals`) e componentes visuais do **Material Design 3** (`@material/web`).
-
-### 3.2. Padrão Obrigatório de Documentação Tática
-
-Todas as funções utilitárias em `src/utils/` e orquestradores no Service Worker devem incluir comentários em formato **JSDoc**, especificando limites de payload, precondições de segurança e propósitos arquiteturais.
 
 ---
 
@@ -130,7 +97,7 @@ Objetos JWK extensos são reduzidos, eliminando a redundância da WebCrypto API,
 
 | **Atributo Original** | **Atributo Compacto (CompactContact)** | **Descrição** |
 | --- | --- | --- |
-| `email` | `em` | E-mail do contato |
+| `email` | `em` | E-mail do contato (Opcional) |
 | `name` | `nm` | Nome do contato |
 | `vapidPublicKey` | `vp` | Chave VAPID Pública Minificada (Apenas coordenadas X e Y) |
 | `e2ePublicKey` | `ep` | Chave RSA Pública E2E Minificada (Apenas módulo N) |
@@ -138,7 +105,7 @@ Objetos JWK extensos são reduzidos, eliminando a redundância da WebCrypto API,
 | `subscription.keys.p256dh` | `sp` | Chave p256dh da subscrição Push |
 | `subscription.keys.auth` | `sa` | Chave de autorização Push |
 | `vapidPrivateKeyEnvelope` | `ve` | Envelope da chave VAPID cifrada |
-| `subscription.proxyserver` | `ps` | Endereço estrito do Servidor Proxy |
+| `subscription.proxyserver` | `ps` | Endereço estrito do Servidor Proxy (Auto-Discovery) |
 | `trusted` | `tr` | Indicador de contato confiável |
 | `request` | `req` | Flag de solicitação de resposta |
 
@@ -170,163 +137,26 @@ Os dados são divididos em bancos de dados isolados utilizando a biblioteca `idb
 
 | **Nome do Banco (DB_NAMES)** | **Chave Primária** | **Tipo de Dado** | **Finalidade** |
 | --- | --- | --- | --- |
-| `AppConfig_DB` | `"profile"` | `ProfileConfig` | Perfil do usuário local, chaves privadas/públicas, envelope VAPID e subscrição Push. |
+| `AppConfig_DB` | `"profile"` | `ProfileConfig` | Perfil do usuário local, chaves, configurações de rede, envelope VAPID e subscrição Push. |
 | `BrowserB_Contatos_DB` | Hash SHA-256 (`vapidPublicKey`) | `Contato` | Agenda de contatos, chaves E2E e estado de confiança (`me` / `trusted`). |
 | `Chat_DB` | ID da Mensagem | `Chat` | Histórico de mensagens unificado (recebidas/enviadas) com indexação virtual. |
 | `Handshake_DB` | ID do Handshake (`jti`) | `Handshake` | Fila assíncrona da Máquina de Estados (fluxos `in` e `out`). |
 
 ---
 
-## 8. Mapeamento do Código Fonte
+## 8. Diagnóstico e Resolução de Problemas
 
-```text
-loco/
-├── src/
-│   ├── app.tsx                 # Ponto de entrada da SPA principal.
-│   ├── profile.tsx / .html     # Gerenciamento de perfil, QR Code do usuário e chaves.
-│   ├── share.tsx / .html       # Leitor de QR Code via câmera e importador de convites.
-│   ├── logout.tsx / .html      # Expurgo completo do IndexedDB, Caches e OPFS.
-│   ├── service-worker.ts       # Orquestrador do Service Worker.
-│   ├── styles.css              # Tema Material Design 3 e regras de layout responsivo.
-│   ├── styles.d.ts             # Declaração de módulo para import de CSS.
-│   │
-│   ├── components/             # Componentes de interface (Preact)
-│   │   ├── ChatSection.tsx          # Timeline unificada de conversas e caixa de mensagem.
-│   │   ├── ContatosSection.tsx      # Lista de contatos na barra lateral.
-│   │   ├── ContactDetailSection.tsx # Cartão do contato e diagnóstico de confiança.
-│   │   ├── AdvancedSection.tsx      # Painel de diagnósticos do sistema e requisitos.
-│   │   └── DebugPanel.tsx           # Terminal visual de logs de depuração em tempo real.
-│   │
-│   ├── signals/                # Gerenciamento de estado global
-│   │   └── state.ts            # Signals da UI (visões mobile, logs, seleção de chats).
-│   │
-│   ├── stores/                 # Ponte de reatividade entre IndexedDB e Signals
-│   │   ├── profileStore.ts     # Estado reativo do Perfil.
-│   │   ├── contatosStore.ts    # Estado reativo da lista de Contatos.
-│   │   ├── mensagensStore.ts   # Estado reativo de Mensagens.
-│   │   └── index.ts            # Exportador unificado de stores.
-│   │
-│   ├── handshakes/             # Processadores de rotas de negócio (Worker Thread)
-│   │   ├── hand-profile.ts     # Processamento de solicitações e respostas de perfil.
-│   │   ├── hand-contato.ts     # Avaliação do ciclo de confiança ('me' e 'trusted').
-│   │   └── hand-mensagem.ts    # Auto-Ack de leitura, notificações e gravações de mensagens.
-│   │
-│   ├── utils/                  # Utilitários puros
-│   │   ├── share-utils.ts      # [NÚCLEO] Compactação e descompactação de convites.
-│   │   ├── jwt-helpers.ts      # Criação, assinatura (ES256) e verificação de JWTs.
-│   │   ├── push-utils.ts       # Criptografia híbrida (AES-GCM + RSA-OAEP).
-│   │   ├── profile-utils.ts    # Geração de chaves VAPID/RSA e registros de Push.
-│   │   ├── db-helpers.ts       # Abstração de I/O do IndexedDB via idb-keyval.
-│   │   ├── crypto-utils.ts     # [NÚCLEO] Extratores/Injetores de Minificação (Static Schema Compression).
-│   │   ├── id-utils.ts         # Gerador de IDs criptográficos.
-│   │   ├── self-contact-utils.ts# Regras p/ auto-mensagem.
-│   │   └── sw-utils.ts         # Registro e verificação do Service Worker.
-│   │
-│   ├── sw/                     # Submódulos do Service Worker
-│   │   ├── cache.ts            # Gerenciamento de cache offline (CacheStorage API).
-│   │   ├── push.ts             # Interceptador e roteador de notificações Push.
-│   │   ├── click.ts            # Manipulador de cliques em notificações do SO.
-│   │   └── sw-handshakes.ts    # [NÚCLEO] Processador da fila de Handshakes.
-│   │
-│   └── types/                  # Definições de tipos TypeScript
-│       └── material-web.d.ts   # Tipagem JSX para Web Components do Material Design 3.
-│
-├── main.ts                     # Servidor Deno HTTP (Proxy cego CORS e WebPush FCM).
-├── build.ts                    # Script de bundle, injeção de cache e geração de chaves RSA minificadas.
-├── deno.json                   # Configurações do Deno 2.x, import maps e tasks.
-└── README.md                   # Documentação técnica do projeto.
-
-```
-
----
-
-## 9. Comandos e Execução
-
-Todos os comandos automatizados utilizam a interface de linha de comando (CLI) do Deno 2.x e encontram-se rigorosamente mapeados no arquivo de configuração `deno.json`:
-
-* **Processamento de Compilação e Empacotamento de Artefatos:**
-```bash
-deno task build
-
-```
-
-
-*Promove-se a compilação exaustiva dos códigos-fonte em linguagens TSX e JavaScript, mediante a qual se efetua a transferência dos ativos contidos no diretório `public/` para a pasta de destino `dist/`, procedendo-se à geração das chaves criptográficas RSA do servidor — na eventualidade de sua inexistência — e à subsequente injeção da relação de recursos no âmbito do Service Worker.*
-* **Execução do Servidor em Âmbito de Produção:**
-```bash
-deno task start
-
-```
-
-
-*Determina-se a inicialização da instância do servidor Deno, a qual passa a operar formalmente por intermédio da porta de comunicação `http://localhost:8000`.*
-* **Monitoramento e Modificação Dinâmica em Tempo de Desenvolvimento:**
-```bash
-deno task dev
-
-```
-
-
-*Garante-se a recompilação automática do pacote de artefatos bem como a imediata reinicialização do servidor HTTP a cada alteração detectada nos arquivos-fonte da aplicação.*
-* **Validação e Verificação da Integridade Funcional:**
-```bash
-deno task test
-
-```
-
-
-*Procede-se à execução formal dos protocolos de testes automatizados destinados à aferição da integridade e corretude do sistema.*
-* **Aferição Cautelar de Tipagem e Conformidade Sintática (TypeScript):**
-```bash
-deno task typecheck
-
-```
-
-
-*Aplica-se a verificação rigorosa estática de tipos, visando assegurar a plena conformidade do código perante as especificações formais de tipagem do TypeScript.*
-* **Expurgo e Sanitização dos Arquivos Compilados:**
-```bash
-deno task clean
-
-```
-
-
-*Operabiliza-se a remoção completa e definitiva de todos os artefatos previamente gerados e armazenados no diretório de distribuição.*
-
----
-
-## 10. Diagnóstico e Resolução de Problemas
-
-* **O Service Worker não atualiza as mudanças no frontend:**
-* *Causa:* O navegador reteve a versão anterior no estado "Aguardando ativação".
-* *Solução:* Acesse `F12 > Application > Service Workers` e clique em **Update / Skip Waiting**, ou execute a ação de Logout para purgar os caches.
-
-
-* **Erro de capacidade no QR Code (`code length overflow`):**
-* *Causa:* Os dados serializados excederam o limite máximo da matriz do QR Code.
-* *Solução:* Certifique-se de que os objetos de perfil ou contato estejam passando pela função `extrairDadosCompactos()` em `src/utils/share-utils.ts` antes da geração da imagem. A Compressão por Esquema Estático reduz enormemente este risco.
+* **Erro "The string to be decoded is not correctly encoded" ao importar contato:**
+* *Causa:* Quebras de linha ou espaços invisíveis ao colar a string do token.
+* *Solução (Já Implementada):* A camada `jwt-helpers.ts` possui sanitização defensiva via Expressão Regular (`/[^A-Za-z0-9\+\/]/g`) que expurga formatações corrompidas de *copy/paste* antes da decodificação Base64.
 
 
 * **Rejeição HTTP 413 no Envio de Mensagem (`Payload muito grande`):**
 * *Causa:* O JWT ultrapassou o limite de 4.096 bytes imposto pelo serviço Web Push (FCM).
-* *Solução:* O payload cifrado deve conter apenas os atributos compactados da interface `HandshakeRotas` e utilizar o compressor GZIP (`fflate`).
+* *Solução:* O payload cifrado utiliza *Static Schema Compression* e o compressor GZIP (`fflate`).
 
 
-## 11. Instalação do Deno Automarizada
+* **Erro de Rota de Push Proxy e Falha de CORS:**
+* *Solução:* Acesse as "Configurações" do App e clique em "Auto-Discovery". O sistema remapeará a sua rota estática (como GitHub Pages) para o Worker público de *fallback* ativo.
 
 
-```sh
-apt-get update && apt-get install -y unzip
-curl -fsSL [https://deno.land/install.sh](https://deno.land/install.sh) | sh -s -- -y
-
-```
-
-
-## 12. Lançamento de nova versão (Exemplo de CD)
-
-
-```sh
-git tag -a v0.2 - m "Release v0.2: Nova esteira de CI/CD"
-git push origin v0.2
-
-```

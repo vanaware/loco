@@ -6,10 +6,15 @@ import { deleteCookie } from "@std/http/cookie";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
+let serverPublicKeyMinifiedCache: any | null = null; // 🔥 Cache dedicado para a versão enxuta
 
 async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
-  if (serverPrivateKeyCache && serverPublicKeyJwkCache) {
-    return { serverPrivateKey: serverPrivateKeyCache, serverPublicKeyJwk: serverPublicKeyJwkCache };
+  if (serverPrivateKeyCache && serverPublicKeyJwkCache && serverPublicKeyMinifiedCache) {
+    return { 
+      serverPrivateKey: serverPrivateKeyCache, 
+      serverPublicKeyJwk: serverPublicKeyJwkCache,
+      serverPublicKeyMinified: serverPublicKeyMinifiedCache
+    };
   }
 
   const publicKeyStr = env?.SERVER_PUBLIC_KEY;
@@ -24,8 +29,12 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
   }
 
   try {
-    let publicKeyJwk = JSON.parse(publicKeyStr);
+    const rawPublicKeyJwk = JSON.parse(publicKeyStr);
+    let publicKeyJwk = { ...rawPublicKeyJwk };
     let privateKeyJwk = JSON.parse(privateKeyStr);
+
+    // 🔥 ARQUITETURA: Mantém a versão original (minificada) para servir via API
+    const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
 
     if (!publicKeyJwk.kty) {
       publicKeyJwk = {
@@ -65,9 +74,14 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
 
     serverPrivateKeyCache = serverPrivateKey;
     serverPublicKeyJwkCache = publicKeyJwk;
+    serverPublicKeyMinifiedCache = minifiedPublicKey;
 
     console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
-    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk };
+    return { 
+      serverPrivateKey, 
+      serverPublicKeyJwk: publicKeyJwk,
+      serverPublicKeyMinified: minifiedPublicKey 
+    };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
@@ -205,7 +219,7 @@ const workerHandler = {
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS", // 🔥 Restaurado para aceitar apenas POST
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Max-Age": "86400"
@@ -215,13 +229,9 @@ const workerHandler = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    const proxyPath = env.PROXY_PATH || "";
-    
-    let targetPath = pathname.startsWith(proxyPath) ? pathname.slice(proxyPath.length) : pathname;
-    
-    if (!targetPath.startsWith("/")) {
-      targetPath = "/" + targetPath;
-    }
+    const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
+    const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
+    const isLogout = pathname.endsWith("/logout") || pathname.endsWith("/logout/");
 
     if (!isAllowedOrigin) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
@@ -232,10 +242,9 @@ const workerHandler = {
     }
 
     try {
-      const { serverPrivateKey, serverPublicKeyJwk } = await getOrInitServerKeys(env);
+      const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
 
-      // 🔥 ARQUITETURA: Agora a rota /ping recebe o POST
-      if (request.method === "POST" && (targetPath === "/ping" || targetPath === "/ping/")) {
+      if ((request.method === "POST" || request.method === "GET") && isPing) {
         return new Response(JSON.stringify({ 
           status: "ok", 
           service: "loco-proxy",
@@ -246,14 +255,15 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && (targetPath === "/publickey" || targetPath === "/publickey/")) {
-        return new Response(JSON.stringify(serverPublicKeyJwk), {
+      // 🔥 ARQUITETURA: Agora a API devolve estritamente a chave minificada!
+      if (request.method === "POST" && isPublicKey) {
+        return new Response(JSON.stringify(serverPublicKeyMinified), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
 
-      if (request.method === "POST" && (targetPath === "/logout" || targetPath === "/logout/")) {
+      if (request.method === "POST" && isLogout) {
         const headers = new Headers(corsHeaders);
         deleteCookie(headers, "session_token", { path: "/" });
         headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
@@ -264,7 +274,7 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && (targetPath === "" || targetPath === "/")) {
+      if (request.method === "POST" && !isPing && !isPublicKey && !isLogout) {
         console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
         const body = await request.json();
