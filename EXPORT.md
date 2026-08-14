@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.84-mss8g2g2** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.86-mss9n23b** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.84-mss8g2g2] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.86-mss9n23b] - Modo: MAIN
 
-Gerado automaticamente em: 8/13/2026, 10:10:34 PM
+Gerado automaticamente em: 8/13/2026, 10:26:03 PM
 
 ---
 
@@ -667,154 +667,6 @@ export function ContatosSection() {
           </md-list>
         )}
       </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ProfileSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-import { navigate } from '../utils/router.ts';
-
-export function ProfileSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const p = profile.value;
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
-
-  useEffect(() => {
-    const renderQrCode = () => {
-      if (!p) return;
-      try {
-        const payloadBinario = gerarPayloadQrCodeCompacto(p);
-        const qr = qrcode(0, 'L');
-        qr.addData(payloadBinario);
-        qr.make();
-        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
-      } catch (e) {
-        console.error("Falha ao gerar QR Code:", e);
-        qrCodeDataUrl.value = null;
-      }
-    };
-
-    if (temChaveVapid) {
-      renderQrCode();
-    } else {
-      qrCodeDataUrl.value = null;
-    }
-  }, [p, temChaveVapid]);
-
-  const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
-    try {
-      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(pNovo);
-      
-      if (eraNovo) {
-        showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        navigate(''); 
-      } else {
-        showToast(`✅ Perfil atualizado!`, "success");
-      }
-    } catch (err: any) {
-      addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
-    }
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      if (!p) return showToast("Salve o perfil primeiro.", "error");
-      const serverPublicKeyJwk = await getServerPublicKey();
-
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
-
-      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      
-      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
-
-  const labelBotaoPrincipal = !temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Atualizar Perfil";
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      
-      <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
-        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
-        <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
-          Este nome será visível para os contatos que você convidar.
-        </p>
-        
-        <md-outlined-text-field
-          label="Seu Nome"
-          placeholder="Ex: João da Silva"
-          value={profileName.value}
-          onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-          style="margin-bottom: 12px;"
-        ></md-outlined-text-field>
-        
-        <md-outlined-text-field
-          label="Seu E-mail"
-          placeholder="Ex: joao@email.com"
-          value={profileEmail.value}
-          onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-          style="margin-bottom: 16px;"
-        ></md-outlined-text-field>
-
-        <div style="display: flex; gap: 8px; flex-direction: column;">
-          <md-filled-button 
-            onClick={handleGerarOuCorrigir} 
-            style="width: 100%;"
-            disabled={!profileName.value.trim() || !profileEmail.value.trim() ? true : undefined}
-          >
-            {labelBotaoPrincipal}
-          </md-filled-button>
-          
-          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={!temChaveVapid ? true : undefined}>
-            🔗 Compartilhar Perfil
-          </md-outlined-button>
-        </div>
-      </div>
-
-      {qrCodeDataUrl.value && temChaveVapid && (
-        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
-            Seu QR Code de Convite
-          </h3>
-          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
-            Mostre isso para um amigo escanear pelo App Loco.
-          </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
-        </div>
-      )}
-
     </div>
   );
 }
@@ -1878,6 +1730,213 @@ export function SettingsSection() {
 
 ---
 
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
+
+export function ProfileSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false); // 🔥 Novo estado de edição
+
+  useEffect(() => {
+    carregarProfile();
+  }, []);
+
+  const p = profile.value;
+  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+
+  // 🔥 ARQUITETURA: Máquina de estado inicial
+  // Se não tem chave gerada, o usuário está no Onboarding. Forçamos o modo de edição.
+  useEffect(() => {
+    if (!temChaveVapid) {
+      isEditing.value = true;
+    } else {
+      isEditing.value = false;
+    }
+  }, [temChaveVapid]);
+
+  useEffect(() => {
+    const renderQrCode = () => {
+      if (!p) return;
+      try {
+        const payloadBinario = gerarPayloadQrCodeCompacto(p);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (temChaveVapid) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [p, temChaveVapid]);
+
+  const handleGerarOuCorrigir = async () => {
+    const eraNovo = !temChaveVapid;
+    try {
+      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(pNovo);
+      
+      isEditing.value = false; // Sai do modo de edição após salvar com sucesso
+
+      if (eraNovo) {
+        showToast(`✅ Perfil inicializado com sucesso!`, "success");
+        navigate(''); 
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    if (p) {
+      // Reverte os valores dos inputs para os dados consolidados no banco
+      profileName.value = p.name || '';
+      profileEmail.value = p.email || '';
+    }
+    isEditing.value = false;
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+      const serverPublicKeyJwk = await getServerPublicKey();
+
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
+        
+        {/* 🔥 Cabeçalho com Ícone de Edição */}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>account_circle</md-icon> Identidade Local
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {temChaveVapid && !isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
+            
+            {!temChaveVapid && (
+               <p style="font-size: 0.85rem; color: #666; margin-bottom: 8px; text-align: center;">
+                 Este nome será visível para os contatos que você convidar.
+               </p>
+            )}
+
+            <md-outlined-text-field
+              label="Seu Nome"
+              placeholder="Ex: João da Silva"
+              value={profileName.value}
+              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+            
+            <md-outlined-text-field
+              label="Seu E-mail (Opcional)"
+              placeholder="Ex: joao@email.com"
+              value={profileEmail.value}
+              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <md-filled-button 
+                onClick={handleGerarOuCorrigir} 
+                style="flex: 1;"
+                disabled={!profileName.value.trim() ? true : undefined}
+              >
+                {!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar"}
+              </md-filled-button>
+              
+              {temChaveVapid && (
+                <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                  Cancelar
+                </md-outlined-button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* 🔥 Visão de Leitura (Read-Only) */}
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {p?.name?.trim() || "Anônimo"}
+            </h2>
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Compartilhar Link de Convite
+              </md-outlined-button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 🔥 O QR Code some durante a edição para manter a tela focada */}
+      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
+        <div class="container" style="background: #fff; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+            Seu QR Code
+          </h3>
+          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
+            Mostre isso para um amigo escanear pelo App Loco.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
+        </div>
+      )}
+
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
@@ -2026,7 +2085,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.84-mss8g2g2";
+export const APP_VERSION = "0.2.86-mss9n23b";
 
 ```
 
@@ -3438,193 +3497,6 @@ export async function obterHashProprio(profile: ProfileConfig | null): Promise<s
 
 ---
 
-## Arquivo: `src/utils/profile-utils.ts`
-
-```ts
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from './db-helpers.ts';
-import { cifrarChaveVapid } from './push-utils.ts';
-import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts';
-import { buildProxyUrl } from '../constants/config.ts';
-
-export async function getServerPublicKey() {
-  const proxyUrl = await buildProxyUrl('/publickey');
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  return await response.json();
-}
-
-export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
-  if ('storage' in navigator && 'persist' in navigator.storage) {
-    try {
-      const concedido = await navigator.storage.persist();
-      if (concedido) {
-        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
-      } else {
-        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
-      }
-      return concedido;
-    } catch (err: any) {
-      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
-      return false;
-    }
-  }
-  return false;
-}
-
-export async function gerarProfileCompleto(nome: string, email: string): Promise<ProfileConfig> {
-  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
-  if (!nome || !email) {
-    throw new Error("Preencha Nome e E-mail primeiro.");
-  }
-
-  try {
-    addDebugLog("Step 1: Verificando permissão de notificação...");
-    try {
-      if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida.");
-        }
-      }
-    } catch (notifErr: any) {
-      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
-    }
-
-    addDebugLog("Step 2: Registrando Service Worker...");
-    const registration = await registrarServiceWorker();
-
-    addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const serverPublicKeyJwk = await getServerPublicKey();
-    addDebugLog("Step 3.5: Chave do servidor recebida");
-
-    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
-    let publicKeyJwk: JsonWebKey | undefined = undefined;
-    let privateKeyJwk: JsonWebKey | undefined = undefined;
-
-    let existingProfile = await buscarProfile();
-    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
-      publicKeyJwk = existingProfile.vapidPublicKey;
-      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
-      try {
-        vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
-        } as CryptoKeyPair;
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
-        existingProfile = undefined;
-      }
-    }
-    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
-      addDebugLog("🔑 Gerando novas chaves VAPID...");
-      vapidKeyPair = await generateVAPIDKeys();
-      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
-      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
-    }
-
-    addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) throw new Error("Service Worker registration é null/undefined");
-    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
-    let subscriptionValida = false;
-
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        if (existingProfile) {
-           delete (existingProfile as any).subscription;
-           await salvarProfile(existingProfile);
-        }
-        existingSubscription = null;
-      }
-    }
-    
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
-
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    
-    // Resolve o proxyserver com caminho completo
-    const proxyserver = await buildProxyUrl('/');
-    
-    const subscription = {
-      endpoint: existingSubscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      },
-      proxyserver
-    };
-
-    let e2ePublicKey: JsonWebKey;
-    let e2ePrivateKeyJwk: JsonWebKey;
-
-    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      addDebugLog("📂 Chaves E2E encontradas no perfil.");
-      e2ePublicKey = existingProfile.e2ePublicKey;
-      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
-      try {
-        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
-        const newKeys = await generateE2EEKeys();
-        e2ePublicKey = newKeys.publicEncrypt;
-        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      }
-    } else {
-      addDebugLog("🔑 Gerando novas chaves E2E...");
-      const newKeys = await generateE2EEKeys();
-      e2ePublicKey = newKeys.publicEncrypt;
-      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-    }
-
-    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
-    const profile: ProfileConfig = {
-      name: nome, email: email, vapidPublicKey: publicKeyJwk, vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, e2ePublicKey: e2ePublicKey, e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, createdAt: existingProfile?.createdAt || Date.now(), updatedAt: Date.now()
-    };
-
-    await salvarProfile(profile);
-    await solicitarArmazenamentoPersistente();
-
-    addDebugLog("✅ Perfil salvo com sucesso.");
-    return profile;
-  } catch (err) {
-    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
-    throw err;
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/db-helpers.ts`
 
 ```ts
@@ -4787,6 +4659,202 @@ export const activeView = computed(() => {
   if (hash === '#settings') return 'settings';
   return 'home';
 });
+```
+
+---
+
+## Arquivo: `src/utils/profile-utils.ts`
+
+```ts
+// src/utils/profile-utils.ts
+import { salvarProfile, buscarProfile } from './db-helpers.ts';
+import { cifrarChaveVapid } from './push-utils.ts';
+import { registrarServiceWorker } from "../sw/sw-utils.ts";
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url } from './crypto-utils.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { addDebugLog } from './debug-utils.ts';
+import { buildProxyUrl } from '../constants/config.ts';
+
+export async function getServerPublicKey() {
+  const proxyUrl = await buildProxyUrl('/publickey');
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
+  return await response.json();
+}
+
+export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const concedido = await navigator.storage.persist();
+      if (concedido) {
+        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
+      } else {
+        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
+      }
+      return concedido;
+    } catch (err: any) {
+      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+// 🔥 ARQUITETURA: Tornamos o e-mail explicitamente opcional através de um fallback no parâmetro
+export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
+  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
+
+  // Exigimos estritamente apenas o Nome para não quebrar a UI
+  if (!nome || nome.trim() === "") {
+    throw new Error("Preencha pelo menos o seu Nome.");
+  }
+
+  try {
+    addDebugLog("Step 1: Verificando permissão de notificação...");
+    try {
+      if (Notification.permission === "denied") {
+        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
+      } else if (Notification.permission === "default") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          addDebugLog("⚠️ Permissão de notificação não concedida.");
+        }
+      }
+    } catch (notifErr: any) {
+      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
+    }
+
+    addDebugLog("Step 2: Registrando Service Worker...");
+    const registration = await registrarServiceWorker();
+
+    addDebugLog("Step 3: Buscando chave pública do servidor...");
+    const serverPublicKeyJwk = await getServerPublicKey();
+    addDebugLog("Step 3.5: Chave do servidor recebida");
+
+    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
+    let publicKeyJwk: JsonWebKey | undefined = undefined;
+    let privateKeyJwk: JsonWebKey | undefined = undefined;
+
+    let existingProfile = await buscarProfile();
+    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
+      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
+      publicKeyJwk = existingProfile.vapidPublicKey;
+      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
+      try {
+        vapidKeyPair = {
+          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+        } as CryptoKeyPair;
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
+        existingProfile = undefined;
+      }
+    }
+    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
+      addDebugLog("🔑 Gerando novas chaves VAPID...");
+      vapidKeyPair = await generateVAPIDKeys();
+      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+    }
+
+    addDebugLog("Step 4: Obtendo subscription...");
+    if (!registration) throw new Error("Service Worker registration é null/undefined");
+    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
+    
+    let existingSubscription = await registration.pushManager.getSubscription();
+    let subscriptionValida = false;
+
+    if (existingSubscription) {
+      const profileSub = existingProfile?.subscription;
+      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
+        subscriptionValida = true;
+      } else {
+        await existingSubscription.unsubscribe();
+        if (existingProfile) {
+           delete (existingProfile as any).subscription;
+           await salvarProfile(existingProfile);
+        }
+        existingSubscription = null;
+      }
+    }
+    
+    if (!existingSubscription || !subscriptionValida) {
+      addDebugLog("📝 Criando nova subscription...");
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+      existingSubscription = await registration.pushManager.subscribe({
+        applicationServerKey: new Uint8Array(rawPublicKey),
+        userVisibleOnly: true
+      });
+    }
+
+    const p256dhBuffer = existingSubscription.getKey('p256dh');
+    const authBuffer = existingSubscription.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) {
+      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
+    }
+    
+    // Resolve o proxyserver com caminho completo
+    const proxyserver = await buildProxyUrl('/');
+    
+    const subscription = {
+      endpoint: existingSubscription.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      },
+      proxyserver
+    };
+
+    let e2ePublicKey: JsonWebKey;
+    let e2ePrivateKeyJwk: JsonWebKey;
+
+    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
+      addDebugLog("📂 Chaves E2E encontradas no perfil.");
+      e2ePublicKey = existingProfile.e2ePublicKey;
+      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
+      try {
+        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
+        const newKeys = await generateE2EEKeys();
+        e2ePublicKey = newKeys.publicEncrypt;
+        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+      }
+    } else {
+      addDebugLog("🔑 Gerando novas chaves E2E...");
+      const newKeys = await generateE2EEKeys();
+      e2ePublicKey = newKeys.publicEncrypt;
+      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+    }
+
+    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
+
+    const profile: ProfileConfig = {
+      name: nome.trim(), 
+      email: email.trim(), // 🔥 Sanitiza a string antes de salvar
+      vapidPublicKey: publicKeyJwk, 
+      vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
+      e2ePublicKey: e2ePublicKey, 
+      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, 
+      createdAt: existingProfile?.createdAt || Date.now(), 
+      updatedAt: Date.now()
+    };
+
+    await salvarProfile(profile);
+    await solicitarArmazenamentoPersistente();
+
+    addDebugLog("✅ Perfil salvo com sucesso.");
+    return profile;
+  } catch (err) {
+    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
+}
 ```
 
 ---
@@ -6265,7 +6333,7 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.84-mss8g2g2",
+  "version": "0.2.86-mss9n23b",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",

@@ -12,6 +12,7 @@ import { navigate } from '../utils/router.ts';
 
 export function ProfileSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false); // 🔥 Novo estado de edição
 
   useEffect(() => {
     carregarProfile();
@@ -19,6 +20,16 @@ export function ProfileSection() {
 
   const p = profile.value;
   const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+
+  // 🔥 ARQUITETURA: Máquina de estado inicial
+  // Se não tem chave gerada, o usuário está no Onboarding. Forçamos o modo de edição.
+  useEffect(() => {
+    if (!temChaveVapid) {
+      isEditing.value = true;
+    } else {
+      isEditing.value = false;
+    }
+  }, [temChaveVapid]);
 
   useEffect(() => {
     const renderQrCode = () => {
@@ -45,10 +56,11 @@ export function ProfileSection() {
   const handleGerarOuCorrigir = async () => {
     const eraNovo = !temChaveVapid;
     try {
-      // 🔥 O e-mail agora pode ser passado em branco tranquilamente
       const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
       await atualizarProfile(pNovo);
       
+      isEditing.value = false; // Sai do modo de edição após salvar com sucesso
+
       if (eraNovo) {
         showToast(`✅ Perfil inicializado com sucesso!`, "success");
         navigate(''); 
@@ -59,6 +71,15 @@ export function ProfileSection() {
       addDebugLog(`❌ Erro no processo: ${err.message}`);
       showToast(`❌ Falha: ${err.message}`, "error");
     }
+  };
+
+  const handleCancelarEdicao = () => {
+    if (p) {
+      // Reverte os valores dos inputs para os dados consolidados no banco
+      profileName.value = p.name || '';
+      profileEmail.value = p.email || '';
+    }
+    isEditing.value = false;
   };
 
   const handleCompartilhar = async () => {
@@ -82,54 +103,90 @@ export function ProfileSection() {
     }
   };
 
-  const labelBotaoPrincipal = !temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Atualizar Perfil";
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
       
-      <div class="container" style="background: var(--md-sys-color-surface); margin-bottom: 0;">
-        <h2 style="font-size: 1.1rem; margin-bottom: 12px;">👤 Seus Dados Pessoais</h2>
-        <p style="font-size: 0.85rem; color: #666; margin-bottom: 16px;">
-          Este nome será visível para os contatos que você convidar.
-        </p>
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
         
-        <md-outlined-text-field
-          label="Seu Nome"
-          placeholder="Ex: João da Silva"
-          value={profileName.value}
-          onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-          style="margin-bottom: 12px;"
-        ></md-outlined-text-field>
-        
-        <md-outlined-text-field
-          label="Seu E-mail (Opcional)"
-          placeholder="Ex: joao@email.com"
-          value={profileEmail.value}
-          onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-          style="margin-bottom: 16px;"
-        ></md-outlined-text-field>
-
-        <div style="display: flex; gap: 8px; flex-direction: column;">
-          <md-filled-button 
-            onClick={handleGerarOuCorrigir} 
-            style="width: 100%;"
-            // 🔥 ARQUITETURA: Removida a validação restritiva do e-mail. Apenas o nome é obrigatório agora.
-            disabled={!profileName.value.trim() ? true : undefined}
-          >
-            {labelBotaoPrincipal}
-          </md-filled-button>
-          
-          <md-outlined-button onClick={handleCompartilhar} style="width: 100%;" disabled={!temChaveVapid ? true : undefined}>
-            🔗 Compartilhar Perfil
-          </md-outlined-button>
+        {/* 🔥 Cabeçalho com Ícone de Edição */}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>account_circle</md-icon> Identidade Local
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {temChaveVapid && !isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+          </div>
         </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
+            
+            {!temChaveVapid && (
+               <p style="font-size: 0.85rem; color: #666; margin-bottom: 8px; text-align: center;">
+                 Este nome será visível para os contatos que você convidar.
+               </p>
+            )}
+
+            <md-outlined-text-field
+              label="Seu Nome"
+              placeholder="Ex: João da Silva"
+              value={profileName.value}
+              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+            
+            <md-outlined-text-field
+              label="Seu E-mail (Opcional)"
+              placeholder="Ex: joao@email.com"
+              value={profileEmail.value}
+              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <md-filled-button 
+                onClick={handleGerarOuCorrigir} 
+                style="flex: 1;"
+                disabled={!profileName.value.trim() ? true : undefined}
+              >
+                {!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar"}
+              </md-filled-button>
+              
+              {temChaveVapid && (
+                <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                  Cancelar
+                </md-outlined-button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* 🔥 Visão de Leitura (Read-Only) */}
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {p?.name?.trim() || "Anônimo"}
+            </h2>
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Compartilhar Link de Convite
+              </md-outlined-button>
+            </div>
+          </>
+        )}
       </div>
 
-      {qrCodeDataUrl.value && temChaveVapid && (
-        <div class="container" style="background: #fff; margin-bottom: 0; border-left-color: var(--md-sys-color-primary); text-align: center;">
+      {/* 🔥 O QR Code some durante a edição para manter a tela focada */}
+      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
+        <div class="container" style="background: #fff; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
           <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
             <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
-            Seu QR Code de Convite
+            Seu QR Code
           </h3>
           <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
             Mostre isso para um amigo escanear pelo App Loco.
