@@ -11,13 +11,13 @@ export interface CompactContact {
   tr?: boolean;
   em: string;
   nm: string;
-  vp: any; // 🔥 Chave VAPID Pública Minificada
-  ep: any; // 🔥 Chave RSA Pública E2E Minificada
+  vp: any; 
+  ep: any; 
   se: string;
   sp: string;
   sa: string;
   ve: string;
-  ps?: string; // proxyserver
+  ps?: string; 
 }
 
 export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
@@ -29,7 +29,6 @@ export function extrairDadosCompactos(target: ProfileConfig | Contato, req = fal
     tr,
     em: target.email || '',
     nm: target.name || '',
-    // 🔥 Delega a minificação para o módulo criptográfico oficial
     vp: minifyVapidPublic(target.vapidPublicKey),
     ep: minifyRsaPublic(target.e2ePublicKey),
     se: ep,
@@ -47,7 +46,6 @@ export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
   return {
     email: c.em,
     name: c.nm,
-    // 🔥 Expande a partir dos moldes estáticos padronizados
     vapidPublicKey: expandVapidPublic(c.vp),
     e2ePublicKey: expandRsaPublic(c.ep),
     subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
@@ -86,8 +84,12 @@ export async function gerarLinkConviteWeb(
   return `${origin}/#share=${cjwt}`;
 }
 
-export async function processarQualquerConvite(input: string): Promise<Partial<Contato>> {
+export async function processarQualquerConvite(rawInput: string): Promise<Partial<Contato>> {
   let cqr = null, cjwt = null, jwt = null;
+
+  // 🔥 ARQUITETURA: Higienização rigorosa da entrada do usuário.
+  // Remove todos os espaços e quebras de linha invisíveis (comuns em copy-paste).
+  const input = rawInput.trim().replace(/\s+/g, '');
 
   try {
     const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
@@ -112,20 +114,20 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
 
   if (!cqr && !cjwt && !jwt && input) {
     if (input.includes('.')) {
-      jwt = input.trim();
+      jwt = input;
     } else {
       try {
-        const compressed = new Uint8Array(base64UrlToArrayBuffer(input.trim()));
+        const compressed = new Uint8Array(base64UrlToArrayBuffer(input));
         const decompressed = gunzipSync(compressed);
         const text = new TextDecoder().decode(decompressed);
         
         if (text.startsWith('{')) {
-          cqr = input.trim();
+          cqr = input;
         } else {
-          cjwt = input.trim();
+          cjwt = input;
         }
       } catch (_e) {
-        cjwt = input.trim();
+        cjwt = input;
       }
     }
   }
@@ -153,7 +155,6 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
       const jsonText = new TextDecoder().decode(decompressed);
       const parsed = JSON.parse(jsonText);
       
-      // Valida tanto o formato novo quanto o antigo
       if (parsed.vp || (parsed.vx && parsed.vy)) {
         compactData = parsed as CompactContact;
       }
@@ -174,9 +175,7 @@ export async function processarQualquerConvite(input: string): Promise<Partial<C
 
   if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
 
-  // 🔥 Camada de Retrocompatibilidade O(1):
-  // Se escaneou um QR Code antigo que usava vx/vy/en separadamente,
-  // nós transmutamos na RAM para a estrutura unificada (vp/ep) antes de expandir.
+  // Camada de Retrocompatibilidade O(1):
   if ((compactData as any).vx && !compactData.vp) {
     compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
     compactData.ep = { n: (compactData as any).en };

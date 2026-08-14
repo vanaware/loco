@@ -16,7 +16,9 @@ export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
 
 export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
   try {
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    // 🔥 ARQUITETURA: Regex /\s+/g expurga TODAS as quebras de linha e espaços 
+    // que possam ter vindo acidentalmente no Ctrl+C / Ctrl+V do usuário.
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '');
     const padLength = (4 - (base64.length % 4)) % 4;
     base64 += '='.repeat(padLength);
     
@@ -50,7 +52,6 @@ export async function criarJWT(
   headerExtra: Record<string, any> = {}
 ): Promise<string> {
   try {
-    // 🔥 ARQUITETURA: Minifica o 'kid' antes de criar a assinatura para o Token ficar menor
     if (headerExtra.kid && (headerExtra.kid.kty || headerExtra.kid.x)) {
       headerExtra.kid = minifyVapidPublic(headerExtra.kid);
     }
@@ -117,7 +118,6 @@ export async function verificarJWT(
       if (!header.kid) {
         throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
       }
-      // 🔥 Expande a chave minificada recebida da rede para a validação ocorrer com sucesso
       publicKeyJwkFinal = expandVapidPublic(header.kid);
     } else {
       publicKeyJwkFinal = expandVapidPublic(publicKeyJwkFinal);
