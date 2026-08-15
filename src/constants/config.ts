@@ -2,21 +2,12 @@
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
 import { DB_NAMES } from "./db.ts";
 
-/**
- * 🔥 O Padrão agora é "/" (Raiz Relativa do PWA).
- */
 export const DefaultProxyPath: string = "/";
-
-/**
- * 🔥 O Fallback Absoluto (Workers Seguro).
- */
 export const FallbackAbsoluteProxy: string = "https://loco.arvati.workers.dev";
 
 const PROXY_PATH_KEY = 'ProxyPath';
 
 let _configStore: ReturnType<typeof createStore> | null = null;
-
-// 🔥 ARQUITETURA: Cache em Memória RAM para evitar leitura excessiva de I/O em disco
 let _cachedProxyPath: string | null = null; 
 
 function getConfigStore() {
@@ -33,7 +24,7 @@ async function loadProxyPathFromDB(): Promise<string> {
   try {
     const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
     if (stored !== undefined && stored !== null) {
-      _cachedProxyPath = String(stored); // Alimenta o cache da RAM
+      _cachedProxyPath = String(stored);
       return _cachedProxyPath;
     }
     return DefaultProxyPath;
@@ -44,18 +35,11 @@ async function loadProxyPathFromDB(): Promise<string> {
 }
 
 export async function getProxyPath(): Promise<string> {
-  // Retorna instantaneamente se já estiver na RAM (O(1))
   if (_cachedProxyPath !== null) return _cachedProxyPath;
   return await loadProxyPathFromDB();
 }
 
-/**
- * Atualiza o ProxyPath. 
- * @param path Nova rota
- * @param persistToDisk Se false, apenas hidrata a memória RAM (evita escrita redundante).
- */
 export async function setProxyPath(path: string, persistToDisk = true): Promise<void> {
-  // Aborta se já for o mesmo valor e for uma requisição de disco, poupando processamento
   if (_cachedProxyPath === path && persistToDisk) return;
   
   _cachedProxyPath = path;
@@ -73,9 +57,6 @@ export async function setProxyPath(path: string, persistToDisk = true): Promise<
   }
 }
 
-/**
- * Resolve o BasePath nativo (ex: "/" ou "/loco/")
- */
 function getAppBasePath(): string {
   if (typeof globalThis === 'undefined' || !globalThis.location) return '/';
   let basePath = globalThis.location.pathname;
@@ -87,9 +68,6 @@ function getAppBasePath(): string {
   return basePath;
 }
 
-/**
- * Constrói uma URL completa de API com inteligência de rotas relativas vs absolutas.
- */
 export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
   let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
   
@@ -116,9 +94,6 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   return `${base}/${cleanEndpoint}`;
 }
 
-/**
- * Dispara um Heartbeat para testar a validade da URL
- */
 export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
   try {
     const url = await buildProxyUrl('/ping', proxyUrlToCheck);
@@ -126,14 +101,19 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
+    // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
     let res = await fetch(url, { 
       method: 'POST', 
+      mode: 'cors',
+      credentials: 'omit',
       signal: controller.signal 
     }).catch(() => null);
     
     if (!res || !res.ok) {
       res = await fetch(url, { 
         method: 'GET', 
+        mode: 'cors',
+        credentials: 'omit',
         signal: controller.signal 
       }).catch(() => null);
     }

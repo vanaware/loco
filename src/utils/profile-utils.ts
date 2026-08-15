@@ -13,8 +13,6 @@ export async function getServerPublicKey() {
     const cachedKey = await getConfigValue('SERVER_PUBLIC_KEY');
     if (cachedKey) {
       addDebugLog("info", "CRYPTO", "Chave do servidor carregada instantaneamente do cache local.");
-      // 🔥 ARQUITETURA: O cache no IndexedDB guarda apenas o {"n": "..."}.
-      // Expandimos para o formato JWK completo exigido pela WebCrypto API na RAM.
       return expandRsaPublic(JSON.parse(cachedKey));
     }
   } catch (e) {
@@ -23,8 +21,12 @@ export async function getServerPublicKey() {
 
   addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
   const proxyUrl = await buildProxyUrl('/publickey');
+  
+  // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
   const response = await fetch(proxyUrl, {
     method: 'POST',
+    mode: 'cors',
+    credentials: 'omit',
     headers: { 'Content-Type': 'application/json' }
   });
   
@@ -32,10 +34,8 @@ export async function getServerPublicKey() {
   
   const keyData = await response.json();
   
-  // 🔥 ARQUITETURA: Salvamos exatamente o que veio da rede (A versão minificada {"n": "..."})
   await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
   
-  // Expandimos para uso imediato em memória
   return expandRsaPublic(keyData);
 }
 
@@ -148,7 +148,6 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
     }
     
-    // Resolve o proxyserver com caminho completo
     const proxyserver = await buildProxyUrl('/');
     
     const subscription = {
@@ -182,7 +181,6 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
     }
 
-    // A chave pública do servidor usada aqui é a que acabou de ser obtida (da rede ou do disco)
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
 
     const profile: ProfileConfig = {

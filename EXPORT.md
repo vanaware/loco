@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.115-msuhsk1q** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.117-msulqcr3** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.115-msuhsk1q] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.117-msulqcr3] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 12:11:15 PM
+Gerado automaticamente em: 8/15/2026, 1:40:11 PM
 
 ---
 
@@ -2163,7 +2163,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.115-msuhsk1q";
+export const APP_VERSION = "0.2.117-msulqcr3";
 
 ```
 
@@ -2176,21 +2176,12 @@ export const APP_VERSION = "0.2.115-msuhsk1q";
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
 import { DB_NAMES } from "./db.ts";
 
-/**
- * 🔥 O Padrão agora é "/" (Raiz Relativa do PWA).
- */
 export const DefaultProxyPath: string = "/";
-
-/**
- * 🔥 O Fallback Absoluto (Workers Seguro).
- */
 export const FallbackAbsoluteProxy: string = "https://loco.arvati.workers.dev";
 
 const PROXY_PATH_KEY = 'ProxyPath';
 
 let _configStore: ReturnType<typeof createStore> | null = null;
-
-// 🔥 ARQUITETURA: Cache em Memória RAM para evitar leitura excessiva de I/O em disco
 let _cachedProxyPath: string | null = null; 
 
 function getConfigStore() {
@@ -2207,7 +2198,7 @@ async function loadProxyPathFromDB(): Promise<string> {
   try {
     const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
     if (stored !== undefined && stored !== null) {
-      _cachedProxyPath = String(stored); // Alimenta o cache da RAM
+      _cachedProxyPath = String(stored);
       return _cachedProxyPath;
     }
     return DefaultProxyPath;
@@ -2218,18 +2209,11 @@ async function loadProxyPathFromDB(): Promise<string> {
 }
 
 export async function getProxyPath(): Promise<string> {
-  // Retorna instantaneamente se já estiver na RAM (O(1))
   if (_cachedProxyPath !== null) return _cachedProxyPath;
   return await loadProxyPathFromDB();
 }
 
-/**
- * Atualiza o ProxyPath. 
- * @param path Nova rota
- * @param persistToDisk Se false, apenas hidrata a memória RAM (evita escrita redundante).
- */
 export async function setProxyPath(path: string, persistToDisk = true): Promise<void> {
-  // Aborta se já for o mesmo valor e for uma requisição de disco, poupando processamento
   if (_cachedProxyPath === path && persistToDisk) return;
   
   _cachedProxyPath = path;
@@ -2247,9 +2231,6 @@ export async function setProxyPath(path: string, persistToDisk = true): Promise<
   }
 }
 
-/**
- * Resolve o BasePath nativo (ex: "/" ou "/loco/")
- */
 function getAppBasePath(): string {
   if (typeof globalThis === 'undefined' || !globalThis.location) return '/';
   let basePath = globalThis.location.pathname;
@@ -2261,9 +2242,6 @@ function getAppBasePath(): string {
   return basePath;
 }
 
-/**
- * Constrói uma URL completa de API com inteligência de rotas relativas vs absolutas.
- */
 export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
   let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
   
@@ -2290,9 +2268,6 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   return `${base}/${cleanEndpoint}`;
 }
 
-/**
- * Dispara um Heartbeat para testar a validade da URL
- */
 export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
   try {
     const url = await buildProxyUrl('/ping', proxyUrlToCheck);
@@ -2300,14 +2275,19 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
+    // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
     let res = await fetch(url, { 
       method: 'POST', 
+      mode: 'cors',
+      credentials: 'omit',
       signal: controller.signal 
     }).catch(() => null);
     
     if (!res || !res.ok) {
       res = await fetch(url, { 
         method: 'GET', 
+        mode: 'cors',
+        credentials: 'omit',
         signal: controller.signal 
       }).catch(() => null);
     }
@@ -3641,176 +3621,6 @@ export async function obterHashProprio(profile: ProfileConfig | null): Promise<s
 
 ---
 
-## Arquivo: `src/utils/push-utils.ts`
-
-```ts
-// src/utils/push-utils.ts
-import { gzipSync } from "fflate";
-import { addDebugLog } from "./debug-utils.ts";
-import { buildProxyUrl } from '../constants/config.ts';
-import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
-  }
-}
-
-export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
-  i: string;
-  d: string;
-  k: string;
-}> {
-  try {
-    const encoder = new TextEncoder();
-    const jsonString = JSON.stringify(payloadObj);
-    const bytes = encoder.encode(jsonString);
-    
-    const compressed = gzipSync(bytes);
-    
-    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
-    if (compressed.length > 3000) {
-       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
-    }
-
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      compressed as unknown as BufferSource
-    );
-
-    const cryptoKeyDestino = await crypto.subtle.importKey(
-      "jwk" as any,
-      publicKeyRSA,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyEncrypted = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      cryptoKeyDestino,
-      aesKeyRaw
-    );
-
-    return {
-      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
-      d: arrayBufferToBase64(encryptedBuffer),
-      k: arrayBufferToBase64(aesKeyEncrypted)
-    };
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
-    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
-  }
-}
-
-export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  payloadText: string,
-  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
-): Promise<void> {
-  const payloadSize = new Blob([payloadText]).size;
-  if (payloadSize > 4096) {
-    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
-    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
-  }
-
-  try {
-    const proxyUrl = await buildProxyUrl('/');
-    const response = await fetch(proxyUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscription,
-        payloadText,
-        vapid: {
-          subject: vapid.subject,
-          // 🔥 Minifica a chave pública para transitar na rede de forma enxuta
-          publicKey: minifyVapidPublic(vapid.publicKey),
-          privateKey: vapid.privateKey
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err: any) {
-     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
-     throw err;
-  }
-}
-
-export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
-  try {
-    const serverKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      serverPublicKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoder = new TextEncoder();
-    
-    // 🔥 ARQUITETURA: Cortando o peso do Envelope 
-    // Só ciframos a propriedade `{ d: "..." }`
-    const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
-    const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
-    
-    const vapidCifrado = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      vapidBytes as unknown as BufferSource
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyCifrado = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      serverKey,
-      aesKeyRaw
-    );
-
-    const toHex = (buf: ArrayBuffer) =>
-      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    const envelope = {
-      iv: toHex(iv.buffer as ArrayBuffer),
-      dadosCifrados: toHex(vapidCifrado),
-      chaveAesCifrada: toHex(aesKeyCifrado)
-    };
-    
-    return btoa(JSON.stringify(envelope));
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
-    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/crypto-utils.ts`
 
 ```ts
@@ -4169,223 +3979,6 @@ export const activeView = computed(() => {
   if (hash === '#settings') return 'settings';
   return 'home';
 });
-```
-
----
-
-## Arquivo: `src/utils/profile-utils.ts`
-
-```ts
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from './db-helpers.ts';
-import { cifrarChaveVapid } from './push-utils.ts';
-import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts';
-import { buildProxyUrl } from '../constants/config.ts';
-import { getConfigValue, saveConfig } from '../stores/config-store.ts';
-
-export async function getServerPublicKey() {
-  try {
-    const cachedKey = await getConfigValue('SERVER_PUBLIC_KEY');
-    if (cachedKey) {
-      addDebugLog("info", "CRYPTO", "Chave do servidor carregada instantaneamente do cache local.");
-      // 🔥 ARQUITETURA: O cache no IndexedDB guarda apenas o {"n": "..."}.
-      // Expandimos para o formato JWK completo exigido pela WebCrypto API na RAM.
-      return expandRsaPublic(JSON.parse(cachedKey));
-    }
-  } catch (e) {
-    addDebugLog("warn", "CRYPTO", "Falha ao ler cache da chave do servidor. Recarregando da rede...");
-  }
-
-  addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
-  const proxyUrl = await buildProxyUrl('/publickey');
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  
-  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  
-  const keyData = await response.json();
-  
-  // 🔥 ARQUITETURA: Salvamos exatamente o que veio da rede (A versão minificada {"n": "..."})
-  await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
-  
-  // Expandimos para uso imediato em memória
-  return expandRsaPublic(keyData);
-}
-
-export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
-  if ('storage' in navigator && 'persist' in navigator.storage) {
-    try {
-      const concedido = await navigator.storage.persist();
-      if (concedido) {
-        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
-      } else {
-        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
-      }
-      return concedido;
-    } catch (err: any) {
-      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
-      return false;
-    }
-  }
-  return false;
-}
-
-export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
-  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
-  if (!nome || nome.trim() === "") {
-    throw new Error("Preencha pelo menos o seu Nome.");
-  }
-
-  try {
-    addDebugLog("Step 1: Verificando permissão de notificação...");
-    try {
-      if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida.");
-        }
-      }
-    } catch (notifErr: any) {
-      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
-    }
-
-    addDebugLog("Step 2: Registrando Service Worker...");
-    const registration = await registrarServiceWorker();
-
-    addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const serverPublicKeyJwk = await getServerPublicKey();
-    addDebugLog("Step 3.5: Chave do servidor garantida");
-
-    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
-    let publicKeyJwk: JsonWebKey | undefined = undefined;
-    let privateKeyJwk: JsonWebKey | undefined = undefined;
-
-    let existingProfile = await buscarProfile();
-    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
-      publicKeyJwk = existingProfile.vapidPublicKey;
-      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
-      try {
-        vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
-        } as CryptoKeyPair;
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
-        existingProfile = undefined;
-      }
-    }
-    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
-      addDebugLog("🔑 Gerando novas chaves VAPID...");
-      vapidKeyPair = await generateVAPIDKeys();
-      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
-      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
-    }
-
-    addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) throw new Error("Service Worker registration é null/undefined");
-    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
-    let subscriptionValida = false;
-
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        if (existingProfile) {
-           delete (existingProfile as any).subscription;
-           await salvarProfile(existingProfile);
-        }
-        existingSubscription = null;
-      }
-    }
-    
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
-
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    
-    // Resolve o proxyserver com caminho completo
-    const proxyserver = await buildProxyUrl('/');
-    
-    const subscription = {
-      endpoint: existingSubscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      },
-      proxyserver
-    };
-
-    let e2ePublicKey: JsonWebKey;
-    let e2ePrivateKeyJwk: JsonWebKey;
-
-    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      addDebugLog("📂 Chaves E2E encontradas no perfil.");
-      e2ePublicKey = existingProfile.e2ePublicKey;
-      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
-      try {
-        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
-        const newKeys = await generateE2EEKeys();
-        e2ePublicKey = newKeys.publicEncrypt;
-        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      }
-    } else {
-      addDebugLog("🔑 Gerando novas chaves E2E...");
-      const newKeys = await generateE2EEKeys();
-      e2ePublicKey = newKeys.publicEncrypt;
-      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-    }
-
-    // A chave pública do servidor usada aqui é a que acabou de ser obtida (da rede ou do disco)
-    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
-    const profile: ProfileConfig = {
-      name: nome.trim(), 
-      email: email.trim(), 
-      vapidPublicKey: publicKeyJwk, 
-      vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
-      e2ePublicKey: e2ePublicKey, 
-      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, 
-      createdAt: existingProfile?.createdAt || Date.now(), 
-      updatedAt: Date.now()
-    };
-
-    await salvarProfile(profile);
-    await solicitarArmazenamentoPersistente();
-
-    addDebugLog("✅ Perfil salvo com sucesso.");
-    return profile;
-  } catch (err) {
-    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
-    throw err;
-  }
-}
 ```
 
 ---
@@ -5059,6 +4652,392 @@ export async function listarHandshakes(): Promise<Handshake[]> {
 
 export async function removerHandshake(id: string): Promise<void> {
   await removerChave(storeHandshakes, id);
+}
+```
+
+---
+
+## Arquivo: `src/utils/push-utils.ts`
+
+```ts
+// src/utils/push-utils.ts
+import { gzipSync } from "fflate";
+import { addDebugLog } from "./debug-utils.ts";
+import { buildProxyUrl } from '../constants/config.ts';
+import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
+  }
+}
+
+export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
+  i: string;
+  d: string;
+  k: string;
+}> {
+  try {
+    const encoder = new TextEncoder();
+    const jsonString = JSON.stringify(payloadObj);
+    const bytes = encoder.encode(jsonString);
+    
+    const compressed = gzipSync(bytes);
+    
+    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
+    if (compressed.length > 3000) {
+       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
+    }
+
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      compressed as unknown as BufferSource
+    );
+
+    const cryptoKeyDestino = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyRSA,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyEncrypted = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoKeyDestino,
+      aesKeyRaw
+    );
+
+    return {
+      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
+      d: arrayBufferToBase64(encryptedBuffer),
+      k: arrayBufferToBase64(aesKeyEncrypted)
+    };
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
+    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
+  }
+}
+
+export async function enviarParaProxy(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payloadText: string,
+  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
+): Promise<void> {
+  const payloadSize = new Blob([payloadText]).size;
+  if (payloadSize > 4096) {
+    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
+    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
+  }
+
+  try {
+    const proxyUrl = await buildProxyUrl('/');
+    
+    // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
+    const response = await fetch(proxyUrl, {
+      method: "POST",
+      mode: "cors",
+      credentials: "omit",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription,
+        payloadText,
+        vapid: {
+          subject: vapid.subject,
+          publicKey: minifyVapidPublic(vapid.publicKey),
+          privateKey: vapid.privateKey
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
+    }
+  } catch (err: any) {
+     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
+     throw err;
+  }
+}
+
+export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  try {
+    const serverKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      serverPublicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    
+    const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
+    const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
+    
+    const vapidCifrado = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      vapidBytes as unknown as BufferSource
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyCifrado = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      serverKey,
+      aesKeyRaw
+    );
+
+    const toHex = (buf: ArrayBuffer) =>
+      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    const envelope = {
+      iv: toHex(iv.buffer as ArrayBuffer),
+      dadosCifrados: toHex(vapidCifrado),
+      chaveAesCifrada: toHex(aesKeyCifrado)
+    };
+    
+    return btoa(JSON.stringify(envelope));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
+    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/profile-utils.ts`
+
+```ts
+// src/utils/profile-utils.ts
+import { salvarProfile, buscarProfile } from './db-helpers.ts';
+import { cifrarChaveVapid } from './push-utils.ts';
+import { registrarServiceWorker } from "../sw/sw-utils.ts";
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { addDebugLog } from './debug-utils.ts';
+import { buildProxyUrl } from '../constants/config.ts';
+import { getConfigValue, saveConfig } from '../stores/config-store.ts';
+
+export async function getServerPublicKey() {
+  try {
+    const cachedKey = await getConfigValue('SERVER_PUBLIC_KEY');
+    if (cachedKey) {
+      addDebugLog("info", "CRYPTO", "Chave do servidor carregada instantaneamente do cache local.");
+      return expandRsaPublic(JSON.parse(cachedKey));
+    }
+  } catch (e) {
+    addDebugLog("warn", "CRYPTO", "Falha ao ler cache da chave do servidor. Recarregando da rede...");
+  }
+
+  addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
+  const proxyUrl = await buildProxyUrl('/publickey');
+  
+  // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    mode: 'cors',
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  
+  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
+  
+  const keyData = await response.json();
+  
+  await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
+  
+  return expandRsaPublic(keyData);
+}
+
+export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const concedido = await navigator.storage.persist();
+      if (concedido) {
+        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
+      } else {
+        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
+      }
+      return concedido;
+    } catch (err: any) {
+      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
+  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
+
+  if (!nome || nome.trim() === "") {
+    throw new Error("Preencha pelo menos o seu Nome.");
+  }
+
+  try {
+    addDebugLog("Step 1: Verificando permissão de notificação...");
+    try {
+      if (Notification.permission === "denied") {
+        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
+      } else if (Notification.permission === "default") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          addDebugLog("⚠️ Permissão de notificação não concedida.");
+        }
+      }
+    } catch (notifErr: any) {
+      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
+    }
+
+    addDebugLog("Step 2: Registrando Service Worker...");
+    const registration = await registrarServiceWorker();
+
+    addDebugLog("Step 3: Buscando chave pública do servidor...");
+    const serverPublicKeyJwk = await getServerPublicKey();
+    addDebugLog("Step 3.5: Chave do servidor garantida");
+
+    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
+    let publicKeyJwk: JsonWebKey | undefined = undefined;
+    let privateKeyJwk: JsonWebKey | undefined = undefined;
+
+    let existingProfile = await buscarProfile();
+    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
+      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
+      publicKeyJwk = existingProfile.vapidPublicKey;
+      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
+      try {
+        vapidKeyPair = {
+          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
+          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+        } as CryptoKeyPair;
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
+        existingProfile = undefined;
+      }
+    }
+    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
+      addDebugLog("🔑 Gerando novas chaves VAPID...");
+      vapidKeyPair = await generateVAPIDKeys();
+      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+    }
+
+    addDebugLog("Step 4: Obtendo subscription...");
+    if (!registration) throw new Error("Service Worker registration é null/undefined");
+    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
+    
+    let existingSubscription = await registration.pushManager.getSubscription();
+    let subscriptionValida = false;
+
+    if (existingSubscription) {
+      const profileSub = existingProfile?.subscription;
+      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
+        subscriptionValida = true;
+      } else {
+        await existingSubscription.unsubscribe();
+        if (existingProfile) {
+           delete (existingProfile as any).subscription;
+           await salvarProfile(existingProfile);
+        }
+        existingSubscription = null;
+      }
+    }
+    
+    if (!existingSubscription || !subscriptionValida) {
+      addDebugLog("📝 Criando nova subscription...");
+      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
+      existingSubscription = await registration.pushManager.subscribe({
+        applicationServerKey: new Uint8Array(rawPublicKey),
+        userVisibleOnly: true
+      });
+    }
+
+    const p256dhBuffer = existingSubscription.getKey('p256dh');
+    const authBuffer = existingSubscription.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) {
+      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
+    }
+    
+    const proxyserver = await buildProxyUrl('/');
+    
+    const subscription = {
+      endpoint: existingSubscription.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      },
+      proxyserver
+    };
+
+    let e2ePublicKey: JsonWebKey;
+    let e2ePrivateKeyJwk: JsonWebKey;
+
+    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
+      addDebugLog("📂 Chaves E2E encontradas no perfil.");
+      e2ePublicKey = existingProfile.e2ePublicKey;
+      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
+      try {
+        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+      } catch {
+        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
+        const newKeys = await generateE2EEKeys();
+        e2ePublicKey = newKeys.publicEncrypt;
+        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+      }
+    } else {
+      addDebugLog("🔑 Gerando novas chaves E2E...");
+      const newKeys = await generateE2EEKeys();
+      e2ePublicKey = newKeys.publicEncrypt;
+      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+    }
+
+    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
+
+    const profile: ProfileConfig = {
+      name: nome.trim(), 
+      email: email.trim(), 
+      vapidPublicKey: publicKeyJwk, 
+      vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
+      e2ePublicKey: e2ePublicKey, 
+      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: subscription, 
+      createdAt: existingProfile?.createdAt || Date.now(), 
+      updatedAt: Date.now()
+    };
+
+    await salvarProfile(profile);
+    await solicitarArmazenamentoPersistente();
+
+    addDebugLog("✅ Perfil salvo com sucesso.");
+    return profile;
+  } catch (err) {
+    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
 }
 ```
 
@@ -6836,7 +6815,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.115-msuhsk1q",
+  "version": "0.2.117-msulqcr3",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -7067,59 +7046,17 @@ function lerMetadadosJJWT(jwtString: string) {
   }
 }
 
-function checkIsAllowedOrigin(origin: string, env: any): boolean {
-  if (!origin) return false;
-
-  const defaultPatterns = [
-    /^https?:\/\/localhost(:\d+)?$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*tap\.app\.br$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/,
-    /^https?:\/\/dash\.cloudflare\.com$/
-  ];
-
-  for (const pattern of defaultPatterns) {
-    if (pattern.test(origin)) return true;
-  }
-
-  const envOrigins = env?.ALLOWED_ORIGINS;
-  if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
-    const rules = envOrigins.split(",").map(s => s.trim());
-    for (const rule of rules) {
-      const escapedRule = rule
-        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*");
-
-      const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
-      if (dynamicRegex.test(origin)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
 const workerHandler = {
   async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
-    let origin = request.headers.get("origin") || "";
-    if (origin === "") {
-      const host = request.headers.get("host") || "localhost";
-      const protocolo = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-      origin = `${protocolo}://${host}`;
-    }
-
-    const isAllowedOrigin = checkIsAllowedOrigin(origin, env);
-
+    // 🔥 ARQUITETURA: Removido 'Access-Control-Allow-Credentials' 
+    // para não quebrar a especificação W3C em par com a Origem '*'
     const corsHeaders = {
-      "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
+      "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
-      "Access-Control-Allow-Credentials": "true",
       "Access-Control-Max-Age": "86400"
     };
 
@@ -7129,14 +7066,6 @@ const workerHandler = {
 
     const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
     const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
-
-    if (!isAllowedOrigin) {
-      console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
-      return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
 
     try {
       const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
@@ -7159,25 +7088,48 @@ const workerHandler = {
         });
       }
 
+      // Rota principal de processamento de Push
       if (request.method === "POST" && !isPing && !isPublicKey) {
+        
+        // 🛡️ CAMADA DE DEFESA 1: Early Drop por Tamanho
+        const contentLength = request.headers.get("content-length");
+        if (contentLength && parseInt(contentLength, 10) > 5120) {
+          console.warn("🛑 [DEFESA] Bloqueado: Payload excedeu 5KB");
+          return new Response(JSON.stringify({ error: "Payload Too Large" }), { status: 413, headers: corsHeaders });
+        }
+
         console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;
 
-        if (!subscription || !payloadText || !vapid) {
+        // 🛡️ CAMADA DE DEFESA 2: Schema Validation Rigoroso
+        if (
+          !subscription || !subscription.endpoint || !subscription.keys?.p256dh ||
+          !payloadText || typeof payloadText !== 'string' ||
+          !vapid || !vapid.subject || !vapid.publicKey || !vapid.privateKey
+        ) {
+          console.warn("🛑 [DEFESA] Bloqueado: Estrutura JSON malformada ou dados essenciais ausentes.");
           return new Response(
-            JSON.stringify({ success: false, error: "Parâmetros obrigatórios ausentes no body." }),
+            JSON.stringify({ success: false, error: "Estrutura P2P Inválida." }),
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
+        // 🛡️ CAMADA DE DEFESA 3: Auditoria do Token
         const jwtClaims = lerMetadadosJJWT(payloadText);
-        if (jwtClaims) {
-          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+        if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
+          console.warn("🛑 [DEFESA] Bloqueado: Token JWT inválido ou sub-protocolo desconhecido.");
+          return new Response(
+            JSON.stringify({ success: false, error: "Protocolo Inválido. Apenas payloads 'Loco' são aceitos." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
-        const proxyserverDestino = jwtClaims?.proxyserver;
+        console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+
+        // Lógica de Redirecionamento (Proxy de Borda)
+        const proxyserverDestino = jwtClaims.proxyserver;
         if (proxyserverDestino) {
           const urlAtual = new URL(request.url);
           const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;

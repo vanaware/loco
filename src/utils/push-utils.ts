@@ -84,15 +84,18 @@ export async function enviarParaProxy(
 
   try {
     const proxyUrl = await buildProxyUrl('/');
+    
+    // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
     const response = await fetch(proxyUrl, {
       method: "POST",
+      mode: "cors",
+      credentials: "omit",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         subscription,
         payloadText,
         vapid: {
           subject: vapid.subject,
-          // 🔥 Minifica a chave pública para transitar na rede de forma enxuta
           publicKey: minifyVapidPublic(vapid.publicKey),
           privateKey: vapid.privateKey
         }
@@ -128,8 +131,6 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoder = new TextEncoder();
     
-    // 🔥 ARQUITETURA: Cortando o peso do Envelope 
-    // Só ciframos a propriedade `{ d: "..." }`
     const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
     const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
     

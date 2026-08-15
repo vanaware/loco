@@ -172,14 +172,12 @@ const workerHandler = {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
-    // 🔥 ARQUITETURA: CORS Totalmente Aberto (*)
-    // Necessário para permitir a comunicação federada entre qualquer nó hospedado em domínios diferentes.
-    // A segurança não está no CORS, e sim na validação criptográfica (Abaixo).
+    // 🔥 ARQUITETURA: Removido 'Access-Control-Allow-Credentials' 
+    // para não quebrar a especificação W3C em par com a Origem '*'
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
-      "Access-Control-Allow-Credentials": "true",
       "Access-Control-Max-Age": "86400"
     };
 
@@ -215,9 +213,8 @@ const workerHandler = {
       if (request.method === "POST" && !isPing && !isPublicKey) {
         
         // 🛡️ CAMADA DE DEFESA 1: Early Drop por Tamanho
-        // Protege contra ataques de exaustão de memória/banda
         const contentLength = request.headers.get("content-length");
-        if (contentLength && parseInt(contentLength, 10) > 5120) { // 5KB Max (Loco envia < 4KB)
+        if (contentLength && parseInt(contentLength, 10) > 5120) {
           console.warn("🛑 [DEFESA] Bloqueado: Payload excedeu 5KB");
           return new Response(JSON.stringify({ error: "Payload Too Large" }), { status: 413, headers: corsHeaders });
         }
@@ -240,7 +237,7 @@ const workerHandler = {
           );
         }
 
-        // 🛡️ CAMADA DE DEFESA 3: Auditoria do Token (Loco Protocol Check)
+        // 🛡️ CAMADA DE DEFESA 3: Auditoria do Token
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
           console.warn("🛑 [DEFESA] Bloqueado: Token JWT inválido ou sub-protocolo desconhecido.");
