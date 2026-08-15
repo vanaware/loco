@@ -35,7 +35,6 @@ jobs:
           SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
           PORT: ${{ secrets.PORT }}
           PROXY_PATH: ${{ secrets.PROXY_PATH }}
-          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
         run: deno task build
 
       - name: Zip Release Files
@@ -118,14 +117,13 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
-          # 🔥 Variáveis opcionais são tratadas como VARS (texto plano). Se vazias, a Cloudflare ignora ou define como vazio sem quebrar o runner.
+          # 🔥 Variáveis opcionais são tratadas como VARS (texto plano). 
+          # Se vazias, a Cloudflare ignora ou define como vazio sem quebrar o runner.
           vars: |
             SERVER_PUBLIC_KEY
             SERVER_PRIVATE_KEY
             PROXY_PATH
-            ALLOWED_ORIGINS
         env:
           SERVER_PRIVATE_KEY: ${{ secrets.SERVER_PRIVATE_KEY }}
           SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
           PROXY_PATH: ${{ secrets.PROXY_PATH }}
-          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}

@@ -167,56 +167,16 @@ function lerMetadadosJJWT(jwtString: string) {
   }
 }
 
-function checkIsAllowedOrigin(origin: string, env: any): boolean {
-  if (!origin) return false;
-
-  const defaultPatterns = [
-    /^https?:\/\/localhost(:\d+)?$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*arvati\.workers\.dev$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*vanaware\.com$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*tap\.app\.br$/,
-    /^https?:\/\/([a-zA-Z0-9-]+\.)*github\.io$/,
-    /^https?:\/\/dash\.cloudflare\.com$/
-  ];
-
-  for (const pattern of defaultPatterns) {
-    if (pattern.test(origin)) return true;
-  }
-
-  const envOrigins = env?.ALLOWED_ORIGINS;
-  if (typeof envOrigins === "string" && envOrigins.trim() !== "") {
-    const rules = envOrigins.split(",").map(s => s.trim());
-    for (const rule of rules) {
-      const escapedRule = rule
-        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-        .replace(/\\\*/g, "([a-zA-Z0-9-]+\\.)*");
-
-      const dynamicRegex = new RegExp(`^${escapedRule}$`, "i");
-      if (dynamicRegex.test(origin)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
 const workerHandler = {
   async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
-    let origin = request.headers.get("origin") || "";
-    if (origin === "") {
-      const host = request.headers.get("host") || "localhost";
-      const protocolo = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-      origin = `${protocolo}://${host}`;
-    }
-
-    const isAllowedOrigin = checkIsAllowedOrigin(origin, env);
-
+    // 🔥 ARQUITETURA: CORS Totalmente Aberto (*)
+    // Necessário para permitir a comunicação federada entre qualquer nó hospedado em domínios diferentes.
+    // A segurança não está no CORS, e sim na validação criptográfica (Abaixo).
     const corsHeaders = {
-      "Access-Control-Allow-Origin": isAllowedOrigin ? origin : "*",
+      "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
       "Access-Control-Allow-Credentials": "true",
@@ -229,14 +189,6 @@ const workerHandler = {
 
     const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
     const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
-
-    if (!isAllowedOrigin) {
-      console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
-      return new Response(JSON.stringify({ error: "CORS: Origem não autorizada para esta API." }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
 
     try {
       const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
@@ -259,25 +211,49 @@ const workerHandler = {
         });
       }
 
+      // Rota principal de processamento de Push
       if (request.method === "POST" && !isPing && !isPublicKey) {
+        
+        // 🛡️ CAMADA DE DEFESA 1: Early Drop por Tamanho
+        // Protege contra ataques de exaustão de memória/banda
+        const contentLength = request.headers.get("content-length");
+        if (contentLength && parseInt(contentLength, 10) > 5120) { // 5KB Max (Loco envia < 4KB)
+          console.warn("🛑 [DEFESA] Bloqueado: Payload excedeu 5KB");
+          return new Response(JSON.stringify({ error: "Payload Too Large" }), { status: 413, headers: corsHeaders });
+        }
+
         console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;
 
-        if (!subscription || !payloadText || !vapid) {
+        // 🛡️ CAMADA DE DEFESA 2: Schema Validation Rigoroso
+        if (
+          !subscription || !subscription.endpoint || !subscription.keys?.p256dh ||
+          !payloadText || typeof payloadText !== 'string' ||
+          !vapid || !vapid.subject || !vapid.publicKey || !vapid.privateKey
+        ) {
+          console.warn("🛑 [DEFESA] Bloqueado: Estrutura JSON malformada ou dados essenciais ausentes.");
           return new Response(
-            JSON.stringify({ success: false, error: "Parâmetros obrigatórios ausentes no body." }),
+            JSON.stringify({ success: false, error: "Estrutura P2P Inválida." }),
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
+        // 🛡️ CAMADA DE DEFESA 3: Auditoria do Token (Loco Protocol Check)
         const jwtClaims = lerMetadadosJJWT(payloadText);
-        if (jwtClaims) {
-          console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+        if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
+          console.warn("🛑 [DEFESA] Bloqueado: Token JWT inválido ou sub-protocolo desconhecido.");
+          return new Response(
+            JSON.stringify({ success: false, error: "Protocolo Inválido. Apenas payloads 'Loco' são aceitos." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
-        const proxyserverDestino = jwtClaims?.proxyserver;
+        console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
+
+        // Lógica de Redirecionamento (Proxy de Borda)
+        const proxyserverDestino = jwtClaims.proxyserver;
         if (proxyserverDestino) {
           const urlAtual = new URL(request.url);
           const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
