@@ -172,17 +172,22 @@ const workerHandler = {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
-    // 🔥 ARQUITETURA: Removido 'Access-Control-Allow-Credentials' 
-    // para não quebrar a especificação W3C em par com a Origem '*'
+    // 🔥 ARQUITETURA: CORS ESPELHO (Mirror CORS) - A Solução Definitiva para Federação
+    // Ao invés de mandar um "*" que pode ser rejeitado em configurações restritas de preflight,
+    // nós lemos a origem da requisição do navegador e a devolvemos concedendo permissão total.
+    const origin = request.headers.get("Origin") || "*";
+    const reqHeaders = request.headers.get("Access-Control-Request-Headers") || "Content-Type, Authorization";
+
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
+      "Access-Control-Allow-Headers": reqHeaders,
       "Access-Control-Max-Age": "86400"
     };
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      // Cloudflare Edge lida melhor com HTTP 200 do que com 204.
+      return new Response(null, { status: 200, headers: corsHeaders });
     }
 
     const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
@@ -337,6 +342,9 @@ const workerHandler = {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("❌ Erro no Worker:", errorMessage);
+      
+      // Mesmo se a infraestrutura falhar gravemente (ex: Chave corrompida), 
+      // garante o cabeçalho de CORS pro navegador conseguir exibir a mensagem de erro.
       return new Response(
         JSON.stringify({ success: false, error: errorMessage }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

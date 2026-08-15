@@ -1,8 +1,8 @@
 // src/utils/push-utils.ts
 import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
-import { buildProxyUrl } from '../constants/config.ts';
 import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
+import { fetchLocoProxy } from "../constants/config.ts";
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   try {
@@ -83,15 +83,9 @@ export async function enviarParaProxy(
   }
 
   try {
-    const proxyUrl = await buildProxyUrl('/');
-    
-    // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
-    const response = await fetch(proxyUrl, {
-      method: "POST",
-      mode: "cors",
-      credentials: "omit",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // 🔥 ARQUITETURA: Usa o Wrapper Centralizado
+    const response = await fetchLocoProxy('/', {
+      body: {
         subscription,
         payloadText,
         vapid: {
@@ -99,7 +93,7 @@ export async function enviarParaProxy(
           publicKey: minifyVapidPublic(vapid.publicKey),
           privateKey: vapid.privateKey
         }
-      })
+      }
     });
 
     if (!response.ok) {

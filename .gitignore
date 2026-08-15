@@ -13,3 +13,9 @@ out/
 # Visual Studio Code
 .vscode/
 .vscode-test/
+
+# Node on Deno
+node_modules/
+
+# Wrangler
+.wrangler/

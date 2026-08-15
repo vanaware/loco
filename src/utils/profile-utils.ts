@@ -5,7 +5,7 @@ import { registrarServiceWorker } from "../sw/sw-utils.ts";
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from './debug-utils.ts';
-import { buildProxyUrl } from '../constants/config.ts';
+import { fetchLocoProxy } from '../constants/config.ts';
 import { getConfigValue, saveConfig } from '../stores/config-store.ts';
 
 export async function getServerPublicKey() {
@@ -20,15 +20,9 @@ export async function getServerPublicKey() {
   }
 
   addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
-  const proxyUrl = await buildProxyUrl('/publickey');
   
-  // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    mode: 'cors',
-    credentials: 'omit',
-    headers: { 'Content-Type': 'application/json' }
-  });
+  // 🔥 ARQUITETURA: Usa o Wrapper Centralizado
+  const response = await fetchLocoProxy('/publickey');
   
   if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
   
@@ -148,15 +142,15 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
     }
     
-    const proxyserver = await buildProxyUrl('/');
-    
+    // O Proxy Server gravado no perfil será apenas '/' (Raiz relativa)
+    // O buildProxyUrl no push-utils cuida de resolver depois.
     const subscription = {
       endpoint: existingSubscription.endpoint,
       keys: {
         p256dh: rawBufferToBase64Url(p256dhBuffer),
         auth: rawBufferToBase64Url(authBuffer)
       },
-      proxyserver
+      proxyserver: '/'
     };
 
     let e2ePublicKey: JsonWebKey;

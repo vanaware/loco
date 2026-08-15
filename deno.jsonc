@@ -7,7 +7,7 @@
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.117-msulqcr3",
+  "version": "0.2.119-msunun2s",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -43,10 +43,10 @@
     "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
     "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
     "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
     "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
+    "wrangler": "npm:wrangler@^4.123.0"
   },
 
   // 🛠️ Scripts de Automação
@@ -60,5 +60,6 @@
     "tests": "deno task check && deno task test",
     "export": "deno run --allow-read --allow-write export.ts"
   },
-  "exclude": ["build/", "public/"]
+  "exclude": ["build/", "public/"],
+  "nodeModulesDir": "auto"
 }
