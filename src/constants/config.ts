@@ -1,6 +1,7 @@
 // src/constants/config.ts
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
 import { DB_NAMES } from "./db.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
 export const DefaultProxyPath: string = "/";
 export const FallbackAbsoluteProxy: string = "https://loco.arvati.workers.dev";
@@ -94,11 +95,10 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   return `${base}/${cleanEndpoint}`;
 }
 
-// 🔥 ARQUITETURA: Wrapper Centralizado para as chamadas de rede do App
-// Garante que todas as requisições possuam o mesmo padrão de segurança (CORS e Headers)
 export interface FetchProxyOptions extends Omit<RequestInit, 'body'> {
-  body?: any; // Permitimos objetos JavaScript literais, a função fará o stringify
-  specificProxy?: string; // Permite forçar o disparo para uma URL de proxy que não é a padrão
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  body?: any; 
+  specificProxy?: string; 
 }
 
 export async function fetchLocoProxy(endpoint: string, options: FetchProxyOptions = {}): Promise<Response> {
@@ -111,22 +111,34 @@ export async function fetchLocoProxy(endpoint: string, options: FetchProxyOption
   }
 
   const finalOptions: RequestInit = {
-    method: 'POST', // Padrão Loco
+    method: 'POST', 
     mode: 'cors',
-    credentials: 'omit', // Crucial para não engasgar o W3C CORS Wildcard do Worker (*)
+    credentials: 'omit', 
     headers: mergedHeaders,
     ...restOptions
   };
 
   if (body) {
     finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
+    
+    // 🔥 ARQUITETURA: Validação Preemptiva de Rede proposta pelo usuário.
+    // Calculamos o tamanho real em bytes da string UTF-8 gerada (JSON HTTP Body).
+    const payloadSizeBytes = new Blob([finalOptions.body]).size;
+    
+    addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada: ${payloadSizeBytes} bytes.`);
+
+    // O limite do nosso Proxy agora é 8192 bytes (8KB).
+    // O WebPush (FCM) aceita 4096 bytes (4KB), o resto são metadados de roteamento (URL, Chaves VAPID).
+    if (payloadSizeBytes > 8192) {
+      addDebugLog("error", "NETWORK:FETCH", `Abortado localmente: O Payload HTTP (${payloadSizeBytes} bytes) excede o limite seguro do servidor Proxy (8192 bytes).`);
+      throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). O limite de roteamento do servidor é de 8KB.`);
+    }
   }
 
   try {
     return await fetch(url, finalOptions);
   } catch (error: any) {
-    // Intercepta erros de rede puros (DNS, Offline, CORS) para dar uma mensagem mais limpa
-    throw new Error(`Falha de conectividade (Rede/CORS) ao acessar o proxy remoto. Verifique a internet e o console do navegador. Detalhes: ${error.message}`);
+    throw new Error(`Falha ao acessar o nó proxy da rede (${url}). Erro de conectividade ou bloqueio de CORS. Detalhes: ${error.message}`);
   }
 }
 

@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.117-msulqcr3** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.121-msuonm2g** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.117-msulqcr3] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.121-msuonm2g] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 1:52:24 PM
+Gerado automaticamente em: 8/15/2026, 3:04:11 PM
 
 ---
 
@@ -2163,7 +2163,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.117-msulqcr3";
+export const APP_VERSION = "0.2.121-msuonm2g";
 
 ```
 
@@ -2175,6 +2175,7 @@ export const APP_VERSION = "0.2.117-msulqcr3";
 // src/constants/config.ts
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
 import { DB_NAMES } from "./db.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
 
 export const DefaultProxyPath: string = "/";
 export const FallbackAbsoluteProxy: string = "https://loco.arvati.workers.dev";
@@ -2268,26 +2269,67 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   return `${base}/${cleanEndpoint}`;
 }
 
+export interface FetchProxyOptions extends Omit<RequestInit, 'body'> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  body?: any; 
+  specificProxy?: string; 
+}
+
+export async function fetchLocoProxy(endpoint: string, options: FetchProxyOptions = {}): Promise<Response> {
+  const { specificProxy, body, headers, ...restOptions } = options;
+  const url = await buildProxyUrl(endpoint, specificProxy);
+  
+  const mergedHeaders = new Headers(headers);
+  if (!mergedHeaders.has('Content-Type') && body) {
+    mergedHeaders.set('Content-Type', 'application/json');
+  }
+
+  const finalOptions: RequestInit = {
+    method: 'POST', 
+    mode: 'cors',
+    credentials: 'omit', 
+    headers: mergedHeaders,
+    ...restOptions
+  };
+
+  if (body) {
+    finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
+    
+    // 🔥 ARQUITETURA: Validação Preemptiva de Rede proposta pelo usuário.
+    // Calculamos o tamanho real em bytes da string UTF-8 gerada (JSON HTTP Body).
+    const payloadSizeBytes = new Blob([finalOptions.body]).size;
+    
+    addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada: ${payloadSizeBytes} bytes.`);
+
+    // O limite do nosso Proxy agora é 8192 bytes (8KB).
+    // O WebPush (FCM) aceita 4096 bytes (4KB), o resto são metadados de roteamento (URL, Chaves VAPID).
+    if (payloadSizeBytes > 8192) {
+      addDebugLog("error", "NETWORK:FETCH", `Abortado localmente: O Payload HTTP (${payloadSizeBytes} bytes) excede o limite seguro do servidor Proxy (8192 bytes).`);
+      throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). O limite de roteamento do servidor é de 8KB.`);
+    }
+  }
+
+  try {
+    return await fetch(url, finalOptions);
+  } catch (error: any) {
+    throw new Error(`Falha ao acessar o nó proxy da rede (${url}). Erro de conectividade ou bloqueio de CORS. Detalhes: ${error.message}`);
+  }
+}
+
 export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
   try {
-    const url = await buildProxyUrl('/ping', proxyUrlToCheck);
-    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
-    let res = await fetch(url, { 
-      method: 'POST', 
-      mode: 'cors',
-      credentials: 'omit',
+    let res = await fetchLocoProxy('/ping', { 
+      specificProxy: proxyUrlToCheck,
       signal: controller.signal 
     }).catch(() => null);
     
     if (!res || !res.ok) {
-      res = await fetch(url, { 
+      res = await fetchLocoProxy('/ping', { 
         method: 'GET', 
-        mode: 'cors',
-        credentials: 'omit',
+        specificProxy: proxyUrlToCheck,
         signal: controller.signal 
       }).catch(() => null);
     }
@@ -4663,8 +4705,8 @@ export async function removerHandshake(id: string): Promise<void> {
 // src/utils/push-utils.ts
 import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
-import { buildProxyUrl } from '../constants/config.ts';
 import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
+import { fetchLocoProxy } from "../constants/config.ts";
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   try {
@@ -4745,15 +4787,9 @@ export async function enviarParaProxy(
   }
 
   try {
-    const proxyUrl = await buildProxyUrl('/');
-    
-    // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
-    const response = await fetch(proxyUrl, {
-      method: "POST",
-      mode: "cors",
-      credentials: "omit",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // 🔥 ARQUITETURA: Código limpo e protegido pelo Wrapper Central
+    const response = await fetchLocoProxy('/', {
+      body: {
         subscription,
         payloadText,
         vapid: {
@@ -4761,7 +4797,7 @@ export async function enviarParaProxy(
           publicKey: minifyVapidPublic(vapid.publicKey),
           privateKey: vapid.privateKey
         }
-      })
+      }
     });
 
     if (!response.ok) {
@@ -4838,7 +4874,7 @@ import { registrarServiceWorker } from "../sw/sw-utils.ts";
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { addDebugLog } from './debug-utils.ts';
-import { buildProxyUrl } from '../constants/config.ts';
+import { fetchLocoProxy } from '../constants/config.ts';
 import { getConfigValue, saveConfig } from '../stores/config-store.ts';
 
 export async function getServerPublicKey() {
@@ -4853,15 +4889,9 @@ export async function getServerPublicKey() {
   }
 
   addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
-  const proxyUrl = await buildProxyUrl('/publickey');
   
-  // 🔥 ARQUITETURA: Força mode: "cors" e credentials: "omit"
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    mode: 'cors',
-    credentials: 'omit',
-    headers: { 'Content-Type': 'application/json' }
-  });
+  // 🔥 ARQUITETURA: Subsitui o fetch solto pelo Wrapper Central
+  const response = await fetchLocoProxy('/publickey');
   
   if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
   
@@ -4981,15 +5011,14 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
     }
     
-    const proxyserver = await buildProxyUrl('/');
-    
+    // Deixa que a URL do proxy seja puramente "/" no storage interno. O wrapper resolverá dinamicamente depois.
     const subscription = {
       endpoint: existingSubscription.endpoint,
       keys: {
         p256dh: rawBufferToBase64Url(p256dhBuffer),
         auth: rawBufferToBase64Url(authBuffer)
       },
-      proxyserver
+      proxyserver: '/'
     };
 
     let e2ePublicKey: JsonWebKey;
@@ -6815,7 +6844,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.117-msulqcr3",
+  "version": "0.2.121-msuonm2g",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -6851,10 +6880,10 @@ await build();
     "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
     "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
     "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web": "https://esm.sh/@material/web@1.5.1?bundle",
     "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0"
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
+    "wrangler": "npm:wrangler@^4.123.0"
   },
 
   // 🛠️ Scripts de Automação
@@ -6868,7 +6897,8 @@ await build();
     "tests": "deno task check && deno task test",
     "export": "deno run --allow-read --allow-write export.ts"
   },
-  "exclude": ["build/", "public/"]
+  "exclude": ["build/", "public/"],
+  "nodeModulesDir": "auto"
 }
 ```
 
@@ -7051,13 +7081,17 @@ const workerHandler = {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
-    // 🔥 ARQUITETURA: Removido 'Access-Control-Allow-Credentials' 
-    // para não quebrar a especificação W3C em par com a Origem '*'
+    // 🔥 ARQUITETURA: CORS ESPELHO (Mirror CORS) ABSOLUTO
+    const origin = request.headers.get("Origin") || "*";
+    const requestHeaders = request.headers.get("Access-Control-Request-Headers") || "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload";
+
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload",
-      "Access-Control-Max-Age": "86400"
+      "Access-Control-Allow-Headers": requestHeaders,
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Max-Age": "86400",
+      "Vary": "Origin"
     };
 
     if (request.method === "OPTIONS") {
@@ -7092,13 +7126,14 @@ const workerHandler = {
       if (request.method === "POST" && !isPing && !isPublicKey) {
         
         // 🛡️ CAMADA DE DEFESA 1: Early Drop por Tamanho
+        // 🔥 Aumentado de 5KB (5120) para 8KB (8192) para acomodar metadados P2P + Payload 4KB
         const contentLength = request.headers.get("content-length");
-        if (contentLength && parseInt(contentLength, 10) > 5120) {
-          console.warn("🛑 [DEFESA] Bloqueado: Payload excedeu 5KB");
+        if (contentLength && parseInt(contentLength, 10) > 8192) {
+          console.warn(`🛑 [DEFESA] Bloqueado: Payload excedeu o limite do roteador (Recebido: ${contentLength} bytes, Limite: 8192)`);
           return new Response(JSON.stringify({ error: "Payload Too Large" }), { status: 413, headers: corsHeaders });
         }
 
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
+        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida de ${origin}!`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;
@@ -7216,6 +7251,7 @@ const workerHandler = {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("❌ Erro no Worker:", errorMessage);
+      
       return new Response(
         JSON.stringify({ success: false, error: errorMessage }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

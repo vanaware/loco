@@ -21,7 +21,7 @@ export async function getServerPublicKey() {
 
   addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
   
-  // 🔥 ARQUITETURA: Usa o Wrapper Centralizado
+  // 🔥 ARQUITETURA: Subsitui o fetch solto pelo Wrapper Central
   const response = await fetchLocoProxy('/publickey');
   
   if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
@@ -142,8 +142,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
     }
     
-    // O Proxy Server gravado no perfil será apenas '/' (Raiz relativa)
-    // O buildProxyUrl no push-utils cuida de resolver depois.
+    // Deixa que a URL do proxy seja puramente "/" no storage interno. O wrapper resolverá dinamicamente depois.
     const subscription = {
       endpoint: existingSubscription.endpoint,
       keys: {

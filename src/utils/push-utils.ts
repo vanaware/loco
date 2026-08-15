@@ -83,7 +83,7 @@ export async function enviarParaProxy(
   }
 
   try {
-    // 🔥 ARQUITETURA: Usa o Wrapper Centralizado
+    // 🔥 ARQUITETURA: Código limpo e protegido pelo Wrapper Central
     const response = await fetchLocoProxy('/', {
       body: {
         subscription,
