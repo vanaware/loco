@@ -172,21 +172,37 @@ const workerHandler = {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
-    // 🔥 ARQUITETURA: CORS ESPELHO (Mirror CORS) ABSOLUTO
+    const method = request.method;
     const origin = request.headers.get("Origin") || "*";
-    const requestHeaders = request.headers.get("Access-Control-Request-Headers") || "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload";
+    const reqHeaders = request.headers.get("Access-Control-Request-Headers");
 
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": origin,
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
-      "Access-Control-Allow-Headers": requestHeaders,
-      "Access-Control-Allow-Credentials": "true",
+    // 🔥 LOG ESTRATÉGICO: Descobrindo o que os Túneis enviam
+    console.log(`\n======================================================`);
+    console.log(`🌐 [ROUTER] Nova Requisição Detectada!`);
+    console.log(`📌 Método: ${method} | Rota: ${pathname}`);
+    console.log(`🌍 Origem Recebida: ${origin}`);
+    if (reqHeaders) {
+      console.log(`📦 Headers Solicitados no Preflight: ${reqHeaders}`);
+    }
+
+    // 🔥 ARQUITETURA: CORS ESPELHO ABSOLUTO
+    const corsHeaders: Record<string, string> = {
+      "Access-Control-Allow-Origin": origin, // Espelha a origem exata (localhost ou tunnel)
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Credentials": "true", // Permitido apenas porque não usamos '*'
       "Access-Control-Max-Age": "86400",
-      "Vary": "Origin"
+      "Vary": "Origin" // Exigência da W3C para CORS Dinâmico
     };
 
+    if (reqHeaders) {
+      corsHeaders["Access-Control-Allow-Headers"] = reqHeaders; // Espelha os headers
+    } else {
+      corsHeaders["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload";
+    }
+
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      console.log(`🛡️ CORS Headers Devolvidos no OPTIONS:`, JSON.stringify(corsHeaders));
+      return new Response("OK", { status: 200, headers: corsHeaders });
     }
 
     const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
@@ -216,20 +232,17 @@ const workerHandler = {
       // Rota principal de processamento de Push
       if (request.method === "POST" && !isPing && !isPublicKey) {
         
-        // 🛡️ CAMADA DE DEFESA 1: Early Drop por Tamanho
-        // 🔥 Aumentado de 5KB (5120) para 8KB (8192) para acomodar metadados P2P + Payload 4KB
         const contentLength = request.headers.get("content-length");
         if (contentLength && parseInt(contentLength, 10) > 8192) {
           console.warn(`🛑 [DEFESA] Bloqueado: Payload excedeu o limite do roteador (Recebido: ${contentLength} bytes, Limite: 8192)`);
           return new Response(JSON.stringify({ error: "Payload Too Large" }), { status: 413, headers: corsHeaders });
         }
 
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida de ${origin}!`);
+        console.log(`📥 [RECEIVE] Processando Payload PUSH de ${contentLength || 'tamanho desconhecido'} bytes.`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;
 
-        // 🛡️ CAMADA DE DEFESA 2: Schema Validation Rigoroso
         if (
           !subscription || !subscription.endpoint || !subscription.keys?.p256dh ||
           !payloadText || typeof payloadText !== 'string' ||
@@ -242,7 +255,6 @@ const workerHandler = {
           );
         }
 
-        // 🛡️ CAMADA DE DEFESA 3: Auditoria do Token
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
           console.warn("🛑 [DEFESA] Bloqueado: Token JWT inválido ou sub-protocolo desconhecido.");
@@ -254,7 +266,6 @@ const workerHandler = {
 
         console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
 
-        // Lógica de Redirecionamento (Proxy de Borda)
         const proxyserverDestino = jwtClaims.proxyserver;
         if (proxyserverDestino) {
           const urlAtual = new URL(request.url);
@@ -343,6 +354,7 @@ const workerHandler = {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("❌ Erro no Worker:", errorMessage);
       
+      // O CORS deve ser incluído mesmo no erro 500 para o navegador conseguir ler a reposta!
       return new Response(
         JSON.stringify({ success: false, error: errorMessage }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

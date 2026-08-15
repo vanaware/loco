@@ -121,14 +121,11 @@ export async function fetchLocoProxy(endpoint: string, options: FetchProxyOption
   if (body) {
     finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
     
-    // 🔥 ARQUITETURA: Validação Preemptiva de Rede proposta pelo usuário.
-    // Calculamos o tamanho real em bytes da string UTF-8 gerada (JSON HTTP Body).
+    // 🔥 ARQUITETURA: Validação Preemptiva de Rede.
     const payloadSizeBytes = new Blob([finalOptions.body]).size;
     
     addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada: ${payloadSizeBytes} bytes.`);
 
-    // O limite do nosso Proxy agora é 8192 bytes (8KB).
-    // O WebPush (FCM) aceita 4096 bytes (4KB), o resto são metadados de roteamento (URL, Chaves VAPID).
     if (payloadSizeBytes > 8192) {
       addDebugLog("error", "NETWORK:FETCH", `Abortado localmente: O Payload HTTP (${payloadSizeBytes} bytes) excede o limite seguro do servidor Proxy (8192 bytes).`);
       throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). O limite de roteamento do servidor é de 8KB.`);
@@ -151,14 +148,6 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
       specificProxy: proxyUrlToCheck,
       signal: controller.signal 
     }).catch(() => null);
-    
-    if (!res || !res.ok) {
-      res = await fetchLocoProxy('/ping', { 
-        method: 'GET', 
-        specificProxy: proxyUrlToCheck,
-        signal: controller.signal 
-      }).catch(() => null);
-    }
     
     clearTimeout(timeoutId);
     

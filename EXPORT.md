@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.121-msuonm2g** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.125-msuqlmka** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.121-msuonm2g] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.125-msuqlmka] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 3:04:11 PM
+Gerado automaticamente em: 8/15/2026, 3:56:28 PM
 
 ---
 
@@ -2163,7 +2163,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.121-msuonm2g";
+export const APP_VERSION = "0.2.125-msuqlmka";
 
 ```
 
@@ -2295,14 +2295,11 @@ export async function fetchLocoProxy(endpoint: string, options: FetchProxyOption
   if (body) {
     finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
     
-    // 🔥 ARQUITETURA: Validação Preemptiva de Rede proposta pelo usuário.
-    // Calculamos o tamanho real em bytes da string UTF-8 gerada (JSON HTTP Body).
+    // 🔥 ARQUITETURA: Validação Preemptiva de Rede.
     const payloadSizeBytes = new Blob([finalOptions.body]).size;
     
     addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada: ${payloadSizeBytes} bytes.`);
 
-    // O limite do nosso Proxy agora é 8192 bytes (8KB).
-    // O WebPush (FCM) aceita 4096 bytes (4KB), o resto são metadados de roteamento (URL, Chaves VAPID).
     if (payloadSizeBytes > 8192) {
       addDebugLog("error", "NETWORK:FETCH", `Abortado localmente: O Payload HTTP (${payloadSizeBytes} bytes) excede o limite seguro do servidor Proxy (8192 bytes).`);
       throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). O limite de roteamento do servidor é de 8KB.`);
@@ -2325,14 +2322,6 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
       specificProxy: proxyUrlToCheck,
       signal: controller.signal 
     }).catch(() => null);
-    
-    if (!res || !res.ok) {
-      res = await fetchLocoProxy('/ping', { 
-        method: 'GET', 
-        specificProxy: proxyUrlToCheck,
-        signal: controller.signal 
-      }).catch(() => null);
-    }
     
     clearTimeout(timeoutId);
     
@@ -6475,13 +6464,12 @@ name = "loco"
 # Ponto de entrada do seu Worker (o bundle gerado pelo Deno)
 main = "build/worker.js"
 
+preview_urls = false
+
 # Data de compatibilidade (recomenda-se manter atualizada)
 compatibility_date = "2026-06-01"
 # compatibility_flags = ["nodejs_compat"]
 # routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
-
-[observability]
-enabled = true
 
 # Configuração moderna para servir arquivos estáticos junto com o Worker
 [assets]
@@ -6491,7 +6479,23 @@ binding = "ASSETS"
 
 # OPCIONAL: Variáveis de ambiente que seu proxy cego do FCM possa precisar
 [vars]
-SERVER_PUBLIC_KEY = '{"kty":"RSA","alg":"RSA-OAEP-256","n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ","e":"AQAB","key_ops":["encrypt"],"ext":true}'
+PROXY_PATH= '/'
+SERVER_PUBLIC_KEY = '{"n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ"}'
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
 
 ```
 
@@ -6844,7 +6848,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.121-msuonm2g",
+  "version": "0.2.125-msuqlmka",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -7081,21 +7085,37 @@ const workerHandler = {
     const url = new URL(request.url);
     const pathname = url.pathname;
     
-    // 🔥 ARQUITETURA: CORS ESPELHO (Mirror CORS) ABSOLUTO
+    const method = request.method;
     const origin = request.headers.get("Origin") || "*";
-    const requestHeaders = request.headers.get("Access-Control-Request-Headers") || "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload";
+    const reqHeaders = request.headers.get("Access-Control-Request-Headers");
 
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": origin,
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS", 
-      "Access-Control-Allow-Headers": requestHeaders,
-      "Access-Control-Allow-Credentials": "true",
+    // 🔥 LOG ESTRATÉGICO: Descobrindo o que os Túneis enviam
+    console.log(`\n======================================================`);
+    console.log(`🌐 [ROUTER] Nova Requisição Detectada!`);
+    console.log(`📌 Método: ${method} | Rota: ${pathname}`);
+    console.log(`🌍 Origem Recebida: ${origin}`);
+    if (reqHeaders) {
+      console.log(`📦 Headers Solicitados no Preflight: ${reqHeaders}`);
+    }
+
+    // 🔥 ARQUITETURA: CORS ESPELHO ABSOLUTO
+    const corsHeaders: Record<string, string> = {
+      "Access-Control-Allow-Origin": origin, // Espelha a origem exata (localhost ou tunnel)
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Credentials": "true", // Permitido apenas porque não usamos '*'
       "Access-Control-Max-Age": "86400",
-      "Vary": "Origin"
+      "Vary": "Origin" // Exigência da W3C para CORS Dinâmico
     };
 
+    if (reqHeaders) {
+      corsHeaders["Access-Control-Allow-Headers"] = reqHeaders; // Espelha os headers
+    } else {
+      corsHeaders["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload";
+    }
+
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      console.log(`🛡️ CORS Headers Devolvidos no OPTIONS:`, JSON.stringify(corsHeaders));
+      return new Response("OK", { status: 200, headers: corsHeaders });
     }
 
     const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
@@ -7125,20 +7145,17 @@ const workerHandler = {
       // Rota principal de processamento de Push
       if (request.method === "POST" && !isPing && !isPublicKey) {
         
-        // 🛡️ CAMADA DE DEFESA 1: Early Drop por Tamanho
-        // 🔥 Aumentado de 5KB (5120) para 8KB (8192) para acomodar metadados P2P + Payload 4KB
         const contentLength = request.headers.get("content-length");
         if (contentLength && parseInt(contentLength, 10) > 8192) {
           console.warn(`🛑 [DEFESA] Bloqueado: Payload excedeu o limite do roteador (Recebido: ${contentLength} bytes, Limite: 8192)`);
           return new Response(JSON.stringify({ error: "Payload Too Large" }), { status: 413, headers: corsHeaders });
         }
 
-        console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida de ${origin}!`);
+        console.log(`📥 [RECEIVE] Processando Payload PUSH de ${contentLength || 'tamanho desconhecido'} bytes.`);
         
         const body = await request.json();
         const { subscription, payloadText, vapid } = body;
 
-        // 🛡️ CAMADA DE DEFESA 2: Schema Validation Rigoroso
         if (
           !subscription || !subscription.endpoint || !subscription.keys?.p256dh ||
           !payloadText || typeof payloadText !== 'string' ||
@@ -7151,7 +7168,6 @@ const workerHandler = {
           );
         }
 
-        // 🛡️ CAMADA DE DEFESA 3: Auditoria do Token
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
           console.warn("🛑 [DEFESA] Bloqueado: Token JWT inválido ou sub-protocolo desconhecido.");
@@ -7163,7 +7179,6 @@ const workerHandler = {
 
         console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
 
-        // Lógica de Redirecionamento (Proxy de Borda)
         const proxyserverDestino = jwtClaims.proxyserver;
         if (proxyserverDestino) {
           const urlAtual = new URL(request.url);
@@ -7252,6 +7267,7 @@ const workerHandler = {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("❌ Erro no Worker:", errorMessage);
       
+      // O CORS deve ser incluído mesmo no erro 500 para o navegador conseguir ler a reposta!
       return new Response(
         JSON.stringify({ success: false, error: errorMessage }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
