@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.146-msuyws4u** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.150-msv17qyy** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.146-msuyws4u] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.150-msv17qyy] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 7:50:37 PM
+Gerado automaticamente em: 8/15/2026, 8:53:37 PM
 
 ---
 
@@ -575,535 +575,6 @@ const styles: Record<string, JSX.CSSProperties> = {
   summary: { cursor: "pointer", color: "#0066cc", fontSize: "0.75rem" },
   json: { margin: "4px 0 0 0", padding: "8px", backgroundColor: "#1e1e1e", color: "#00ff66", borderRadius: "4px", fontSize: "0.75rem", overflowX: "auto" },
 };
-```
-
----
-
-## Arquivo: `src/components/ProfileSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-import { navigate } from '../utils/router.ts';
-
-export function ProfileSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const p = profile.value;
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
-
-  useEffect(() => {
-    if (!temChaveVapid) {
-      isEditing.value = true;
-    } else {
-      isEditing.value = false;
-    }
-  }, [temChaveVapid]);
-
-  useEffect(() => {
-    const renderQrCode = () => {
-      if (!p) return;
-      try {
-        const payloadBinario = gerarPayloadQrCodeCompacto(p);
-        const qr = qrcode(0, 'L');
-        qr.addData(payloadBinario);
-        qr.make();
-        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
-      } catch (e) {
-        console.error("Falha ao gerar QR Code:", e);
-        qrCodeDataUrl.value = null;
-      }
-    };
-
-    if (temChaveVapid) {
-      renderQrCode();
-    } else {
-      qrCodeDataUrl.value = null;
-    }
-  }, [p, temChaveVapid]);
-
-  const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
-    try {
-      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(pNovo);
-      
-      isEditing.value = false;
-
-      if (eraNovo) {
-        showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        navigate(''); 
-      } else {
-        showToast(`✅ Perfil atualizado!`, "success");
-      }
-    } catch (err: any) {
-      addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    if (p) {
-      profileName.value = p.name || '';
-      profileEmail.value = p.email || '';
-    }
-    isEditing.value = false;
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      if (!p) return showToast("Salve o perfil primeiro.", "error");
-      const serverPublicKeyJwk = await getServerPublicKey();
-
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
-
-      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      
-      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>account_circle</md-icon> Identidade Local
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {temChaveVapid && !isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-          </div>
-        </div>
-
-        {/* 🔥 ARQUITETURA: Espaçamento ajustado (margin-bottom de 8px para 24px) para respiro visual */}
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
-            
-            {!temChaveVapid && (
-               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
-                 Este nome será visível para os contatos que você convidar.
-               </p>
-            )}
-
-            <md-outlined-text-field
-              label="Seu Nome"
-              placeholder="Ex: João da Silva"
-              value={profileName.value}
-              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-            
-            <md-outlined-text-field
-              label="Seu E-mail (Opcional)"
-              placeholder="Ex: joao@email.com"
-              value={profileEmail.value}
-              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-              <md-filled-button 
-                onClick={handleGerarOuCorrigir} 
-                style="flex: 1;"
-                disabled={!profileName.value.trim() ? true : undefined}
-              >
-                {!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar"}
-              </md-filled-button>
-              
-              {temChaveVapid && (
-                <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
-                  Cancelar
-                </md-outlined-button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {p?.name?.trim() || "Anônimo"}
-            </h2>
-            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Compartilhar Link de Convite
-              </md-outlined-button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
-        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
-            Seu QR Code
-          </h3>
-          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
-            Mostre isso para um amigo escanear pelo App Loco.
-          </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
-        </div>
-      )}
-
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ContactDetailSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { contatosComHash, adicionarContato, removerContatoCompletamente } from '../stores/contatosStore.ts';
-import { profile } from '../stores/profileStore.ts';
-import { contatoCompartilharHash, contatoSelecionado, showToast } from '../signals/state.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-import { navigate } from '../utils/router.ts';
-import { ehContatoProprio } from '../utils/self-contact-utils.ts';
-
-export function ContactDetailSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-  const editNome = useSignal<string>('');
-  const editEmail = useSignal<string>('');
-  const editProxyserver = useSignal<string>('');
-  const isContatoProprio = useSignal<boolean>(false);
-
-  const hash = contatoCompartilharHash.value;
-  const item = contatosComHash.value.find(c => c.hash === hash);
-  const contato = item?.contato;
-
-  useEffect(() => {
-    if (!contato) {
-      qrCodeDataUrl.value = null;
-      isEditing.value = false;
-      isContatoProprio.value = false;
-      return;
-    }
-
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-    editProxyserver.value = contato.subscription?.proxyserver || '';
-
-    if (hash) {
-      ehContatoProprio(hash, profile.value).then((ehProprio) => {
-        isContatoProprio.value = ehProprio;
-        if (ehProprio) {
-          navigate('#profile');
-        }
-      });
-    }
-
-    try {
-      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
-      const qr = qrcode(0, 'L');
-      qr.addData(payloadBinario);
-      qr.make();
-      qrCodeDataUrl.value = qr.createDataURL(5, 0);
-    } catch (e) {
-      console.error("Erro ao gerar QR Code do contato:", e);
-      qrCodeDataUrl.value = null;
-    }
-  }, [contato, hash]);
-
-  if (!contato || !hash) return null;
-  if (isContatoProprio.value) return null;
-
-  const nomeExibicao = contato.name?.trim() || "Anônimo";
-
-  const handleCopiarLink = async () => {
-    const p = profile.value;
-    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
-
-    try {
-      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
-    } catch (err: any) {
-      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
-    }
-  };
-
-  const handleEnviarMeusDados = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'enviarSubscription',
-            contato: hash,
-            responder: false
-          }
-        }
-      });
-      
-      showToast("🚀 Meus dados foram enviados para o contato!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
-    }
-  };
-
-  const handleSolicitarAtualizacao = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'confirmarSubscription',
-            contato: hash,
-            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
-          }
-        }
-      });
-      
-      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
-    } catch (err: any) {
-      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
-    }
-  };
-
-  const handleSalvarEdicao = async () => {
-    try {
-      const contatoAtualizado = {
-        ...contato,
-        name: editNome.value.trim(),
-        email: editEmail.value.trim(),
-        subscription: {
-          ...contato.subscription,
-          proxyserver: editProxyserver.value.trim()
-        },
-        updatedAt: Date.now(),
-      };
-
-      await adicionarContato(contatoAtualizado);
-      isEditing.value = false;
-      showToast("✅ Dados do contato atualizados!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-    editProxyserver.value = contato.subscription?.proxyserver || '';
-    isEditing.value = false;
-  };
-
-  const handleIniciarChat = () => {
-    navigate(`#chat=${hash}`);
-  };
-
-  const handleExcluirContato = async () => {
-    const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir ${nomeExibicao} permanentemente.\n\nIsso apagará TODAS as mensagens enviadas, recebidas e todas as pendências de conexão na rede.\n\nDeseja continuar?`;
-    
-    if (confirm(mensagemAlerta)) {
-      try {
-        await removerContatoCompletamente(hash);
-        showToast("🗑️ Contato e histórico excluídos com sucesso.", "success");
-        if (contatoSelecionado.value === hash) {
-          contatoSelecionado.value = '';
-        }
-        navigate('');
-      } catch (e: any) {
-        showToast(`❌ Erro ao excluir: ${e.message}`, "error");
-      }
-    }
-  };
-
-  const handleFechar = () => {
-    navigate('');
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>badge</md-icon> Cartão de Contato
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {!isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-            <md-icon-button onClick={handleFechar} title="Fechar">
-              <md-icon>close</md-icon>
-            </md-icon-button>
-          </div>
-        </div>
-
-        {/* 🔥 ARQUITETURA: Espaçamento ajustado (margin-bottom de 8px para 24px) para respiro visual */}
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
-            <md-outlined-text-field
-              label="Nome do Contato"
-              value={editNome.value}
-              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <md-outlined-text-field
-              label="E-mail do Contato"
-              value={editEmail.value}
-              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <md-outlined-text-field
-              label="Proxy Server (URL completa)"
-              value={editProxyserver.value}
-              onInput={(e: Event) => editProxyserver.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 4px;">
-              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
-                💾 Salvar
-              </md-filled-button>
-              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
-                Cancelar
-              </md-outlined-button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {nomeExibicao}
-            </h2>
-
-            {contato.trusted && (
-              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
-                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
-              </div>
-            )}
-
-            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
-            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
-              <md-icon style="font-size: 1rem; vertical-align: middle;">dns</md-icon> Proxy: {contato.subscription?.proxyserver || 'Não informado'}
-            </p>
-          </>
-        )}
-
-        {!isEditing.value && (
-          <>
-            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO VOCÊ VÊ ESTE CONTATO:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.trusted ? (
-                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
-                  ) : (
-                    <><md-icon style="color: var(--md-sys-color-on-surface-variant); font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO ESTE CONTATO VÊ VOCÊ:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
-                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
-                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
-                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: var(--md-sys-color-on-surface-variant); font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
-                </div>
-              </div>
-            </div>
-
-            {qrCodeDataUrl.value && (
-              <div style="background: #ffffff; color: #111111; padding: 16px; border-radius: 12px; border: 1px solid #eeeeee; margin-bottom: 20px; display: inline-block;">
-                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
-                <span style="font-size: 0.75rem; color: #555555; display: block; margin-top: 8px;">
-                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
-                </span>
-              </div>
-            )}
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Copiar Link de Indicação
-              </md-filled-button>
-
-              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
-                <md-icon slot="icon">send_to_mobile</md-icon>
-                Enviar meus dados ao contato
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
-                <md-icon slot="icon">sync</md-icon>
-                Verificar Status de Confiança
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
-                <md-icon slot="icon">chat</md-icon>
-                Iniciar Conversa
-              </md-outlined-button>
-
-              <div style="margin-top: 16px;">
-                <md-outlined-button 
-                  onClick={handleExcluirContato} 
-                  style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);"
-                >
-                  <md-icon slot="icon">delete_forever</md-icon>
-                  Excluir Contato e Histórico
-                </md-outlined-button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 ```
 
 ---
@@ -2025,6 +1496,539 @@ export function SettingsSection() {
 
 ---
 
+## Arquivo: `src/components/ContactDetailSection.tsx`
+
+```tsx
+// src/components/ContactDetailSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { contatosComHash, adicionarContato, removerContatoCompletamente } from '../stores/contatosStore.ts';
+import { profile } from '../stores/profileStore.ts';
+import { contatoCompartilharHash, contatoSelecionado, showToast } from '../signals/state.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
+import { ehContatoProprio } from '../utils/self-contact-utils.ts';
+
+export function ContactDetailSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+  const editNome = useSignal<string>('');
+  const editEmail = useSignal<string>('');
+  const editProxyserver = useSignal<string>('');
+  const isContatoProprio = useSignal<boolean>(false);
+
+  const hash = contatoCompartilharHash.value;
+  const item = contatosComHash.value.find(c => c.hash === hash);
+  const contato = item?.contato;
+
+  useEffect(() => {
+    if (!contato) {
+      qrCodeDataUrl.value = null;
+      isEditing.value = false;
+      isContatoProprio.value = false;
+      return;
+    }
+
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+    editProxyserver.value = contato.subscription?.proxyserver || '';
+
+    if (hash) {
+      ehContatoProprio(hash, profile.value).then((ehProprio) => {
+        isContatoProprio.value = ehProprio;
+        if (ehProprio) {
+          navigate('#profile');
+        }
+      });
+    }
+
+    // 🔥 Protegido com Async IIFE
+    (async () => {
+      try {
+        const payloadBinario = await gerarPayloadQrCodeCompacto(contato);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0);
+      } catch (e) {
+        console.error("Erro ao gerar QR Code do contato:", e);
+        qrCodeDataUrl.value = null;
+      }
+    })();
+  }, [contato, hash]);
+
+  if (!contato || !hash) return null;
+  if (isContatoProprio.value) return null;
+
+  const nomeExibicao = contato.name?.trim() || "Anônimo";
+
+  const handleCopiarLink = async () => {
+    const p = profile.value;
+    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
+
+    try {
+      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
+    } catch (err: any) {
+      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
+    }
+  };
+
+  const handleEnviarMeusDados = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'enviarSubscription',
+            contato: hash,
+            responder: false
+          }
+        }
+      });
+      
+      showToast("🚀 Meus dados foram enviados para o contato!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
+    }
+  };
+
+  const handleSolicitarAtualizacao = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'confirmarSubscription',
+            contato: hash,
+            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
+          }
+        }
+      });
+      
+      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
+    } catch (err: any) {
+      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
+    }
+  };
+
+  const handleSalvarEdicao = async () => {
+    try {
+      const contatoAtualizado = {
+        ...contato,
+        name: editNome.value.trim(),
+        email: editEmail.value.trim(),
+        subscription: {
+          ...contato.subscription,
+          proxyserver: editProxyserver.value.trim()
+        },
+        updatedAt: Date.now(),
+      };
+
+      await adicionarContato(contatoAtualizado);
+      isEditing.value = false;
+      showToast("✅ Dados do contato atualizados!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+    editProxyserver.value = contato.subscription?.proxyserver || '';
+    isEditing.value = false;
+  };
+
+  const handleIniciarChat = () => {
+    navigate(`#chat=${hash}`);
+  };
+
+  const handleExcluirContato = async () => {
+    const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir ${nomeExibicao} permanentemente.\n\nIsso apagará TODAS as mensagens enviadas, recebidas e todas as pendências de conexão na rede.\n\nDeseja continuar?`;
+    
+    if (confirm(mensagemAlerta)) {
+      try {
+        await removerContatoCompletamente(hash);
+        showToast("🗑️ Contato e histórico excluídos com sucesso.", "success");
+        if (contatoSelecionado.value === hash) {
+          contatoSelecionado.value = '';
+        }
+        navigate('');
+      } catch (e: any) {
+        showToast(`❌ Erro ao excluir: ${e.message}`, "error");
+      }
+    }
+  };
+
+  const handleFechar = () => {
+    navigate('');
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>badge</md-icon> Cartão de Contato
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {!isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+            <md-icon-button onClick={handleFechar} title="Fechar">
+              <md-icon>close</md-icon>
+            </md-icon-button>
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
+            <md-outlined-text-field
+              label="Nome do Contato"
+              value={editNome.value}
+              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <md-outlined-text-field
+              label="E-mail do Contato"
+              value={editEmail.value}
+              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <md-outlined-text-field
+              label="Proxy Server (URL completa)"
+              value={editProxyserver.value}
+              onInput={(e: Event) => editProxyserver.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 4px;">
+              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
+                💾 Salvar
+              </md-filled-button>
+              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                Cancelar
+              </md-outlined-button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {nomeExibicao}
+            </h2>
+
+            {contato.trusted && (
+              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
+                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
+              </div>
+            )}
+
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
+              <md-icon style="font-size: 1rem; vertical-align: middle;">dns</md-icon> Proxy: {contato.subscription?.proxyserver || 'Não informado'}
+            </p>
+          </>
+        )}
+
+        {!isEditing.value && (
+          <>
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO VOCÊ VÊ ESTE CONTATO:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.trusted ? (
+                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
+                  ) : (
+                    <><md-icon style="color: var(--md-sys-color-on-surface-variant); font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO ESTE CONTATO VÊ VOCÊ:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
+                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
+                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
+                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: var(--md-sys-color-on-surface-variant); font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
+                </div>
+              </div>
+            </div>
+
+            {qrCodeDataUrl.value && (
+              <div style="background: #ffffff; color: #111111; padding: 16px; border-radius: 12px; border: 1px solid #eeeeee; margin-bottom: 20px; display: inline-block;">
+                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
+                <span style="font-size: 0.75rem; color: #555555; display: block; margin-top: 8px;">
+                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
+                </span>
+              </div>
+            )}
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Copiar Link de Indicação
+              </md-filled-button>
+
+              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
+                <md-icon slot="icon">send_to_mobile</md-icon>
+                Enviar meus dados ao contato
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
+                <md-icon slot="icon">sync</md-icon>
+                Verificar Status de Confiança
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
+                <md-icon slot="icon">chat</md-icon>
+                Iniciar Conversa
+              </md-outlined-button>
+
+              <div style="margin-top: 16px;">
+                <md-outlined-button 
+                  onClick={handleExcluirContato} 
+                  style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);"
+                >
+                  <md-icon slot="icon">delete_forever</md-icon>
+                  Excluir Contato e Histórico
+                </md-outlined-button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
+// src/components/ProfileSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
+
+export function ProfileSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+
+  useEffect(() => {
+    carregarProfile();
+  }, []);
+
+  const p = profile.value;
+  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+
+  useEffect(() => {
+    if (!temChaveVapid) {
+      isEditing.value = true;
+    } else {
+      isEditing.value = false;
+    }
+  }, [temChaveVapid]);
+
+  useEffect(() => {
+    const renderQrCode = async () => {
+      if (!p) return;
+      try {
+        // 🔥 Agora suporta Assíncrono perfeitamente
+        const payloadBinario = await gerarPayloadQrCodeCompacto(p);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (temChaveVapid) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [p, temChaveVapid]);
+
+  const handleGerarOuCorrigir = async () => {
+    const eraNovo = !temChaveVapid;
+    try {
+      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(pNovo);
+      
+      isEditing.value = false;
+
+      if (eraNovo) {
+        showToast(`✅ Perfil inicializado com sucesso!`, "success");
+        navigate(''); 
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    if (p) {
+      profileName.value = p.name || '';
+      profileEmail.value = p.email || '';
+    }
+    isEditing.value = false;
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+      const serverPublicKeyJwk = await getServerPublicKey();
+
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>account_circle</md-icon> Identidade Local
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {temChaveVapid && !isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
+            
+            {!temChaveVapid && (
+               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
+                 Este nome será visível para os contatos que você convidar.
+               </p>
+            )}
+
+            <md-outlined-text-field
+              label="Seu Nome"
+              placeholder="Ex: João da Silva"
+              value={profileName.value}
+              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+            
+            <md-outlined-text-field
+              label="Seu E-mail (Opcional)"
+              placeholder="Ex: joao@email.com"
+              value={profileEmail.value}
+              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <md-filled-button 
+                onClick={handleGerarOuCorrigir} 
+                style="flex: 1;"
+                disabled={!profileName.value.trim() ? true : undefined}
+              >
+                {!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar"}
+              </md-filled-button>
+              
+              {temChaveVapid && (
+                <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                  Cancelar
+                </md-outlined-button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {p?.name?.trim() || "Anônimo"}
+            </h2>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Compartilhar Link de Convite
+              </md-outlined-button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
+        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
+            Seu QR Code
+          </h3>
+          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
+            Mostre isso para um amigo escanear pelo App Loco.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
+        </div>
+      )}
+
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
@@ -2173,7 +2177,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.146-msuyws4u";
+export const APP_VERSION = "0.2.150-msv17qyy";
 
 ```
 
@@ -2253,31 +2257,30 @@ function getAppBasePath(): string {
   return basePath;
 }
 
-export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
+// 🔥 ARQUITETURA: Resolve e devolve a BASE URl Absoluta do Proxy
+export async function getAbsoluteProxyUrl(specificProxy?: string): Promise<string> {
   let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
   
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
 
-  // Retiramos o "Código Mágico" que alterava rotas raízes. 
-  // O que a aplicação pedir, é o que ela vai receber formatado.
-  const cleanEndpoint = endpoint.replace(/^\/+/, '');
-  let base = "";
-
   if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
-    base = proxyPath;
+    return proxyPath.replace(/\/$/, '');
   } 
-  else {
-    const origin = typeof globalThis !== 'undefined' && globalThis.location 
-      ? globalThis.location.origin 
-      : 'http://localhost';
-    
-    const appBase = getAppBasePath();
-    const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
-    
-    base = origin + appBase + cleanProxyPath;
-  }
 
-  base = base.replace(/\/$/, '');
+  const origin = typeof globalThis !== 'undefined' && globalThis.location 
+    ? globalThis.location.origin 
+    : 'http://localhost';
+  
+  const appBase = getAppBasePath();
+  const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
+  
+  let base = origin + appBase + cleanProxyPath;
+  return base.replace(/\/$/, '');
+}
+
+export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
+  const base = await getAbsoluteProxyUrl(specificProxy);
+  const cleanEndpoint = endpoint.replace(/^\/+/, '');
   return cleanEndpoint ? `${base}/${cleanEndpoint}` : `${base}/`;
 }
 
@@ -2290,7 +2293,6 @@ export interface FetchProxyOptions extends Omit<RequestInit, 'body' | 'headers'>
 
 export async function fetchLocoProxy(endpoint: string, options: FetchProxyOptions = {}): Promise<Response> {
   const { specificProxy, body, headers: _ignorado, ...restOptions } = options;
-  
   const url = await buildProxyUrl(endpoint, specificProxy);
   
   const blindHeaders = new Headers();
@@ -2310,7 +2312,7 @@ export async function fetchLocoProxy(endpoint: string, options: FetchProxyOption
     finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
     
     const payloadSizeBytes = new Blob([finalOptions.body]).size;
-    addDebugLog("info", "NETWORK:FETCH", `Tamanho da requisição HTTP para ${endpoint}: ${payloadSizeBytes} bytes.`);
+    addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada para ${endpoint}: ${payloadSizeBytes} bytes.`);
 
     if (payloadSizeBytes > 8192) {
       throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). Limite é 8KB.`);
@@ -2329,7 +2331,6 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    // Explicitamente /ping
     let res = await fetchLocoProxy('/ping', { 
       specificProxy: proxyUrlToCheck,
       signal: controller.signal 
@@ -3366,17 +3367,13 @@ export async function processarFilaHandshake() {
         if (!isSyncHandshake && !isPullHandshake && (contato.me === 'none' || contato.me === 'wrong')) {
           addDebugLog(`[SW-ROUTER] 💉 Contato desatualizado. Injetando dados de perfil no handshake ${h.id}.`);
           h.out!.rotas.contato = h.out!.rotas.contato || {};
-          h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
+          // A extração agora garante envio com rota absoluta resolvendo o 'proxyserver' do próprio perfil
+          h.out!.rotas.contato.sync = await extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
         }
 
-        // 🔥 ARQUITETURA: Correção do Roteamento
-        // Se a URL de proxy do contato for absoluta, usa ela pura para evitar corrupção por concatenação
-        let proxyserverDestino = "";
-        if (contato.subscription.proxyserver) {
-           proxyserverDestino = contato.subscription.proxyserver;
-        } else {
-           proxyserverDestino = await buildProxyUrl('/');
-        }
+        // 🔥 ARQUITETURA [PURE STATE]: Não temos mais fallback blindado aqui.
+        // O que estiver no banco de dados (mesmo que seja "/") vai na viagem.
+        const proxyserverDestino = contato.subscription.proxyserver || "";
 
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { 
@@ -4022,217 +4019,6 @@ export const activeView = computed(() => {
   if (hash === '#settings') return 'settings';
   return 'home';
 });
-```
-
----
-
-## Arquivo: `src/utils/share-utils.ts`
-
-```ts
-// src/utils/share-utils.ts
-import { gzipSync, gunzipSync } from 'fflate';
-import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
-import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
-import type { ProfileConfig, Contato } from '../constants/db.ts';
-
-const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
-
-export interface CompactContact {
-  req?: boolean;
-  tr?: boolean;
-  em: string;
-  nm: string;
-  vp: any; 
-  ep: any; 
-  se: string;
-  sp: string;
-  sa: string;
-  ve: string;
-  ps?: string; 
-}
-
-export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
-  let ep = target.subscription.endpoint;
-  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
-
-  return {
-    req,
-    tr,
-    em: target.email || '',
-    nm: target.name || '',
-    vp: minifyVapidPublic(target.vapidPublicKey),
-    ep: minifyRsaPublic(target.e2ePublicKey),
-    se: ep,
-    sp: target.subscription.keys.p256dh,
-    sa: target.subscription.keys.auth,
-    ve: target.vapidPrivateKeyEnvelope,
-    ps: target.subscription.proxyserver
-  };
-}
-
-export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
-  let ep = c.se;
-  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
-
-  return {
-    email: c.em,
-    name: c.nm,
-    vapidPublicKey: expandVapidPublic(c.vp),
-    e2ePublicKey: expandRsaPublic(c.ep),
-    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
-    vapidPrivateKeyEnvelope: c.ve,
-    trusted: c.tr,
-    me: 'saved' 
-  };
-}
-
-export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
-  const compact = extrairDadosCompactos(target);
-  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
-  const compressed = gzipSync(jsonBytes);
-  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-}
-
-export async function gerarLinkConviteWeb(
-  target: ProfileConfig | Contato,
-  myVapidPrivateKeyJwk: JsonWebKey,
-  myVapidPublicKeyJwk: JsonWebKey,
-  baseUrl?: string
-): Promise<string> {
-  const compact = extrairDadosCompactos(target);
-  const payload = {
-    sub: "contact",
-    ...compact,
-    iat: Math.floor(Date.now() / 1000)
-  };
-
-  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
-  const jwtBytes = new TextEncoder().encode(jwt);
-  const compressed = gzipSync(jwtBytes);
-  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-
-  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-  return `${origin}/#share=${cjwt}`;
-}
-
-export async function processarQualquerConvite(rawInput: string): Promise<Partial<Contato>> {
-  let cqr: string | null = null;
-  let cjwt: string | null = null;
-  let jwt: string | null = null;
-
-  // 🔥 ARQUITETURA: Higienização inicial
-  const input = rawInput.trim();
-
-  // 1. Extração Segura de URL (Inteligência para o Roteamento Hash do Loco)
-  try {
-    if (input.includes('://') || input.startsWith('http')) {
-      const url = new URL(input);
-      
-      // O formato oficial do Loco transporta o token no hash (#share=XYZ)
-      if (url.hash && url.hash.includes('share=')) {
-        const extracted = url.hash.split('share=')[1]?.split('&')[0];
-        if (extracted) cjwt = extracted;
-      } else {
-        // Retrocompatibilidade para query params
-        cqr = url.searchParams.get('cqr');
-        cjwt = url.searchParams.get('cjwt');
-        jwt = url.searchParams.get('jwt');
-      }
-    }
-  } catch (e) {
-    // Ignora erro de parsing da URL nativa e confia no fallback
-  }
-
-  // 2. Extração via texto puro (Caso a API de URL falhe ou falte protocolo)
-  if (!cqr && !cjwt && !jwt) {
-    if (input.includes('#share=')) {
-      cjwt = input.split('#share=')[1]?.split('&')[0] || null;
-    } else if (input.includes('cjwt=')) {
-      cjwt = input.split('cjwt=')[1]?.split('&')[0] || null;
-    } else if (input.includes('cqr=')) {
-      cqr = input.split('cqr=')[1]?.split('&')[0] || null;
-    } else if (input.includes('jwt=')) {
-      jwt = input.split('jwt=')[1]?.split('&')[0] || null;
-    }
-  }
-
-  // 3. Chute cego defensivo (O usuário colou SÓ o token sem nenhum prefixo)
-  if (!cqr && !cjwt && !jwt && input) {
-    // 🔥 ARQUITETURA: Um JWT padrão tem exatas 3 partições separadas por pontos. 
-    // Protegemos contra URLs puras (que tem pontos no domínio) exigindo que não contenha '://'.
-    if (input.split('.').length === 3 && !input.includes('://')) {
-      jwt = input;
-    } else {
-      // Tenta descomprimir cegamente assumindo que é um token comprimido nu (cjwt/cqr)
-      try {
-        const cleanBase64 = input.replace(/[^A-Za-z0-9\-_]/g, ''); 
-        const compressed = new Uint8Array(base64UrlToArrayBuffer(cleanBase64));
-        const decompressed = gunzipSync(compressed);
-        const text = new TextDecoder().decode(decompressed);
-        
-        if (text.startsWith('{')) {
-          cqr = cleanBase64;
-        } else {
-          cjwt = cleanBase64;
-        }
-      } catch (_e) {
-        // Fallback final: se tudo falhar, tenta jogar o input bruto pro validador cjwt
-        cjwt = input;
-      }
-    }
-  }
-
-  let compactData: CompactContact | null = null;
-
-  if (!compactData && cjwt) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      
-      const { payload, valid } = await verificarJWT(jsonText); 
-      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
-      if (payload) compactData = payload as CompactContact;
-    } catch (e) {
-      console.warn("Falha ao verificar cjwt:", e);
-    }
-  }
-
-  if (!compactData && cqr) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      const parsed = JSON.parse(jsonText);
-      
-      if (parsed.vp || (parsed.vx && parsed.vy)) {
-        compactData = parsed as CompactContact;
-      }
-    } catch (e) {
-      console.warn("Falha ao ler cqr:", e);
-    }
-  }
-
-  if (!compactData && jwt) {
-    try {
-      const { payload, valid } = await verificarJWT(jwt);
-      if (!valid) throw new Error("Assinatura do convite inválida.");
-      if (payload) compactData = payload as CompactContact;
-    } catch (e) {
-      console.warn("Falha ao verificar jwt:", e);
-    }
-  }
-
-  if (!compactData) throw new Error("O link ou código colado não é um convite válido do Loco.");
-
-  // Camada de Retrocompatibilidade O(1):
-  if ((compactData as any).vx && !compactData.vp) {
-    compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
-    compactData.ep = { n: (compactData as any).en };
-  }
-
-  return expandirDadosCompactos(compactData);
-}
 ```
 
 ---
@@ -5073,6 +4859,209 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
 
 ---
 
+## Arquivo: `src/utils/share-utils.ts`
+
+```ts
+// src/utils/share-utils.ts
+import { gzipSync, gunzipSync } from 'fflate';
+import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
+import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
+import type { ProfileConfig, Contato } from '../constants/db.ts';
+import { getAbsoluteProxyUrl } from '../constants/config.ts';
+
+const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
+
+export interface CompactContact {
+  req?: boolean;
+  tr?: boolean;
+  em: string;
+  nm: string;
+  vp: any; 
+  ep: any; 
+  se: string;
+  sp: string;
+  sa: string;
+  ve: string;
+  ps?: string; 
+}
+
+// 🔥 ARQUITETURA: Agora é Assíncrono. O pacote extraído TEM que carregar a URL resolvida.
+export async function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): Promise<CompactContact> {
+  let ep = target.subscription.endpoint;
+  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
+
+  const absoluteProxy = await getAbsoluteProxyUrl(target.subscription.proxyserver);
+
+  return {
+    req,
+    tr,
+    em: target.email || '',
+    nm: target.name || '',
+    vp: minifyVapidPublic(target.vapidPublicKey),
+    ep: minifyRsaPublic(target.e2ePublicKey),
+    se: ep,
+    sp: target.subscription.keys.p256dh,
+    sa: target.subscription.keys.auth,
+    ve: target.vapidPrivateKeyEnvelope,
+    ps: absoluteProxy
+  };
+}
+
+export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
+  let ep = c.se;
+  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
+
+  return {
+    email: c.em,
+    name: c.nm,
+    vapidPublicKey: expandVapidPublic(c.vp),
+    e2ePublicKey: expandRsaPublic(c.ep),
+    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
+    vapidPrivateKeyEnvelope: c.ve,
+    trusted: c.tr,
+    me: 'saved' 
+  };
+}
+
+// 🔥 Assíncrono
+export async function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): Promise<string> {
+  const compact = await extrairDadosCompactos(target);
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
+  const compressed = gzipSync(jsonBytes);
+  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+}
+
+// 🔥 Assíncrono (e já usando a extração assíncrona)
+export async function gerarLinkConviteWeb(
+  target: ProfileConfig | Contato,
+  myVapidPrivateKeyJwk: JsonWebKey,
+  myVapidPublicKeyJwk: JsonWebKey,
+  baseUrl?: string
+): Promise<string> {
+  const compact = await extrairDadosCompactos(target);
+  const payload = {
+    sub: "contact",
+    ...compact,
+    iat: Math.floor(Date.now() / 1000)
+  };
+
+  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
+  const jwtBytes = new TextEncoder().encode(jwt);
+  const compressed = gzipSync(jwtBytes);
+  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+
+  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  return `${origin}/#share=${cjwt}`;
+}
+
+export async function processarQualquerConvite(rawInput: string): Promise<Partial<Contato>> {
+  let cqr: string | null = null;
+  let cjwt: string | null = null;
+  let jwt: string | null = null;
+
+  const input = rawInput.trim();
+
+  try {
+    if (input.includes('://') || input.startsWith('http')) {
+      const url = new URL(input);
+      if (url.hash && url.hash.includes('share=')) {
+        const extracted = url.hash.split('share=')[1]?.split('&')[0];
+        if (extracted) cjwt = extracted;
+      } else {
+        cqr = url.searchParams.get('cqr');
+        cjwt = url.searchParams.get('cjwt');
+        jwt = url.searchParams.get('jwt');
+      }
+    }
+  } catch (e) {}
+
+  if (!cqr && !cjwt && !jwt) {
+    if (input.includes('#share=')) {
+      cjwt = input.split('#share=')[1]?.split('&')[0] || null;
+    } else if (input.includes('cjwt=')) {
+      cjwt = input.split('cjwt=')[1]?.split('&')[0] || null;
+    } else if (input.includes('cqr=')) {
+      cqr = input.split('cqr=')[1]?.split('&')[0] || null;
+    } else if (input.includes('jwt=')) {
+      jwt = input.split('jwt=')[1]?.split('&')[0] || null;
+    }
+  }
+
+  if (!cqr && !cjwt && !jwt && input) {
+    if (input.split('.').length === 3 && !input.includes('://')) {
+      jwt = input;
+    } else {
+      try {
+        const cleanBase64 = input.replace(/[^A-Za-z0-9\-_]/g, ''); 
+        const compressed = new Uint8Array(base64UrlToArrayBuffer(cleanBase64));
+        const decompressed = gunzipSync(compressed);
+        const text = new TextDecoder().decode(decompressed);
+        
+        if (text.startsWith('{')) {
+          cqr = cleanBase64;
+        } else {
+          cjwt = cleanBase64;
+        }
+      } catch (_e) {
+        cjwt = input;
+      }
+    }
+  }
+
+  let compactData: CompactContact | null = null;
+
+  if (!compactData && cjwt) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      
+      const { payload, valid } = await verificarJWT(jsonText); 
+      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar cjwt:", e);
+    }
+  }
+
+  if (!compactData && cqr) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      const parsed = JSON.parse(jsonText);
+      
+      if (parsed.vp || (parsed.vx && parsed.vy)) {
+        compactData = parsed as CompactContact;
+      }
+    } catch (e) {
+      console.warn("Falha ao ler cqr:", e);
+    }
+  }
+
+  if (!compactData && jwt) {
+    try {
+      const { payload, valid } = await verificarJWT(jwt);
+      if (!valid) throw new Error("Assinatura do convite inválida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar jwt:", e);
+    }
+  }
+
+  if (!compactData) throw new Error("O link ou código colado não é um convite válido do Loco.");
+
+  if ((compactData as any).vx && !compactData.vp) {
+    compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
+    compactData.ep = { n: (compactData as any).en };
+  }
+
+  return expandirDadosCompactos(compactData);
+}
+```
+
+---
+
 ## Arquivo: `src/styles.d.ts`
 
 ```ts
@@ -5559,7 +5548,6 @@ interface ContatoOutParams {
   responder?: boolean;
 }
 
-// 🔥 ARQUITETURA: Função de Expurgo Modular
 export async function ExpurgarHandshakesContato(contatoHash: string) {
   addDebugLog("warn", "HAND-CONTATO", `🗑️ Expurgando handshakes de conexão do contato ${contatoHash}`);
   
@@ -5585,7 +5573,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       if (contato) {
         const camposSet = new Set(contatoReq.campos);
-        const cp = extrairDadosCompactos(contato);
+        // 🔥 Agora a extração é assíncrona para garantir a base URL
+        const cp = await extrairDadosCompactos(contato);
         
         if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
         if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
@@ -5610,7 +5599,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const profile = await buscarProfile();
 
       if (!contato) {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local (aud: ${handshake.aud}).`);
+        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local.`);
         return;
       }
 
@@ -5620,7 +5609,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
 
       const d = contatoReq.data as Record<string, unknown>;
-      const mp = extrairDadosCompactos(profile);
+      // 🔥 Await
+      const mp = await extrairDadosCompactos(profile);
       let novoMeStatus = contato.me;
 
       if (!d.se) {
@@ -5720,7 +5710,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const contatoAlvo = await buscarContatoPorChave(outParams.contato);
       const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
 
-      const compactSyncData = extrairDadosCompactos(profile, !outParams.responder, euConfio);
+      // 🔥 Await
+      const compactSyncData = await extrairDadosCompactos(profile, !outParams.responder, euConfio);
 
       const novoHandshake: Handshake = {
         id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
@@ -6861,7 +6852,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.146-msuyws4u",
+  "version": "0.2.150-msv17qyy",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -7017,7 +7008,6 @@ function lerMetadadosJJWT(jwtString: string) {
     const parts = jwtString.split(".");
     if (parts.length !== 3) return null;
     
-    // 🔥 ARQUITETURA: Type Guard explícito para satisfazer "noUncheckedIndexedAccess"
     const payloadPart = parts[1];
     if (!payloadPart) return null;
     
@@ -7054,7 +7044,6 @@ const workerHandler = {
     
     const corsHeaders = createCorsHeaders(request);
     
-    // Fast-fail silencioso para preflight
     if (method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
@@ -7111,6 +7100,9 @@ const workerHandler = {
         
         const proxyserverDestino = jwtClaims.proxyserver;
         
+        // 🔥 ARQUITETURA [SEPARAÇÃO DE LEGADOS]: 
+        // Só tenta federar se houver de fato um proxy destino completo, e que seja diferente de "/".
+        // Isso resolve o problema de contatos antigos sem quebrar URL ou fazer "guessing" no Edge.
         if (proxyserverDestino) {
           let destinoUrlObj: URL;
           try {
@@ -7163,6 +7155,7 @@ const workerHandler = {
           }
         }
         
+        // --- Processamento de Push Nativo ---
         let privateKeyFinal = vapid.privateKey;
 
         if (typeof privateKeyFinal === "string") {

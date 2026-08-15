@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.106-msugf07d** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.150-msv17qyy** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.106-msugf07d] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.2.150-msv17qyy] - Modo: TESTS
 
-Gerado automaticamente em: 8/15/2026, 11:11:42 AM
+Gerado automaticamente em: 8/15/2026, 8:53:34 PM
 
 ---
 
@@ -924,7 +924,8 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
     e2ePrivateKeyJwk: {} as JsonWebKey,
     subscription: {
       endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint-a",
-      keys: { p256dh: "p256dh-a", auth: "auth-a" }
+      keys: { p256dh: "p256dh-a", auth: "auth-a" },
+      proxyserver: "https://mock.loco.proxy"
     },
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -940,7 +941,8 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
     e2ePrivateKeyJwk: {} as JsonWebKey,
     subscription: {
       endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint-b",
-      keys: { p256dh: "p256dh-b", auth: "auth-b" }
+      keys: { p256dh: "p256dh-b", auth: "auth-b" },
+      proxyserver: "https://mock.loco.proxy"
     },
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -966,7 +968,9 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
 
   // Teste 1: Extrair dados compactos do Profile A
   console.log("📦 Teste 1: Extraindo dados compactos do Profile A (Static Schema Compression)");
-  const compactDataA = extrairDadosCompactos(userA);
+  // 🔥 ARQUITETURA: Agora a extração é assíncrona, exigindo await.
+  const compactDataA = await extrairDadosCompactos(userA);
+  
   assertEquals(compactDataA.nm, "Usuário A", "Nome deve ser extraído corretamente");
   assertEquals(compactDataA.em, "usuario.a@teste.com", "Email deve ser extraído corretamente");
   
@@ -1052,7 +1056,8 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
 
   // Teste 8: Testar formato QR Code compacto (cqr)
   console.log("📱 Teste 8: Testando formato QR Code compacto");
-  const cqrData = extrairDadosCompactos(userA);
+  // 🔥 ARQUITETURA: Agora a extração é assíncrona, exigindo await.
+  const cqrData = await extrairDadosCompactos(userA);
   const cqrJson = JSON.stringify(cqrData);
   const cqrBytes = new TextEncoder().encode(cqrJson);
   
@@ -1067,9 +1072,11 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
   // Teste 9: Testar JWT não-compresso
   console.log("📝 Teste 9: Testando JWT não-compresso");
   const { criarJWT } = await import('../../src/utils/jwt-helpers.ts');
+  // 🔥 ARQUITETURA: Agora a extração é assíncrona, exigindo await dentro do spread operator.
+  const extraidos = await extrairDadosCompactos(userA);
   const jwtPayload = {
     sub: "contact",
-    ...extrairDadosCompactos(userA),
+    ...extraidos,
     iat: Math.floor(Date.now() / 1000)
   };
   const jwtToken = await criarJWT(jwtPayload, userA.vapidPrivateKeyJwk, { kid: userA.vapidPublicKey });
@@ -1082,7 +1089,7 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
   await assertRejects(
     async () => await processarQualquerConvite("token-invalido-abc123"),
     Error,
-    // 🔥 ARQUITETURA: Atualizado para a nova mensagem de erro da v0.2.91
+    // 🔥 ARQUITETURA: Atualizado para a nova mensagem de erro
     "O link ou código colado não é um convite válido do Loco."
   );
 
@@ -1101,7 +1108,8 @@ Deno.test("Share Utils - Reciprocidade na troca de contatos via cJWT", async () 
     e2ePrivateKeyJwk: {} as JsonWebKey,
     subscription: {
       endpoint: "https://example.com/alice",
-      keys: { p256dh: "alice-p256dh", auth: "alice-auth" }
+      keys: { p256dh: "alice-p256dh", auth: "alice-auth" },
+      proxyserver: "https://mock.loco.proxy"
     },
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -1117,7 +1125,8 @@ Deno.test("Share Utils - Reciprocidade na troca de contatos via cJWT", async () 
     e2ePrivateKeyJwk: {} as JsonWebKey,
     subscription: {
       endpoint: "https://example.com/bob",
-      keys: { p256dh: "bob-p256dh", auth: "bob-auth" }
+      keys: { p256dh: "bob-p256dh", auth: "bob-auth" },
+      proxyserver: "https://mock.loco.proxy"
     },
     createdAt: Date.now(),
     updatedAt: Date.now()

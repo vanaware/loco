@@ -69,31 +69,30 @@ function getAppBasePath(): string {
   return basePath;
 }
 
-export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
+// 🔥 ARQUITETURA: Resolve e devolve a BASE URl Absoluta do Proxy
+export async function getAbsoluteProxyUrl(specificProxy?: string): Promise<string> {
   let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
   
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
 
-  // Retiramos o "Código Mágico" que alterava rotas raízes. 
-  // O que a aplicação pedir, é o que ela vai receber formatado.
-  const cleanEndpoint = endpoint.replace(/^\/+/, '');
-  let base = "";
-
   if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
-    base = proxyPath;
+    return proxyPath.replace(/\/$/, '');
   } 
-  else {
-    const origin = typeof globalThis !== 'undefined' && globalThis.location 
-      ? globalThis.location.origin 
-      : 'http://localhost';
-    
-    const appBase = getAppBasePath();
-    const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
-    
-    base = origin + appBase + cleanProxyPath;
-  }
 
-  base = base.replace(/\/$/, '');
+  const origin = typeof globalThis !== 'undefined' && globalThis.location 
+    ? globalThis.location.origin 
+    : 'http://localhost';
+  
+  const appBase = getAppBasePath();
+  const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
+  
+  let base = origin + appBase + cleanProxyPath;
+  return base.replace(/\/$/, '');
+}
+
+export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
+  const base = await getAbsoluteProxyUrl(specificProxy);
+  const cleanEndpoint = endpoint.replace(/^\/+/, '');
   return cleanEndpoint ? `${base}/${cleanEndpoint}` : `${base}/`;
 }
 
@@ -106,7 +105,6 @@ export interface FetchProxyOptions extends Omit<RequestInit, 'body' | 'headers'>
 
 export async function fetchLocoProxy(endpoint: string, options: FetchProxyOptions = {}): Promise<Response> {
   const { specificProxy, body, headers: _ignorado, ...restOptions } = options;
-  
   const url = await buildProxyUrl(endpoint, specificProxy);
   
   const blindHeaders = new Headers();
@@ -126,7 +124,7 @@ export async function fetchLocoProxy(endpoint: string, options: FetchProxyOption
     finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
     
     const payloadSizeBytes = new Blob([finalOptions.body]).size;
-    addDebugLog("info", "NETWORK:FETCH", `Tamanho da requisição HTTP para ${endpoint}: ${payloadSizeBytes} bytes.`);
+    addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada para ${endpoint}: ${payloadSizeBytes} bytes.`);
 
     if (payloadSizeBytes > 8192) {
       throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). Limite é 8KB.`);
@@ -145,7 +143,6 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    // Explicitamente /ping
     let res = await fetchLocoProxy('/ping', { 
       specificProxy: proxyUrlToCheck,
       signal: controller.signal 

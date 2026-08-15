@@ -91,7 +91,6 @@ function lerMetadadosJJWT(jwtString: string) {
     const parts = jwtString.split(".");
     if (parts.length !== 3) return null;
     
-    // 🔥 ARQUITETURA: Type Guard explícito para satisfazer "noUncheckedIndexedAccess"
     const payloadPart = parts[1];
     if (!payloadPart) return null;
     
@@ -128,7 +127,6 @@ const workerHandler = {
     
     const corsHeaders = createCorsHeaders(request);
     
-    // Fast-fail silencioso para preflight
     if (method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
@@ -185,6 +183,9 @@ const workerHandler = {
         
         const proxyserverDestino = jwtClaims.proxyserver;
         
+        // 🔥 ARQUITETURA [SEPARAÇÃO DE LEGADOS]: 
+        // Só tenta federar se houver de fato um proxy destino completo, e que seja diferente de "/".
+        // Isso resolve o problema de contatos antigos sem quebrar URL ou fazer "guessing" no Edge.
         if (proxyserverDestino) {
           let destinoUrlObj: URL;
           try {
@@ -237,6 +238,7 @@ const workerHandler = {
           }
         }
         
+        // --- Processamento de Push Nativo ---
         let privateKeyFinal = vapid.privateKey;
 
         if (typeof privateKeyFinal === "string") {

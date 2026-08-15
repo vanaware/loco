@@ -3,6 +3,7 @@ import { gzipSync, gunzipSync } from 'fflate';
 import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
 import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
 import type { ProfileConfig, Contato } from '../constants/db.ts';
+import { getAbsoluteProxyUrl } from '../constants/config.ts';
 
 const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
 
@@ -20,9 +21,12 @@ export interface CompactContact {
   ps?: string; 
 }
 
-export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
+// 🔥 ARQUITETURA: Agora é Assíncrono. O pacote extraído TEM que carregar a URL resolvida.
+export async function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): Promise<CompactContact> {
   let ep = target.subscription.endpoint;
   if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
+
+  const absoluteProxy = await getAbsoluteProxyUrl(target.subscription.proxyserver);
 
   return {
     req,
@@ -35,7 +39,7 @@ export function extrairDadosCompactos(target: ProfileConfig | Contato, req = fal
     sp: target.subscription.keys.p256dh,
     sa: target.subscription.keys.auth,
     ve: target.vapidPrivateKeyEnvelope,
-    ps: target.subscription.proxyserver
+    ps: absoluteProxy
   };
 }
 
@@ -55,20 +59,22 @@ export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
   };
 }
 
-export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
-  const compact = extrairDadosCompactos(target);
+// 🔥 Assíncrono
+export async function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): Promise<string> {
+  const compact = await extrairDadosCompactos(target);
   const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
   const compressed = gzipSync(jsonBytes);
   return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
 }
 
+// 🔥 Assíncrono (e já usando a extração assíncrona)
 export async function gerarLinkConviteWeb(
   target: ProfileConfig | Contato,
   myVapidPrivateKeyJwk: JsonWebKey,
   myVapidPublicKeyJwk: JsonWebKey,
   baseUrl?: string
 ): Promise<string> {
-  const compact = extrairDadosCompactos(target);
+  const compact = await extrairDadosCompactos(target);
   const payload = {
     sub: "contact",
     ...compact,
@@ -89,30 +95,22 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
   let cjwt: string | null = null;
   let jwt: string | null = null;
 
-  // 🔥 ARQUITETURA: Higienização inicial
   const input = rawInput.trim();
 
-  // 1. Extração Segura de URL (Inteligência para o Roteamento Hash do Loco)
   try {
     if (input.includes('://') || input.startsWith('http')) {
       const url = new URL(input);
-      
-      // O formato oficial do Loco transporta o token no hash (#share=XYZ)
       if (url.hash && url.hash.includes('share=')) {
         const extracted = url.hash.split('share=')[1]?.split('&')[0];
         if (extracted) cjwt = extracted;
       } else {
-        // Retrocompatibilidade para query params
         cqr = url.searchParams.get('cqr');
         cjwt = url.searchParams.get('cjwt');
         jwt = url.searchParams.get('jwt');
       }
     }
-  } catch (e) {
-    // Ignora erro de parsing da URL nativa e confia no fallback
-  }
+  } catch (e) {}
 
-  // 2. Extração via texto puro (Caso a API de URL falhe ou falte protocolo)
   if (!cqr && !cjwt && !jwt) {
     if (input.includes('#share=')) {
       cjwt = input.split('#share=')[1]?.split('&')[0] || null;
@@ -125,14 +123,10 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
     }
   }
 
-  // 3. Chute cego defensivo (O usuário colou SÓ o token sem nenhum prefixo)
   if (!cqr && !cjwt && !jwt && input) {
-    // 🔥 ARQUITETURA: Um JWT padrão tem exatas 3 partições separadas por pontos. 
-    // Protegemos contra URLs puras (que tem pontos no domínio) exigindo que não contenha '://'.
     if (input.split('.').length === 3 && !input.includes('://')) {
       jwt = input;
     } else {
-      // Tenta descomprimir cegamente assumindo que é um token comprimido nu (cjwt/cqr)
       try {
         const cleanBase64 = input.replace(/[^A-Za-z0-9\-_]/g, ''); 
         const compressed = new Uint8Array(base64UrlToArrayBuffer(cleanBase64));
@@ -145,7 +139,6 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
           cjwt = cleanBase64;
         }
       } catch (_e) {
-        // Fallback final: se tudo falhar, tenta jogar o input bruto pro validador cjwt
         cjwt = input;
       }
     }
@@ -194,7 +187,6 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
 
   if (!compactData) throw new Error("O link ou código colado não é um convite válido do Loco.");
 
-  // Camada de Retrocompatibilidade O(1):
   if ((compactData as any).vx && !compactData.vp) {
     compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
     compactData.ep = { n: (compactData as any).en };

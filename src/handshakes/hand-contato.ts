@@ -25,7 +25,6 @@ interface ContatoOutParams {
   responder?: boolean;
 }
 
-// 🔥 ARQUITETURA: Função de Expurgo Modular
 export async function ExpurgarHandshakesContato(contatoHash: string) {
   addDebugLog("warn", "HAND-CONTATO", `🗑️ Expurgando handshakes de conexão do contato ${contatoHash}`);
   
@@ -51,7 +50,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       if (contato) {
         const camposSet = new Set(contatoReq.campos);
-        const cp = extrairDadosCompactos(contato);
+        // 🔥 Agora a extração é assíncrona para garantir a base URL
+        const cp = await extrairDadosCompactos(contato);
         
         if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
         if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
@@ -76,7 +76,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const profile = await buscarProfile();
 
       if (!contato) {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local (aud: ${handshake.aud}).`);
+        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local.`);
         return;
       }
 
@@ -86,7 +86,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
 
       const d = contatoReq.data as Record<string, unknown>;
-      const mp = extrairDadosCompactos(profile);
+      // 🔥 Await
+      const mp = await extrairDadosCompactos(profile);
       let novoMeStatus = contato.me;
 
       if (!d.se) {
@@ -186,7 +187,8 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const contatoAlvo = await buscarContatoPorChave(outParams.contato);
       const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
 
-      const compactSyncData = extrairDadosCompactos(profile, !outParams.responder, euConfio);
+      // 🔥 Await
+      const compactSyncData = await extrairDadosCompactos(profile, !outParams.responder, euConfio);
 
       const novoHandshake: Handshake = {
         id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),

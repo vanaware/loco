@@ -1,3 +1,4 @@
+// src/components/ContactDetailSection.tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
@@ -42,16 +43,19 @@ export function ContactDetailSection() {
       });
     }
 
-    try {
-      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
-      const qr = qrcode(0, 'L');
-      qr.addData(payloadBinario);
-      qr.make();
-      qrCodeDataUrl.value = qr.createDataURL(5, 0);
-    } catch (e) {
-      console.error("Erro ao gerar QR Code do contato:", e);
-      qrCodeDataUrl.value = null;
-    }
+    // 🔥 Protegido com Async IIFE
+    (async () => {
+      try {
+        const payloadBinario = await gerarPayloadQrCodeCompacto(contato);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0);
+      } catch (e) {
+        console.error("Erro ao gerar QR Code do contato:", e);
+        qrCodeDataUrl.value = null;
+      }
+    })();
   }, [contato, hash]);
 
   if (!contato || !hash) return null;
@@ -192,7 +196,6 @@ export function ContactDetailSection() {
           </div>
         </div>
 
-        {/* 🔥 ARQUITETURA: Espaçamento ajustado (margin-bottom de 8px para 24px) para respiro visual */}
         <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
 
         {isEditing.value ? (

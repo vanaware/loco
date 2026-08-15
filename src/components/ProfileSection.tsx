@@ -1,3 +1,4 @@
+// src/components/ProfileSection.tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
@@ -30,10 +31,11 @@ export function ProfileSection() {
   }, [temChaveVapid]);
 
   useEffect(() => {
-    const renderQrCode = () => {
+    const renderQrCode = async () => {
       if (!p) return;
       try {
-        const payloadBinario = gerarPayloadQrCodeCompacto(p);
+        // 🔥 Agora suporta Assíncrono perfeitamente
+        const payloadBinario = await gerarPayloadQrCodeCompacto(p);
         const qr = qrcode(0, 'L');
         qr.addData(payloadBinario);
         qr.make();
@@ -118,7 +120,6 @@ export function ProfileSection() {
           </div>
         </div>
 
-        {/* 🔥 ARQUITETURA: Espaçamento ajustado (margin-bottom de 8px para 24px) para respiro visual */}
         <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
 
         {isEditing.value ? (

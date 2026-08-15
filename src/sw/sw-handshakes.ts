@@ -240,17 +240,13 @@ export async function processarFilaHandshake() {
         if (!isSyncHandshake && !isPullHandshake && (contato.me === 'none' || contato.me === 'wrong')) {
           addDebugLog(`[SW-ROUTER] 💉 Contato desatualizado. Injetando dados de perfil no handshake ${h.id}.`);
           h.out!.rotas.contato = h.out!.rotas.contato || {};
-          h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
+          // A extração agora garante envio com rota absoluta resolvendo o 'proxyserver' do próprio perfil
+          h.out!.rotas.contato.sync = await extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
         }
 
-        // 🔥 ARQUITETURA: Correção do Roteamento
-        // Se a URL de proxy do contato for absoluta, usa ela pura para evitar corrupção por concatenação
-        let proxyserverDestino = "";
-        if (contato.subscription.proxyserver) {
-           proxyserverDestino = contato.subscription.proxyserver;
-        } else {
-           proxyserverDestino = await buildProxyUrl('/');
-        }
+        // 🔥 ARQUITETURA [PURE STATE]: Não temos mais fallback blindado aqui.
+        // O que estiver no banco de dados (mesmo que seja "/") vai na viagem.
+        const proxyserverDestino = contato.subscription.proxyserver || "";
 
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { 
