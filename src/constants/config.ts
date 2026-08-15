@@ -16,6 +16,9 @@ const PROXY_PATH_KEY = 'ProxyPath';
 
 let _configStore: ReturnType<typeof createStore> | null = null;
 
+// 🔥 ARQUITETURA: Cache em Memória RAM para evitar leitura excessiva de I/O em disco
+let _cachedProxyPath: string | null = null; 
+
 function getConfigStore() {
   if (_configStore === null && typeof indexedDB !== 'undefined') {
     _configStore = createStore(DB_NAMES.CONFIG, 'keyval');
@@ -30,7 +33,8 @@ async function loadProxyPathFromDB(): Promise<string> {
   try {
     const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
     if (stored !== undefined && stored !== null) {
-      return String(stored);
+      _cachedProxyPath = String(stored); // Alimenta o cache da RAM
+      return _cachedProxyPath;
     }
     return DefaultProxyPath;
   } catch (error) {
@@ -40,18 +44,32 @@ async function loadProxyPathFromDB(): Promise<string> {
 }
 
 export async function getProxyPath(): Promise<string> {
+  // Retorna instantaneamente se já estiver na RAM (O(1))
+  if (_cachedProxyPath !== null) return _cachedProxyPath;
   return await loadProxyPathFromDB();
 }
 
-export async function setProxyPath(path: string): Promise<void> {
-  const configStore = getConfigStore();
-  if (!configStore) return;
-  try {
-    await idbSet(PROXY_PATH_KEY, path, configStore);
-    console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
-  } catch (error) {
-    console.error('[CONFIG] Erro ao salvar ProxyPath no IndexedDB:', error);
-    throw error;
+/**
+ * Atualiza o ProxyPath. 
+ * @param path Nova rota
+ * @param persistToDisk Se false, apenas hidrata a memória RAM (evita escrita redundante).
+ */
+export async function setProxyPath(path: string, persistToDisk = true): Promise<void> {
+  // Aborta se já for o mesmo valor e for uma requisição de disco, poupando processamento
+  if (_cachedProxyPath === path && persistToDisk) return;
+  
+  _cachedProxyPath = path;
+
+  if (persistToDisk) {
+    const configStore = getConfigStore();
+    if (!configStore) return;
+    try {
+      await idbSet(PROXY_PATH_KEY, path, configStore);
+      console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
+    } catch (error) {
+      console.error('[CONFIG] Erro ao salvar ProxyPath no IndexedDB:', error);
+      throw error;
+    }
   }
 }
 
@@ -75,31 +93,26 @@ function getAppBasePath(): string {
 export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
   let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
   
-  // Normalização de input: se o usuário deixou vazio, tratamos como "/"
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
 
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   let base = "";
 
-  // Cenário 1: É uma URL Absoluta Externa (https://...)
   if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
     base = proxyPath;
   } 
-  // Cenário 2: Caminho Relativo local (ex: "/", "/api", "./api")
   else {
     const origin = typeof globalThis !== 'undefined' && globalThis.location 
       ? globalThis.location.origin 
       : 'http://localhost';
     
-    const appBase = getAppBasePath(); // Ex: "/" ou "/loco/"
-    
-    // Removemos possíveis "/", "./" ou "../" do começo do proxyPath do usuário
+    const appBase = getAppBasePath();
     const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
     
     base = origin + appBase + cleanProxyPath;
   }
 
-  base = base.replace(/\/$/, ''); // Tira barra do final da base
+  base = base.replace(/\/$/, '');
   return `${base}/${cleanEndpoint}`;
 }
 
@@ -110,18 +123,24 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
   try {
     const url = await buildProxyUrl('/ping', proxyUrlToCheck);
     
-    // Configura um timeout de 3 segundos para não travar a aplicação
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    const res = await fetch(url, { 
-      method: 'POST', // 🔥 ARQUITETURA: POST para furar o cache do navegador e Edge Nodes
+    let res = await fetch(url, { 
+      method: 'POST', 
       signal: controller.signal 
-    });
+    }).catch(() => null);
+    
+    if (!res || !res.ok) {
+      res = await fetch(url, { 
+        method: 'GET', 
+        signal: controller.signal 
+      }).catch(() => null);
+    }
     
     clearTimeout(timeoutId);
     
-    if (!res.ok) return false;
+    if (!res || !res.ok) return false;
     
     const data = await res.json();
     return data && data.status === "ok" && data.service === "loco-proxy";

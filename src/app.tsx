@@ -53,8 +53,8 @@ function App() {
   // Inicialização assíncrona dos Stores locais e Infraestrutura
   useEffect(() => {
     const init = async () => {
-      // 🔥 ARQUITETURA: Auto-Discovery Executado Globalmente no Boot!
-      addDebugLog("info", "SYSTEM", "Iniciando Auto-Discovery de Rede...");
+      // 🔥 ARQUITETURA: Ajuste semântico no log para refletir o Fast-Boot.
+      addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
       await loadAllConfigs();
 
       await initProfileStore();
@@ -161,7 +161,6 @@ function App() {
             <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
           </div>
           
-          {/* 🔥 ARQUITETURA: Removido o atalho de adicionar contato duplicado daqui. Mantido apenas Meu Perfil */}
           <div style="display: flex; gap: 4px;">
             <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
               <md-icon>account_circle</md-icon>

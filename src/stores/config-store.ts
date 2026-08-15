@@ -8,21 +8,20 @@ const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
 
 export const CONFIG_KEYS = {
   PROXY_PATH: "ProxyPath",
-  SERVER_PUBLIC_KEY: "ServerPublicKey", // 🔥 ARQUITETURA: Nova chave para cache
+  SERVER_PUBLIC_KEY: "ServerPublicKey", 
 } as const;
 
 export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
   try {
     const configKey = CONFIG_KEYS[key];
-    await set(configKey, value, configStore);
     
-    // 🔥 ARQUITETURA: Invalidação de Cache Atrelada
-    // Se o Proxy mudar, a chave pública do servidor antigo torna-se letal para a criptografia.
-    // Nós a apagamos imediatamente para forçar um novo download seguro na próxima operação.
     if (key === 'PROXY_PATH' && typeof value === 'string') {
-      await setProxyPath(value);
+      // 🔥 Centraliza o salvamento de rota diretamente no config.ts
+      await setProxyPath(value, true);
       await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
       console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
+    } else {
+      await set(configKey, value, configStore);
     }
   } catch (error) {
     console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
@@ -44,8 +43,8 @@ export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K)
 export async function resetConfig(): Promise<void> {
   try {
     await del(CONFIG_KEYS.PROXY_PATH, configStore);
-    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); // Expurgamos a chave no reset também
-    await setProxyPath(DefaultProxyPath); 
+    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); 
+    await setProxyPath(DefaultProxyPath, false); // Reseta apenas a RAM, o próximo Boot fará o Auto-Discovery
   } catch (error) {
     console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
     throw error;
@@ -60,7 +59,9 @@ export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
   const proxy_path = await getConfigValue('PROXY_PATH');
   
   if (proxy_path !== undefined) {
-    await setProxyPath(proxy_path);
+    // 🔥 ARQUITETURA: Memory Hydration
+    // O valor existe. Nós apenas injetamos na RAM para velocidade, sem salvar no disco (evita loops I/O)
+    await setProxyPath(proxy_path, false);
     return { proxy_path };
   }
 

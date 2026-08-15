@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.96-msu7l0a3** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.106-msugf07d** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.96-msu7l0a3] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.106-msugf07d] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 7:13:19 AM
+Gerado automaticamente em: 8/15/2026, 11:11:35 AM
 
 ---
 
@@ -808,319 +808,6 @@ export function AdvancedSection() {
 
       <div style="max-width: 600px; width: 100%;">
         <DebugPanel />
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/LogoutSection.tsx`
-
-```tsx
-import { useSignal } from '@preact/signals';
-import { buildProxyUrl } from '../constants/config.ts';
-import { navigate } from '../utils/router.ts';
-
-export function LogoutSection() {
-  const status = useSignal('Aguardando confirmação...');
-  const executando = useSignal(false);
-
-  const handleLogout = async () => {
-    executando.value = true;
-    try {
-      status.value = "1/5 Limpando Web Storage...";
-      window.localStorage.clear();
-      window.sessionStorage.clear();
-
-      status.value = "2/5 Apagando Cookies...";
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const cookieStr = cookies[i];
-        if (!cookieStr) continue;
-        const parts = cookieStr.split("=");
-        const part0 = parts[0];
-        if (!part0) continue;
-        const name = part0.trim();
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
-      }
-
-      status.value = "3/5 Apagando bancos IndexedDB...";
-      if (window.indexedDB?.databases) {
-        const dbs = await window.indexedDB.databases();
-        for (const db of dbs) if (db.name) window.indexedDB.deleteDatabase(db.name);
-      }
-
-      status.value = "4/5 Cancelando Push e Service Workers...";
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          if (registration.pushManager) {
-            const subscription = await registration.pushManager.getSubscription();
-            if (subscription) await subscription.unsubscribe();
-          }
-          await registration.unregister();
-        }
-      }
-
-      status.value = "5/5 Limpando disco virtual (OPFS) e Cache...";
-      if (window.caches) {
-        const cacheNames = await window.caches.keys();
-        for (const name of cacheNames) await window.caches.delete(name);
-      }
-      if (navigator.storage?.getDirectory) {
-        const root = await navigator.storage.getDirectory();
-        for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
-      }
-
-      status.value = "Concluindo no servidor...";
-      const proxyUrl = await buildProxyUrl('/logout');
-      const resposta = await fetch(proxyUrl, { method: 'POST' });
-
-      if (resposta.ok) {
-        status.value = "✅ Logout e Destruição de Chaves Concluídos!";
-        setTimeout(() => {
-          window.location.reload(); 
-        }, 1000);
-      } else {
-        throw new Error("Falha no servidor ao deslogar.");
-      }
-    } catch (erro: any) {
-      status.value = `❌ Erro: ${erro.message}`;
-      executando.value = false;
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
-        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
-        <h2 style="justify-content: center;">Sair do Sistema</h2>
-        
-        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
-          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
-        </p>
-
-        {executando.value ? (
-          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
-            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
-            <br />
-            {status.value}
-          </div>
-        ) : (
-          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
-            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
-              ⚠️ Sim, Apagar Meus Dados e Sair
-            </md-filled-button>
-            <md-outlined-button onClick={() => navigate('')} style="width: 100%;">
-              Cancelar e Voltar
-            </md-outlined-button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/SettingsSection.tsx`
-
-```tsx
-import { useSignal, computed } from '@preact/signals';
-import { useEffect } from 'preact/hooks';
-import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
-import { showToast } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
-import { buildProxyUrl, pingProxy } from '../constants/config.ts';
-
-export function SettingsSection() {
-  const proxyPath = useSignal('');
-  const isSaving = useSignal(false);
-  const isTesting = useSignal(false);
-  const hasChanges = useSignal(false);
-  const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
-  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
-  
-  useEffect(() => {
-    const load = async () => {
-      const config = await loadAllConfigs();
-      proxyPath.value = config.proxy_path || '';
-      await updatePreview(config.proxy_path || '');
-    };
-    load();
-  }, []);
-  
-  const updatePreview = async (path: string) => {
-    previewUrls.value = {
-      endpoint: await buildProxyUrl('/', path),
-      publicKey: await buildProxyUrl('/publickey', path),
-      logout: await buildProxyUrl('/logout', path)
-    };
-    serverStatus.value = 'unknown'; // reseta status visual ao digitar
-  };
-
-  const handleProxyPathChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
-    proxyPath.value = target.value;
-    hasChanges.value = true;
-    updatePreview(target.value);
-  };
-  
-  const handleTestarConexao = async () => {
-    isTesting.value = true;
-    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
-    
-    try {
-      const isAlive = await pingProxy(path);
-      if (isAlive) {
-        serverStatus.value = 'ok';
-        showToast('✅ Servidor detectado com sucesso!', 'success');
-      } else {
-        serverStatus.value = 'error';
-        showToast('❌ Servidor não respondeu ou não é um Loco Proxy.', 'error');
-      }
-    } catch {
-      serverStatus.value = 'error';
-      showToast('❌ Falha na conexão de rede.', 'error');
-    } finally {
-      isTesting.value = false;
-    }
-  };
-
-  const handleSalvar = async () => {
-    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
-    isSaving.value = true;
-    
-    try {
-      // Opcional: Impedir salvar se o ping falhar, mas vamos ser permissivos
-      // e só avisar, vai que o usuário está offline na hora.
-      await saveConfig('PROXY_PATH', path);
-      showToast(`✅ Configuração salva: ${path}`, 'success');
-      hasChanges.value = false;
-      window.dispatchEvent(new CustomEvent('config-updated'));
-    } catch (error) {
-      console.error('Erro ao salvar configuração:', error);
-      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
-    } finally {
-      isSaving.value = false;
-    }
-  };
-  
-  const handleReset = async () => {
-    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
-      return;
-    }
-    try {
-      await resetConfig();
-      const config = await loadAllConfigs(); // engatilha auto-discovery
-      proxyPath.value = config.proxy_path || '/';
-      hasChanges.value = false;
-      serverStatus.value = 'unknown';
-      showToast('✅ Auto-Discovery resetado', 'success');
-      window.dispatchEvent(new CustomEvent('config-updated'));
-    } catch (error) {
-      showToast('❌ Erro ao resetar', 'error');
-    }
-  };
-  
-  const handleCancelar = () => {
-    loadAllConfigs().then(config => {
-      proxyPath.value = config.proxy_path || '';
-      hasChanges.value = false;
-      serverStatus.value = 'unknown';
-      showToast('Alterações descartadas', 'info');
-    });
-  };
-  
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>settings</md-icon> Configurações de Rede
-            </span>
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Ajuste o Roteamento de Mensagens
-            </span>
-          </div>
-          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        <div style="display: flex; flex-direction: column; gap: 16px;">
-          
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
-              Servidor Proxy
-              {serverStatus.value === 'ok' && <span style="color: green; font-size: 0.75rem; font-weight: bold;">(Online)</span>}
-              {serverStatus.value === 'error' && <span style="color: red; font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
-            </label>
-            <div style="display: flex; gap: 8px;">
-              <md-outlined-text-field
-                id="proxy-path"
-                value={proxyPath.value}
-                onInput={handleProxyPathChange}
-                placeholder="Ex: /, /api ou https://push.com"
-                style="flex-grow: 1;"
-                disabled={isSaving.value || isTesting.value}
-              >
-                <md-icon slot="leading-icon">dns</md-icon>
-              </md-outlined-text-field>
-              
-              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px;">
-                 {isTesting.value ? '...' : 'Testar'}
-              </md-filled-tonal-button>
-            </div>
-            <span style="font-size: 0.75rem; color: #666;">
-              Se o PWA foi instalado via GitHub Pages ou IPFS e não possui um servidor nativo, informe a URL absoluta de um Worker ativo do Loco.
-            </span>
-          </div>
-          
-          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px;">
-            <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
-              🔍 Resolução Dinâmica (Preview):
-            </span>
-            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
-              <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 80px;">Push URL:</span>
-                <code style="color: #444;">{previewUrls.value.endpoint}</code>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 80px;">Ping Test:</span>
-                <code style="color: #444;">{previewUrls.value.endpoint}/ping</code>
-              </div>
-            </div>
-          </div>
-          
-          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
-            <md-outlined-button onClick={handleCancelar} disabled={!hasChanges.value || isSaving.value || isTesting.value}>
-              Cancelar
-            </md-outlined-button>
-            
-            <md-outlined-button onClick={handleReset} disabled={isSaving.value || isTesting.value} style="color: var(--md-sys-color-error);">
-              Auto-Discovery
-            </md-outlined-button>
-            
-            <md-filled-button onClick={handleSalvar} disabled={!hasChanges.value || isSaving.value || isTesting.value}>
-              {isSaving.value ? (
-                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
-              ) : (
-                <>
-                  <md-icon slot="icon">save</md-icon>
-                  Salvar
-                </>
-              )}
-            </md-filled-button>
-          </div>
-          
-        </div>
       </div>
     </div>
   );
@@ -1992,6 +1679,338 @@ export function ShareSection() {
 
 ---
 
+## Arquivo: `src/components/SettingsSection.tsx`
+
+```tsx
+import { useSignal } from '@preact/signals';
+import { useEffect } from 'preact/hooks';
+import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
+import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+import { buildProxyUrl, pingProxy } from '../constants/config.ts';
+
+export function SettingsSection() {
+  const proxyPath = useSignal('');
+  const isSaving = useSignal(false);
+  const isTesting = useSignal(false);
+  const hasChanges = useSignal(false);
+  const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
+  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
+  
+  useEffect(() => {
+    const load = async () => {
+      const config = await loadAllConfigs();
+      proxyPath.value = config.proxy_path || '';
+      await updatePreview(config.proxy_path || '');
+    };
+    load();
+  }, []);
+  
+  const updatePreview = async (path: string) => {
+    previewUrls.value = {
+      endpoint: await buildProxyUrl('/', path),
+      publicKey: await buildProxyUrl('/publickey', path),
+      logout: await buildProxyUrl('/logout', path)
+    };
+    serverStatus.value = 'unknown'; // reseta status visual ao digitar
+  };
+
+  const handleProxyPathChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    proxyPath.value = target.value;
+    hasChanges.value = true;
+    updatePreview(target.value);
+  };
+  
+  const handleTestarConexao = async () => {
+    isTesting.value = true;
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
+    
+    try {
+      const isAlive = await pingProxy(path);
+      if (isAlive) {
+        serverStatus.value = 'ok';
+        showToast('✅ Servidor detectado com sucesso!', 'success');
+      } else {
+        serverStatus.value = 'error';
+        showToast('❌ Servidor não respondeu ou não é um Loco Proxy.', 'error');
+      }
+    } catch {
+      serverStatus.value = 'error';
+      showToast('❌ Falha na conexão de rede.', 'error');
+    } finally {
+      isTesting.value = false;
+    }
+  };
+
+  const handleSalvar = async () => {
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
+    isSaving.value = true;
+    
+    try {
+      await saveConfig('PROXY_PATH', path);
+      showToast(`✅ Configuração salva: ${path}`, 'success');
+      hasChanges.value = false;
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      console.error('Erro ao salvar configuração:', error);
+      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
+    } finally {
+      isSaving.value = false;
+    }
+  };
+  
+  const handleReset = async () => {
+    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
+      return;
+    }
+    try {
+      await resetConfig();
+      const config = await loadAllConfigs(); // engatilha auto-discovery
+      proxyPath.value = config.proxy_path || '/';
+      hasChanges.value = false;
+      serverStatus.value = 'unknown';
+      showToast('✅ Auto-Discovery resetado', 'success');
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      showToast('❌ Erro ao resetar', 'error');
+    }
+  };
+  
+  const handleCancelar = () => {
+    loadAllConfigs().then(config => {
+      proxyPath.value = config.proxy_path || '';
+      hasChanges.value = false;
+      serverStatus.value = 'unknown';
+      showToast('Alterações descartadas', 'info');
+    });
+  };
+  
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>settings</md-icon> Configurações de Rede
+            </span>
+            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+              Ajuste o Roteamento de Mensagens
+            </span>
+          </div>
+          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
+              Servidor Proxy
+              {serverStatus.value === 'ok' && <span style="color: green; font-size: 0.75rem; font-weight: bold;">(Online)</span>}
+              {serverStatus.value === 'error' && <span style="color: red; font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
+            </label>
+            <div style="display: flex; gap: 8px;">
+              <md-outlined-text-field
+                id="proxy-path"
+                value={proxyPath.value}
+                onInput={handleProxyPathChange}
+                placeholder="Ex: /, /api ou https://push.com"
+                style="flex-grow: 1;"
+                disabled={isSaving.value || isTesting.value}
+              >
+                <md-icon slot="leading-icon">dns</md-icon>
+              </md-outlined-text-field>
+              
+              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px;">
+                 {isTesting.value ? '...' : 'Testar'}
+              </md-filled-tonal-button>
+            </div>
+            <span style="font-size: 0.75rem; color: #666;">
+              Se o PWA foi instalado via GitHub Pages ou IPFS e não possui um servidor nativo, informe a URL absoluta de um Worker ativo do Loco.
+            </span>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px;">
+            <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
+              🔍 Resolução Dinâmica (Preview):
+            </span>
+            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem;">
+              {/* 🔥 ARQUITETURA: Quebra de palavra e alinhamento flexível para telas mobile pequenas */}
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: #666; min-width: 70px; flex-shrink: 0;">Push URL:</span>
+                <code style="color: #444; word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.endpoint}
+                </code>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: #666; min-width: 70px; flex-shrink: 0;">Ping Test:</span>
+                <code style="color: #444; word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.endpoint.replace(/\/$/, '')}/ping
+                </code>
+              </div>
+            </div>
+          </div>
+          
+          {/* 🔥 ARQUITETURA: Container responsivo (flex-wrap). Os botões esticam e quebram linha. */}
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+            <md-outlined-button 
+              onClick={handleCancelar} 
+              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
+              style="flex: 1; min-width: 140px;"
+            >
+              Cancelar
+            </md-outlined-button>
+            
+            <md-outlined-button 
+              onClick={handleReset} 
+              disabled={isSaving.value || isTesting.value} 
+              style="color: var(--md-sys-color-error); flex: 1; min-width: 140px;"
+            >
+              Auto-Discovery
+            </md-outlined-button>
+            
+            <md-filled-button 
+              onClick={handleSalvar} 
+              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
+              style="flex: 1; min-width: 140px;"
+            >
+              {isSaving.value ? (
+                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
+              ) : (
+                <>
+                  <md-icon slot="icon">save</md-icon>
+                  Salvar
+                </>
+              )}
+            </md-filled-button>
+          </div>
+          
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/LogoutSection.tsx`
+
+```tsx
+// src/components/LogoutSection.tsx
+import { useSignal } from '@preact/signals';
+import { navigate } from '../utils/router.ts';
+
+export function LogoutSection() {
+  const status = useSignal('Aguardando confirmação...');
+  const executando = useSignal(false);
+
+  const handleLogout = async () => {
+    executando.value = true;
+    try {
+      // 🔥 ARQUITETURA OFFLINE-FIRST: 
+      // Em uma aplicação descentralizada sem sessões no servidor, 
+      // o "Logout" é apenas um Wipeout (Expurgo) local do dispositivo.
+      
+      status.value = "1/4 Limpando Web Storage e Cookies...";
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookieStr = cookies[i];
+        if (!cookieStr) continue;
+        const parts = cookieStr.split("=");
+        const part0 = parts[0];
+        if (!part0) continue;
+        const name = part0.trim();
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
+      }
+
+      status.value = "2/4 Apagando bancos IndexedDB...";
+      if (window.indexedDB?.databases) {
+        const dbs = await window.indexedDB.databases();
+        for (const db of dbs) {
+          if (db.name) window.indexedDB.deleteDatabase(db.name);
+        }
+      }
+
+      status.value = "3/4 Limpando disco virtual (OPFS) e Caches...";
+      if (window.caches) {
+        const cacheNames = await window.caches.keys();
+        for (const name of cacheNames) await window.caches.delete(name);
+      }
+      if (navigator.storage?.getDirectory) {
+        try {
+          const root = await navigator.storage.getDirectory();
+          for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+        } catch (e) {
+          console.warn("OPFS Wipe (Opcional):", e);
+        }
+      }
+
+      // Desregistra os SWs por último para não engasgar as limpezas de OPFS/Cache
+      status.value = "4/4 Desativando Push e Service Workers...";
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          if (registration.pushManager) {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) await subscription.unsubscribe();
+          }
+          await registration.unregister();
+        }
+      }
+
+      status.value = "✅ Destruição de chaves concluída com sucesso!";
+      setTimeout(() => {
+        // Força o reload voltando para a raiz limpa do app
+        window.location.href = window.location.pathname; 
+      }, 1000);
+    } catch (erro: any) {
+      status.value = `❌ Erro: ${erro.message}`;
+      executando.value = false;
+    }
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
+        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
+        <h2 style="justify-content: center;">Sair do Sistema</h2>
+        
+        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
+          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
+        </p>
+
+        {executando.value ? (
+          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
+            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
+            <br />
+            {status.value}
+          </div>
+        ) : (
+          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
+            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
+              ⚠️ Sim, Apagar Meus Dados e Sair
+            </md-filled-button>
+            <md-outlined-button onClick={() => navigate('')} style="width: 100%;">
+              Cancelar e Voltar
+            </md-outlined-button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
@@ -2136,6 +2155,16 @@ export interface EnvelopeCifrado {
 
 ---
 
+## Arquivo: `src/constants/version.ts`
+
+```ts
+// Arquivo gerado automaticamente pelo build.ts
+export const APP_VERSION = "0.2.106-msugf07d";
+
+```
+
+---
+
 ## Arquivo: `src/constants/config.ts`
 
 ```ts
@@ -2157,6 +2186,9 @@ const PROXY_PATH_KEY = 'ProxyPath';
 
 let _configStore: ReturnType<typeof createStore> | null = null;
 
+// 🔥 ARQUITETURA: Cache em Memória RAM para evitar leitura excessiva de I/O em disco
+let _cachedProxyPath: string | null = null; 
+
 function getConfigStore() {
   if (_configStore === null && typeof indexedDB !== 'undefined') {
     _configStore = createStore(DB_NAMES.CONFIG, 'keyval');
@@ -2171,7 +2203,8 @@ async function loadProxyPathFromDB(): Promise<string> {
   try {
     const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
     if (stored !== undefined && stored !== null) {
-      return String(stored);
+      _cachedProxyPath = String(stored); // Alimenta o cache da RAM
+      return _cachedProxyPath;
     }
     return DefaultProxyPath;
   } catch (error) {
@@ -2181,18 +2214,32 @@ async function loadProxyPathFromDB(): Promise<string> {
 }
 
 export async function getProxyPath(): Promise<string> {
+  // Retorna instantaneamente se já estiver na RAM (O(1))
+  if (_cachedProxyPath !== null) return _cachedProxyPath;
   return await loadProxyPathFromDB();
 }
 
-export async function setProxyPath(path: string): Promise<void> {
-  const configStore = getConfigStore();
-  if (!configStore) return;
-  try {
-    await idbSet(PROXY_PATH_KEY, path, configStore);
-    console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
-  } catch (error) {
-    console.error('[CONFIG] Erro ao salvar ProxyPath no IndexedDB:', error);
-    throw error;
+/**
+ * Atualiza o ProxyPath. 
+ * @param path Nova rota
+ * @param persistToDisk Se false, apenas hidrata a memória RAM (evita escrita redundante).
+ */
+export async function setProxyPath(path: string, persistToDisk = true): Promise<void> {
+  // Aborta se já for o mesmo valor e for uma requisição de disco, poupando processamento
+  if (_cachedProxyPath === path && persistToDisk) return;
+  
+  _cachedProxyPath = path;
+
+  if (persistToDisk) {
+    const configStore = getConfigStore();
+    if (!configStore) return;
+    try {
+      await idbSet(PROXY_PATH_KEY, path, configStore);
+      console.log('[CONFIG] ProxyPath atualizado no IndexedDB:', path);
+    } catch (error) {
+      console.error('[CONFIG] Erro ao salvar ProxyPath no IndexedDB:', error);
+      throw error;
+    }
   }
 }
 
@@ -2216,31 +2263,26 @@ function getAppBasePath(): string {
 export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
   let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
   
-  // Normalização de input: se o usuário deixou vazio, tratamos como "/"
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
 
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   let base = "";
 
-  // Cenário 1: É uma URL Absoluta Externa (https://...)
   if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
     base = proxyPath;
   } 
-  // Cenário 2: Caminho Relativo local (ex: "/", "/api", "./api")
   else {
     const origin = typeof globalThis !== 'undefined' && globalThis.location 
       ? globalThis.location.origin 
       : 'http://localhost';
     
-    const appBase = getAppBasePath(); // Ex: "/" ou "/loco/"
-    
-    // Removemos possíveis "/", "./" ou "../" do começo do proxyPath do usuário
+    const appBase = getAppBasePath();
     const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
     
     base = origin + appBase + cleanProxyPath;
   }
 
-  base = base.replace(/\/$/, ''); // Tira barra do final da base
+  base = base.replace(/\/$/, '');
   return `${base}/${cleanEndpoint}`;
 }
 
@@ -2251,18 +2293,24 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
   try {
     const url = await buildProxyUrl('/ping', proxyUrlToCheck);
     
-    // Configura um timeout de 3 segundos para não travar a aplicação
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    const res = await fetch(url, { 
-      method: 'POST', // 🔥 ARQUITETURA: POST para furar o cache do navegador e Edge Nodes
+    let res = await fetch(url, { 
+      method: 'POST', 
       signal: controller.signal 
-    });
+    }).catch(() => null);
+    
+    if (!res || !res.ok) {
+      res = await fetch(url, { 
+        method: 'GET', 
+        signal: controller.signal 
+      }).catch(() => null);
+    }
     
     clearTimeout(timeoutId);
     
-    if (!res.ok) return false;
+    if (!res || !res.ok) return false;
     
     const data = await res.json();
     return data && data.status === "ok" && data.service === "loco-proxy";
@@ -2270,16 +2318,6 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     return false;
   }
 }
-```
-
----
-
-## Arquivo: `src/constants/version.ts`
-
-```ts
-// Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.96-msu7l0a3";
-
 ```
 
 ---
@@ -2525,109 +2563,6 @@ export async function initMensagensStore() {
 
 ---
 
-## Arquivo: `src/stores/config-store.ts`
-
-```ts
-// src/stores/config-store.ts
-import { get, set, del, createStore } from "idb-keyval";
-import { DB_NAMES } from "../constants/db.ts";
-import { setProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../constants/config.ts";
-
-const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
-const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
-
-export const CONFIG_KEYS = {
-  PROXY_PATH: "ProxyPath",
-  SERVER_PUBLIC_KEY: "ServerPublicKey", // 🔥 ARQUITETURA: Nova chave para cache
-} as const;
-
-export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
-  try {
-    const configKey = CONFIG_KEYS[key];
-    await set(configKey, value, configStore);
-    
-    // 🔥 ARQUITETURA: Invalidação de Cache Atrelada
-    // Se o Proxy mudar, a chave pública do servidor antigo torna-se letal para a criptografia.
-    // Nós a apagamos imediatamente para forçar um novo download seguro na próxima operação.
-    if (key === 'PROXY_PATH' && typeof value === 'string') {
-      await setProxyPath(value);
-      await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
-      console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
-    }
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
-    throw error;
-  }
-}
-
-export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
-  try {
-    const configKey = CONFIG_KEYS[key];
-    const value = await get<string>(configKey, configStore);
-    return value !== undefined && value !== null ? value : undefined;
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao carregar configuração:", error);
-    return undefined;
-  }
-}
-
-export async function resetConfig(): Promise<void> {
-  try {
-    await del(CONFIG_KEYS.PROXY_PATH, configStore);
-    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); // Expurgamos a chave no reset também
-    await setProxyPath(DefaultProxyPath); 
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
-    throw error;
-  }
-}
-
-/**
- * Carrega as configurações. 
- * Executa o Auto-Discovery de Rede apenas se for a primeira inicialização.
- */
-export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
-  const proxy_path = await getConfigValue('PROXY_PATH');
-  
-  if (proxy_path !== undefined) {
-    await setProxyPath(proxy_path);
-    return { proxy_path };
-  }
-
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    console.warn(`[AUTO-DISCOVERY] 🔌 Offline no primeiro acesso. Assumindo Cloudflare Worker nativo.`);
-    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-    return { proxy_path: FallbackAbsoluteProxy };
-  }
-
-  console.log(`[AUTO-DISCOVERY] Primeira inicialização detectada. Avaliando ambiente...`);
-  
-  const isLocalAlive = await pingProxy(DefaultProxyPath);
-
-  if (isLocalAlive) {
-    console.log(`[AUTO-DISCOVERY] ✅ Servidor nativo da hospedagem respondeu! Mantendo rota relativa.`);
-    await saveConfig('PROXY_PATH', DefaultProxyPath);
-    return { proxy_path: DefaultProxyPath };
-  }
-
-  console.log(`[AUTO-DISCOVERY] ⚠️ Servidor nativo indisponível ou estático (Ex: GitHub Pages). Iniciando Fallback...`);
-
-  const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
-  
-  if (isFallbackAlive) {
-    console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Conectado ao nó Edge!`);
-    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-    return { proxy_path: FallbackAbsoluteProxy };
-  }
-
-  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
-  await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-  return { proxy_path: FallbackAbsoluteProxy };
-}
-```
-
----
-
 ## Arquivo: `src/stores/contatosStore.ts`
 
 ```ts
@@ -2814,6 +2749,110 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
   } else {
     addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
+}
+```
+
+---
+
+## Arquivo: `src/stores/config-store.ts`
+
+```ts
+// src/stores/config-store.ts
+import { get, set, del, createStore } from "idb-keyval";
+import { DB_NAMES } from "../constants/db.ts";
+import { setProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../constants/config.ts";
+
+const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
+const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
+
+export const CONFIG_KEYS = {
+  PROXY_PATH: "ProxyPath",
+  SERVER_PUBLIC_KEY: "ServerPublicKey", 
+} as const;
+
+export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
+  try {
+    const configKey = CONFIG_KEYS[key];
+    
+    if (key === 'PROXY_PATH' && typeof value === 'string') {
+      // 🔥 Centraliza o salvamento de rota diretamente no config.ts
+      await setProxyPath(value, true);
+      await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
+      console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
+    } else {
+      await set(configKey, value, configStore);
+    }
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
+    throw error;
+  }
+}
+
+export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
+  try {
+    const configKey = CONFIG_KEYS[key];
+    const value = await get<string>(configKey, configStore);
+    return value !== undefined && value !== null ? value : undefined;
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao carregar configuração:", error);
+    return undefined;
+  }
+}
+
+export async function resetConfig(): Promise<void> {
+  try {
+    await del(CONFIG_KEYS.PROXY_PATH, configStore);
+    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); 
+    await setProxyPath(DefaultProxyPath, false); // Reseta apenas a RAM, o próximo Boot fará o Auto-Discovery
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
+    throw error;
+  }
+}
+
+/**
+ * Carrega as configurações. 
+ * Executa o Auto-Discovery de Rede apenas se for a primeira inicialização.
+ */
+export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
+  const proxy_path = await getConfigValue('PROXY_PATH');
+  
+  if (proxy_path !== undefined) {
+    // 🔥 ARQUITETURA: Memory Hydration
+    // O valor existe. Nós apenas injetamos na RAM para velocidade, sem salvar no disco (evita loops I/O)
+    await setProxyPath(proxy_path, false);
+    return { proxy_path };
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    console.warn(`[AUTO-DISCOVERY] 🔌 Offline no primeiro acesso. Assumindo Cloudflare Worker nativo.`);
+    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+    return { proxy_path: FallbackAbsoluteProxy };
+  }
+
+  console.log(`[AUTO-DISCOVERY] Primeira inicialização detectada. Avaliando ambiente...`);
+  
+  const isLocalAlive = await pingProxy(DefaultProxyPath);
+
+  if (isLocalAlive) {
+    console.log(`[AUTO-DISCOVERY] ✅ Servidor nativo da hospedagem respondeu! Mantendo rota relativa.`);
+    await saveConfig('PROXY_PATH', DefaultProxyPath);
+    return { proxy_path: DefaultProxyPath };
+  }
+
+  console.log(`[AUTO-DISCOVERY] ⚠️ Servidor nativo indisponível ou estático (Ex: GitHub Pages). Iniciando Fallback...`);
+
+  const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
+  
+  if (isFallbackAlive) {
+    console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Conectado ao nó Edge!`);
+    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+    return { proxy_path: FallbackAbsoluteProxy };
+  }
+
+  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
+  await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+  return { proxy_path: FallbackAbsoluteProxy };
 }
 ```
 
@@ -5102,442 +5141,6 @@ declare global {
 
 ---
 
-## Arquivo: `src/index.html`
-
-```html
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>loco</title>
-  
-  <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="./favicon.ico" sizes="any" />
-  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
-  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
-  <meta name="application-name" content="loco" />
-  
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-</head>
-<body>
-  <div id="app"></div>
-  <script src="./app.tsx" type="module"></script>
-</body>
-</html>
-```
-
----
-
-## Arquivo: `src/styles.css`
-
-```css
-/* src/styles.css */
-
-/* ==========================================================================
-   1. VARIÁVEIS DE TEMA (Material Design 3)
-   ========================================================================== */
-:root {
-  --md-sys-color-primary: #006c4f;
-  --md-sys-color-on-primary: #ffffff;
-  --md-sys-color-primary-container: #8cf0cf;
-  --md-sys-color-on-primary-container: #002114;
-  --md-sys-color-secondary: #4a6357;
-  --md-sys-color-on-secondary: #ffffff;
-  --md-sys-color-secondary-container: #cce8d8;
-  --md-sys-color-on-secondary-container: #082015;
-  --md-sys-color-tertiary: #3b6375;
-  --md-sys-color-on-tertiary: #ffffff;
-  --md-sys-color-tertiary-container: #bde8fc;
-  --md-sys-color-on-tertiary-container: #001f2a;
-  --md-sys-color-error: #ba1a1a;
-  --md-sys-color-on-error: #ffffff;
-  --md-sys-color-error-container: #ffdad6;
-  --md-sys-color-on-error-container: #410002;
-  --md-sys-color-background: #fbfcf9;
-  --md-sys-color-on-background: #191c1a;
-  --md-sys-color-surface: #fbfcf9;
-  --md-sys-color-on-surface: #191c1a;
-  --md-sys-color-surface-variant: #dbe4dd;
-  --md-sys-color-on-surface-variant: #404842;
-  --md-sys-color-outline: #707873;
-  --md-sys-color-shadow: #000000;
-  --md-sys-color-inverse-surface: #2e312e;
-  --md-sys-color-inverse-on-surface: #eff1ed;
-  --md-sys-color-inverse-primary: #6dd3b4;
-  --md-sys-color-surface-tint: #006c4f;
-}
-
-/* ==========================================================================
-   2. RESET E TIPOGRAFIA BASE (Rolagem e Viewport Ajustados)
-   ========================================================================== */
-* {
-  box-sizing: border-box;
-}
-
-html, body {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  margin: 0;
-  padding: 0;
-  min-height: 100vh;
-  min-height: 100dvh;
-  width: 100vw;
-  background-color: var(--md-sys-color-background);
-  color: var(--md-sys-color-on-background);
-  line-height: 1.6;
-}
-
-/* Habilita rolagem vertical natural quando a página ultrapassa a viewport */
-@media (max-width: 768px) {
-  body {
-    overflow-y: auto;
-  }
-}
-
-h1, h2, h3, h4, h5, h6 {
-  margin-top: 0;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-
-h1 {
-  font-size: 2.25rem;
-  margin-bottom: 0.25rem;
-  color: var(--md-sys-color-primary);
-}
-
-h2 {
-  font-size: 1.5rem;
-  margin-bottom: 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-p {
-  margin-top: 0;
-}
-
-/* 🔥 CORREÇÃO DE CORTE DE ÍCONES (MATERIAL SYMBOLS & WEB COMPONENTS) 🔥 */
-md-icon, .material-symbols-outlined {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  line-height: 1 !important;
-  overflow: visible !important;
-  vertical-align: middle;
-}
-
-md-icon-button {
-  flex-shrink: 0 !important; /* Impede o botão de encolher em containers flex */
-}
-
-/* ==========================================================================
-   3. ESTRUTURA DE LAYOUT APP (Estilo WhatsApp sem cortes na base)
-   ========================================================================== */
-#app-root {
-  display: flex;
-  height: 100vh;
-  height: 100dvh;
-  width: 100%;
-  position: relative;
-  overflow: hidden;
-}
-
-/* --- Painel Lateral (Sidebar) --- */
-.app-sidebar {
-  width: 30%;
-  min-width: 320px;
-  max-width: 450px;
-  border-right: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  display: flex;
-  flex-direction: column;
-  background: var(--md-sys-color-surface);
-  height: 100%;
-  z-index: 10;
-}
-
-.sidebar-header {
-  padding: 16px;
-  background: var(--md-sys-color-surface-variant);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  flex-shrink: 0;
-}
-
-.sidebar-content {
-  flex-grow: 1;
-  overflow-y: auto;
-  padding: 16px;
-  background-color: var(--md-sys-color-background);
-  box-sizing: border-box;
-}
-
-/* --- Painel Principal (Área de Chat) --- */
-.app-main {
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background-color: var(--md-sys-color-surface-container-lowest, #f0f2f5);
-  overflow: hidden;
-}
-
-.chat-header {
-  padding: 16px;
-  background: var(--md-sys-color-surface-variant);
-  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  height: 73px;
-  flex-shrink: 0;
-}
-
-.chat-messages {
-  flex-grow: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.chat-input-area {
-  padding: 16px;
-  background: var(--md-sys-color-surface);
-  border-top: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  flex-shrink: 0;
-}
-
-.back-button {
-  display: none;
-}
-
-@media (max-width: 768px) {
-  #app-root {
-    height: 100dvh;
-  }
-
-  .app-sidebar, .app-main {
-    width: 100%;
-    max-width: 100%;
-    height: 100dvh;
-    position: absolute;
-    top: 0;
-    left: 0;
-    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-  }
-
-  .view-mode-list .app-main {
-    transform: translateX(100%);
-  }
-  .view-mode-list .app-sidebar {
-    transform: translateX(0);
-  }
-
-  .view-mode-chat .app-sidebar {
-    transform: translateX(-30%);
-    opacity: 0;
-    pointer-events: none;
-  }
-  .view-mode-chat .app-main {
-    transform: translateX(0);
-  }
-
-  .back-button {
-    display: inline-flex;
-  }
-}
-
-/* ==========================================================================
-   4. ESTILOS DE COMPONENTES INTERNOS (Cards, inputs, blocos)
-   ========================================================================== */
-
-.container {
-  background: var(--md-sys-color-surface);
-  padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-  margin-bottom: 20px;
-  border-left: 4px solid var(--md-sys-color-primary);
-  transition: box-shadow 0.2s ease;
-}
-
-.container:hover {
-  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
-}
-
-.container-emissor { border-left-color: #002b3d; }
-.container-receptor { border-left-color: #ff6b00; }
-.container-contatos { border-left-color: #6c4f00; }
-
-.row {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-
-.col {
-  flex: 1;
-  min-width: 200px;
-}
-
-md-filled-button,
-md-outlined-button,
-md-text-button {
-  margin-bottom: 8px;
-}
-
-md-outlined-text-field,
-md-filled-text-field,
-md-outlined-select {
-  width: 100%;
-  margin-bottom: 8px;
-}
-
-md-list {
-  background: transparent;
-}
-
-md-list-item {
-  border-radius: 8px;
-  margin-bottom: 4px;
-  background: var(--md-sys-color-surface);
-  overflow: visible !important; /* 🔥 Evita cortar o efeito ripple dos botões */
-}
-
-label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 4px;
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 0.875rem;
-}
-
-.profile-field {
-  background: var(--md-sys-color-surface-variant);
-  padding: 12px;
-  border-radius: 8px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.8rem;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--md-sys-color-outline);
-  color: var(--md-sys-color-on-surface);
-}
-
-/* ==========================================================================
-   5. BALÕES DE CHAT E STATUS
-   ========================================================================== */
-.chat-bubble-wrapper {
-  display: flex;
-  width: 100%;
-  margin-bottom: 8px;
-}
-
-.chat-bubble-wrapper.in { justify-content: flex-start; }
-.chat-bubble-wrapper.out { justify-content: flex-end; }
-
-.chat-bubble {
-  max-width: 80%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  position: relative;
-  box-shadow: 0 1px 1px rgba(0,0,0,0.1);
-  word-wrap: break-word;
-  user-select: none;
-}
-
-.chat-bubble.in {
-  background-color: var(--md-sys-color-surface);
-  border-top-left-radius: 2px;
-}
-
-.chat-bubble.out {
-  background-color: #d9fdd3;
-  color: #111;
-  border-top-right-radius: 2px;
-}
-
-.chat-bubble-text {
-  font-size: 0.95rem;
-  line-height: 1.4;
-  margin-bottom: 2px;
-}
-
-.chat-bubble-meta {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.65rem;
-  color: rgba(0,0,0,0.45);
-  margin-top: 4px;
-  margin-bottom: -4px;
-}
-
-.chat-bubble.out .chat-bubble-meta {
-  color: rgba(0,0,0,0.55);
-}
-
-.status-icon {
-  font-size: 0.7rem;
-  letter-spacing: -2px;
-}
-
-.chat-messages {
-  background-image: url('data:image/svg+xml,%3Csvg width="20" height="20" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M0 0h20v20H0z" fill="%23f0f2f5"/%3E%3Ccircle cx="2" cy="2" r="1" fill="%23d0d4d8"/%3E%3C/svg%3E');
-}
-
-/* ==========================================================================
-   6. PAINEL DE DEBUG E ANIMAÇÕES
-   ========================================================================== */
-#debugPanel {
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.75rem;
-  padding: 12px;
-  border-radius: 8px;
-  max-height: 300px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  border: 1px solid #333;
-}
-
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.mt-10 { margin-top: 10px; }
-.mb-10 { margin-bottom: 10px; }
-.mt-20 { margin-top: 20px; }
-.mb-20 { margin-bottom: 20px; }
-.flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.flex-end { display: flex; gap: 8px; align-items: center; }
-.gap-8 { gap: 8px; }
-.gap-16 { gap: 16px; }
-.w-full { width: 100%; }
-.text-center { text-align: center; }
-.text-muted { color: var(--md-sys-color-on-surface-variant); }
-```
-
----
-
 ## Arquivo: `src/handshakes/hand-mensagem.ts`
 
 ```ts
@@ -6177,6 +5780,467 @@ self.addEventListener('message', (event: any) => {
 
 ---
 
+## Arquivo: `src/index.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>loco</title>
+  
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+  <meta name="application-name" content="loco" />
+  
+  <!-- 🔥 ARQUITETURA: Injeção Direta para Bypass do Bundler -->
+  <style>
+    /* Fonte Self-Hosted para Privacidade e Suporte Offline Garantido */
+    @font-face {
+      font-family: 'Material Symbols Outlined';
+      font-style: normal;
+      font-weight: 100 700;
+      src: url('./fonts/material-symbols-outlined.woff2') format('woff2');
+    }
+
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 24px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-feature-settings: 'liga';
+      -webkit-font-smoothing: antialiased;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="./app.tsx" type="module"></script>
+</body>
+</html>
+```
+
+---
+
+## Arquivo: `src/styles.css`
+
+```css
+/* src/styles.css */
+
+/* ==========================================================================
+   1. VARIÁVEIS DE TEMA (Material Design 3)
+   ========================================================================== */
+:root {
+  --md-sys-color-primary: #006c4f;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #8cf0cf;
+  --md-sys-color-on-primary-container: #002114;
+  --md-sys-color-secondary: #4a6357;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #cce8d8;
+  --md-sys-color-on-secondary-container: #082015;
+  --md-sys-color-tertiary: #3b6375;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #bde8fc;
+  --md-sys-color-on-tertiary-container: #001f2a;
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
+  --md-sys-color-background: #fbfcf9;
+  --md-sys-color-on-background: #191c1a;
+  --md-sys-color-surface: #fbfcf9;
+  --md-sys-color-on-surface: #191c1a;
+  --md-sys-color-surface-variant: #dbe4dd;
+  --md-sys-color-on-surface-variant: #404842;
+  --md-sys-color-outline: #707873;
+  --md-sys-color-shadow: #000000;
+  --md-sys-color-inverse-surface: #2e312e;
+  --md-sys-color-inverse-on-surface: #eff1ed;
+  --md-sys-color-inverse-primary: #6dd3b4;
+  --md-sys-color-surface-tint: #006c4f;
+}
+
+/* ==========================================================================
+   2. RESET E TIPOGRAFIA BASE (Rolagem e Viewport Ajustados)
+   ========================================================================== */
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100vw;
+  background-color: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-background);
+  line-height: 1.6;
+}
+
+/* Habilita rolagem vertical natural quando a página ultrapassa a viewport */
+@media (max-width: 768px) {
+  body {
+    overflow-y: auto;
+  }
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 0;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 2.25rem;
+  margin-bottom: 0.25rem;
+  color: var(--md-sys-color-primary);
+}
+
+h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+p {
+  margin-top: 0;
+}
+
+/* 🔥 CORREÇÃO DE CORTE DE ÍCONES (MATERIAL SYMBOLS & WEB COMPONENTS) 🔥 */
+md-icon, .material-symbols-outlined {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  overflow: visible !important;
+  vertical-align: middle;
+}
+
+md-icon-button {
+  flex-shrink: 0 !important; /* Impede o botão de encolher em containers flex */
+}
+
+/* ==========================================================================
+   3. ESTRUTURA DE LAYOUT APP (Estilo WhatsApp sem cortes na base)
+   ========================================================================== */
+#app-root {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* --- Painel Lateral (Sidebar) --- */
+.app-sidebar {
+  width: 30%;
+  min-width: 320px;
+  max-width: 450px;
+  border-right: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface);
+  height: 100%;
+  z-index: 10;
+}
+
+.sidebar-header {
+  padding: 16px;
+  background: var(--md-sys-color-surface-variant);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  flex-shrink: 0;
+}
+
+.sidebar-content {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background-color: var(--md-sys-color-background);
+  box-sizing: border-box;
+}
+
+/* --- Painel Principal (Área de Chat) --- */
+.app-main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--md-sys-color-surface-container-lowest, #f0f2f5);
+  overflow: hidden;
+}
+
+.chat-header {
+  padding: 16px;
+  background: var(--md-sys-color-surface-variant);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 73px;
+  flex-shrink: 0;
+}
+
+.chat-messages {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-input-area {
+  padding: 16px;
+  background: var(--md-sys-color-surface);
+  border-top: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
+  flex-shrink: 0;
+}
+
+.back-button {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  #app-root {
+    height: 100dvh;
+  }
+
+  .app-sidebar, .app-main {
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  .view-mode-list .app-main {
+    transform: translateX(100%);
+  }
+  .view-mode-list .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .view-mode-chat .app-sidebar {
+    transform: translateX(-30%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .view-mode-chat .app-main {
+    transform: translateX(0);
+  }
+
+  .back-button {
+    display: inline-flex;
+  }
+}
+
+/* ==========================================================================
+   4. ESTILOS DE COMPONENTES INTERNOS (Cards, inputs, blocos)
+   ========================================================================== */
+
+.container {
+  background: var(--md-sys-color-surface);
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  margin-bottom: 20px;
+  border-left: 4px solid var(--md-sys-color-primary);
+  transition: box-shadow 0.2s ease;
+}
+
+.container:hover {
+  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+}
+
+.container-emissor { border-left-color: #002b3d; }
+.container-receptor { border-left-color: #ff6b00; }
+.container-contatos { border-left-color: #6c4f00; }
+
+.row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.col {
+  flex: 1;
+  min-width: 200px;
+}
+
+md-filled-button,
+md-outlined-button,
+md-text-button {
+  margin-bottom: 8px;
+}
+
+md-outlined-text-field,
+md-filled-text-field,
+md-outlined-select {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+md-list {
+  background: transparent;
+}
+
+md-list-item {
+  border-radius: 8px;
+  margin-bottom: 4px;
+  background: var(--md-sys-color-surface);
+  overflow: visible !important; /* 🔥 Evita cortar o efeito ripple dos botões */
+}
+
+label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+}
+
+.profile-field {
+  background: var(--md-sys-color-surface-variant);
+  padding: 12px;
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--md-sys-color-outline);
+  color: var(--md-sys-color-on-surface);
+}
+
+/* ==========================================================================
+   5. BALÕES DE CHAT E STATUS
+   ========================================================================== */
+.chat-bubble-wrapper {
+  display: flex;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.chat-bubble-wrapper.in { justify-content: flex-start; }
+.chat-bubble-wrapper.out { justify-content: flex-end; }
+
+.chat-bubble {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  position: relative;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  word-wrap: break-word;
+  user-select: none;
+}
+
+.chat-bubble.in {
+  background-color: var(--md-sys-color-surface);
+  border-top-left-radius: 2px;
+}
+
+.chat-bubble.out {
+  background-color: #d9fdd3;
+  color: #111;
+  border-top-right-radius: 2px;
+}
+
+.chat-bubble-text {
+  font-size: 0.95rem;
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+.chat-bubble-meta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  color: rgba(0,0,0,0.45);
+  margin-top: 4px;
+  margin-bottom: -4px;
+}
+
+.chat-bubble.out .chat-bubble-meta {
+  color: rgba(0,0,0,0.55);
+}
+
+.status-icon {
+  font-size: 0.7rem;
+  letter-spacing: -2px;
+}
+
+.chat-messages {
+  background-image: url('data:image/svg+xml,%3Csvg width="20" height="20" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M0 0h20v20H0z" fill="%23f0f2f5"/%3E%3Ccircle cx="2" cy="2" r="1" fill="%23d0d4d8"/%3E%3C/svg%3E');
+}
+
+/* ==========================================================================
+   6. PAINEL DE DEBUG E ANIMAÇÕES
+   ========================================================================== */
+#debugPanel {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  padding: 12px;
+  border-radius: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid #333;
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.mt-10 { margin-top: 10px; }
+.mb-10 { margin-bottom: 10px; }
+.mt-20 { margin-top: 20px; }
+.mb-20 { margin-bottom: 20px; }
+.flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.flex-end { display: flex; gap: 8px; align-items: center; }
+.gap-8 { gap: 8px; }
+.gap-16 { gap: 16px; }
+.w-full { width: 100%; }
+.text-center { text-align: center; }
+.text-muted { color: var(--md-sys-color-on-surface-variant); }
+```
+
+---
+
 ## Arquivo: `src/app.tsx`
 
 ```tsx
@@ -6235,8 +6299,8 @@ function App() {
   // Inicialização assíncrona dos Stores locais e Infraestrutura
   useEffect(() => {
     const init = async () => {
-      // 🔥 ARQUITETURA: Auto-Discovery Executado Globalmente no Boot!
-      addDebugLog("info", "SYSTEM", "Iniciando Auto-Discovery de Rede...");
+      // 🔥 ARQUITETURA: Ajuste semântico no log para refletir o Fast-Boot.
+      addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
       await loadAllConfigs();
 
       await initProfileStore();
@@ -6343,7 +6407,6 @@ function App() {
             <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
           </div>
           
-          {/* 🔥 ARQUITETURA: Removido o atalho de adicionar contato duplicado daqui. Mantido apenas Meu Perfil */}
           <div style="display: flex; gap: 4px;">
             <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
               <md-icon>account_circle</md-icon>
@@ -6810,7 +6873,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.96-msu7l0a3",
+  "version": "0.2.106-msugf07d",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -6856,7 +6919,7 @@ await build();
   "tasks": {
     "test": "deno test --allow-env --allow-net tests/",
     "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
-    "build": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
     "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
     "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
     "clean": "deno clean && rm -rf build && mkdir -p build/dist",
@@ -6876,7 +6939,6 @@ await build();
 /// <reference lib="deno.ns" />
 
 import * as webpush from "@negrel/webpush";
-import { deleteCookie } from "@std/http/cookie";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
@@ -7104,7 +7166,6 @@ const workerHandler = {
 
     const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
     const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
-    const isLogout = pathname.endsWith("/logout") || pathname.endsWith("/logout/");
 
     if (!isAllowedOrigin) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
@@ -7135,18 +7196,7 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && isLogout) {
-        const headers = new Headers(corsHeaders);
-        deleteCookie(headers, "session_token", { path: "/" });
-        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
-        headers.set("Content-Type", "application/json");
-        return new Response(JSON.stringify({ disconnected: true }), {
-          status: 200,
-          headers,
-        });
-      }
-
-      if (request.method === "POST" && !isPing && !isPublicKey && !isLogout) {
+      if (request.method === "POST" && !isPing && !isPublicKey) {
         console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
         const body = await request.json();
@@ -7169,8 +7219,6 @@ const workerHandler = {
           const urlAtual = new URL(request.url);
           const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
           
-          // 🔥 ARQUITETURA DE REDIRECIONAMENTO INTELIGENTE
-          // Remove os protocolos HTTP/HTTPS apenas para a fase estrita de "Match" de Domínios.
           const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
           const origemNormalizada = origemAtual.replace(/\/$/, "");
           
@@ -7178,7 +7226,6 @@ const workerHandler = {
             console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoSemProtocolo}) difere do atual (${origemNormalizada}). Reencaminhando...`);
             
             try {
-              // Mantém a URL do proxy original intocada para o Fetch não quebrar mixed-content em testes locais (http vs https)
               const urlDestino = proxyserverDestino.endsWith('/') ? proxyserverDestino : `${proxyserverDestino}/`;
               
               const response = await fetch(urlDestino, {
@@ -7187,7 +7234,6 @@ const workerHandler = {
                 body: JSON.stringify({ subscription, payloadText, vapid })
               });
               
-              // Garante que o Worker avise falhas de gateway como 502/404 em vez de mascarar
               if (!response.ok) {
                 const errText = await response.text();
                 throw new Error(`HTTP ${response.status}: ${errText}`);

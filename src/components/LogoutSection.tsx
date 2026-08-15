@@ -1,5 +1,5 @@
+// src/components/LogoutSection.tsx
 import { useSignal } from '@preact/signals';
-import { buildProxyUrl } from '../constants/config.ts';
 import { navigate } from '../utils/router.ts';
 
 export function LogoutSection() {
@@ -9,11 +9,14 @@ export function LogoutSection() {
   const handleLogout = async () => {
     executando.value = true;
     try {
-      status.value = "1/5 Limpando Web Storage...";
+      // 🔥 ARQUITETURA OFFLINE-FIRST: 
+      // Em uma aplicação descentralizada sem sessões no servidor, 
+      // o "Logout" é apenas um Wipeout (Expurgo) local do dispositivo.
+      
+      status.value = "1/4 Limpando Web Storage e Cookies...";
       window.localStorage.clear();
       window.sessionStorage.clear();
 
-      status.value = "2/5 Apagando Cookies...";
       const cookies = document.cookie.split(";");
       for (let i = 0; i < cookies.length; i++) {
         const cookieStr = cookies[i];
@@ -26,13 +29,30 @@ export function LogoutSection() {
         document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
       }
 
-      status.value = "3/5 Apagando bancos IndexedDB...";
+      status.value = "2/4 Apagando bancos IndexedDB...";
       if (window.indexedDB?.databases) {
         const dbs = await window.indexedDB.databases();
-        for (const db of dbs) if (db.name) window.indexedDB.deleteDatabase(db.name);
+        for (const db of dbs) {
+          if (db.name) window.indexedDB.deleteDatabase(db.name);
+        }
       }
 
-      status.value = "4/5 Cancelando Push e Service Workers...";
+      status.value = "3/4 Limpando disco virtual (OPFS) e Caches...";
+      if (window.caches) {
+        const cacheNames = await window.caches.keys();
+        for (const name of cacheNames) await window.caches.delete(name);
+      }
+      if (navigator.storage?.getDirectory) {
+        try {
+          const root = await navigator.storage.getDirectory();
+          for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+        } catch (e) {
+          console.warn("OPFS Wipe (Opcional):", e);
+        }
+      }
+
+      // Desregistra os SWs por último para não engasgar as limpezas de OPFS/Cache
+      status.value = "4/4 Desativando Push e Service Workers...";
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (const registration of registrations) {
@@ -44,28 +64,11 @@ export function LogoutSection() {
         }
       }
 
-      status.value = "5/5 Limpando disco virtual (OPFS) e Cache...";
-      if (window.caches) {
-        const cacheNames = await window.caches.keys();
-        for (const name of cacheNames) await window.caches.delete(name);
-      }
-      if (navigator.storage?.getDirectory) {
-        const root = await navigator.storage.getDirectory();
-        for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
-      }
-
-      status.value = "Concluindo no servidor...";
-      const proxyUrl = await buildProxyUrl('/logout');
-      const resposta = await fetch(proxyUrl, { method: 'POST' });
-
-      if (resposta.ok) {
-        status.value = "✅ Logout e Destruição de Chaves Concluídos!";
-        setTimeout(() => {
-          window.location.reload(); 
-        }, 1000);
-      } else {
-        throw new Error("Falha no servidor ao deslogar.");
-      }
+      status.value = "✅ Destruição de chaves concluída com sucesso!";
+      setTimeout(() => {
+        // Força o reload voltando para a raiz limpa do app
+        window.location.href = window.location.pathname; 
+      }, 1000);
     } catch (erro: any) {
       status.value = `❌ Erro: ${erro.message}`;
       executando.value = false;

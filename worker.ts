@@ -2,7 +2,6 @@
 /// <reference lib="deno.ns" />
 
 import * as webpush from "@negrel/webpush";
-import { deleteCookie } from "@std/http/cookie";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
@@ -230,7 +229,6 @@ const workerHandler = {
 
     const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
     const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
-    const isLogout = pathname.endsWith("/logout") || pathname.endsWith("/logout/");
 
     if (!isAllowedOrigin) {
       console.warn(`🛑 [CORS REJEITADO] Acesso bloqueado para a origem: "${origin}"`);
@@ -261,18 +259,7 @@ const workerHandler = {
         });
       }
 
-      if (request.method === "POST" && isLogout) {
-        const headers = new Headers(corsHeaders);
-        deleteCookie(headers, "session_token", { path: "/" });
-        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
-        headers.set("Content-Type", "application/json");
-        return new Response(JSON.stringify({ disconnected: true }), {
-          status: 200,
-          headers,
-        });
-      }
-
-      if (request.method === "POST" && !isPing && !isPublicKey && !isLogout) {
+      if (request.method === "POST" && !isPing && !isPublicKey) {
         console.log(`\n📥 [${new Date().toLocaleTimeString()}] Nova requisição proxy web push recebida!`);
         
         const body = await request.json();
@@ -295,8 +282,6 @@ const workerHandler = {
           const urlAtual = new URL(request.url);
           const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
           
-          // 🔥 ARQUITETURA DE REDIRECIONAMENTO INTELIGENTE
-          // Remove os protocolos HTTP/HTTPS apenas para a fase estrita de "Match" de Domínios.
           const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
           const origemNormalizada = origemAtual.replace(/\/$/, "");
           
@@ -304,7 +289,6 @@ const workerHandler = {
             console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoSemProtocolo}) difere do atual (${origemNormalizada}). Reencaminhando...`);
             
             try {
-              // Mantém a URL do proxy original intocada para o Fetch não quebrar mixed-content em testes locais (http vs https)
               const urlDestino = proxyserverDestino.endsWith('/') ? proxyserverDestino : `${proxyserverDestino}/`;
               
               const response = await fetch(urlDestino, {
@@ -313,7 +297,6 @@ const workerHandler = {
                 body: JSON.stringify({ subscription, payloadText, vapid })
               });
               
-              // Garante que o Worker avise falhas de gateway como 502/404 em vez de mascarar
               if (!response.ok) {
                 const errText = await response.text();
                 throw new Error(`HTTP ${response.status}: ${errText}`);

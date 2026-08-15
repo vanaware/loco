@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.92-mstf7xrm** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.106-msugf07d** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.92-mstf7xrm] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.2.106-msugf07d] - Modo: TESTS
 
-Gerado automaticamente em: 8/15/2026, 6:35:37 AM
+Gerado automaticamente em: 8/15/2026, 11:11:42 AM
 
 ---
 

@@ -1,4 +1,4 @@
-import { useSignal, computed } from '@preact/signals';
+import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
 import { showToast } from '../signals/state.ts';
@@ -64,8 +64,6 @@ export function SettingsSection() {
     isSaving.value = true;
     
     try {
-      // Opcional: Impedir salvar se o ping falhar, mas vamos ser permissivos
-      // e só avisar, vai que o usuário está offline na hora.
       await saveConfig('PROXY_PATH', path);
       showToast(`✅ Configuração salva: ${path}`, 'success');
       hasChanges.value = false;
@@ -155,28 +153,46 @@ export function SettingsSection() {
             <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
               🔍 Resolução Dinâmica (Preview):
             </span>
-            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
-              <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 80px;">Push URL:</span>
-                <code style="color: #444;">{previewUrls.value.endpoint}</code>
+            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem;">
+              {/* 🔥 ARQUITETURA: Quebra de palavra e alinhamento flexível para telas mobile pequenas */}
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: #666; min-width: 70px; flex-shrink: 0;">Push URL:</span>
+                <code style="color: #444; word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.endpoint}
+                </code>
               </div>
-              <div style="display: flex; gap: 8px;">
-                <span style="color: #666; min-width: 80px;">Ping Test:</span>
-                <code style="color: #444;">{previewUrls.value.endpoint}/ping</code>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: #666; min-width: 70px; flex-shrink: 0;">Ping Test:</span>
+                <code style="color: #444; word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.endpoint.replace(/\/$/, '')}/ping
+                </code>
               </div>
             </div>
           </div>
           
-          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
-            <md-outlined-button onClick={handleCancelar} disabled={!hasChanges.value || isSaving.value || isTesting.value}>
+          {/* 🔥 ARQUITETURA: Container responsivo (flex-wrap). Os botões esticam e quebram linha. */}
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+            <md-outlined-button 
+              onClick={handleCancelar} 
+              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
+              style="flex: 1; min-width: 140px;"
+            >
               Cancelar
             </md-outlined-button>
             
-            <md-outlined-button onClick={handleReset} disabled={isSaving.value || isTesting.value} style="color: var(--md-sys-color-error);">
+            <md-outlined-button 
+              onClick={handleReset} 
+              disabled={isSaving.value || isTesting.value} 
+              style="color: var(--md-sys-color-error); flex: 1; min-width: 140px;"
+            >
               Auto-Discovery
             </md-outlined-button>
             
-            <md-filled-button onClick={handleSalvar} disabled={!hasChanges.value || isSaving.value || isTesting.value}>
+            <md-filled-button 
+              onClick={handleSalvar} 
+              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
+              style="flex: 1; min-width: 140px;"
+            >
               {isSaving.value ? (
                 <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
               ) : (
