@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.125-msuqlmka** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.146-msuyws4u** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.125-msuqlmka] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.146-msuyws4u] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 3:56:28 PM
+Gerado automaticamente em: 8/15/2026, 7:50:37 PM
 
 ---
 
@@ -575,246 +575,6 @@ const styles: Record<string, JSX.CSSProperties> = {
   summary: { cursor: "pointer", color: "#0066cc", fontSize: "0.75rem" },
   json: { margin: "4px 0 0 0", padding: "8px", backgroundColor: "#1e1e1e", color: "#00ff66", borderRadius: "4px", fontSize: "0.75rem", overflowX: "auto" },
 };
-```
-
----
-
-## Arquivo: `src/components/SettingsSection.tsx`
-
-```tsx
-import { useSignal } from '@preact/signals';
-import { useEffect } from 'preact/hooks';
-import { loadAllConfigs, saveConfig, resetConfig, getConfigValue } from '../stores/config-store.ts';
-import { showToast, appTheme, AppTheme } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
-import { buildProxyUrl, pingProxy } from '../constants/config.ts';
-
-export function SettingsSection() {
-  const proxyPath = useSignal('');
-  const isSaving = useSignal(false);
-  const isTesting = useSignal(false);
-  const hasChanges = useSignal(false);
-  const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
-  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
-  
-  useEffect(() => {
-    const load = async () => {
-      const config = await loadAllConfigs();
-      proxyPath.value = config.proxy_path || '';
-      await updatePreview(config.proxy_path || '');
-    };
-    load();
-  }, []);
-  
-  const updatePreview = async (path: string) => {
-    previewUrls.value = {
-      endpoint: await buildProxyUrl('/', path),
-      publicKey: await buildProxyUrl('/publickey', path),
-      logout: await buildProxyUrl('/logout', path)
-    };
-    serverStatus.value = 'unknown';
-  };
-
-  const handleProxyPathChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
-    proxyPath.value = target.value;
-    hasChanges.value = true;
-    updatePreview(target.value);
-  };
-
-  const handleThemeChange = async (e: Event) => {
-    const val = (e.target as any).value as AppTheme;
-    if (val) {
-      appTheme.value = val;
-      await saveConfig('APP_THEME', val);
-      showToast('Tema atualizado!', 'success');
-    }
-  };
-  
-  const handleTestarConexao = async () => {
-    isTesting.value = true;
-    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
-    
-    try {
-      const isAlive = await pingProxy(path);
-      if (isAlive) {
-        serverStatus.value = 'ok';
-        showToast('✅ Servidor detectado com sucesso!', 'success');
-      } else {
-        serverStatus.value = 'error';
-        showToast('❌ Servidor não respondeu ou não é um Loco Proxy.', 'error');
-      }
-    } catch {
-      serverStatus.value = 'error';
-      showToast('❌ Falha na conexão de rede.', 'error');
-    } finally {
-      isTesting.value = false;
-    }
-  };
-
-  const handleSalvar = async () => {
-    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
-    isSaving.value = true;
-    
-    try {
-      await saveConfig('PROXY_PATH', path);
-      showToast(`✅ Configuração salva: ${path}`, 'success');
-      hasChanges.value = false;
-      window.dispatchEvent(new CustomEvent('config-updated'));
-    } catch (error) {
-      console.error('Erro ao salvar configuração:', error);
-      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
-    } finally {
-      isSaving.value = false;
-    }
-  };
-  
-  const handleReset = async () => {
-    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
-      return;
-    }
-    try {
-      await resetConfig();
-      const config = await loadAllConfigs();
-      proxyPath.value = config.proxy_path || '/';
-      appTheme.value = 'system';
-      hasChanges.value = false;
-      serverStatus.value = 'unknown';
-      showToast('✅ Auto-Discovery resetado', 'success');
-      window.dispatchEvent(new CustomEvent('config-updated'));
-    } catch (error) {
-      showToast('❌ Erro ao resetar', 'error');
-    }
-  };
-  
-  const handleCancelar = () => {
-    loadAllConfigs().then(config => {
-      proxyPath.value = config.proxy_path || '';
-      hasChanges.value = false;
-      serverStatus.value = 'unknown';
-      showToast('Alterações descartadas', 'info');
-    });
-  };
-  
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 16px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>settings</md-icon> Configurações
-            </span>
-            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
-              Ajustes Visuais e de Rede
-            </span>
-          </div>
-          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        <div style="display: flex; flex-direction: column; gap: 16px;">
-          
-          {/* 🔥 SEÇÃO DE APARÊNCIA */}
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <label style="font-size: 0.85rem; font-weight: 600; color: var(--md-sys-color-on-surface);">
-              Aparência do Aplicativo
-            </label>
-            <md-outlined-select value={appTheme.value} onChange={handleThemeChange} style="width: 100%;">
-              <md-select-option value="system"><div slot="headline">Sincronizar com o Sistema</div></md-select-option>
-              <md-select-option value="light"><div slot="headline">Tema Claro</div></md-select-option>
-              <md-select-option value="dark"><div slot="headline">Tema Escuro</div></md-select-option>
-            </md-outlined-select>
-          </div>
-
-          <md-divider></md-divider>
-
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <label for="proxy-path" style="font-size: 0.85rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
-              Servidor Proxy
-              {serverStatus.value === 'ok' && <span style="color: var(--md-sys-color-primary); font-size: 0.75rem; font-weight: bold;">(Online)</span>}
-              {serverStatus.value === 'error' && <span style="color: var(--md-sys-color-error); font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
-            </label>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <md-outlined-text-field
-                id="proxy-path"
-                value={proxyPath.value}
-                onInput={handleProxyPathChange}
-                placeholder="Ex: /, /api ou https://push.com"
-                style="flex-grow: 1; min-width: 200px;"
-                disabled={isSaving.value || isTesting.value}
-              >
-                <md-icon slot="leading-icon">dns</md-icon>
-              </md-outlined-text-field>
-              
-              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px; flex-shrink: 0;">
-                 {isTesting.value ? '...' : 'Testar'}
-              </md-filled-tonal-button>
-            </div>
-            <span style="font-size: 0.7rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.2;">
-              Se o PWA foi instalado via GitHub Pages, informe a URL absoluta de um Worker ativo do Loco.
-            </span>
-          </div>
-          
-          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
-            <span style="font-size: 0.75rem; font-weight: 700; color: var(--md-sys-color-on-surface-variant);">
-              🔍 Resolução Dinâmica (Preview):
-            </span>
-            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem;">
-              <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Push URL:</span>
-                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
-                  {previewUrls.value.endpoint}
-                </code>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Ping Test:</span>
-                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
-                  {previewUrls.value.endpoint.replace(/\/$/, '')}/ping
-                </code>
-              </div>
-            </div>
-          </div>
-          
-          <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 8px;">
-            <md-outlined-button 
-              onClick={handleCancelar} 
-              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
-              style="flex: 1; min-width: 120px;"
-            >
-              Cancelar
-            </md-outlined-button>
-            
-            <md-outlined-button 
-              onClick={handleReset} 
-              disabled={isSaving.value || isTesting.value} 
-              style="color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error); flex: 1; min-width: 120px;"
-            >
-              Auto-Discovery
-            </md-outlined-button>
-            
-            <md-filled-button 
-              onClick={handleSalvar} 
-              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
-              style="flex: 1; min-width: 120px;"
-            >
-              {isSaving.value ? (
-                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
-              ) : (
-                <>
-                  <md-icon slot="icon">save</md-icon>
-                  Salvar
-                </>
-              )}
-            </md-filled-button>
-          </div>
-          
-        </div>
-      </div>
-    </div>
-  );
-}
 ```
 
 ---
@@ -2015,6 +1775,256 @@ export function ContatosSection() {
 
 ---
 
+## Arquivo: `src/components/SettingsSection.tsx`
+
+```tsx
+// src/components/SettingsSection.tsx
+import { useSignal } from '@preact/signals';
+import { useEffect } from 'preact/hooks';
+import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
+import { showToast, appTheme, AppTheme } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+import { buildProxyUrl, pingProxy } from '../constants/config.ts';
+
+export function SettingsSection() {
+  const proxyPath = useSignal('');
+  const isSaving = useSignal(false);
+  const isTesting = useSignal(false);
+  const hasChanges = useSignal(false);
+  const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
+  
+  // 🔥 ARQUITETURA: State consolidado refletindo as rotas exatas do Worker
+  const previewUrls = useSignal({ push: '', ping: '', publicKey: '' });
+  
+  useEffect(() => {
+    const load = async () => {
+      const config = await loadAllConfigs();
+      proxyPath.value = config.proxy_path || '';
+      await updatePreview(config.proxy_path || '');
+    };
+    load();
+  }, []);
+  
+  const updatePreview = async (path: string) => {
+    // 🔥 ARQUITETURA: Resolução semântica. O componente pede as rotas corretas diretamente.
+    previewUrls.value = {
+      push: await buildProxyUrl('/push', path),
+      ping: await buildProxyUrl('/ping', path),
+      publicKey: await buildProxyUrl('/publickey', path)
+    };
+    serverStatus.value = 'unknown';
+  };
+
+  const handleProxyPathChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    proxyPath.value = target.value;
+    hasChanges.value = true;
+    updatePreview(target.value);
+  };
+
+  const handleThemeChange = async (e: Event) => {
+    const val = (e.target as any).value as AppTheme;
+    if (val) {
+      appTheme.value = val;
+      await saveConfig('APP_THEME', val);
+      showToast('Tema atualizado!', 'success');
+    }
+  };
+  
+  const handleTestarConexao = async () => {
+    isTesting.value = true;
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
+    
+    try {
+      const isAlive = await pingProxy(path);
+      if (isAlive) {
+        serverStatus.value = 'ok';
+        showToast('✅ Servidor detectado com sucesso!', 'success');
+      } else {
+        serverStatus.value = 'error';
+        showToast('❌ Servidor não respondeu ou não é um Loco Proxy.', 'error');
+      }
+    } catch {
+      serverStatus.value = 'error';
+      showToast('❌ Falha na conexão de rede.', 'error');
+    } finally {
+      isTesting.value = false;
+    }
+  };
+
+  const handleSalvar = async () => {
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
+    isSaving.value = true;
+    
+    try {
+      await saveConfig('PROXY_PATH', path);
+      showToast(`✅ Configuração salva: ${path}`, 'success');
+      hasChanges.value = false;
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      console.error('Erro ao salvar configuração:', error);
+      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
+    } finally {
+      isSaving.value = false;
+    }
+  };
+  
+  const handleReset = async () => {
+    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
+      return;
+    }
+    try {
+      await resetConfig();
+      const config = await loadAllConfigs();
+      proxyPath.value = config.proxy_path || '/';
+      appTheme.value = 'system';
+      hasChanges.value = false;
+      serverStatus.value = 'unknown';
+      showToast('✅ Auto-Discovery resetado', 'success');
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      showToast('❌ Erro ao resetar', 'error');
+    }
+  };
+  
+  const handleCancelar = () => {
+    loadAllConfigs().then(config => {
+      proxyPath.value = config.proxy_path || '';
+      hasChanges.value = false;
+      serverStatus.value = 'unknown';
+      showToast('Alterações descartadas', 'info');
+    });
+  };
+  
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 16px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>settings</md-icon> Configurações
+            </span>
+            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
+              Ajustes Visuais e de Rede
+            </span>
+          </div>
+          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          
+          {/* 🔥 SEÇÃO DE APARÊNCIA */}
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="font-size: 0.85rem; font-weight: 600; color: var(--md-sys-color-on-surface);">
+              Aparência do Aplicativo
+            </label>
+            <md-outlined-select value={appTheme.value} onChange={handleThemeChange} style="width: 100%;">
+              <md-select-option value="system"><div slot="headline">Sincronizar com o Sistema</div></md-select-option>
+              <md-select-option value="light"><div slot="headline">Tema Claro</div></md-select-option>
+              <md-select-option value="dark"><div slot="headline">Tema Escuro</div></md-select-option>
+            </md-outlined-select>
+          </div>
+
+          <md-divider></md-divider>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label for="proxy-path" style="font-size: 0.85rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
+              Servidor Proxy
+              {serverStatus.value === 'ok' && <span style="color: var(--md-sys-color-primary); font-size: 0.75rem; font-weight: bold;">(Online)</span>}
+              {serverStatus.value === 'error' && <span style="color: var(--md-sys-color-error); font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
+            </label>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <md-outlined-text-field
+                id="proxy-path"
+                value={proxyPath.value}
+                onInput={handleProxyPathChange}
+                placeholder="Ex: /, /api ou https://push.com"
+                style="flex-grow: 1; min-width: 200px;"
+                disabled={isSaving.value || isTesting.value}
+              >
+                <md-icon slot="leading-icon">dns</md-icon>
+              </md-outlined-text-field>
+              
+              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px; flex-shrink: 0;">
+                 {isTesting.value ? '...' : 'Testar'}
+              </md-filled-tonal-button>
+            </div>
+            <span style="font-size: 0.7rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.2;">
+              Se o PWA foi instalado via GitHub Pages, informe a URL absoluta de um Worker ativo do Loco.
+            </span>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--md-sys-color-on-surface-variant);">
+              🔍 Resolução Dinâmica (Preview):
+            </span>
+            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem;">
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Push URL:</span>
+                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.push}
+                </code>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Ping Test:</span>
+                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.ping}
+                </code>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Public Key:</span>
+                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.publicKey}
+                </code>
+              </div>
+            </div>
+          </div>
+          
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+            <md-outlined-button 
+              onClick={handleCancelar} 
+              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
+              style="flex: 1; min-width: 120px;"
+            >
+              Cancelar
+            </md-outlined-button>
+            
+            <md-outlined-button 
+              onClick={handleReset} 
+              disabled={isSaving.value || isTesting.value} 
+              style="color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error); flex: 1; min-width: 120px;"
+            >
+              Auto-Discovery
+            </md-outlined-button>
+            
+            <md-filled-button 
+              onClick={handleSalvar} 
+              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
+              style="flex: 1; min-width: 120px;"
+            >
+              {isSaving.value ? (
+                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
+              ) : (
+                <>
+                  <md-icon slot="icon">save</md-icon>
+                  Salvar
+                </>
+              )}
+            </md-filled-button>
+          </div>
+          
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
@@ -2163,7 +2173,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.125-msuqlmka";
+export const APP_VERSION = "0.2.146-msuyws4u";
 
 ```
 
@@ -2248,6 +2258,8 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
 
+  // Retiramos o "Código Mágico" que alterava rotas raízes. 
+  // O que a aplicação pedir, é o que ela vai receber formatado.
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   let base = "";
 
@@ -2266,50 +2278,49 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   }
 
   base = base.replace(/\/$/, '');
-  return `${base}/${cleanEndpoint}`;
+  return cleanEndpoint ? `${base}/${cleanEndpoint}` : `${base}/`;
 }
 
-export interface FetchProxyOptions extends Omit<RequestInit, 'body'> {
+export interface FetchProxyOptions extends Omit<RequestInit, 'body' | 'headers'> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   body?: any; 
   specificProxy?: string; 
+  headers?: any; 
 }
 
 export async function fetchLocoProxy(endpoint: string, options: FetchProxyOptions = {}): Promise<Response> {
-  const { specificProxy, body, headers, ...restOptions } = options;
+  const { specificProxy, body, headers: _ignorado, ...restOptions } = options;
+  
   const url = await buildProxyUrl(endpoint, specificProxy);
   
-  const mergedHeaders = new Headers(headers);
-  if (!mergedHeaders.has('Content-Type') && body) {
-    mergedHeaders.set('Content-Type', 'application/json');
+  const blindHeaders = new Headers();
+  if (body) {
+    blindHeaders.set('Content-Type', 'text/plain');
   }
 
   const finalOptions: RequestInit = {
     method: 'POST', 
     mode: 'cors',
-    credentials: 'omit', 
-    headers: mergedHeaders,
+    credentials: 'omit',
+    headers: blindHeaders,
     ...restOptions
   };
 
   if (body) {
     finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
     
-    // 🔥 ARQUITETURA: Validação Preemptiva de Rede.
     const payloadSizeBytes = new Blob([finalOptions.body]).size;
-    
-    addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada: ${payloadSizeBytes} bytes.`);
+    addDebugLog("info", "NETWORK:FETCH", `Tamanho da requisição HTTP para ${endpoint}: ${payloadSizeBytes} bytes.`);
 
     if (payloadSizeBytes > 8192) {
-      addDebugLog("error", "NETWORK:FETCH", `Abortado localmente: O Payload HTTP (${payloadSizeBytes} bytes) excede o limite seguro do servidor Proxy (8192 bytes).`);
-      throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). O limite de roteamento do servidor é de 8KB.`);
+      throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). Limite é 8KB.`);
     }
   }
 
   try {
     return await fetch(url, finalOptions);
   } catch (error: any) {
-    throw new Error(`Falha ao acessar o nó proxy da rede (${url}). Erro de conectividade ou bloqueio de CORS. Detalhes: ${error.message}`);
+    throw new Error(`Falha de rede ao acessar proxy externo (${url}). Detalhes: ${error.message}`);
   }
 }
 
@@ -2318,6 +2329,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
+    // Explicitamente /ping
     let res = await fetchLocoProxy('/ping', { 
       specificProxy: proxyUrlToCheck,
       signal: controller.signal 
@@ -4688,171 +4700,6 @@ export async function removerHandshake(id: string): Promise<void> {
 
 ---
 
-## Arquivo: `src/utils/push-utils.ts`
-
-```ts
-// src/utils/push-utils.ts
-import { gzipSync } from "fflate";
-import { addDebugLog } from "./debug-utils.ts";
-import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
-import { fetchLocoProxy } from "../constants/config.ts";
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
-  }
-}
-
-export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
-  i: string;
-  d: string;
-  k: string;
-}> {
-  try {
-    const encoder = new TextEncoder();
-    const jsonString = JSON.stringify(payloadObj);
-    const bytes = encoder.encode(jsonString);
-    
-    const compressed = gzipSync(bytes);
-    
-    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
-    if (compressed.length > 3000) {
-       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
-    }
-
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      compressed as unknown as BufferSource
-    );
-
-    const cryptoKeyDestino = await crypto.subtle.importKey(
-      "jwk" as any,
-      publicKeyRSA,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyEncrypted = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      cryptoKeyDestino,
-      aesKeyRaw
-    );
-
-    return {
-      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
-      d: arrayBufferToBase64(encryptedBuffer),
-      k: arrayBufferToBase64(aesKeyEncrypted)
-    };
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
-    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
-  }
-}
-
-export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  payloadText: string,
-  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
-): Promise<void> {
-  const payloadSize = new Blob([payloadText]).size;
-  if (payloadSize > 4096) {
-    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
-    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
-  }
-
-  try {
-    // 🔥 ARQUITETURA: Código limpo e protegido pelo Wrapper Central
-    const response = await fetchLocoProxy('/', {
-      body: {
-        subscription,
-        payloadText,
-        vapid: {
-          subject: vapid.subject,
-          publicKey: minifyVapidPublic(vapid.publicKey),
-          privateKey: vapid.privateKey
-        }
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err: any) {
-     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
-     throw err;
-  }
-}
-
-export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
-  try {
-    const serverKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      serverPublicKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoder = new TextEncoder();
-    
-    const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
-    const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
-    
-    const vapidCifrado = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      vapidBytes as unknown as BufferSource
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyCifrado = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      serverKey,
-      aesKeyRaw
-    );
-
-    const toHex = (buf: ArrayBuffer) =>
-      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    const envelope = {
-      iv: toHex(iv.buffer as ArrayBuffer),
-      dadosCifrados: toHex(vapidCifrado),
-      chaveAesCifrada: toHex(aesKeyCifrado)
-    };
-    
-    return btoa(JSON.stringify(envelope));
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
-    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/profile-utils.ts`
 
 ```ts
@@ -5055,6 +4902,171 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
   } catch (err) {
     addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
     throw err;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/push-utils.ts`
+
+```ts
+// src/utils/push-utils.ts
+import { gzipSync } from "fflate";
+import { addDebugLog } from "./debug-utils.ts";
+import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
+import { fetchLocoProxy } from "../constants/config.ts";
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
+  }
+}
+
+export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
+  i: string;
+  d: string;
+  k: string;
+}> {
+  try {
+    const encoder = new TextEncoder();
+    const jsonString = JSON.stringify(payloadObj);
+    const bytes = encoder.encode(jsonString);
+    
+    const compressed = gzipSync(bytes);
+    
+    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
+    if (compressed.length > 3000) {
+       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
+    }
+
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      compressed as unknown as BufferSource
+    );
+
+    const cryptoKeyDestino = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyRSA,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyEncrypted = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoKeyDestino,
+      aesKeyRaw
+    );
+
+    return {
+      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
+      d: arrayBufferToBase64(encryptedBuffer),
+      k: arrayBufferToBase64(aesKeyEncrypted)
+    };
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
+    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
+  }
+}
+
+export async function enviarParaProxy(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payloadText: string,
+  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
+): Promise<void> {
+  const payloadSize = new Blob([payloadText]).size;
+  if (payloadSize > 4096) {
+    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
+    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes.`);
+  }
+
+  try {
+    // 🔥 ARQUITETURA [ROTEAMENTO EXPLÍCITO]: Chamamos estritamente /push
+    const response = await fetchLocoProxy('/push', {
+      body: {
+        subscription,
+        payloadText,
+        vapid: {
+          subject: vapid.subject,
+          publicKey: minifyVapidPublic(vapid.publicKey),
+          privateKey: vapid.privateKey
+        }
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
+    }
+  } catch (err: any) {
+     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
+     throw err;
+  }
+}
+
+export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  try {
+    const serverKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      serverPublicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    
+    const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
+    const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
+    
+    const vapidCifrado = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      vapidBytes as unknown as BufferSource
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyCifrado = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      serverKey,
+      aesKeyRaw
+    );
+
+    const toHex = (buf: ArrayBuffer) =>
+      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    const envelope = {
+      iv: toHex(iv.buffer as ArrayBuffer),
+      dadosCifrados: toHex(vapidCifrado),
+      chaveAesCifrada: toHex(aesKeyCifrado)
+    };
+    
+    return btoa(JSON.stringify(envelope));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento: ${err.message}`);
+    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
   }
 }
 ```
@@ -6482,8 +6494,9 @@ binding = "ASSETS"
 PROXY_PATH= '/'
 SERVER_PUBLIC_KEY = '{"n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ"}'
 
+
 [observability]
-enabled = false
+enabled = true
 head_sampling_rate = 1
 
 [observability.logs]
@@ -6848,7 +6861,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.125-msuqlmka",
+  "version": "0.2.146-msuyws4u",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -6933,11 +6946,11 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
   const privateKeyStr = env?.SERVER_PRIVATE_KEY;
 
   if (!publicKeyStr) {
-    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada! Configure-a no arquivo wrangler.toml ou via dashboard da Cloudflare.");
+    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada!");
   }
   
   if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare.");
+    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada!");
   }
 
   try {
@@ -6948,54 +6961,22 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
     const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
 
     if (!publicKeyJwk.kty) {
-      publicKeyJwk = {
-        kty: "RSA",
-        alg: "RSA-OAEP-256",
-        n: publicKeyJwk.n,
-        e: "AQAB",
-        ext: true,
-        key_ops: ["encrypt"]
-      };
+      publicKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", n: publicKeyJwk.n, e: "AQAB", ext: true, key_ops: ["encrypt"] };
     }
 
     if (!privateKeyJwk.kty) {
-      privateKeyJwk = {
-        kty: "RSA",
-        alg: "RSA-OAEP-256",
-        e: publicKeyJwk.e,
-        n: publicKeyJwk.n,
-        ext: true,
-        key_ops: ["decrypt"],
-        d: privateKeyJwk.d,
-        p: privateKeyJwk.p,
-        q: privateKeyJwk.q,
-        dp: privateKeyJwk.dp,
-        dq: privateKeyJwk.dq,
-        qi: privateKeyJwk.qi
-      };
+      privateKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", e: publicKeyJwk.e, n: publicKeyJwk.n, ext: true, key_ops: ["decrypt"], d: privateKeyJwk.d, p: privateKeyJwk.p, q: privateKeyJwk.q, dp: privateKeyJwk.dp, dq: privateKeyJwk.dq, qi: privateKeyJwk.qi };
     }
 
-    const serverPrivateKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      privateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["decrypt"]
-    );
+    const serverPrivateKey = await crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
 
     serverPrivateKeyCache = serverPrivateKey;
     serverPublicKeyJwkCache = publicKeyJwk;
     serverPublicKeyMinifiedCache = minifiedPublicKey;
 
-    console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
-    return { 
-      serverPrivateKey, 
-      serverPublicKeyJwk: publicKeyJwk,
-      serverPublicKeyMinified: minifiedPublicKey 
-    };
+    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk, serverPublicKeyMinified: minifiedPublicKey };
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
+    throw new Error(`Erro inicializando chaves: ${err}`);
   }
 }
 
@@ -7005,37 +6986,17 @@ async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: Cr
     const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
 
     const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-
     const ivBytes = fromHex(iv);
     const dadosBytes = fromHex(dadosCifrados);
     const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
 
-    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
-      { name: "RSA-OAEP" },
-      serverPrivateKey,
-      chaveAesCifradaBytes
-    );
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
+    const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
 
-    const chaveSimetricaAes = await crypto.subtle.importKey(
-      "raw",
-      aesChaveCruaBuffer,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
-
-    const vapidOriginalBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
-      chaveSimetricaAes,
-      dadosBytes
-    );
-
-    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
-    return JSON.parse(jsonText);
+    return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
-    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
+    throw new Error(`Falha VAPID E2E: ${err}`);
   }
 }
 
@@ -7043,19 +7004,11 @@ function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
   try {
     const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
     const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
-
-    const expandedPub = pub.kty ? pub : {
-      kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"]
-    };
-
-    const expandedPriv = priv.kty ? priv : {
-      kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"]
-    };
-
+    const expandedPub = pub.kty ? pub : { kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"] };
+    const expandedPriv = priv.kty ? priv : { kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"] };
     return { publicKey: expandedPub, privateKey: expandedPriv };
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
+    throw new Error(`JWK inválido: ${err}`);
   }
 }
 
@@ -7063,178 +7016,161 @@ function lerMetadadosJJWT(jwtString: string) {
   try {
     const parts = jwtString.split(".");
     if (parts.length !== 3) return null;
-
-    const part1 = parts[1];
-    if (!part1) return null;
-
-    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-
-    const jsonString = new TextDecoder().decode(
-      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
-    );
     
-    return JSON.parse(jsonString);
+    // 🔥 ARQUITETURA: Type Guard explícito para satisfazer "noUncheckedIndexedAccess"
+    const payloadPart = parts[1];
+    if (!payloadPart) return null;
+    
+    let base64Url = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64Url.length % 4) base64Url += "=";
+    return JSON.parse(new TextDecoder().decode(new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))));
   } catch {
     return null;
   }
+}
+
+function createCorsHeaders(request: Request): Headers {
+  const headers = new Headers();
+  const origin = request.headers.get("Origin") || "*";
+  
+  headers.set("Access-Control-Allow-Origin", origin === "null" ? "*" : origin);
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  
+  const reqHeaders = request.headers.get("Access-Control-Request-Headers");
+  headers.set("Access-Control-Allow-Headers", reqHeaders || "*");
+  
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Access-Control-Max-Age", "86400");
+  headers.set("Vary", "Origin");
+  
+  return headers;
 }
 
 const workerHandler = {
   async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
-    
     const method = request.method;
-    const origin = request.headers.get("Origin") || "*";
-    const reqHeaders = request.headers.get("Access-Control-Request-Headers");
-
-    // 🔥 LOG ESTRATÉGICO: Descobrindo o que os Túneis enviam
-    console.log(`\n======================================================`);
-    console.log(`🌐 [ROUTER] Nova Requisição Detectada!`);
-    console.log(`📌 Método: ${method} | Rota: ${pathname}`);
-    console.log(`🌍 Origem Recebida: ${origin}`);
-    if (reqHeaders) {
-      console.log(`📦 Headers Solicitados no Preflight: ${reqHeaders}`);
+    
+    const corsHeaders = createCorsHeaders(request);
+    
+    // Fast-fail silencioso para preflight
+    if (method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
     }
-
-    // 🔥 ARQUITETURA: CORS ESPELHO ABSOLUTO
-    const corsHeaders: Record<string, string> = {
-      "Access-Control-Allow-Origin": origin, // Espelha a origem exata (localhost ou tunnel)
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Credentials": "true", // Permitido apenas porque não usamos '*'
-      "Access-Control-Max-Age": "86400",
-      "Vary": "Origin" // Exigência da W3C para CORS Dinâmico
-    };
-
-    if (reqHeaders) {
-      corsHeaders["Access-Control-Allow-Headers"] = reqHeaders; // Espelha os headers
-    } else {
-      corsHeaders["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload";
-    }
-
-    if (request.method === "OPTIONS") {
-      console.log(`🛡️ CORS Headers Devolvidos no OPTIONS:`, JSON.stringify(corsHeaders));
-      return new Response("OK", { status: 200, headers: corsHeaders });
-    }
-
-    const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
-    const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
 
     try {
+      const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
+      const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
+      const isPushRoute = pathname.endsWith("/push") || pathname.endsWith("/push/");
+
       const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
 
-      if ((request.method === "POST" || request.method === "GET") && isPing) {
-        return new Response(JSON.stringify({ 
-          status: "ok", 
-          service: "loco-proxy",
-          timestamp: Date.now()
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+      const sendResponse = (bodyObj: any, status = 200) => {
+        const respHeaders = new Headers(corsHeaders);
+        respHeaders.set("Content-Type", "application/json");
+        return new Response(JSON.stringify(bodyObj), { status, headers: respHeaders });
+      };
+
+      if ((method === "POST" || method === "GET") && isPing) {
+        return sendResponse({ status: "ok", service: "loco-proxy", timestamp: Date.now() });
       }
 
-      if (request.method === "POST" && isPublicKey) {
-        return new Response(JSON.stringify(serverPublicKeyMinified), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+      if (method === "POST" && isPublicKey) {
+        return sendResponse(serverPublicKeyMinified);
       }
 
-      // Rota principal de processamento de Push
-      if (request.method === "POST" && !isPing && !isPublicKey) {
-        
+      if (method === "POST" && isPushRoute) {
         const contentLength = request.headers.get("content-length");
         if (contentLength && parseInt(contentLength, 10) > 8192) {
-          console.warn(`🛑 [DEFESA] Bloqueado: Payload excedeu o limite do roteador (Recebido: ${contentLength} bytes, Limite: 8192)`);
-          return new Response(JSON.stringify({ error: "Payload Too Large" }), { status: 413, headers: corsHeaders });
+          console.warn(`🛑 [DEFESA] Payload bloqueado (${contentLength} bytes). Origem: ${request.headers.get("cf-connecting-ip")}`);
+          return sendResponse({ success: false, error: "Payload Too Large" }, 413);
+        }
+        
+        const rawText = await request.text();
+        let body;
+        try {
+          body = JSON.parse(rawText);
+        } catch (e) {
+          console.warn(`❌ [VALIDAÇÃO] Falha ao processar corpo JSON.`);
+          return sendResponse({ success: false, error: "Corpo não é JSON válido." }, 400);
         }
 
-        console.log(`📥 [RECEIVE] Processando Payload PUSH de ${contentLength || 'tamanho desconhecido'} bytes.`);
-        
-        const body = await request.json();
         const { subscription, payloadText, vapid } = body;
 
-        if (
-          !subscription || !subscription.endpoint || !subscription.keys?.p256dh ||
-          !payloadText || typeof payloadText !== 'string' ||
-          !vapid || !vapid.subject || !vapid.publicKey || !vapid.privateKey
-        ) {
-          console.warn("🛑 [DEFESA] Bloqueado: Estrutura JSON malformada ou dados essenciais ausentes.");
-          return new Response(
-            JSON.stringify({ success: false, error: "Estrutura P2P Inválida." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+        if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
+          console.warn(`❌ [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.`);
+          return sendResponse({ success: false, error: "Estrutura P2P Inválida." }, 400);
         }
 
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
-          console.warn("🛑 [DEFESA] Bloqueado: Token JWT inválido ou sub-protocolo desconhecido.");
-          return new Response(
-            JSON.stringify({ success: false, error: "Protocolo Inválido. Apenas payloads 'Loco' são aceitos." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          console.warn(`❌ [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.`);
+          return sendResponse({ success: false, error: "Protocolo JWT Inválido." }, 400);
         }
-
-        console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
-
+        
         const proxyserverDestino = jwtClaims.proxyserver;
+        
         if (proxyserverDestino) {
-          const urlAtual = new URL(request.url);
-          const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
-          
-          const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
-          const origemNormalizada = origemAtual.replace(/\/$/, "");
-          
-          if (origemNormalizada !== destinoSemProtocolo) {
-            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoSemProtocolo}) difere do atual (${origemNormalizada}). Reencaminhando...`);
-            
-            try {
-              const urlDestino = proxyserverDestino.endsWith('/') ? proxyserverDestino : `${proxyserverDestino}/`;
-              
-              const response = await fetch(urlDestino, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subscription, payloadText, vapid })
-              });
-              
-              if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errText}`);
-              }
-              
-              console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
-              
-              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoSemProtocolo }), {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-              });
-            } catch (redirectErr) {
-              const errorMsg = redirectErr instanceof Error ? redirectErr.message : String(redirectErr);
-              console.error(`    ❌ [REDIRECIONAMENTO] Falha ao reencaminhar: ${errorMsg}`);
-              return new Response(
-                JSON.stringify({ success: false, error: `Falha ao reencaminhar para proxy destino: ${errorMsg}` }),
-                { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-              );
-            }
+          let destinoUrlObj: URL;
+          try {
+             const urlFormatada = proxyserverDestino.startsWith('http') ? proxyserverDestino : `https://${proxyserverDestino}`;
+             destinoUrlObj = new URL(urlFormatada);
+          } catch(e) {
+             console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
+             return sendResponse({ success: false, error: "URL de proxy do destino malformada." }, 400);
+          }
+
+          if (url.hostname !== destinoUrlObj.hostname) {
+             try {
+                const baseUrl = proxyserverDestino.endsWith('/') ? proxyserverDestino.slice(0, -1) : proxyserverDestino;
+                const urlDestino = `${baseUrl}/push`;
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); 
+                
+                const relayResponse = await fetch(urlDestino, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "text/plain",
+                        "User-Agent": "Loco-Federation-Relay/1.0"
+                    },
+                    body: rawText,
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!relayResponse.ok) {
+                   const contentType = relayResponse.headers.get("content-type") || "";
+                   let errText = "";
+                   
+                   if (relayResponse.status >= 500 || contentType.includes("text/html")) {
+                       errText = `Servidor destino (${destinoUrlObj.hostname}) offline ou recusou conexão.`;
+                   } else {
+                       errText = await relayResponse.text();
+                       errText = errText.replace(/<[^>]*>?/gm, '').replace(/\n|\r/g, " ").substring(0, 100) + "...";
+                   }
+                   throw new Error(errText);
+                }
+                
+                return sendResponse({ success: true, federated: true, target: destinoUrlObj.hostname });
+                
+             } catch (relayErr: any) {
+                console.error(`❌ [FEDERAÇÃO] Falha ao reencaminhar pacote para ${destinoUrlObj.hostname}: ${relayErr.message}`);
+                return sendResponse({ success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
+             }
           }
         }
-
+        
         let privateKeyFinal = vapid.privateKey;
 
         if (typeof privateKeyFinal === "string") {
-          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
           try {
-            const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
-            privateKeyFinal = decryptedPrivateKeyObj;
-            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+            privateKeyFinal = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
           } catch (decryptErr) {
-            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
-            return new Response(
-              JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
+            console.warn(`❌ [SEGURANÇA] Falha ao decifrar VAPID. Chave do servidor desincronizada.`);
+            return sendResponse({ success: false, error: "Falha ao descriptografar chave VAPID." }, 400);
           }
         }
 
@@ -7248,30 +7184,27 @@ const workerHandler = {
         });
 
         const subscriber = appServer.subscribe(subscription);
-        await subscriber.pushTextMessage(payloadText, {});
         
-        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
+        try {
+          await subscriber.pushTextMessage(payloadText, {});
+        } catch (pushErr: any) {
+          console.error(`❌ [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}`);
+          throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
+        }
 
-        return new Response(JSON.stringify({ success: true }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+        return sendResponse({ success: true });
       }
 
-      return new Response(
-        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.warn(`⚠️ [404] Rota não mapeada tentou ser acessada: ${pathname}`);
+      return sendResponse({ error: "Endpoint não encontrado." }, 404);
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("❌ Erro no Worker:", errorMessage);
+      console.error(`❌ [WORKER EXCEPTION]: ${errorMessage}`);
       
-      // O CORS deve ser incluído mesmo no erro 500 para o navegador conseguir ler a reposta!
-      return new Response(
-        JSON.stringify({ success: false, error: errorMessage }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const errHeaders = new Headers(corsHeaders);
+      errHeaders.set("Content-Type", "application/json");
+      return new Response(JSON.stringify({ success: false, error: errorMessage }), { status: 400, headers: errHeaders });
     }
   }
 };

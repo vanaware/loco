@@ -74,6 +74,8 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
 
+  // Retiramos o "Código Mágico" que alterava rotas raízes. 
+  // O que a aplicação pedir, é o que ela vai receber formatado.
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   let base = "";
 
@@ -92,50 +94,49 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   }
 
   base = base.replace(/\/$/, '');
-  return `${base}/${cleanEndpoint}`;
+  return cleanEndpoint ? `${base}/${cleanEndpoint}` : `${base}/`;
 }
 
-export interface FetchProxyOptions extends Omit<RequestInit, 'body'> {
+export interface FetchProxyOptions extends Omit<RequestInit, 'body' | 'headers'> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   body?: any; 
   specificProxy?: string; 
+  headers?: any; 
 }
 
 export async function fetchLocoProxy(endpoint: string, options: FetchProxyOptions = {}): Promise<Response> {
-  const { specificProxy, body, headers, ...restOptions } = options;
+  const { specificProxy, body, headers: _ignorado, ...restOptions } = options;
+  
   const url = await buildProxyUrl(endpoint, specificProxy);
   
-  const mergedHeaders = new Headers(headers);
-  if (!mergedHeaders.has('Content-Type') && body) {
-    mergedHeaders.set('Content-Type', 'application/json');
+  const blindHeaders = new Headers();
+  if (body) {
+    blindHeaders.set('Content-Type', 'text/plain');
   }
 
   const finalOptions: RequestInit = {
     method: 'POST', 
     mode: 'cors',
-    credentials: 'omit', 
-    headers: mergedHeaders,
+    credentials: 'omit',
+    headers: blindHeaders,
     ...restOptions
   };
 
   if (body) {
     finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
     
-    // 🔥 ARQUITETURA: Validação Preemptiva de Rede.
     const payloadSizeBytes = new Blob([finalOptions.body]).size;
-    
-    addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada: ${payloadSizeBytes} bytes.`);
+    addDebugLog("info", "NETWORK:FETCH", `Tamanho da requisição HTTP para ${endpoint}: ${payloadSizeBytes} bytes.`);
 
     if (payloadSizeBytes > 8192) {
-      addDebugLog("error", "NETWORK:FETCH", `Abortado localmente: O Payload HTTP (${payloadSizeBytes} bytes) excede o limite seguro do servidor Proxy (8192 bytes).`);
-      throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). O limite de roteamento do servidor é de 8KB.`);
+      throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). Limite é 8KB.`);
     }
   }
 
   try {
     return await fetch(url, finalOptions);
   } catch (error: any) {
-    throw new Error(`Falha ao acessar o nó proxy da rede (${url}). Erro de conectividade ou bloqueio de CORS. Detalhes: ${error.message}`);
+    throw new Error(`Falha de rede ao acessar proxy externo (${url}). Detalhes: ${error.message}`);
   }
 }
 
@@ -144,6 +145,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
+    // Explicitamente /ping
     let res = await fetchLocoProxy('/ping', { 
       specificProxy: proxyUrlToCheck,
       signal: controller.signal 

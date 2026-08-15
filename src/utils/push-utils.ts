@@ -79,12 +79,12 @@ export async function enviarParaProxy(
   const payloadSize = new Blob([payloadText]).size;
   if (payloadSize > 4096) {
     addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
-    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes, mas as redes celulares aceitam apenas até 4KB.`);
+    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes.`);
   }
 
   try {
-    // 🔥 ARQUITETURA: Código limpo e protegido pelo Wrapper Central
-    const response = await fetchLocoProxy('/', {
+    // 🔥 ARQUITETURA [ROTEAMENTO EXPLÍCITO]: Chamamos estritamente /push
+    const response = await fetchLocoProxy('/push', {
       body: {
         subscription,
         payloadText,
@@ -152,7 +152,7 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
     
     return btoa(JSON.stringify(envelope));
   } catch (err: any) {
-    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento da chave de Identidade: ${err.message}`);
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento: ${err.message}`);
     throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
   }
 }

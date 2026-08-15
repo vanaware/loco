@@ -20,11 +20,11 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
   const privateKeyStr = env?.SERVER_PRIVATE_KEY;
 
   if (!publicKeyStr) {
-    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada! Configure-a no arquivo wrangler.toml ou via dashboard da Cloudflare.");
+    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada!");
   }
   
   if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada! Configure-a como um Secret seguro na Cloudflare.");
+    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada!");
   }
 
   try {
@@ -35,54 +35,22 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
     const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
 
     if (!publicKeyJwk.kty) {
-      publicKeyJwk = {
-        kty: "RSA",
-        alg: "RSA-OAEP-256",
-        n: publicKeyJwk.n,
-        e: "AQAB",
-        ext: true,
-        key_ops: ["encrypt"]
-      };
+      publicKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", n: publicKeyJwk.n, e: "AQAB", ext: true, key_ops: ["encrypt"] };
     }
 
     if (!privateKeyJwk.kty) {
-      privateKeyJwk = {
-        kty: "RSA",
-        alg: "RSA-OAEP-256",
-        e: publicKeyJwk.e,
-        n: publicKeyJwk.n,
-        ext: true,
-        key_ops: ["decrypt"],
-        d: privateKeyJwk.d,
-        p: privateKeyJwk.p,
-        q: privateKeyJwk.q,
-        dp: privateKeyJwk.dp,
-        dq: privateKeyJwk.dq,
-        qi: privateKeyJwk.qi
-      };
+      privateKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", e: publicKeyJwk.e, n: publicKeyJwk.n, ext: true, key_ops: ["decrypt"], d: privateKeyJwk.d, p: privateKeyJwk.p, q: privateKeyJwk.q, dp: privateKeyJwk.dp, dq: privateKeyJwk.dq, qi: privateKeyJwk.qi };
     }
 
-    const serverPrivateKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      privateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["decrypt"]
-    );
+    const serverPrivateKey = await crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
 
     serverPrivateKeyCache = serverPrivateKey;
     serverPublicKeyJwkCache = publicKeyJwk;
     serverPublicKeyMinifiedCache = minifiedPublicKey;
 
-    console.log("🔐 Chaves RSA de Infraestrutura carregadas com sucesso na RAM!");
-    return { 
-      serverPrivateKey, 
-      serverPublicKeyJwk: publicKeyJwk,
-      serverPublicKeyMinified: minifiedPublicKey 
-    };
+    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk, serverPublicKeyMinified: minifiedPublicKey };
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Erro ao inicializar chaves do servidor: ${errorMsg}`);
+    throw new Error(`Erro inicializando chaves: ${err}`);
   }
 }
 
@@ -92,37 +60,17 @@ async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: Cr
     const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
 
     const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-
     const ivBytes = fromHex(iv);
     const dadosBytes = fromHex(dadosCifrados);
     const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
 
-    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
-      { name: "RSA-OAEP" },
-      serverPrivateKey,
-      chaveAesCifradaBytes
-    );
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
+    const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
 
-    const chaveSimetricaAes = await crypto.subtle.importKey(
-      "raw",
-      aesChaveCruaBuffer,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
-
-    const vapidOriginalBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
-      chaveSimetricaAes,
-      dadosBytes
-    );
-
-    const jsonText = new TextDecoder().decode(vapidOriginalBuffer);
-    return JSON.parse(jsonText);
+    return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error("[SERVER] ❌ Erro ao descriptografar envelope VAPID:", errorMessage);
-    throw new Error(`Falha crítica na quebra do envelope de criptografia híbrida VAPID: ${errorMessage}`);
+    throw new Error(`Falha VAPID E2E: ${err}`);
   }
 }
 
@@ -130,19 +78,11 @@ function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
   try {
     const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
     const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
-
-    const expandedPub = pub.kty ? pub : {
-      kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"]
-    };
-
-    const expandedPriv = priv.kty ? priv : {
-      kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"]
-    };
-
+    const expandedPub = pub.kty ? pub : { kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"] };
+    const expandedPriv = priv.kty ? priv : { kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"] };
     return { publicKey: expandedPub, privateKey: expandedPriv };
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new Error(`As chaves enviadas não estão no formato JSON/JWK válido: ${errorMessage}`);
+    throw new Error(`JWK inválido: ${err}`);
   }
 }
 
@@ -150,178 +90,161 @@ function lerMetadadosJJWT(jwtString: string) {
   try {
     const parts = jwtString.split(".");
     if (parts.length !== 3) return null;
-
-    const part1 = parts[1];
-    if (!part1) return null;
-
-    let base64Url = part1.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-
-    const jsonString = new TextDecoder().decode(
-      new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))
-    );
     
-    return JSON.parse(jsonString);
+    // 🔥 ARQUITETURA: Type Guard explícito para satisfazer "noUncheckedIndexedAccess"
+    const payloadPart = parts[1];
+    if (!payloadPart) return null;
+    
+    let base64Url = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64Url.length % 4) base64Url += "=";
+    return JSON.parse(new TextDecoder().decode(new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))));
   } catch {
     return null;
   }
+}
+
+function createCorsHeaders(request: Request): Headers {
+  const headers = new Headers();
+  const origin = request.headers.get("Origin") || "*";
+  
+  headers.set("Access-Control-Allow-Origin", origin === "null" ? "*" : origin);
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  
+  const reqHeaders = request.headers.get("Access-Control-Request-Headers");
+  headers.set("Access-Control-Allow-Headers", reqHeaders || "*");
+  
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Access-Control-Max-Age", "86400");
+  headers.set("Vary", "Origin");
+  
+  return headers;
 }
 
 const workerHandler = {
   async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
-    
     const method = request.method;
-    const origin = request.headers.get("Origin") || "*";
-    const reqHeaders = request.headers.get("Access-Control-Request-Headers");
-
-    // 🔥 LOG ESTRATÉGICO: Descobrindo o que os Túneis enviam
-    console.log(`\n======================================================`);
-    console.log(`🌐 [ROUTER] Nova Requisição Detectada!`);
-    console.log(`📌 Método: ${method} | Rota: ${pathname}`);
-    console.log(`🌍 Origem Recebida: ${origin}`);
-    if (reqHeaders) {
-      console.log(`📦 Headers Solicitados no Preflight: ${reqHeaders}`);
+    
+    const corsHeaders = createCorsHeaders(request);
+    
+    // Fast-fail silencioso para preflight
+    if (method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
     }
-
-    // 🔥 ARQUITETURA: CORS ESPELHO ABSOLUTO
-    const corsHeaders: Record<string, string> = {
-      "Access-Control-Allow-Origin": origin, // Espelha a origem exata (localhost ou tunnel)
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Credentials": "true", // Permitido apenas porque não usamos '*'
-      "Access-Control-Max-Age": "86400",
-      "Vary": "Origin" // Exigência da W3C para CORS Dinâmico
-    };
-
-    if (reqHeaders) {
-      corsHeaders["Access-Control-Allow-Headers"] = reqHeaders; // Espelha os headers
-    } else {
-      corsHeaders["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Crypto-Key, TTL, Urgency, X-Push-Payload";
-    }
-
-    if (request.method === "OPTIONS") {
-      console.log(`🛡️ CORS Headers Devolvidos no OPTIONS:`, JSON.stringify(corsHeaders));
-      return new Response("OK", { status: 200, headers: corsHeaders });
-    }
-
-    const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
-    const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
 
     try {
+      const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
+      const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
+      const isPushRoute = pathname.endsWith("/push") || pathname.endsWith("/push/");
+
       const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
 
-      if ((request.method === "POST" || request.method === "GET") && isPing) {
-        return new Response(JSON.stringify({ 
-          status: "ok", 
-          service: "loco-proxy",
-          timestamp: Date.now()
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+      const sendResponse = (bodyObj: any, status = 200) => {
+        const respHeaders = new Headers(corsHeaders);
+        respHeaders.set("Content-Type", "application/json");
+        return new Response(JSON.stringify(bodyObj), { status, headers: respHeaders });
+      };
+
+      if ((method === "POST" || method === "GET") && isPing) {
+        return sendResponse({ status: "ok", service: "loco-proxy", timestamp: Date.now() });
       }
 
-      if (request.method === "POST" && isPublicKey) {
-        return new Response(JSON.stringify(serverPublicKeyMinified), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+      if (method === "POST" && isPublicKey) {
+        return sendResponse(serverPublicKeyMinified);
       }
 
-      // Rota principal de processamento de Push
-      if (request.method === "POST" && !isPing && !isPublicKey) {
-        
+      if (method === "POST" && isPushRoute) {
         const contentLength = request.headers.get("content-length");
         if (contentLength && parseInt(contentLength, 10) > 8192) {
-          console.warn(`🛑 [DEFESA] Bloqueado: Payload excedeu o limite do roteador (Recebido: ${contentLength} bytes, Limite: 8192)`);
-          return new Response(JSON.stringify({ error: "Payload Too Large" }), { status: 413, headers: corsHeaders });
+          console.warn(`🛑 [DEFESA] Payload bloqueado (${contentLength} bytes). Origem: ${request.headers.get("cf-connecting-ip")}`);
+          return sendResponse({ success: false, error: "Payload Too Large" }, 413);
+        }
+        
+        const rawText = await request.text();
+        let body;
+        try {
+          body = JSON.parse(rawText);
+        } catch (e) {
+          console.warn(`❌ [VALIDAÇÃO] Falha ao processar corpo JSON.`);
+          return sendResponse({ success: false, error: "Corpo não é JSON válido." }, 400);
         }
 
-        console.log(`📥 [RECEIVE] Processando Payload PUSH de ${contentLength || 'tamanho desconhecido'} bytes.`);
-        
-        const body = await request.json();
         const { subscription, payloadText, vapid } = body;
 
-        if (
-          !subscription || !subscription.endpoint || !subscription.keys?.p256dh ||
-          !payloadText || typeof payloadText !== 'string' ||
-          !vapid || !vapid.subject || !vapid.publicKey || !vapid.privateKey
-        ) {
-          console.warn("🛑 [DEFESA] Bloqueado: Estrutura JSON malformada ou dados essenciais ausentes.");
-          return new Response(
-            JSON.stringify({ success: false, error: "Estrutura P2P Inválida." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+        if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
+          console.warn(`❌ [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.`);
+          return sendResponse({ success: false, error: "Estrutura P2P Inválida." }, 400);
         }
 
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
-          console.warn("🛑 [DEFESA] Bloqueado: Token JWT inválido ou sub-protocolo desconhecido.");
-          return new Response(
-            JSON.stringify({ success: false, error: "Protocolo Inválido. Apenas payloads 'Loco' são aceitos." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          console.warn(`❌ [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.`);
+          return sendResponse({ success: false, error: "Protocolo JWT Inválido." }, 400);
         }
-
-        console.log(`    - [AUDITORIA JWT] Emitido por: ${jwtClaims.nm || "Desconhecido"} <${jwtClaims.iss || "Sem e-mail"}>`);
-
+        
         const proxyserverDestino = jwtClaims.proxyserver;
+        
         if (proxyserverDestino) {
-          const urlAtual = new URL(request.url);
-          const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
-          
-          const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
-          const origemNormalizada = origemAtual.replace(/\/$/, "");
-          
-          if (origemNormalizada !== destinoSemProtocolo) {
-            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoSemProtocolo}) difere do atual (${origemNormalizada}). Reencaminhando...`);
-            
-            try {
-              const urlDestino = proxyserverDestino.endsWith('/') ? proxyserverDestino : `${proxyserverDestino}/`;
-              
-              const response = await fetch(urlDestino, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subscription, payloadText, vapid })
-              });
-              
-              if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errText}`);
-              }
-              
-              console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
-              
-              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoSemProtocolo }), {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-              });
-            } catch (redirectErr) {
-              const errorMsg = redirectErr instanceof Error ? redirectErr.message : String(redirectErr);
-              console.error(`    ❌ [REDIRECIONAMENTO] Falha ao reencaminhar: ${errorMsg}`);
-              return new Response(
-                JSON.stringify({ success: false, error: `Falha ao reencaminhar para proxy destino: ${errorMsg}` }),
-                { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-              );
-            }
+          let destinoUrlObj: URL;
+          try {
+             const urlFormatada = proxyserverDestino.startsWith('http') ? proxyserverDestino : `https://${proxyserverDestino}`;
+             destinoUrlObj = new URL(urlFormatada);
+          } catch(e) {
+             console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
+             return sendResponse({ success: false, error: "URL de proxy do destino malformada." }, 400);
+          }
+
+          if (url.hostname !== destinoUrlObj.hostname) {
+             try {
+                const baseUrl = proxyserverDestino.endsWith('/') ? proxyserverDestino.slice(0, -1) : proxyserverDestino;
+                const urlDestino = `${baseUrl}/push`;
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); 
+                
+                const relayResponse = await fetch(urlDestino, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "text/plain",
+                        "User-Agent": "Loco-Federation-Relay/1.0"
+                    },
+                    body: rawText,
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!relayResponse.ok) {
+                   const contentType = relayResponse.headers.get("content-type") || "";
+                   let errText = "";
+                   
+                   if (relayResponse.status >= 500 || contentType.includes("text/html")) {
+                       errText = `Servidor destino (${destinoUrlObj.hostname}) offline ou recusou conexão.`;
+                   } else {
+                       errText = await relayResponse.text();
+                       errText = errText.replace(/<[^>]*>?/gm, '').replace(/\n|\r/g, " ").substring(0, 100) + "...";
+                   }
+                   throw new Error(errText);
+                }
+                
+                return sendResponse({ success: true, federated: true, target: destinoUrlObj.hostname });
+                
+             } catch (relayErr: any) {
+                console.error(`❌ [FEDERAÇÃO] Falha ao reencaminhar pacote para ${destinoUrlObj.hostname}: ${relayErr.message}`);
+                return sendResponse({ success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
+             }
           }
         }
-
+        
         let privateKeyFinal = vapid.privateKey;
 
         if (typeof privateKeyFinal === "string") {
-          console.log("    - [SEGURANÇA] Descriptografando Chave Privada VAPID com a RSA do Servidor...");
           try {
-            const decryptedPrivateKeyObj = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
-            privateKeyFinal = decryptedPrivateKeyObj;
-            console.log("    - [SEGURANÇA] ✅ Chave VAPID descriptografada com sucesso!");
+            privateKeyFinal = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
           } catch (decryptErr) {
-            console.error("    - [SEGURANÇA] ❌ Erro ao descriptografar chave VAPID:", decryptErr);
-            return new Response(
-              JSON.stringify({ success: false, error: "Falha ao descriptografar chave VAPID." }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
+            console.warn(`❌ [SEGURANÇA] Falha ao decifrar VAPID. Chave do servidor desincronizada.`);
+            return sendResponse({ success: false, error: "Falha ao descriptografar chave VAPID." }, 400);
           }
         }
 
@@ -335,30 +258,27 @@ const workerHandler = {
         });
 
         const subscriber = appServer.subscribe(subscription);
-        await subscriber.pushTextMessage(payloadText, {});
         
-        console.log("    ✅ [SUCESSO] Push despachado com sucesso!");
+        try {
+          await subscriber.pushTextMessage(payloadText, {});
+        } catch (pushErr: any) {
+          console.error(`❌ [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}`);
+          throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
+        }
 
-        return new Response(JSON.stringify({ success: true }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+        return sendResponse({ success: true });
       }
 
-      return new Response(
-        JSON.stringify({ error: "Endpoint não encontrado no servidor proxy do Loco." }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.warn(`⚠️ [404] Rota não mapeada tentou ser acessada: ${pathname}`);
+      return sendResponse({ error: "Endpoint não encontrado." }, 404);
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("❌ Erro no Worker:", errorMessage);
+      console.error(`❌ [WORKER EXCEPTION]: ${errorMessage}`);
       
-      // O CORS deve ser incluído mesmo no erro 500 para o navegador conseguir ler a reposta!
-      return new Response(
-        JSON.stringify({ success: false, error: errorMessage }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const errHeaders = new Headers(corsHeaders);
+      errHeaders.set("Content-Type", "application/json");
+      return new Response(JSON.stringify({ success: false, error: errorMessage }), { status: 400, headers: errHeaders });
     }
   }
 };

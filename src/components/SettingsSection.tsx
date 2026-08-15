@@ -1,6 +1,7 @@
+// src/components/SettingsSection.tsx
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
-import { loadAllConfigs, saveConfig, resetConfig, getConfigValue } from '../stores/config-store.ts';
+import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
 import { showToast, appTheme, AppTheme } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
 import { buildProxyUrl, pingProxy } from '../constants/config.ts';
@@ -11,7 +12,9 @@ export function SettingsSection() {
   const isTesting = useSignal(false);
   const hasChanges = useSignal(false);
   const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
-  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
+  
+  // 🔥 ARQUITETURA: State consolidado refletindo as rotas exatas do Worker
+  const previewUrls = useSignal({ push: '', ping: '', publicKey: '' });
   
   useEffect(() => {
     const load = async () => {
@@ -23,10 +26,11 @@ export function SettingsSection() {
   }, []);
   
   const updatePreview = async (path: string) => {
+    // 🔥 ARQUITETURA: Resolução semântica. O componente pede as rotas corretas diretamente.
     previewUrls.value = {
-      endpoint: await buildProxyUrl('/', path),
-      publicKey: await buildProxyUrl('/publickey', path),
-      logout: await buildProxyUrl('/logout', path)
+      push: await buildProxyUrl('/push', path),
+      ping: await buildProxyUrl('/ping', path),
+      publicKey: await buildProxyUrl('/publickey', path)
     };
     serverStatus.value = 'unknown';
   };
@@ -181,13 +185,19 @@ export function SettingsSection() {
               <div style="display: flex; gap: 8px; align-items: flex-start;">
                 <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Push URL:</span>
                 <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
-                  {previewUrls.value.endpoint}
+                  {previewUrls.value.push}
                 </code>
               </div>
               <div style="display: flex; gap: 8px; align-items: flex-start;">
                 <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Ping Test:</span>
                 <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
-                  {previewUrls.value.endpoint.replace(/\/$/, '')}/ping
+                  {previewUrls.value.ping}
+                </code>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Public Key:</span>
+                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.publicKey}
                 </code>
               </div>
             </div>
