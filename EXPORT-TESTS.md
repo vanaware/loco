@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.80-mss6up14** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.92-mstf7xrm** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.80-mss6up14] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.2.92-mstf7xrm] - Modo: TESTS
 
-Gerado automaticamente em: 8/13/2026, 9:10:05 PM
+Gerado automaticamente em: 8/15/2026, 6:35:37 AM
 
 ---
 
@@ -1082,7 +1082,8 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
   await assertRejects(
     async () => await processarQualquerConvite("token-invalido-abc123"),
     Error,
-    "Formato de convite ou QR Code inválido"
+    // 🔥 ARQUITETURA: Atualizado para a nova mensagem de erro da v0.2.91
+    "O link ou código colado não é um convite válido do Loco."
   );
 
   console.log("✅ Todos os testes de cJWT passaram!");

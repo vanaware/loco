@@ -16,9 +16,14 @@ export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
 
 export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
   try {
-    // 🔥 ARQUITETURA: Regex /\s+/g expurga TODAS as quebras de linha e espaços 
-    // que possam ter vindo acidentalmente no Ctrl+C / Ctrl+V do usuário.
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '');
+    // 🔥 ARQUITETURA DE BLINDAGEM MÁXIMA (Defensive Programming):
+    // 1. Substitui os caracteres seguros de URL (- e _) pelos clássicos (+ e /).
+    // 2. O Regex /[^A-Za-z0-9\+\/]/g atua como um "triturador": 
+    //    Ele remove impiedosamente espaços invisíveis, enters (\n) e restos de URLs (como ':' e '/') 
+    //    deixando o atob() trabalhar sempre de forma segura apenas com Base64 válido.
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9\+\/]/g, '');
+    
+    // Adiciona o padding (=) matematicamente correto
     const padLength = (4 - (base64.length % 4)) % 4;
     base64 += '='.repeat(padLength);
     
@@ -29,7 +34,7 @@ export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
     }
     return bytes.buffer as ArrayBuffer;
   } catch (e: any) {
-    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
+    throw new Error(`Falha ao converter Base64Url para Binário. O token está corrompido: ${e.message}`);
   }
 }
 

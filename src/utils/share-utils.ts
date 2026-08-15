@@ -85,48 +85,67 @@ export async function gerarLinkConviteWeb(
 }
 
 export async function processarQualquerConvite(rawInput: string): Promise<Partial<Contato>> {
-  let cqr = null, cjwt = null, jwt = null;
+  let cqr: string | null = null;
+  let cjwt: string | null = null;
+  let jwt: string | null = null;
 
-  // 🔥 ARQUITETURA: Higienização rigorosa da entrada do usuário.
-  // Remove todos os espaços e quebras de linha invisíveis (comuns em copy-paste).
-  const input = rawInput.trim().replace(/\s+/g, '');
+  // 🔥 ARQUITETURA: Higienização inicial
+  const input = rawInput.trim();
 
+  // 1. Extração Segura de URL (Inteligência para o Roteamento Hash do Loco)
   try {
-    const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
-      ? input 
-      : `http://localhost/?${input}`;
-    const url = new URL(fullUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-    cqr = url.searchParams.get('cqr');
-    cjwt = url.searchParams.get('cjwt');
-    jwt = url.searchParams.get('jwt');
-  } catch {
-    if (input.includes('cjwt=')) {
-      const parts = input.split('cjwt=');
-      if (parts[1]) cjwt = parts[1].split('&')[0];
+    if (input.includes('://') || input.startsWith('http')) {
+      const url = new URL(input);
+      
+      // O formato oficial do Loco transporta o token no hash (#share=XYZ)
+      if (url.hash && url.hash.includes('share=')) {
+        const extracted = url.hash.split('share=')[1]?.split('&')[0];
+        if (extracted) cjwt = extracted;
+      } else {
+        // Retrocompatibilidade para query params
+        cqr = url.searchParams.get('cqr');
+        cjwt = url.searchParams.get('cjwt');
+        jwt = url.searchParams.get('jwt');
+      }
+    }
+  } catch (e) {
+    // Ignora erro de parsing da URL nativa e confia no fallback
+  }
+
+  // 2. Extração via texto puro (Caso a API de URL falhe ou falte protocolo)
+  if (!cqr && !cjwt && !jwt) {
+    if (input.includes('#share=')) {
+      cjwt = input.split('#share=')[1]?.split('&')[0] || null;
+    } else if (input.includes('cjwt=')) {
+      cjwt = input.split('cjwt=')[1]?.split('&')[0] || null;
     } else if (input.includes('cqr=')) {
-      const parts = input.split('cqr=');
-      if (parts[1]) cqr = parts[1].split('&')[0];
+      cqr = input.split('cqr=')[1]?.split('&')[0] || null;
     } else if (input.includes('jwt=')) {
-      const parts = input.split('jwt=');
-      if (parts[1]) jwt = parts[1].split('&')[0];
+      jwt = input.split('jwt=')[1]?.split('&')[0] || null;
     }
   }
 
+  // 3. Chute cego defensivo (O usuário colou SÓ o token sem nenhum prefixo)
   if (!cqr && !cjwt && !jwt && input) {
-    if (input.includes('.')) {
+    // 🔥 ARQUITETURA: Um JWT padrão tem exatas 3 partições separadas por pontos. 
+    // Protegemos contra URLs puras (que tem pontos no domínio) exigindo que não contenha '://'.
+    if (input.split('.').length === 3 && !input.includes('://')) {
       jwt = input;
     } else {
+      // Tenta descomprimir cegamente assumindo que é um token comprimido nu (cjwt/cqr)
       try {
-        const compressed = new Uint8Array(base64UrlToArrayBuffer(input));
+        const cleanBase64 = input.replace(/[^A-Za-z0-9\-_]/g, ''); 
+        const compressed = new Uint8Array(base64UrlToArrayBuffer(cleanBase64));
         const decompressed = gunzipSync(compressed);
         const text = new TextDecoder().decode(decompressed);
         
         if (text.startsWith('{')) {
-          cqr = input;
+          cqr = cleanBase64;
         } else {
-          cjwt = input;
+          cjwt = cleanBase64;
         }
       } catch (_e) {
+        // Fallback final: se tudo falhar, tenta jogar o input bruto pro validador cjwt
         cjwt = input;
       }
     }
@@ -173,7 +192,7 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
     }
   }
 
-  if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
+  if (!compactData) throw new Error("O link ou código colado não é um convite válido do Loco.");
 
   // Camada de Retrocompatibilidade O(1):
   if ((compactData as any).vx && !compactData.vp) {

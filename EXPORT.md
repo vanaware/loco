@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.88-mst7og91** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.94-msu738bx** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.88-mst7og91] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.94-msu738bx] - Modo: MAIN
 
-Gerado automaticamente em: 8/14/2026, 5:36:41 PM
+Gerado automaticamente em: 8/15/2026, 6:50:11 AM
 
 ---
 
@@ -667,204 +667,6 @@ export function ContatosSection() {
           </md-list>
         )}
       </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ShareSection.tsx`
-
-```tsx
-// src/components/ShareSection.tsx
-import { useEffect, useRef } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { processarQualquerConvite } from '../utils/share-utils.ts';
-import { adicionarContato } from '../stores/contatosStore.ts';
-import { serializarPublicKeyVapid } from '../utils/db-helpers.ts';
-import { showToast, sharePayload } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
-import type { Contato } from '../constants/db.ts';
-
-export function ShareSection() {
-  const preview = useSignal<Partial<Contato> | null>(null);
-  const error = useSignal<string | null>(null);
-  const isScanning = useSignal<boolean>(false);
-  const manualInput = useSignal<string>('');
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    // Se a URL já trouxe um payload (ex: clicou num link gerado), processa direto
-    if (sharePayload.value) {
-      handleProcessar(sharePayload.value);
-    } else {
-      iniciarCamera();
-    }
-    // Desliga a câmera automaticamente quando o componente for desmontado (troca de rota)
-    return () => pararCamera();
-  }, [sharePayload.value]);
-
-  const handleProcessar = async (input: string) => {
-    try {
-      error.value = null;
-      const resultado = await processarQualquerConvite(input);
-      preview.value = resultado;
-    } catch (e: any) {
-      error.value = e.message || "Falha ao processar convite.";
-    }
-  };
-
-  const iniciarCamera = async () => {
-    if (!('BarcodeDetector' in window)) {
-      error.value = "Seu navegador não suporta a API nativa de leitura de QR Code. Tente colar o código manual abaixo.";
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        isScanning.value = true;
-        scanLoop();
-      }
-    } catch {
-      error.value = "Não foi possível acessar a câmera. Verifique as permissões do navegador.";
-    }
-  };
-
-  const pararCamera = () => {
-    isScanning.value = false;
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-    }
-  };
-
-  const scanLoop = async () => {
-    if (!isScanning.value || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
-      if (isScanning.value) requestAnimationFrame(scanLoop);
-      return;
-    }
-    try {
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
-      const barcodes = await detector.detect(videoRef.current);
-      if (barcodes.length > 0) {
-        pararCamera();
-        handleProcessar(barcodes[0].rawValue);
-        return; 
-      }
-    } catch (e) {
-      console.warn("Erro no BarcodeDetector:", e);
-    }
-    if (isScanning.value) requestAnimationFrame(scanLoop);
-  };
-
-  const handleManualSubmit = () => {
-    if (!manualInput.value.trim()) return;
-    pararCamera();
-    handleProcessar(manualInput.value.trim());
-  };
-
-  const confirmar = async () => {
-    if (!preview.value) return;
-    try {
-      const p = preview.value;
-      const contatoId = await serializarPublicKeyVapid(p.vapidPublicKey!);
-
-      const novoContato: Contato = {
-        id: contatoId,
-        vapidPublicKey: p.vapidPublicKey!,
-        email: p.email || '',
-        name: p.name || '', 
-        e2ePublicKey: p.e2ePublicKey!,
-        subscription: p.subscription!,
-        vapidPrivateKeyEnvelope: p.vapidPrivateKeyEnvelope!,
-        trusted: true, 
-        me: 'none', 
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-      
-      await adicionarContato(novoContato);
-      
-      // Aciona o SW para disparar o Handshake de apresentação para o novo contato
-      const reg = await navigator.serviceWorker.ready;
-      if (reg.active) {
-        reg.active.postMessage({
-          type: 'CRIAR_HANDSHAKE_OUT',
-          payload: {
-            rotasModulo: 'contato',
-            params: { function: 'enviarSubscription', contato: contatoId, responder: false }
-          }
-        });
-      }
-
-      showToast("✅ Contato adicionado! Um pacote de sincronização foi enviado.", "success");
-      navigate(`#detail=${contatoId}`); // Leva o usuário direto para o cartão do novo contato
-    } catch (e: any) {
-      showToast("❌ Erro ao adicionar contato: " + e.message, "error");
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-        {error.value ? (
-          <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
-            <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
-            <h2 style="justify-content: center; font-size: 1.25rem;">Ops! Algo deu errado</h2>
-            <p style="color: #666; margin-bottom: 24px; font-size: 0.9rem;">{error.value}</p>
-            <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
-              Tentar Novamente
-            </md-filled-button>
-          </div>
-        ) : preview.value ? (
-          <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 480px; width: 100%;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
-              <h2 style="justify-content: center; font-size: 1.25rem;">Confirmar Contato</h2>
-              <p style="color: #666; font-size: 0.9rem;">Você está prestes a estabelecer uma conexão criptografada com este perfil.</p>
-            </div>
-            
-            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
-              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
-              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
-              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.email || "Sem e-mail"}</p>
-            </div>
-
-            <div style="display: flex; gap: 8px; flex-direction: column;">
-              <md-filled-button onClick={confirmar} style="width: 100%;">✅ Confirmar e Adicionar</md-filled-button>
-              <md-outlined-button onClick={() => navigate('')} style="width: 100%;">Cancelar</md-outlined-button>
-            </div>
-          </div>
-        ) : (
-          <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 480px; width: 100%;">
-            <h2 style="justify-content: center; font-size: 1.25rem;">Ler QR Code</h2>
-            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo para se conectar.</p>
-            
-            <div style="position: relative; width: 100%; max-height: 400px; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden; margin: 0 auto;">
-               <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>
-               <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px dashed rgba(255,255,255,0.7); width: 70%; height: 70%; border-radius: 16px; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);"></div>
-            </div>
-
-            <div style="width: 100%; margin-top: 24px; text-align: left;">
-              <label style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">
-                Ou cole o link/código de convite:
-              </label>
-              <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <md-outlined-text-field
-                  value={manualInput.value}
-                  onInput={(e: Event) => manualInput.value = (e.target as HTMLInputElement).value}
-                  placeholder="Cole aqui..."
-                  style="flex-grow: 1; margin-bottom: 0;"
-                ></md-outlined-text-field>
-                <md-filled-button onClick={handleManualSubmit} style="height: 56px; margin-bottom: 0;">
-                  Adicionar
-                </md-filled-button>
-              </div>
-            </div>
-          </div>
-        )}
     </div>
   );
 }
@@ -1937,6 +1739,213 @@ export function ProfileSection() {
 
 ---
 
+## Arquivo: `src/components/ShareSection.tsx`
+
+```tsx
+// src/components/ShareSection.tsx
+import { useEffect, useRef } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { processarQualquerConvite } from '../utils/share-utils.ts';
+import { adicionarContato } from '../stores/contatosStore.ts';
+import { serializarPublicKeyVapid } from '../utils/db-helpers.ts';
+import { showToast, sharePayload } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+import type { Contato } from '../constants/db.ts';
+
+export function ShareSection() {
+  const preview = useSignal<Partial<Contato> | null>(null);
+  const error = useSignal<string | null>(null);
+  const isScanning = useSignal<boolean>(false);
+  const manualInput = useSignal<string>('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    // Se a URL já trouxe um payload (ex: clicou num link gerado), processa direto
+    if (sharePayload.value) {
+      handleProcessar(sharePayload.value);
+    } else {
+      iniciarCamera();
+    }
+    // Desliga a câmera automaticamente quando o componente for desmontado (troca de rota)
+    return () => pararCamera();
+  }, [sharePayload.value]);
+
+  const handleProcessar = async (input: string) => {
+    try {
+      error.value = null;
+      const resultado = await processarQualquerConvite(input);
+      preview.value = resultado;
+    } catch (e: any) {
+      error.value = e.message || "Falha ao processar convite.";
+    }
+  };
+
+  const iniciarCamera = async () => {
+    if (!('BarcodeDetector' in window)) {
+      error.value = "Seu navegador não suporta a API nativa de leitura de QR Code. Tente colar o código manual abaixo.";
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        isScanning.value = true;
+        scanLoop();
+      }
+    } catch {
+      error.value = "Não foi possível acessar a câmera. Verifique as permissões do navegador.";
+    }
+  };
+
+  const pararCamera = () => {
+    isScanning.value = false;
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  const scanLoop = async () => {
+    if (!isScanning.value || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
+      if (isScanning.value) requestAnimationFrame(scanLoop);
+      return;
+    }
+    try {
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const barcodes = await detector.detect(videoRef.current);
+      if (barcodes.length > 0) {
+        pararCamera();
+        handleProcessar(barcodes[0].rawValue);
+        return; 
+      }
+    } catch (e) {
+      console.warn("Erro no BarcodeDetector:", e);
+    }
+    if (isScanning.value) requestAnimationFrame(scanLoop);
+  };
+
+  const handleManualSubmit = () => {
+    if (!manualInput.value.trim()) return;
+    pararCamera();
+    handleProcessar(manualInput.value.trim());
+  };
+
+  const confirmar = async () => {
+    if (!preview.value) return;
+    try {
+      const p = preview.value;
+      const contatoId = await serializarPublicKeyVapid(p.vapidPublicKey!);
+
+      const novoContato: Contato = {
+        id: contatoId,
+        vapidPublicKey: p.vapidPublicKey!,
+        email: p.email || '',
+        name: p.name || '', 
+        e2ePublicKey: p.e2ePublicKey!,
+        subscription: p.subscription!,
+        vapidPrivateKeyEnvelope: p.vapidPrivateKeyEnvelope!,
+        trusted: true, 
+        me: 'none', 
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      
+      await adicionarContato(novoContato);
+      
+      // Aciona o SW para disparar o Handshake de apresentação para o novo contato
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'CRIAR_HANDSHAKE_OUT',
+          payload: {
+            rotasModulo: 'contato',
+            params: { function: 'enviarSubscription', contato: contatoId, responder: false }
+          }
+        });
+      }
+
+      showToast("✅ Contato adicionado! Um pacote de sincronização foi enviado.", "success");
+      navigate(`#detail=${contatoId}`); // Leva o usuário direto para o cartão do novo contato
+    } catch (e: any) {
+      showToast("❌ Erro ao adicionar contato: " + e.message, "error");
+    }
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+        {error.value ? (
+          <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
+            <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
+            <h2 style="justify-content: center; font-size: 1.25rem;">Ops! Algo deu errado</h2>
+            <p style="color: #666; margin-bottom: 24px; font-size: 0.9rem;">{error.value}</p>
+            <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
+              Tentar Novamente
+            </md-filled-button>
+          </div>
+        ) : preview.value ? (
+          <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 480px; width: 100%;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
+              <h2 style="justify-content: center; font-size: 1.25rem;">Confirmar Contato</h2>
+              <p style="color: #666; font-size: 0.9rem;">Você está prestes a estabelecer uma conexão criptografada com este perfil.</p>
+            </div>
+            
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
+              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
+              <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
+              <p style="margin: 0; color: #666; font-size: 0.85rem; margin-bottom: 8px;">{preview.value.email || "Sem e-mail"}</p>
+              
+              {/* 🔥 ARQUITETURA: Exibição do Proxy de destino para o qual o app enviará os handshakes */}
+              <div style="background: rgba(0,0,0,0.05); padding: 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%;">
+                <md-icon style="font-size: 1rem; color: #888;">dns</md-icon> 
+                <span style="font-size: 0.75rem; color: #666; word-break: break-all; text-align: left; line-height: 1.2;">
+                  <strong>Rota de Proxy:</strong><br/>
+                  {preview.value.subscription?.proxyserver || 'Padrão (Não informado)'}
+                </span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 8px; flex-direction: column;">
+              <md-filled-button onClick={confirmar} style="width: 100%;">✅ Confirmar e Adicionar</md-filled-button>
+              <md-outlined-button onClick={() => navigate('')} style="width: 100%;">Cancelar</md-outlined-button>
+            </div>
+          </div>
+        ) : (
+          <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 480px; width: 100%;">
+            <h2 style="justify-content: center; font-size: 1.25rem;">Ler QR Code</h2>
+            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo para se conectar.</p>
+            
+            <div style="position: relative; width: 100%; max-height: 400px; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden; margin: 0 auto;">
+               <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>
+               <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px dashed rgba(255,255,255,0.7); width: 70%; height: 70%; border-radius: 16px; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);"></div>
+            </div>
+
+            <div style="width: 100%; margin-top: 24px; text-align: left;">
+              <label style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">
+                Ou cole o link/código de convite:
+              </label>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <md-outlined-text-field
+                  value={manualInput.value}
+                  onInput={(e: Event) => manualInput.value = (e.target as HTMLInputElement).value}
+                  placeholder="Cole aqui..."
+                  style="flex-grow: 1; margin-bottom: 0;"
+                ></md-outlined-text-field>
+                <md-filled-button onClick={handleManualSubmit} style="height: 56px; margin-bottom: 0;">
+                  Adicionar
+                </md-filled-button>
+              </div>
+            </div>
+          </div>
+        )}
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
@@ -2223,7 +2232,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.88-mst7og91";
+export const APP_VERSION = "0.2.94-msu738bx";
 
 ```
 
@@ -2870,6 +2879,103 @@ self.addEventListener("fetch", (event: any) => {
 
 ---
 
+## Arquivo: `src/sw/click.ts`
+
+```ts
+// src/sw/click.ts
+
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+self.addEventListener('notificationclick', function(event: any) {
+  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
+  event.notification.close();
+  
+  // 🔥 ARQUITETURA: Usa o escopo do Service Worker registrado em vez de '/' hardcoded.
+  // Isso garante que o clique na notificação abra o app no diretório correto (ex: Github Pages).
+  const urlParaAbrir = new URL(self.registration.scope).href;
+  
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(function(windowClients) {
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          if (client && client.url === urlParaAbrir && 'focus' in client) {
+            try {
+              return client.focus();
+            } catch (err: any) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
+              break;
+            }
+          }
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(urlParaAbrir)
+            .catch(function(err: any) {
+              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
+              return Promise.resolve();
+            });
+        }
+      })
+  );
+});
+```
+
+---
+
+## Arquivo: `src/sw/sw-utils.ts`
+
+```ts
+// src/sw/sw-utils.ts
+import { addDebugLog } from '../utils/debug-utils.ts';
+
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
+  addDebugLog("📡 Verificando suporte ao Service Worker...");
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker não é suportado neste navegador.");
+  }
+
+  // 🔥 ARQUITETURA: Resolução Dinâmica de Rota Base (Environment Agnostic)
+  // Lemos a URL atual para descobrir se estamos rodando na raiz (/) ou em um subdiretório (/loco/)
+  let basePath = globalThis.location.pathname;
+  
+  // Se a URL aponta para um arquivo (ex: /loco/index.html), extraímos apenas o diretório
+  if (basePath.split('/').pop()?.includes('.')) {
+    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+  } else if (!basePath.endsWith('/')) {
+    // Se a URL é /loco (sem barra no final), forçamos a barra. 
+    // Isso evita que o navegador interprete "loco" como arquivo e tente registrar o SW na raiz "/".
+    basePath += '/';
+  }
+
+  const cacheBuster = Date.now();
+  addDebugLog(`⏳ Registrando Service Worker no escopo: ${basePath}`);
+
+  try {
+    // Injetamos o basePath absoluto calculado na hora
+    const registration = await navigator.serviceWorker.register(
+      `${basePath}service-worker.js?cacheBuster=${cacheBuster}`,
+      { scope: basePath }
+    );
+    
+    if (!registration) {
+      throw new Error("Service Worker registration retornou null/undefined");
+    }
+    
+    addDebugLog("✅ Service Worker registrado, aguardando ready...");
+    const readyReg = await navigator.serviceWorker.ready;
+    addDebugLog("✅ Service Worker ativo e pronto.");
+    
+    return readyReg;
+  } catch (err: any) {
+    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
+    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
+  }
+}
+```
+
+---
+
 ## Arquivo: `src/sw/sw-handshakes.ts`
 
 ```ts
@@ -3118,11 +3224,14 @@ export async function processarFilaHandshake() {
           h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
         }
 
-        // 🔥 Resolve o proxyserver completo (mesmo que o usuário tenha informado relativo)
-        // Se o contato não tiver proxyserver definido, assume o mesmo proxy do nó A
-        const proxyserverDestino = contato.subscription.proxyserver 
-          ? await buildProxyUrl(contato.subscription.proxyserver)
-          : await buildProxyUrl('/');
+        // 🔥 ARQUITETURA: Correção do Roteamento
+        // Se a URL de proxy do contato for absoluta, usa ela pura para evitar corrupção por concatenação
+        let proxyserverDestino = "";
+        if (contato.subscription.proxyserver) {
+           proxyserverDestino = contato.subscription.proxyserver;
+        } else {
+           proxyserverDestino = await buildProxyUrl('/');
+        }
 
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { 
@@ -3130,7 +3239,7 @@ export async function processarFilaHandshake() {
           aud: contato.id, 
           jti: h.id, 
           ct: JSON.stringify(envelope),
-          proxyserver: proxyserverDestino  // 🆕 Informação fora do ct para o proxy ler
+          proxyserver: proxyserverDestino
         };
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
         
@@ -3180,103 +3289,6 @@ self.addEventListener('online', function (event: Event) {
     processarFilaHandshake();
   }
 });
-```
-
----
-
-## Arquivo: `src/sw/click.ts`
-
-```ts
-// src/sw/click.ts
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-self.addEventListener('notificationclick', function(event: any) {
-  console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
-  event.notification.close();
-  
-  // 🔥 ARQUITETURA: Usa o escopo do Service Worker registrado em vez de '/' hardcoded.
-  // Isso garante que o clique na notificação abra o app no diretório correto (ex: Github Pages).
-  const urlParaAbrir = new URL(self.registration.scope).href;
-  
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(function(windowClients) {
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client && client.url === urlParaAbrir && 'focus' in client) {
-            try {
-              return client.focus();
-            } catch (err: any) {
-              console.warn("[SW-CLICK] ⚠️ Não foi possível focar a janela:", err.message);
-              break;
-            }
-          }
-        }
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(urlParaAbrir)
-            .catch(function(err: any) {
-              console.warn("[SW-CLICK] ⚠️ Não foi possível abrir janela:", err.message);
-              return Promise.resolve();
-            });
-        }
-      })
-  );
-});
-```
-
----
-
-## Arquivo: `src/sw/sw-utils.ts`
-
-```ts
-// src/sw/sw-utils.ts
-import { addDebugLog } from '../utils/debug-utils.ts';
-
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  addDebugLog("📡 Verificando suporte ao Service Worker...");
-  if (!("serviceWorker" in navigator)) {
-    throw new Error("Service Worker não é suportado neste navegador.");
-  }
-
-  // 🔥 ARQUITETURA: Resolução Dinâmica de Rota Base (Environment Agnostic)
-  // Lemos a URL atual para descobrir se estamos rodando na raiz (/) ou em um subdiretório (/loco/)
-  let basePath = globalThis.location.pathname;
-  
-  // Se a URL aponta para um arquivo (ex: /loco/index.html), extraímos apenas o diretório
-  if (basePath.split('/').pop()?.includes('.')) {
-    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
-  } else if (!basePath.endsWith('/')) {
-    // Se a URL é /loco (sem barra no final), forçamos a barra. 
-    // Isso evita que o navegador interprete "loco" como arquivo e tente registrar o SW na raiz "/".
-    basePath += '/';
-  }
-
-  const cacheBuster = Date.now();
-  addDebugLog(`⏳ Registrando Service Worker no escopo: ${basePath}`);
-
-  try {
-    // Injetamos o basePath absoluto calculado na hora
-    const registration = await navigator.serviceWorker.register(
-      `${basePath}service-worker.js?cacheBuster=${cacheBuster}`,
-      { scope: basePath }
-    );
-    
-    if (!registration) {
-      throw new Error("Service Worker registration retornou null/undefined");
-    }
-    
-    addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    const readyReg = await navigator.serviceWorker.ready;
-    addDebugLog("✅ Service Worker ativo e pronto.");
-    
-    return readyReg;
-  } catch (err: any) {
-    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
-    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
-  }
-}
 ```
 
 ---
@@ -4299,379 +4311,6 @@ export const activeView = computed(() => {
 
 ---
 
-## Arquivo: `src/utils/jwt-helpers.ts`
-
-```ts
-// src/utils/jwt-helpers.ts
-import { minifyVapidPublic, expandVapidPublic } from "./crypto-utils.ts";
-
-export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
-  }
-}
-
-export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
-  try {
-    // 🔥 ARQUITETURA: Regex /\s+/g expurga TODAS as quebras de linha e espaços 
-    // que possam ter vindo acidentalmente no Ctrl+C / Ctrl+V do usuário.
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '');
-    const padLength = (4 - (base64.length % 4)) % 4;
-    base64 += '='.repeat(padLength);
-    
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer as ArrayBuffer;
-  } catch (e: any) {
-    throw new Error(`Base64Url recebido contém formato inválido ou caracteres maliciosos: ${e.message}`);
-  }
-}
-
-export function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
-  }
-}
-
-export async function criarJWT(
-  payload: Record<string, any>,
-  privateKeyJwk: JsonWebKey,
-  headerExtra: Record<string, any> = {}
-): Promise<string> {
-  try {
-    if (headerExtra.kid && (headerExtra.kid.kty || headerExtra.kid.x)) {
-      headerExtra.kid = minifyVapidPublic(headerExtra.kid);
-    }
-
-    const header = { alg: "ES256", ...headerExtra };
-    const encoder = new TextEncoder();
-
-    const headerEnc = encoder.encode(JSON.stringify(header));
-    const payloadEnc = encoder.encode(JSON.stringify(payload));
-
-    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
-    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
-    const toSign = `${headerB64}.${payloadB64}`;
-
-    const privateKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      privateKeyJwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"]
-    );
-
-    const signature = await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      privateKey,
-      encoder.encode(toSign)
-    );
-    const sigB64 = arrayBufferToBase64Url(signature);
-
-    return `${toSign}.${sigB64}`;
-  } catch (err: any) {
-    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
-  }
-}
-
-export async function verificarJWT(
-  jwt: string,
-  publicKeyJwk?: JsonWebKey
-): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
-  try {
-    const parts = jwt.split('.');
-    if (parts.length !== 3) {
-      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
-    }
-
-    const headerB64 = parts[0]!;
-    const payloadB64 = parts[1]!;
-    const signatureB64 = parts[2]!;
-    const decoder = new TextDecoder();
-
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-    
-    let header, payload;
-    try {
-      header = JSON.parse(headerJson);
-      payload = JSON.parse(payloadJson);
-    } catch (_parseErr) {
-      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
-    }
-
-    let publicKeyJwkFinal = publicKeyJwk;
-    if (!publicKeyJwkFinal) {
-      if (!header.kid) {
-        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
-      }
-      publicKeyJwkFinal = expandVapidPublic(header.kid);
-    } else {
-      publicKeyJwkFinal = expandVapidPublic(publicKeyJwkFinal);
-    }
-
-    const publicKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      publicKeyJwkFinal as JsonWebKey,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["verify"]
-    );
-
-    const toSign = `${headerB64}.${payloadB64}`;
-    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
-
-    const encoder = new TextEncoder();
-    const valid = await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      publicKey,
-      signatureBytes,
-      encoder.encode(toSign)
-    );
-
-    return { header, payload, signature: signatureB64, valid };
-  } catch (err: any) {
-    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
-  }
-}
-
-export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
-  const parts = jwt.split('.');
-  if (parts.length !== 3) {
-    throw new Error("JWT malformado. Leitura interrompida.");
-  }
-
-  const headerB64 = parts[0]!;
-  const payloadB64 = parts[1]!;
-  const signatureB64 = parts[2]!;
-  const decoder = new TextDecoder();
-
-  try {
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
-
-    return {
-      header: JSON.parse(headerJson),
-      payload: JSON.parse(payloadJson),
-      signature: signatureB64
-    };
-  } catch (err: any) {
-    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/share-utils.ts`
-
-```ts
-// src/utils/share-utils.ts
-import { gzipSync, gunzipSync } from 'fflate';
-import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
-import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
-import type { ProfileConfig, Contato } from '../constants/db.ts';
-
-const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
-
-export interface CompactContact {
-  req?: boolean;
-  tr?: boolean;
-  em: string;
-  nm: string;
-  vp: any; 
-  ep: any; 
-  se: string;
-  sp: string;
-  sa: string;
-  ve: string;
-  ps?: string; 
-}
-
-export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
-  let ep = target.subscription.endpoint;
-  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
-
-  return {
-    req,
-    tr,
-    em: target.email || '',
-    nm: target.name || '',
-    vp: minifyVapidPublic(target.vapidPublicKey),
-    ep: minifyRsaPublic(target.e2ePublicKey),
-    se: ep,
-    sp: target.subscription.keys.p256dh,
-    sa: target.subscription.keys.auth,
-    ve: target.vapidPrivateKeyEnvelope,
-    ps: target.subscription.proxyserver
-  };
-}
-
-export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
-  let ep = c.se;
-  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
-
-  return {
-    email: c.em,
-    name: c.nm,
-    vapidPublicKey: expandVapidPublic(c.vp),
-    e2ePublicKey: expandRsaPublic(c.ep),
-    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
-    vapidPrivateKeyEnvelope: c.ve,
-    trusted: c.tr,
-    me: 'saved' 
-  };
-}
-
-export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
-  const compact = extrairDadosCompactos(target);
-  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
-  const compressed = gzipSync(jsonBytes);
-  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-}
-
-export async function gerarLinkConviteWeb(
-  target: ProfileConfig | Contato,
-  myVapidPrivateKeyJwk: JsonWebKey,
-  myVapidPublicKeyJwk: JsonWebKey,
-  baseUrl?: string
-): Promise<string> {
-  const compact = extrairDadosCompactos(target);
-  const payload = {
-    sub: "contact",
-    ...compact,
-    iat: Math.floor(Date.now() / 1000)
-  };
-
-  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
-  const jwtBytes = new TextEncoder().encode(jwt);
-  const compressed = gzipSync(jwtBytes);
-  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-
-  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-  return `${origin}/#share=${cjwt}`;
-}
-
-export async function processarQualquerConvite(rawInput: string): Promise<Partial<Contato>> {
-  let cqr = null, cjwt = null, jwt = null;
-
-  // 🔥 ARQUITETURA: Higienização rigorosa da entrada do usuário.
-  // Remove todos os espaços e quebras de linha invisíveis (comuns em copy-paste).
-  const input = rawInput.trim().replace(/\s+/g, '');
-
-  try {
-    const fullUrl = input.includes('://') || input.startsWith('/') || input.includes('?')
-      ? input 
-      : `http://localhost/?${input}`;
-    const url = new URL(fullUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-    cqr = url.searchParams.get('cqr');
-    cjwt = url.searchParams.get('cjwt');
-    jwt = url.searchParams.get('jwt');
-  } catch {
-    if (input.includes('cjwt=')) {
-      const parts = input.split('cjwt=');
-      if (parts[1]) cjwt = parts[1].split('&')[0];
-    } else if (input.includes('cqr=')) {
-      const parts = input.split('cqr=');
-      if (parts[1]) cqr = parts[1].split('&')[0];
-    } else if (input.includes('jwt=')) {
-      const parts = input.split('jwt=');
-      if (parts[1]) jwt = parts[1].split('&')[0];
-    }
-  }
-
-  if (!cqr && !cjwt && !jwt && input) {
-    if (input.includes('.')) {
-      jwt = input;
-    } else {
-      try {
-        const compressed = new Uint8Array(base64UrlToArrayBuffer(input));
-        const decompressed = gunzipSync(compressed);
-        const text = new TextDecoder().decode(decompressed);
-        
-        if (text.startsWith('{')) {
-          cqr = input;
-        } else {
-          cjwt = input;
-        }
-      } catch (_e) {
-        cjwt = input;
-      }
-    }
-  }
-
-  let compactData: CompactContact | null = null;
-
-  if (!compactData && cjwt) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      
-      const { payload, valid } = await verificarJWT(jsonText); 
-      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
-      if (payload) compactData = payload as CompactContact;
-    } catch (e) {
-      console.warn("Falha ao verificar cjwt:", e);
-    }
-  }
-
-  if (!compactData && cqr) {
-    try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
-      const decompressed = gunzipSync(compressed);
-      const jsonText = new TextDecoder().decode(decompressed);
-      const parsed = JSON.parse(jsonText);
-      
-      if (parsed.vp || (parsed.vx && parsed.vy)) {
-        compactData = parsed as CompactContact;
-      }
-    } catch (e) {
-      console.warn("Falha ao ler cqr:", e);
-    }
-  }
-
-  if (!compactData && jwt) {
-    try {
-      const { payload, valid } = await verificarJWT(jwt);
-      if (!valid) throw new Error("Assinatura do convite inválida.");
-      if (payload) compactData = payload as CompactContact;
-    } catch (e) {
-      console.warn("Falha ao verificar jwt:", e);
-    }
-  }
-
-  if (!compactData) throw new Error("Formato de convite ou QR Code inválido.");
-
-  // Camada de Retrocompatibilidade O(1):
-  if ((compactData as any).vx && !compactData.vp) {
-    compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
-    compactData.ep = { n: (compactData as any).en };
-  }
-
-  return expandirDadosCompactos(compactData);
-}
-```
-
----
-
 ## Arquivo: `src/utils/profile-utils.ts`
 
 ```ts
@@ -4883,6 +4522,403 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
   } catch (err) {
     addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
     throw err;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/share-utils.ts`
+
+```ts
+// src/utils/share-utils.ts
+import { gzipSync, gunzipSync } from 'fflate';
+import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
+import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
+import type { ProfileConfig, Contato } from '../constants/db.ts';
+
+const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
+
+export interface CompactContact {
+  req?: boolean;
+  tr?: boolean;
+  em: string;
+  nm: string;
+  vp: any; 
+  ep: any; 
+  se: string;
+  sp: string;
+  sa: string;
+  ve: string;
+  ps?: string; 
+}
+
+export function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): CompactContact {
+  let ep = target.subscription.endpoint;
+  if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
+
+  return {
+    req,
+    tr,
+    em: target.email || '',
+    nm: target.name || '',
+    vp: minifyVapidPublic(target.vapidPublicKey),
+    ep: minifyRsaPublic(target.e2ePublicKey),
+    se: ep,
+    sp: target.subscription.keys.p256dh,
+    sa: target.subscription.keys.auth,
+    ve: target.vapidPrivateKeyEnvelope,
+    ps: target.subscription.proxyserver
+  };
+}
+
+export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
+  let ep = c.se;
+  if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
+
+  return {
+    email: c.em,
+    name: c.nm,
+    vapidPublicKey: expandVapidPublic(c.vp),
+    e2ePublicKey: expandRsaPublic(c.ep),
+    subscription: { endpoint: ep, keys: { p256dh: c.sp, auth: c.sa }, proxyserver: c.ps },
+    vapidPrivateKeyEnvelope: c.ve,
+    trusted: c.tr,
+    me: 'saved' 
+  };
+}
+
+export function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato): string {
+  const compact = extrairDadosCompactos(target);
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
+  const compressed = gzipSync(jsonBytes);
+  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+}
+
+export async function gerarLinkConviteWeb(
+  target: ProfileConfig | Contato,
+  myVapidPrivateKeyJwk: JsonWebKey,
+  myVapidPublicKeyJwk: JsonWebKey,
+  baseUrl?: string
+): Promise<string> {
+  const compact = extrairDadosCompactos(target);
+  const payload = {
+    sub: "contact",
+    ...compact,
+    iat: Math.floor(Date.now() / 1000)
+  };
+
+  const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
+  const jwtBytes = new TextEncoder().encode(jwt);
+  const compressed = gzipSync(jwtBytes);
+  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+
+  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  return `${origin}/#share=${cjwt}`;
+}
+
+export async function processarQualquerConvite(rawInput: string): Promise<Partial<Contato>> {
+  let cqr: string | null = null;
+  let cjwt: string | null = null;
+  let jwt: string | null = null;
+
+  // 🔥 ARQUITETURA: Higienização inicial
+  const input = rawInput.trim();
+
+  // 1. Extração Segura de URL (Inteligência para o Roteamento Hash do Loco)
+  try {
+    if (input.includes('://') || input.startsWith('http')) {
+      const url = new URL(input);
+      
+      // O formato oficial do Loco transporta o token no hash (#share=XYZ)
+      if (url.hash && url.hash.includes('share=')) {
+        const extracted = url.hash.split('share=')[1]?.split('&')[0];
+        if (extracted) cjwt = extracted;
+      } else {
+        // Retrocompatibilidade para query params
+        cqr = url.searchParams.get('cqr');
+        cjwt = url.searchParams.get('cjwt');
+        jwt = url.searchParams.get('jwt');
+      }
+    }
+  } catch (e) {
+    // Ignora erro de parsing da URL nativa e confia no fallback
+  }
+
+  // 2. Extração via texto puro (Caso a API de URL falhe ou falte protocolo)
+  if (!cqr && !cjwt && !jwt) {
+    if (input.includes('#share=')) {
+      cjwt = input.split('#share=')[1]?.split('&')[0] || null;
+    } else if (input.includes('cjwt=')) {
+      cjwt = input.split('cjwt=')[1]?.split('&')[0] || null;
+    } else if (input.includes('cqr=')) {
+      cqr = input.split('cqr=')[1]?.split('&')[0] || null;
+    } else if (input.includes('jwt=')) {
+      jwt = input.split('jwt=')[1]?.split('&')[0] || null;
+    }
+  }
+
+  // 3. Chute cego defensivo (O usuário colou SÓ o token sem nenhum prefixo)
+  if (!cqr && !cjwt && !jwt && input) {
+    // 🔥 ARQUITETURA: Um JWT padrão tem exatas 3 partições separadas por pontos. 
+    // Protegemos contra URLs puras (que tem pontos no domínio) exigindo que não contenha '://'.
+    if (input.split('.').length === 3 && !input.includes('://')) {
+      jwt = input;
+    } else {
+      // Tenta descomprimir cegamente assumindo que é um token comprimido nu (cjwt/cqr)
+      try {
+        const cleanBase64 = input.replace(/[^A-Za-z0-9\-_]/g, ''); 
+        const compressed = new Uint8Array(base64UrlToArrayBuffer(cleanBase64));
+        const decompressed = gunzipSync(compressed);
+        const text = new TextDecoder().decode(decompressed);
+        
+        if (text.startsWith('{')) {
+          cqr = cleanBase64;
+        } else {
+          cjwt = cleanBase64;
+        }
+      } catch (_e) {
+        // Fallback final: se tudo falhar, tenta jogar o input bruto pro validador cjwt
+        cjwt = input;
+      }
+    }
+  }
+
+  let compactData: CompactContact | null = null;
+
+  if (!compactData && cjwt) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      
+      const { payload, valid } = await verificarJWT(jsonText); 
+      if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar cjwt:", e);
+    }
+  }
+
+  if (!compactData && cqr) {
+    try {
+      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
+      const decompressed = gunzipSync(compressed);
+      const jsonText = new TextDecoder().decode(decompressed);
+      const parsed = JSON.parse(jsonText);
+      
+      if (parsed.vp || (parsed.vx && parsed.vy)) {
+        compactData = parsed as CompactContact;
+      }
+    } catch (e) {
+      console.warn("Falha ao ler cqr:", e);
+    }
+  }
+
+  if (!compactData && jwt) {
+    try {
+      const { payload, valid } = await verificarJWT(jwt);
+      if (!valid) throw new Error("Assinatura do convite inválida.");
+      if (payload) compactData = payload as CompactContact;
+    } catch (e) {
+      console.warn("Falha ao verificar jwt:", e);
+    }
+  }
+
+  if (!compactData) throw new Error("O link ou código colado não é um convite válido do Loco.");
+
+  // Camada de Retrocompatibilidade O(1):
+  if ((compactData as any).vx && !compactData.vp) {
+    compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
+    compactData.ep = { n: (compactData as any).en };
+  }
+
+  return expandirDadosCompactos(compactData);
+}
+```
+
+---
+
+## Arquivo: `src/utils/jwt-helpers.ts`
+
+```ts
+// src/utils/jwt-helpers.ts
+import { minifyVapidPublic, expandVapidPublic } from "./crypto-utils.ts";
+
+export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
+  }
+}
+
+export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
+  try {
+    // 🔥 ARQUITETURA DE BLINDAGEM MÁXIMA (Defensive Programming):
+    // 1. Substitui os caracteres seguros de URL (- e _) pelos clássicos (+ e /).
+    // 2. O Regex /[^A-Za-z0-9\+\/]/g atua como um "triturador": 
+    //    Ele remove impiedosamente espaços invisíveis, enters (\n) e restos de URLs (como ':' e '/') 
+    //    deixando o atob() trabalhar sempre de forma segura apenas com Base64 válido.
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9\+\/]/g, '');
+    
+    // Adiciona o padding (=) matematicamente correto
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer as ArrayBuffer;
+  } catch (e: any) {
+    throw new Error(`Falha ao converter Base64Url para Binário. O token está corrompido: ${e.message}`);
+  }
+}
+
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
+  }
+}
+
+export async function criarJWT(
+  payload: Record<string, any>,
+  privateKeyJwk: JsonWebKey,
+  headerExtra: Record<string, any> = {}
+): Promise<string> {
+  try {
+    if (headerExtra.kid && (headerExtra.kid.kty || headerExtra.kid.x)) {
+      headerExtra.kid = minifyVapidPublic(headerExtra.kid);
+    }
+
+    const header = { alg: "ES256", ...headerExtra };
+    const encoder = new TextEncoder();
+
+    const headerEnc = encoder.encode(JSON.stringify(header));
+    const payloadEnc = encoder.encode(JSON.stringify(payload));
+
+    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
+    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
+    const toSign = `${headerB64}.${payloadB64}`;
+
+    const privateKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      privateKeyJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      encoder.encode(toSign)
+    );
+    const sigB64 = arrayBufferToBase64Url(signature);
+
+    return `${toSign}.${sigB64}`;
+  } catch (err: any) {
+    throw new Error(`Falha no motor criptográfico ao assinar JWT: ${err.message}`);
+  }
+}
+
+export async function verificarJWT(
+  jwt: string,
+  publicKeyJwk?: JsonWebKey
+): Promise<{ header: any; payload: any; signature: string; valid: boolean }> {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) {
+      throw new Error("JWT malformado: Estrutura diferente de 3 partições (header.payload.signature).");
+    }
+
+    const headerB64 = parts[0]!;
+    const payloadB64 = parts[1]!;
+    const signatureB64 = parts[2]!;
+    const decoder = new TextDecoder();
+
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+    
+    let header, payload;
+    try {
+      header = JSON.parse(headerJson);
+      payload = JSON.parse(payloadJson);
+    } catch (_parseErr) {
+      throw new Error("Conteúdo interno do JWT não é um JSON válido.");
+    }
+
+    let publicKeyJwkFinal = publicKeyJwk;
+    if (!publicKeyJwkFinal) {
+      if (!header.kid) {
+        throw new Error("Header JWT não contém a propriedade 'kid' (Key ID) e nenhuma chave pública externa foi fornecida.");
+      }
+      publicKeyJwkFinal = expandVapidPublic(header.kid);
+    } else {
+      publicKeyJwkFinal = expandVapidPublic(publicKeyJwkFinal);
+    }
+
+    const publicKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyJwkFinal as JsonWebKey,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+
+    const toSign = `${headerB64}.${payloadB64}`;
+    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
+
+    const encoder = new TextEncoder();
+    const valid = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      signatureBytes,
+      encoder.encode(toSign)
+    );
+
+    return { header, payload, signature: signatureB64, valid };
+  } catch (err: any) {
+    throw new Error(`Falha na verificação de integridade do JWT: ${err.message}`);
+  }
+}
+
+export function decodificarJWT(jwt: string): { header: any; payload: any; signature: string } {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error("JWT malformado. Leitura interrompida.");
+  }
+
+  const headerB64 = parts[0]!;
+  const payloadB64 = parts[1]!;
+  const signatureB64 = parts[2]!;
+  const decoder = new TextDecoder();
+
+  try {
+    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+
+    return {
+      header: JSON.parse(headerJson),
+      payload: JSON.parse(payloadJson),
+      signature: signatureB64
+    };
+  } catch (err: any) {
+    throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
   }
 }
 ```
@@ -6655,7 +6691,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.88-mst7og91",
+  "version": "0.2.94-msu738bx",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -6725,7 +6761,7 @@ import { deleteCookie } from "@std/http/cookie";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
-let serverPublicKeyMinifiedCache: any | null = null; // 🔥 Cache dedicado para a versão enxuta
+let serverPublicKeyMinifiedCache: any | null = null; 
 
 async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
   if (serverPrivateKeyCache && serverPublicKeyJwkCache && serverPublicKeyMinifiedCache) {
@@ -6752,7 +6788,6 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
     let publicKeyJwk = { ...rawPublicKeyJwk };
     let privateKeyJwk = JSON.parse(privateKeyStr);
 
-    // 🔥 ARQUITETURA: Mantém a versão original (minificada) para servir via API
     const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
 
     if (!publicKeyJwk.kty) {
@@ -6974,7 +7009,6 @@ const workerHandler = {
         });
       }
 
-      // 🔥 ARQUITETURA: Agora a API devolve estritamente a chave minificada!
       if (request.method === "POST" && isPublicKey) {
         return new Response(JSON.stringify(serverPublicKeyMinified), {
           status: 200,
@@ -7016,29 +7050,33 @@ const workerHandler = {
           const urlAtual = new URL(request.url);
           const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
           
+          // 🔥 ARQUITETURA DE REDIRECIONAMENTO INTELIGENTE
+          // Remove os protocolos HTTP/HTTPS apenas para a fase estrita de "Match" de Domínios.
           const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
           const origemNormalizada = origemAtual.replace(/\/$/, "");
-          const destinoNormalizado = destinoSemProtocolo;
           
-          if (origemNormalizada !== destinoNormalizado) {
-            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
+          if (origemNormalizada !== destinoSemProtocolo) {
+            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoSemProtocolo}) difere do atual (${origemNormalizada}). Reencaminhando...`);
             
             try {
-              const urlDestino = destinoNormalizado.startsWith("http") 
-                ? `${destinoNormalizado}/` 
-                : `https://${destinoNormalizado}/`;
+              // Mantém a URL do proxy original intocada para o Fetch não quebrar mixed-content em testes locais (http vs https)
+              const urlDestino = proxyserverDestino.endsWith('/') ? proxyserverDestino : `${proxyserverDestino}/`;
               
               const response = await fetch(urlDestino, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subscription, payloadText, vapid }),
-                redirect: "follow"
+                body: JSON.stringify({ subscription, payloadText, vapid })
               });
               
-              const result = await response.json();
+              // Garante que o Worker avise falhas de gateway como 502/404 em vez de mascarar
+              if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errText}`);
+              }
+              
               console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
               
-              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoNormalizado }), {
+              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoSemProtocolo }), {
                 status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
               });

@@ -150,7 +150,16 @@ export function ShareSection() {
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
               <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
               <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
-              <p style="margin: 0; color: #666; font-size: 0.85rem;">{preview.value.email || "Sem e-mail"}</p>
+              <p style="margin: 0; color: #666; font-size: 0.85rem; margin-bottom: 8px;">{preview.value.email || "Sem e-mail"}</p>
+              
+              {/* 🔥 ARQUITETURA: Exibição do Proxy de destino para o qual o app enviará os handshakes */}
+              <div style="background: rgba(0,0,0,0.05); padding: 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%;">
+                <md-icon style="font-size: 1rem; color: #888;">dns</md-icon> 
+                <span style="font-size: 0.75rem; color: #666; word-break: break-all; text-align: left; line-height: 1.2;">
+                  <strong>Rota de Proxy:</strong><br/>
+                  {preview.value.subscription?.proxyserver || 'Padrão (Não informado)'}
+                </span>
+              </div>
             </div>
 
             <div style="display: flex; gap: 8px; flex-direction: column;">

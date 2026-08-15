@@ -194,7 +194,8 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
   await assertRejects(
     async () => await processarQualquerConvite("token-invalido-abc123"),
     Error,
-    "Formato de convite ou QR Code inválido"
+    // 🔥 ARQUITETURA: Atualizado para a nova mensagem de erro da v0.2.91
+    "O link ou código colado não é um convite válido do Loco."
   );
 
   console.log("✅ Todos os testes de cJWT passaram!");

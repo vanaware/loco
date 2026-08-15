@@ -243,11 +243,14 @@ export async function processarFilaHandshake() {
           h.out!.rotas.contato.sync = extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
         }
 
-        // 🔥 Resolve o proxyserver completo (mesmo que o usuário tenha informado relativo)
-        // Se o contato não tiver proxyserver definido, assume o mesmo proxy do nó A
-        const proxyserverDestino = contato.subscription.proxyserver 
-          ? await buildProxyUrl(contato.subscription.proxyserver)
-          : await buildProxyUrl('/');
+        // 🔥 ARQUITETURA: Correção do Roteamento
+        // Se a URL de proxy do contato for absoluta, usa ela pura para evitar corrupção por concatenação
+        let proxyserverDestino = "";
+        if (contato.subscription.proxyserver) {
+           proxyserverDestino = contato.subscription.proxyserver;
+        } else {
+           proxyserverDestino = await buildProxyUrl('/');
+        }
 
         const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
         const payloadJwt = { 
@@ -255,7 +258,7 @@ export async function processarFilaHandshake() {
           aud: contato.id, 
           jti: h.id, 
           ct: JSON.stringify(envelope),
-          proxyserver: proxyserverDestino  // 🆕 Informação fora do ct para o proxy ler
+          proxyserver: proxyserverDestino
         };
         const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
         

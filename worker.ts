@@ -6,7 +6,7 @@ import { deleteCookie } from "@std/http/cookie";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
-let serverPublicKeyMinifiedCache: any | null = null; // 🔥 Cache dedicado para a versão enxuta
+let serverPublicKeyMinifiedCache: any | null = null; 
 
 async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
   if (serverPrivateKeyCache && serverPublicKeyJwkCache && serverPublicKeyMinifiedCache) {
@@ -33,7 +33,6 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
     let publicKeyJwk = { ...rawPublicKeyJwk };
     let privateKeyJwk = JSON.parse(privateKeyStr);
 
-    // 🔥 ARQUITETURA: Mantém a versão original (minificada) para servir via API
     const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
 
     if (!publicKeyJwk.kty) {
@@ -255,7 +254,6 @@ const workerHandler = {
         });
       }
 
-      // 🔥 ARQUITETURA: Agora a API devolve estritamente a chave minificada!
       if (request.method === "POST" && isPublicKey) {
         return new Response(JSON.stringify(serverPublicKeyMinified), {
           status: 200,
@@ -297,29 +295,33 @@ const workerHandler = {
           const urlAtual = new URL(request.url);
           const origemAtual = `${urlAtual.host}${env.PROXY_PATH || ""}`;
           
+          // 🔥 ARQUITETURA DE REDIRECIONAMENTO INTELIGENTE
+          // Remove os protocolos HTTP/HTTPS apenas para a fase estrita de "Match" de Domínios.
           const destinoSemProtocolo = proxyserverDestino.replace(/^https?:\/\//, "").replace(/\/$/, "");
           const origemNormalizada = origemAtual.replace(/\/$/, "");
-          const destinoNormalizado = destinoSemProtocolo;
           
-          if (origemNormalizada !== destinoNormalizado) {
-            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoNormalizado}) difere do atual (${origemNormalizada}). Reencaminhando...`);
+          if (origemNormalizada !== destinoSemProtocolo) {
+            console.log(`    🔄 [REDIRECIONAMENTO] Proxy destino (${destinoSemProtocolo}) difere do atual (${origemNormalizada}). Reencaminhando...`);
             
             try {
-              const urlDestino = destinoNormalizado.startsWith("http") 
-                ? `${destinoNormalizado}/` 
-                : `https://${destinoNormalizado}/`;
+              // Mantém a URL do proxy original intocada para o Fetch não quebrar mixed-content em testes locais (http vs https)
+              const urlDestino = proxyserverDestino.endsWith('/') ? proxyserverDestino : `${proxyserverDestino}/`;
               
               const response = await fetch(urlDestino, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subscription, payloadText, vapid }),
-                redirect: "follow"
+                body: JSON.stringify({ subscription, payloadText, vapid })
               });
               
-              const result = await response.json();
+              // Garante que o Worker avise falhas de gateway como 502/404 em vez de mascarar
+              if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errText}`);
+              }
+              
               console.log(`    ✅ [REDIRECIONAMENTO] Push reencaminhado com sucesso! Status: ${response.status}`);
               
-              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoNormalizado }), {
+              return new Response(JSON.stringify({ success: true, redirected: true, target: destinoSemProtocolo }), {
                 status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
               });
