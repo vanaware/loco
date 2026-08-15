@@ -1,7 +1,7 @@
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
-import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
-import { showToast } from '../signals/state.ts';
+import { loadAllConfigs, saveConfig, resetConfig, getConfigValue } from '../stores/config-store.ts';
+import { showToast, appTheme, AppTheme } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
 import { buildProxyUrl, pingProxy } from '../constants/config.ts';
 
@@ -28,7 +28,7 @@ export function SettingsSection() {
       publicKey: await buildProxyUrl('/publickey', path),
       logout: await buildProxyUrl('/logout', path)
     };
-    serverStatus.value = 'unknown'; // reseta status visual ao digitar
+    serverStatus.value = 'unknown';
   };
 
   const handleProxyPathChange = (e: Event) => {
@@ -36,6 +36,15 @@ export function SettingsSection() {
     proxyPath.value = target.value;
     hasChanges.value = true;
     updatePreview(target.value);
+  };
+
+  const handleThemeChange = async (e: Event) => {
+    const val = (e.target as any).value as AppTheme;
+    if (val) {
+      appTheme.value = val;
+      await saveConfig('APP_THEME', val);
+      showToast('Tema atualizado!', 'success');
+    }
   };
   
   const handleTestarConexao = async () => {
@@ -82,8 +91,9 @@ export function SettingsSection() {
     }
     try {
       await resetConfig();
-      const config = await loadAllConfigs(); // engatilha auto-discovery
+      const config = await loadAllConfigs();
       proxyPath.value = config.proxy_path || '/';
+      appTheme.value = 'system';
       hasChanges.value = false;
       serverStatus.value = 'unknown';
       showToast('✅ Auto-Discovery resetado', 'success');
@@ -103,16 +113,16 @@ export function SettingsSection() {
   };
   
   return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 16px; overflow-y: auto;">
       <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
         
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <div style="display: flex; flex-direction: column;">
             <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>settings</md-icon> Configurações de Rede
+              <md-icon>settings</md-icon> Configurações
             </span>
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Ajuste o Roteamento de Mensagens
+            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
+              Ajustes Visuais e de Rede
             </span>
           </div>
           <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
@@ -122,60 +132,72 @@ export function SettingsSection() {
         
         <div style="display: flex; flex-direction: column; gap: 16px;">
           
+          {/* 🔥 SEÇÃO DE APARÊNCIA */}
           <div style="display: flex; flex-direction: column; gap: 8px;">
-            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
-              Servidor Proxy
-              {serverStatus.value === 'ok' && <span style="color: green; font-size: 0.75rem; font-weight: bold;">(Online)</span>}
-              {serverStatus.value === 'error' && <span style="color: red; font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
+            <label style="font-size: 0.85rem; font-weight: 600; color: var(--md-sys-color-on-surface);">
+              Aparência do Aplicativo
             </label>
-            <div style="display: flex; gap: 8px;">
+            <md-outlined-select value={appTheme.value} onChange={handleThemeChange} style="width: 100%;">
+              <md-select-option value="system"><div slot="headline">Sincronizar com o Sistema</div></md-select-option>
+              <md-select-option value="light"><div slot="headline">Tema Claro</div></md-select-option>
+              <md-select-option value="dark"><div slot="headline">Tema Escuro</div></md-select-option>
+            </md-outlined-select>
+          </div>
+
+          <md-divider></md-divider>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label for="proxy-path" style="font-size: 0.85rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
+              Servidor Proxy
+              {serverStatus.value === 'ok' && <span style="color: var(--md-sys-color-primary); font-size: 0.75rem; font-weight: bold;">(Online)</span>}
+              {serverStatus.value === 'error' && <span style="color: var(--md-sys-color-error); font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
+            </label>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
               <md-outlined-text-field
                 id="proxy-path"
                 value={proxyPath.value}
                 onInput={handleProxyPathChange}
                 placeholder="Ex: /, /api ou https://push.com"
-                style="flex-grow: 1;"
+                style="flex-grow: 1; min-width: 200px;"
                 disabled={isSaving.value || isTesting.value}
               >
                 <md-icon slot="leading-icon">dns</md-icon>
               </md-outlined-text-field>
               
-              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px;">
+              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px; flex-shrink: 0;">
                  {isTesting.value ? '...' : 'Testar'}
               </md-filled-tonal-button>
             </div>
-            <span style="font-size: 0.75rem; color: #666;">
-              Se o PWA foi instalado via GitHub Pages ou IPFS e não possui um servidor nativo, informe a URL absoluta de um Worker ativo do Loco.
+            <span style="font-size: 0.7rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.2;">
+              Se o PWA foi instalado via GitHub Pages, informe a URL absoluta de um Worker ativo do Loco.
             </span>
           </div>
           
-          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px;">
-            <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--md-sys-color-on-surface-variant);">
               🔍 Resolução Dinâmica (Preview):
             </span>
-            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem;">
-              {/* 🔥 ARQUITETURA: Quebra de palavra e alinhamento flexível para telas mobile pequenas */}
+            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem;">
               <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <span style="color: #666; min-width: 70px; flex-shrink: 0;">Push URL:</span>
-                <code style="color: #444; word-break: break-all; line-height: 1.4;">
+                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Push URL:</span>
+                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
                   {previewUrls.value.endpoint}
                 </code>
               </div>
               <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <span style="color: #666; min-width: 70px; flex-shrink: 0;">Ping Test:</span>
-                <code style="color: #444; word-break: break-all; line-height: 1.4;">
+                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Ping Test:</span>
+                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
                   {previewUrls.value.endpoint.replace(/\/$/, '')}/ping
                 </code>
               </div>
             </div>
           </div>
           
-          {/* 🔥 ARQUITETURA: Container responsivo (flex-wrap). Os botões esticam e quebram linha. */}
-          <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 8px;">
             <md-outlined-button 
               onClick={handleCancelar} 
               disabled={!hasChanges.value || isSaving.value || isTesting.value} 
-              style="flex: 1; min-width: 140px;"
+              style="flex: 1; min-width: 120px;"
             >
               Cancelar
             </md-outlined-button>
@@ -183,7 +205,7 @@ export function SettingsSection() {
             <md-outlined-button 
               onClick={handleReset} 
               disabled={isSaving.value || isTesting.value} 
-              style="color: var(--md-sys-color-error); flex: 1; min-width: 140px;"
+              style="color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error); flex: 1; min-width: 120px;"
             >
               Auto-Discovery
             </md-outlined-button>
@@ -191,7 +213,7 @@ export function SettingsSection() {
             <md-filled-button 
               onClick={handleSalvar} 
               disabled={!hasChanges.value || isSaving.value || isTesting.value} 
-              style="flex: 1; min-width: 140px;"
+              style="flex: 1; min-width: 120px;"
             >
               {isSaving.value ? (
                 <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>

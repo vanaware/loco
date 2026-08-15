@@ -20,7 +20,6 @@ export function AdvancedSection() {
     loading: true,
   });
   
-  // Listener para atualizar quando a configuração mudar
   useEffect(() => {
     const updateConfig = async () => {
       const config = await loadAllConfigs();
@@ -102,7 +101,7 @@ export function AdvancedSection() {
       suporteBackgroundSync: hasBackgroundSync,
       armazenamentoPersistido: storagePersisted,
       cotaEspaco: quotaInfo,
-      proxyPath: diagnostic.value.proxyPath, // Mantém o valor atual da configuração
+      proxyPath: diagnostic.value.proxyPath,
       loading: false,
     };
 
@@ -152,7 +151,7 @@ export function AdvancedSection() {
             <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
               <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
             </span>
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
+            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
               Build Version: v{APP_VERSION}
             </span>
           </div>
@@ -162,14 +161,15 @@ export function AdvancedSection() {
         </div>
         
         {diag.loading ? (
-          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
+          <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin: 0;">Analisando requisitos...</p>
         ) : (
           <div style="display: flex; flex-direction: column; gap: 16px;">
             <div>
               <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
                 🛑 Requisitos Obrigatórios
               </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+              {/* 🔥 ARQUITETURA: Uso de --md-sys-color-on-surface para garantir legibilidade no modo escuro */}
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
                 <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
                 <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
                 <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
@@ -184,7 +184,8 @@ export function AdvancedSection() {
               <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
                 ⚡ Recursos Desejáveis & Status
               </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
+              {/* 🔥 ARQUITETURA: Uso de --md-sys-color-on-surface */}
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
                 <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
                 <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
                 <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
@@ -212,7 +213,7 @@ export function AdvancedSection() {
                   </md-outlined-button>
                 </li>
                 {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
+                  <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 4px;">
                     📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
                   </li>
                 )}

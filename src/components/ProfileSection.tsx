@@ -12,7 +12,7 @@ import { navigate } from '../utils/router.ts';
 
 export function ProfileSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false); // 🔥 Novo estado de edição
+  const isEditing = useSignal<boolean>(false);
 
   useEffect(() => {
     carregarProfile();
@@ -21,8 +21,6 @@ export function ProfileSection() {
   const p = profile.value;
   const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
 
-  // 🔥 ARQUITETURA: Máquina de estado inicial
-  // Se não tem chave gerada, o usuário está no Onboarding. Forçamos o modo de edição.
   useEffect(() => {
     if (!temChaveVapid) {
       isEditing.value = true;
@@ -59,7 +57,7 @@ export function ProfileSection() {
       const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
       await atualizarProfile(pNovo);
       
-      isEditing.value = false; // Sai do modo de edição após salvar com sucesso
+      isEditing.value = false;
 
       if (eraNovo) {
         showToast(`✅ Perfil inicializado com sucesso!`, "success");
@@ -75,7 +73,6 @@ export function ProfileSection() {
 
   const handleCancelarEdicao = () => {
     if (p) {
-      // Reverte os valores dos inputs para os dados consolidados no banco
       profileName.value = p.name || '';
       profileEmail.value = p.email || '';
     }
@@ -108,7 +105,6 @@ export function ProfileSection() {
       
       <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
         
-        {/* 🔥 Cabeçalho com Ícone de Edição */}
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
             <md-icon>account_circle</md-icon> Identidade Local
@@ -122,13 +118,14 @@ export function ProfileSection() {
           </div>
         </div>
 
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+        {/* 🔥 ARQUITETURA: Espaçamento ajustado (margin-bottom de 8px para 24px) para respiro visual */}
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
 
         {isEditing.value ? (
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
             
             {!temChaveVapid && (
-               <p style="font-size: 0.85rem; color: #666; margin-bottom: 8px; text-align: center;">
+               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
                  Este nome será visível para os contatos que você convidar.
                </p>
             )}
@@ -165,11 +162,10 @@ export function ProfileSection() {
           </div>
         ) : (
           <>
-            {/* 🔥 Visão de Leitura (Read-Only) */}
             <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               {p?.name?.trim() || "Anônimo"}
             </h2>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
 
             <div style="display: flex; flex-direction: column; gap: 8px;">
               <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
@@ -181,17 +177,16 @@ export function ProfileSection() {
         )}
       </div>
 
-      {/* 🔥 O QR Code some durante a edição para manter a tela focada */}
       {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
-        <div class="container" style="background: #fff; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
             Seu QR Code
           </h3>
-          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
+          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
             Mostre isso para um amigo escanear pelo App Loco.
           </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
         </div>
       )}
 

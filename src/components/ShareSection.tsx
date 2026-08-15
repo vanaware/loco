@@ -1,4 +1,3 @@
-// src/components/ShareSection.tsx
 import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { processarQualquerConvite } from '../utils/share-utils.ts';
@@ -18,13 +17,11 @@ export function ShareSection() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    // Se a URL já trouxe um payload (ex: clicou num link gerado), processa direto
     if (sharePayload.value) {
       handleProcessar(sharePayload.value);
     } else {
       iniciarCamera();
     }
-    // Desliga a câmera automaticamente quando o componente for desmontado (troca de rota)
     return () => pararCamera();
   }, [sharePayload.value]);
 
@@ -33,15 +30,13 @@ export function ShareSection() {
       error.value = null;
       const resultado = await processarQualquerConvite(input);
       
-      // 🔥 ARQUITETURA: Self-Contact Guard
-      // Verifica se o usuário está tentando adicionar a si mesmo antes de mostrar o preview
       if (resultado.vapidPublicKey) {
         const hashImportado = await serializarPublicKeyVapid(resultado.vapidPublicKey);
         const ehParaMim = await ehContatoProprio(hashImportado, profile.value);
         
         if (ehParaMim) {
           showToast("👋 Ops! Este é o seu próprio convite.", "info");
-          sharePayload.value = null; // Limpa o payload da URL para não travar num loop
+          sharePayload.value = null; 
           navigate('#profile');
           return;
         }
@@ -126,7 +121,6 @@ export function ShareSection() {
       
       await adicionarContato(novoContato);
       
-      // Aciona o SW para disparar o Handshake de apresentação para o novo contato
       const reg = await navigator.serviceWorker.ready;
       if (reg.active) {
         reg.active.postMessage({
@@ -139,7 +133,7 @@ export function ShareSection() {
       }
 
       showToast("✅ Contato adicionado! Um pacote de sincronização foi enviado.", "success");
-      navigate(`#detail=${contatoId}`); // Leva o usuário direto para o cartão do novo contato
+      navigate(`#detail=${contatoId}`); 
     } catch (e: any) {
       showToast("❌ Erro ao adicionar contato: " + e.message, "error");
     }
@@ -151,7 +145,7 @@ export function ShareSection() {
           <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
             <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
             <h2 style="justify-content: center; font-size: 1.25rem;">Ops! Algo deu errado</h2>
-            <p style="color: #666; margin-bottom: 24px; font-size: 0.9rem;">{error.value}</p>
+            <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 24px; font-size: 0.9rem;">{error.value}</p>
             <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
               Tentar Novamente
             </md-filled-button>
@@ -159,19 +153,21 @@ export function ShareSection() {
         ) : preview.value ? (
           <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 480px; width: 100%;">
             <div style="text-align: center; margin-bottom: 24px;">
-              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
+              {/* 🔥 ARQUITETURA: Ajuste no margin-bottom */}
+              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 16px;">person_add</md-icon>
               <h2 style="justify-content: center; font-size: 1.25rem;">Confirmar Contato</h2>
-              <p style="color: #666; font-size: 0.9rem;">Você está prestes a estabelecer uma conexão criptografada com este perfil.</p>
+              <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem;">Você está prestes a estabelecer uma conexão criptografada com este perfil.</p>
             </div>
             
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
-              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
+              {/* 🔥 ARQUITETURA: Ajuste no margin-bottom */}
+              <md-icon style="font-size: 32px; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">account_circle</md-icon>
               <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
-              <p style="margin: 0; color: #666; font-size: 0.85rem; margin-bottom: 8px;">{preview.value.email || "Sem e-mail"}</p>
+              <p style="margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: 0.85rem; margin-bottom: 8px;">{preview.value.email || "Sem e-mail"}</p>
               
-              <div style="background: rgba(0,0,0,0.05); padding: 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%;">
-                <md-icon style="font-size: 1rem; color: #888;">dns</md-icon> 
-                <span style="font-size: 0.75rem; color: #666; word-break: break-all; text-align: left; line-height: 1.2;">
+              <div style="background: var(--md-sys-color-surface); padding: 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%;">
+                <md-icon style="font-size: 1rem; color: var(--md-sys-color-on-surface-variant);">dns</md-icon> 
+                <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); word-break: break-all; text-align: left; line-height: 1.2;">
                   <strong>Rota de Proxy:</strong><br/>
                   {preview.value.subscription?.proxyserver || 'Padrão (Não informado)'}
                 </span>
@@ -186,7 +182,7 @@ export function ShareSection() {
         ) : (
           <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 480px; width: 100%;">
             <h2 style="justify-content: center; font-size: 1.25rem;">Ler QR Code</h2>
-            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo para se conectar.</p>
+            <p style="font-size: 0.9rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo para se conectar.</p>
             
             <div style="position: relative; width: 100%; max-height: 400px; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden; margin: 0 auto;">
                <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>

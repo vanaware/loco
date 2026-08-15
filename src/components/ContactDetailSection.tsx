@@ -33,12 +33,9 @@ export function ContactDetailSection() {
     editEmail.value = contato.email || '';
     editProxyserver.value = contato.subscription?.proxyserver || '';
 
-    // Verifica se é o contato próprio
     if (hash) {
       ehContatoProprio(hash, profile.value).then((ehProprio) => {
         isContatoProprio.value = ehProprio;
-        
-        // Se for o próprio contato, redireciona para a tela de perfil
         if (ehProprio) {
           navigate('#profile');
         }
@@ -58,7 +55,6 @@ export function ContactDetailSection() {
   }, [contato, hash]);
 
   if (!contato || !hash) return null;
-  
   if (isContatoProprio.value) return null;
 
   const nomeExibicao = contato.name?.trim() || "Anônimo";
@@ -154,7 +150,6 @@ export function ContactDetailSection() {
     navigate(`#chat=${hash}`);
   };
 
-  // 🔥 ARQUITETURA: Função mestre de Expurgo Total da Interface
   const handleExcluirContato = async () => {
     const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir ${nomeExibicao} permanentemente.\n\nIsso apagará TODAS as mensagens enviadas, recebidas e todas as pendências de conexão na rede.\n\nDeseja continuar?`;
     
@@ -162,12 +157,9 @@ export function ContactDetailSection() {
       try {
         await removerContatoCompletamente(hash);
         showToast("🗑️ Contato e histórico excluídos com sucesso.", "success");
-        
-        // Se a pessoa apagada era a que estava selecionada no chat ativo, limpa a tela de fundo
         if (contatoSelecionado.value === hash) {
           contatoSelecionado.value = '';
         }
-        
         navigate('');
       } catch (e: any) {
         showToast(`❌ Erro ao excluir: ${e.message}`, "error");
@@ -200,7 +192,8 @@ export function ContactDetailSection() {
           </div>
         </div>
 
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+        {/* 🔥 ARQUITETURA: Espaçamento ajustado (margin-bottom de 8px para 24px) para respiro visual */}
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
 
         {isEditing.value ? (
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
@@ -243,8 +236,8 @@ export function ContactDetailSection() {
               </div>
             )}
 
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
-            <p style="color: #888; font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
               <md-icon style="font-size: 1rem; vertical-align: middle;">dns</md-icon> Proxy: {contato.subscription?.proxyserver || 'Não informado'}
             </p>
           </>
@@ -253,7 +246,6 @@ export function ContactDetailSection() {
         {!isEditing.value && (
           <>
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
-              
               <div>
                 <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
                   COMO VOCÊ VÊ ESTE CONTATO:
@@ -262,7 +254,7 @@ export function ContactDetailSection() {
                   {contato.trusted ? (
                     <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
                   ) : (
-                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
+                    <><md-icon style="color: var(--md-sys-color-on-surface-variant); font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
                   )}
                 </div>
               </div>
@@ -275,16 +267,15 @@ export function ContactDetailSection() {
                   {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
                   {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
                   {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
-                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
+                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: var(--md-sys-color-on-surface-variant); font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
                 </div>
               </div>
-
             </div>
 
             {qrCodeDataUrl.value && (
-              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
+              <div style="background: #ffffff; color: #111111; padding: 16px; border-radius: 12px; border: 1px solid #eeeeee; margin-bottom: 20px; display: inline-block;">
                 <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
-                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
+                <span style="font-size: 0.75rem; color: #555555; display: block; margin-top: 8px;">
                   Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
                 </span>
               </div>
@@ -323,9 +314,7 @@ export function ContactDetailSection() {
             </div>
           </>
         )}
-
       </div>
-
     </div>
   );
 }

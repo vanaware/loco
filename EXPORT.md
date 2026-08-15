@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.106-msugf07d** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.115-msuhsk1q** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.106-msugf07d] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.115-msuhsk1q] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 11:11:35 AM
+Gerado automaticamente em: 8/15/2026, 11:50:47 AM
 
 ---
 
@@ -579,235 +579,238 @@ const styles: Record<string, JSX.CSSProperties> = {
 
 ---
 
-## Arquivo: `src/components/AdvancedSection.tsx`
+## Arquivo: `src/components/SettingsSection.tsx`
 
 ```tsx
-import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
-import { profile } from '../stores/profileStore.ts';
-import { showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
-import { DebugPanel } from './DebugPanel.tsx';
-import { APP_VERSION } from '../constants/version.ts'; 
+import { useEffect } from 'preact/hooks';
+import { loadAllConfigs, saveConfig, resetConfig, getConfigValue } from '../stores/config-store.ts';
+import { showToast, appTheme, AppTheme } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
-import { loadAllConfigs, CONFIG_KEYS } from '../stores/config-store.ts';
+import { buildProxyUrl, pingProxy } from '../constants/config.ts';
 
-export function AdvancedSection() {
-  const diagnostic = useSignal({
-    identificacao: false, criptografia: false, blindagemServidor: false,
-    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
-    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
-    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
-    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
-    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
-    proxyPath: '',
-    loading: true,
-  });
+export function SettingsSection() {
+  const proxyPath = useSignal('');
+  const isSaving = useSignal(false);
+  const isTesting = useSignal(false);
+  const hasChanges = useSignal(false);
+  const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
+  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
   
-  // Listener para atualizar quando a configuração mudar
   useEffect(() => {
-    const updateConfig = async () => {
+    const load = async () => {
       const config = await loadAllConfigs();
-      diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
+      proxyPath.value = config.proxy_path || '';
+      await updatePreview(config.proxy_path || '');
     };
-    
-    window.addEventListener('config-updated', updateConfig);
-    updateConfig();
-    
-    return () => {
-      window.removeEventListener('config-updated', updateConfig);
-    };
+    load();
   }, []);
+  
+  const updatePreview = async (path: string) => {
+    previewUrls.value = {
+      endpoint: await buildProxyUrl('/', path),
+      publicKey: await buildProxyUrl('/publickey', path),
+      logout: await buildProxyUrl('/logout', path)
+    };
+    serverStatus.value = 'unknown';
+  };
 
-  const runDiagnostics = async () => {
-    const p = profile.value;
+  const handleProxyPathChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    proxyPath.value = target.value;
+    hasChanges.value = true;
+    updatePreview(target.value);
+  };
+
+  const handleThemeChange = async (e: Event) => {
+    const val = (e.target as any).value as AppTheme;
+    if (val) {
+      appTheme.value = val;
+      await saveConfig('APP_THEME', val);
+      showToast('Tema atualizado!', 'success');
+    }
+  };
+  
+  const handleTestarConexao = async () => {
+    isTesting.value = true;
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
     
-    let envelopeOK = false;
-    if (p?.vapidPrivateKeyEnvelope) {
-      try {
-        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
-        const envelopeDecoded = JSON.parse(envelopeJson);
-        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
-          envelopeOK = true;
-        }
-      } catch { envelopeOK = false; }
-    }
-
-    let cameraState = 'prompt', micState = 'prompt';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
-    }
-
-    let storagePersisted = false;
-    let quotaInfo = { usoMB: 0, livreMB: 0 };
-    if ('storage' in navigator) {
-      if (navigator.storage.persisted) {
-        try { storagePersisted = await navigator.storage.persisted(); } catch {}
+    try {
+      const isAlive = await pingProxy(path);
+      if (isAlive) {
+        serverStatus.value = 'ok';
+        showToast('✅ Servidor detectado com sucesso!', 'success');
+      } else {
+        serverStatus.value = 'error';
+        showToast('❌ Servidor não respondeu ou não é um Loco Proxy.', 'error');
       }
-      if (navigator.storage.estimate) {
-        try {
-          const estimate = await navigator.storage.estimate();
-          quotaInfo = {
-            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
-            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
-          };
-        } catch {}
-      }
+    } catch {
+      serverStatus.value = 'error';
+      showToast('❌ Falha na conexão de rede.', 'error');
+    } finally {
+      isTesting.value = false;
     }
-
-    let swControlando = false, hasBackgroundSync = false;
-    if ('serviceWorker' in navigator) {
-      swControlando = navigator.serviceWorker.controller !== null;
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) hasBackgroundSync = 'sync' in reg;
-      } catch {}
-    }
-
-    const diag = {
-      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
-      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
-      blindagemServidor: envelopeOK,
-      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
-      inscricaoRegistrada: !!p?.subscription,
-      inscricaoValida: false,
-      swAtivoEControlando: swControlando,
-      isOnline: navigator.onLine,
-      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
-      permissaoCamera: cameraState,
-      permissaoMicrofone: micState,
-      suporteBarcodeDetector: 'BarcodeDetector' in window,
-      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
-      suporteWebRTC: 'RTCPeerConnection' in window,
-      suporteBackgroundSync: hasBackgroundSync,
-      armazenamentoPersistido: storagePersisted,
-      cotaEspaco: quotaInfo,
-      proxyPath: diagnostic.value.proxyPath, // Mantém o valor atual da configuração
-      loading: false,
-    };
-
-    if (diag.permissoesNotificacao && p?.subscription) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg && reg.pushManager) {
-          const sub = await reg.pushManager.getSubscription();
-          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
-        }
-      } catch {}
-    }
-
-    diagnostic.value = diag;
   };
 
-  useEffect(() => {
-    runDiagnostics();
-    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
-    };
-  }, [profile.value]);
-
-  const diag = diagnostic.value;
-
-  const handleSolicitarPersistenciaManual = async () => {
-    const ok = await solicitarArmazenamentoPersistente();
-    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
-    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
-    await runDiagnostics();
+  const handleSalvar = async () => {
+    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
+    isSaving.value = true;
+    
+    try {
+      await saveConfig('PROXY_PATH', path);
+      showToast(`✅ Configuração salva: ${path}`, 'success');
+      hasChanges.value = false;
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      console.error('Erro ao salvar configuração:', error);
+      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
+    } finally {
+      isSaving.value = false;
+    }
   };
-
-  const handleFechar = () => {
-    navigate(''); 
+  
+  const handleReset = async () => {
+    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
+      return;
+    }
+    try {
+      await resetConfig();
+      const config = await loadAllConfigs();
+      proxyPath.value = config.proxy_path || '/';
+      appTheme.value = 'system';
+      hasChanges.value = false;
+      serverStatus.value = 'unknown';
+      showToast('✅ Auto-Discovery resetado', 'success');
+      window.dispatchEvent(new CustomEvent('config-updated'));
+    } catch (error) {
+      showToast('❌ Erro ao resetar', 'error');
+    }
   };
-
+  
+  const handleCancelar = () => {
+    loadAllConfigs().then(config => {
+      proxyPath.value = config.proxy_path || '';
+      hasChanges.value = false;
+      serverStatus.value = 'unknown';
+      showToast('Alterações descartadas', 'info');
+    });
+  };
+  
   return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 16px; overflow-y: auto;">
       <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
         
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <div style="display: flex; flex-direction: column;">
             <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
+              <md-icon>settings</md-icon> Configurações
             </span>
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Build Version: v{APP_VERSION}
+            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
+              Ajustes Visuais e de Rede
             </span>
           </div>
-          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
+          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
             <md-icon>close</md-icon>
           </md-icon-button>
         </div>
         
-        {diag.loading ? (
-          <p style="font-size: 0.85rem; color: #666; margin: 0;">Analisando requisitos...</p>
-        ) : (
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                🛑 Requisitos Obrigatórios
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
-                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
-                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
-                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
-                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
-                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
-                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
-              </ul>
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          
+          {/* 🔥 SEÇÃO DE APARÊNCIA */}
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="font-size: 0.85rem; font-weight: 600; color: var(--md-sys-color-on-surface);">
+              Aparência do Aplicativo
+            </label>
+            <md-outlined-select value={appTheme.value} onChange={handleThemeChange} style="width: 100%;">
+              <md-select-option value="system"><div slot="headline">Sincronizar com o Sistema</div></md-select-option>
+              <md-select-option value="light"><div slot="headline">Tema Claro</div></md-select-option>
+              <md-select-option value="dark"><div slot="headline">Tema Escuro</div></md-select-option>
+            </md-outlined-select>
+          </div>
+
+          <md-divider></md-divider>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label for="proxy-path" style="font-size: 0.85rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
+              Servidor Proxy
+              {serverStatus.value === 'ok' && <span style="color: var(--md-sys-color-primary); font-size: 0.75rem; font-weight: bold;">(Online)</span>}
+              {serverStatus.value === 'error' && <span style="color: var(--md-sys-color-error); font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
+            </label>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <md-outlined-text-field
+                id="proxy-path"
+                value={proxyPath.value}
+                onInput={handleProxyPathChange}
+                placeholder="Ex: /, /api ou https://push.com"
+                style="flex-grow: 1; min-width: 200px;"
+                disabled={isSaving.value || isTesting.value}
+              >
+                <md-icon slot="leading-icon">dns</md-icon>
+              </md-outlined-text-field>
+              
+              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px; flex-shrink: 0;">
+                 {isTesting.value ? '...' : 'Testar'}
+              </md-filled-tonal-button>
             </div>
-            <md-divider></md-divider>
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                ⚡ Recursos Desejáveis & Status
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: #444; line-height: 1.8;">
-                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
-                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
-                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
-                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
-                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
-                <li>
-                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
-                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
-                   'ℹ️ Permissão de Câmera (Pendente)'}
-                </li>
-                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
-                  {!diag.armazenamentoPersistido && (
-                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                      Proteger Dados
-                    </md-outlined-button>
-                  )}
-                </li>
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
-                  <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                    <md-icon slot="icon">edit</md-icon>
-                    Configurar
-                  </md-outlined-button>
-                </li>
-                {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: #666; font-size: 0.8rem; margin-top: 4px;">
-                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
-                  </li>
-                )}
-              </ul>
+            <span style="font-size: 0.7rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.2;">
+              Se o PWA foi instalado via GitHub Pages, informe a URL absoluta de um Worker ativo do Loco.
+            </span>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--md-sys-color-on-surface-variant);">
+              🔍 Resolução Dinâmica (Preview):
+            </span>
+            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem;">
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Push URL:</span>
+                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.endpoint}
+                </code>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="color: var(--md-sys-color-on-surface-variant); min-width: 70px; flex-shrink: 0; font-weight: 600;">Ping Test:</span>
+                <code style="color: var(--md-sys-color-on-surface); word-break: break-all; line-height: 1.4;">
+                  {previewUrls.value.endpoint.replace(/\/$/, '')}/ping
+                </code>
+              </div>
             </div>
           </div>
-        )}
-      </div>
-
-      <div style="max-width: 600px; width: 100%;">
-        <DebugPanel />
+          
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+            <md-outlined-button 
+              onClick={handleCancelar} 
+              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
+              style="flex: 1; min-width: 120px;"
+            >
+              Cancelar
+            </md-outlined-button>
+            
+            <md-outlined-button 
+              onClick={handleReset} 
+              disabled={isSaving.value || isTesting.value} 
+              style="color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error); flex: 1; min-width: 120px;"
+            >
+              Auto-Discovery
+            </md-outlined-button>
+            
+            <md-filled-button 
+              onClick={handleSalvar} 
+              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
+              style="flex: 1; min-width: 120px;"
+            >
+              {isSaving.value ? (
+                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
+              ) : (
+                <>
+                  <md-icon slot="icon">save</md-icon>
+                  Salvar
+                </>
+              )}
+            </md-filled-button>
+          </div>
+          
+        </div>
       </div>
     </div>
   );
@@ -833,7 +836,7 @@ import { navigate } from '../utils/router.ts';
 
 export function ProfileSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false); // 🔥 Novo estado de edição
+  const isEditing = useSignal<boolean>(false);
 
   useEffect(() => {
     carregarProfile();
@@ -842,8 +845,6 @@ export function ProfileSection() {
   const p = profile.value;
   const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
 
-  // 🔥 ARQUITETURA: Máquina de estado inicial
-  // Se não tem chave gerada, o usuário está no Onboarding. Forçamos o modo de edição.
   useEffect(() => {
     if (!temChaveVapid) {
       isEditing.value = true;
@@ -880,7 +881,7 @@ export function ProfileSection() {
       const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
       await atualizarProfile(pNovo);
       
-      isEditing.value = false; // Sai do modo de edição após salvar com sucesso
+      isEditing.value = false;
 
       if (eraNovo) {
         showToast(`✅ Perfil inicializado com sucesso!`, "success");
@@ -896,7 +897,6 @@ export function ProfileSection() {
 
   const handleCancelarEdicao = () => {
     if (p) {
-      // Reverte os valores dos inputs para os dados consolidados no banco
       profileName.value = p.name || '';
       profileEmail.value = p.email || '';
     }
@@ -929,7 +929,6 @@ export function ProfileSection() {
       
       <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
         
-        {/* 🔥 Cabeçalho com Ícone de Edição */}
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
             <md-icon>account_circle</md-icon> Identidade Local
@@ -943,13 +942,14 @@ export function ProfileSection() {
           </div>
         </div>
 
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+        {/* 🔥 ARQUITETURA: Espaçamento ajustado (margin-bottom de 8px para 24px) para respiro visual */}
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
 
         {isEditing.value ? (
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
             
             {!temChaveVapid && (
-               <p style="font-size: 0.85rem; color: #666; margin-bottom: 8px; text-align: center;">
+               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
                  Este nome será visível para os contatos que você convidar.
                </p>
             )}
@@ -986,11 +986,10 @@ export function ProfileSection() {
           </div>
         ) : (
           <>
-            {/* 🔥 Visão de Leitura (Read-Only) */}
             <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               {p?.name?.trim() || "Anônimo"}
             </h2>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
 
             <div style="display: flex; flex-direction: column; gap: 8px;">
               <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
@@ -1002,17 +1001,16 @@ export function ProfileSection() {
         )}
       </div>
 
-      {/* 🔥 O QR Code some durante a edição para manter a tela focada */}
       {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
-        <div class="container" style="background: #fff; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
             Seu QR Code
           </h3>
-          <p style="font-size: 0.8rem; color: #666; margin-bottom: 16px;">
+          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
             Mostre isso para um amigo escanear pelo App Loco.
           </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eee; margin: 0 auto;" />
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
         </div>
       )}
 
@@ -1061,12 +1059,9 @@ export function ContactDetailSection() {
     editEmail.value = contato.email || '';
     editProxyserver.value = contato.subscription?.proxyserver || '';
 
-    // Verifica se é o contato próprio
     if (hash) {
       ehContatoProprio(hash, profile.value).then((ehProprio) => {
         isContatoProprio.value = ehProprio;
-        
-        // Se for o próprio contato, redireciona para a tela de perfil
         if (ehProprio) {
           navigate('#profile');
         }
@@ -1086,7 +1081,6 @@ export function ContactDetailSection() {
   }, [contato, hash]);
 
   if (!contato || !hash) return null;
-  
   if (isContatoProprio.value) return null;
 
   const nomeExibicao = contato.name?.trim() || "Anônimo";
@@ -1182,7 +1176,6 @@ export function ContactDetailSection() {
     navigate(`#chat=${hash}`);
   };
 
-  // 🔥 ARQUITETURA: Função mestre de Expurgo Total da Interface
   const handleExcluirContato = async () => {
     const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir ${nomeExibicao} permanentemente.\n\nIsso apagará TODAS as mensagens enviadas, recebidas e todas as pendências de conexão na rede.\n\nDeseja continuar?`;
     
@@ -1190,12 +1183,9 @@ export function ContactDetailSection() {
       try {
         await removerContatoCompletamente(hash);
         showToast("🗑️ Contato e histórico excluídos com sucesso.", "success");
-        
-        // Se a pessoa apagada era a que estava selecionada no chat ativo, limpa a tela de fundo
         if (contatoSelecionado.value === hash) {
           contatoSelecionado.value = '';
         }
-        
         navigate('');
       } catch (e: any) {
         showToast(`❌ Erro ao excluir: ${e.message}`, "error");
@@ -1228,7 +1218,8 @@ export function ContactDetailSection() {
           </div>
         </div>
 
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+        {/* 🔥 ARQUITETURA: Espaçamento ajustado (margin-bottom de 8px para 24px) para respiro visual */}
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
 
         {isEditing.value ? (
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
@@ -1271,8 +1262,8 @@ export function ContactDetailSection() {
               </div>
             )}
 
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
-            <p style="color: #888; font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
               <md-icon style="font-size: 1rem; vertical-align: middle;">dns</md-icon> Proxy: {contato.subscription?.proxyserver || 'Não informado'}
             </p>
           </>
@@ -1281,7 +1272,6 @@ export function ContactDetailSection() {
         {!isEditing.value && (
           <>
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
-              
               <div>
                 <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
                   COMO VOCÊ VÊ ESTE CONTATO:
@@ -1290,7 +1280,7 @@ export function ContactDetailSection() {
                   {contato.trusted ? (
                     <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
                   ) : (
-                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
+                    <><md-icon style="color: var(--md-sys-color-on-surface-variant); font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
                   )}
                 </div>
               </div>
@@ -1303,16 +1293,15 @@ export function ContactDetailSection() {
                   {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
                   {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
                   {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
-                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
+                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: var(--md-sys-color-on-surface-variant); font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
                 </div>
               </div>
-
             </div>
 
             {qrCodeDataUrl.value && (
-              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
+              <div style="background: #ffffff; color: #111111; padding: 16px; border-radius: 12px; border: 1px solid #eeeeee; margin-bottom: 20px; display: inline-block;">
                 <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
-                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
+                <span style="font-size: 0.75rem; color: #555555; display: block; margin-top: 8px;">
                   Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
                 </span>
               </div>
@@ -1351,103 +1340,6 @@ export function ContactDetailSection() {
             </div>
           </>
         )}
-
-      </div>
-
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ContatosSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { contatosComHash, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
-
-export function ContatosSection() {
-  useEffect(() => {}, []);
-
-  const abrirChat = (hash: string) => {
-    navigate(`#chat=${hash}`);
-  };
-
-  const abrirDetalhesContato = (e: Event, hash: string) => {
-    e.stopPropagation();
-    navigate(`#detail=${hash}`);
-  };
-
-  return (
-    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
-      
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
-        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
-          <md-icon>person_add</md-icon>
-        </md-icon-button>
-      </div>
-      
-      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
-        {contatosComHash.value.length === 0 ? (
-          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
-        ) : (
-          <md-list>
-            {contatosComHash.value.map(({ contato, hash }) => {
-              const nomeExibicao = contato.name?.trim() || "Anônimo";
-              return (
-                <md-list-item 
-                  key={hash} 
-                  onClick={() => abrirChat(hash)}
-                  style="cursor: pointer;"
-                >
-                  <md-icon slot="start">person</md-icon>
-                  
-                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
-                      <strong>{nomeExibicao}</strong>
-                    </span>
-                    {contato.trusted && (
-                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
-                    )}
-                  </div>
-                  
-                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
-                    {contato.email || 'Sem e-mail'}
-                  </span>
-                  
-                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
-                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
-                      <md-icon>qr_code_2</md-icon>
-                    </md-icon-button>
-
-                    {!contato.trusted && (
-                      <md-icon-button onClick={async (e) => {
-                        e.stopPropagation();
-                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
-                        showToast("Contato marcado como confiável!", "success");
-                      }}>
-                        <md-icon>verified</md-icon>
-                      </md-icon-button>
-                    )}
-
-                    <md-icon-button onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm(`Remover ${nomeExibicao} e apagar todo o histórico de conversas permanentemente?`)) {
-                        await removerContatoCompletamente(hash);
-                      }
-                    }}>
-                      <md-icon>delete</md-icon>
-                    </md-icon-button>
-                  </div>
-                </md-list-item>
-              );
-            })}
-          </md-list>
-        )}
       </div>
     </div>
   );
@@ -1459,7 +1351,6 @@ export function ContatosSection() {
 ## Arquivo: `src/components/ShareSection.tsx`
 
 ```tsx
-// src/components/ShareSection.tsx
 import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { processarQualquerConvite } from '../utils/share-utils.ts';
@@ -1479,13 +1370,11 @@ export function ShareSection() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    // Se a URL já trouxe um payload (ex: clicou num link gerado), processa direto
     if (sharePayload.value) {
       handleProcessar(sharePayload.value);
     } else {
       iniciarCamera();
     }
-    // Desliga a câmera automaticamente quando o componente for desmontado (troca de rota)
     return () => pararCamera();
   }, [sharePayload.value]);
 
@@ -1494,15 +1383,13 @@ export function ShareSection() {
       error.value = null;
       const resultado = await processarQualquerConvite(input);
       
-      // 🔥 ARQUITETURA: Self-Contact Guard
-      // Verifica se o usuário está tentando adicionar a si mesmo antes de mostrar o preview
       if (resultado.vapidPublicKey) {
         const hashImportado = await serializarPublicKeyVapid(resultado.vapidPublicKey);
         const ehParaMim = await ehContatoProprio(hashImportado, profile.value);
         
         if (ehParaMim) {
           showToast("👋 Ops! Este é o seu próprio convite.", "info");
-          sharePayload.value = null; // Limpa o payload da URL para não travar num loop
+          sharePayload.value = null; 
           navigate('#profile');
           return;
         }
@@ -1587,7 +1474,6 @@ export function ShareSection() {
       
       await adicionarContato(novoContato);
       
-      // Aciona o SW para disparar o Handshake de apresentação para o novo contato
       const reg = await navigator.serviceWorker.ready;
       if (reg.active) {
         reg.active.postMessage({
@@ -1600,7 +1486,7 @@ export function ShareSection() {
       }
 
       showToast("✅ Contato adicionado! Um pacote de sincronização foi enviado.", "success");
-      navigate(`#detail=${contatoId}`); // Leva o usuário direto para o cartão do novo contato
+      navigate(`#detail=${contatoId}`); 
     } catch (e: any) {
       showToast("❌ Erro ao adicionar contato: " + e.message, "error");
     }
@@ -1612,7 +1498,7 @@ export function ShareSection() {
           <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
             <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">error</md-icon>
             <h2 style="justify-content: center; font-size: 1.25rem;">Ops! Algo deu errado</h2>
-            <p style="color: #666; margin-bottom: 24px; font-size: 0.9rem;">{error.value}</p>
+            <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 24px; font-size: 0.9rem;">{error.value}</p>
             <md-filled-button onClick={() => { error.value = null; iniciarCamera(); }} style="width: 100%;">
               Tentar Novamente
             </md-filled-button>
@@ -1620,19 +1506,21 @@ export function ShareSection() {
         ) : preview.value ? (
           <div class="container" style="border-left-color: var(--md-sys-color-primary); max-width: 480px; width: 100%;">
             <div style="text-align: center; margin-bottom: 24px;">
-              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">person_add</md-icon>
+              {/* 🔥 ARQUITETURA: Ajuste no margin-bottom */}
+              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 16px;">person_add</md-icon>
               <h2 style="justify-content: center; font-size: 1.25rem;">Confirmar Contato</h2>
-              <p style="color: #666; font-size: 0.9rem;">Você está prestes a estabelecer uma conexão criptografada com este perfil.</p>
+              <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem;">Você está prestes a estabelecer uma conexão criptografada com este perfil.</p>
             </div>
             
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
-              <md-icon style="font-size: 32px; color: #555; margin-bottom: 8px;">account_circle</md-icon>
+              {/* 🔥 ARQUITETURA: Ajuste no margin-bottom */}
+              <md-icon style="font-size: 32px; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">account_circle</md-icon>
               <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
-              <p style="margin: 0; color: #666; font-size: 0.85rem; margin-bottom: 8px;">{preview.value.email || "Sem e-mail"}</p>
+              <p style="margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: 0.85rem; margin-bottom: 8px;">{preview.value.email || "Sem e-mail"}</p>
               
-              <div style="background: rgba(0,0,0,0.05); padding: 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%;">
-                <md-icon style="font-size: 1rem; color: #888;">dns</md-icon> 
-                <span style="font-size: 0.75rem; color: #666; word-break: break-all; text-align: left; line-height: 1.2;">
+              <div style="background: var(--md-sys-color-surface); padding: 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%;">
+                <md-icon style="font-size: 1rem; color: var(--md-sys-color-on-surface-variant);">dns</md-icon> 
+                <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); word-break: break-all; text-align: left; line-height: 1.2;">
                   <strong>Rota de Proxy:</strong><br/>
                   {preview.value.subscription?.proxyserver || 'Padrão (Não informado)'}
                 </span>
@@ -1647,7 +1535,7 @@ export function ShareSection() {
         ) : (
           <div class="container" style="border-left-color: var(--md-sys-color-secondary); text-align: center; max-width: 480px; width: 100%;">
             <h2 style="justify-content: center; font-size: 1.25rem;">Ler QR Code</h2>
-            <p style="font-size: 0.9rem; color: #666; margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo para se conectar.</p>
+            <p style="font-size: 0.9rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">Aponte a câmera para o convite do Loco de um amigo para se conectar.</p>
             
             <div style="position: relative; width: 100%; max-height: 400px; aspect-ratio: 1; background: #000; border-radius: 12px; overflow: hidden; margin: 0 auto;">
                <video ref={videoRef} playsInline style="width: 100%; height: 100%; object-fit: cover;"></video>
@@ -1679,113 +1567,153 @@ export function ShareSection() {
 
 ---
 
-## Arquivo: `src/components/SettingsSection.tsx`
+## Arquivo: `src/components/AdvancedSection.tsx`
 
 ```tsx
-import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
-import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
+import { useSignal } from '@preact/signals';
+import { profile } from '../stores/profileStore.ts';
 import { showToast } from '../signals/state.ts';
+import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
+import { DebugPanel } from './DebugPanel.tsx';
+import { APP_VERSION } from '../constants/version.ts'; 
 import { navigate } from '../utils/router.ts';
-import { buildProxyUrl, pingProxy } from '../constants/config.ts';
+import { loadAllConfigs, CONFIG_KEYS } from '../stores/config-store.ts';
 
-export function SettingsSection() {
-  const proxyPath = useSignal('');
-  const isSaving = useSignal(false);
-  const isTesting = useSignal(false);
-  const hasChanges = useSignal(false);
-  const serverStatus = useSignal<'unknown' | 'ok' | 'error'>('unknown');
-  const previewUrls = useSignal({ endpoint: '', publicKey: '', logout: '' });
+export function AdvancedSection() {
+  const diagnostic = useSignal({
+    identificacao: false, criptografia: false, blindagemServidor: false,
+    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
+    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
+    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
+    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
+    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
+    proxyPath: '',
+    loading: true,
+  });
   
   useEffect(() => {
-    const load = async () => {
+    const updateConfig = async () => {
       const config = await loadAllConfigs();
-      proxyPath.value = config.proxy_path || '';
-      await updatePreview(config.proxy_path || '');
+      diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
     };
-    load();
+    
+    window.addEventListener('config-updated', updateConfig);
+    updateConfig();
+    
+    return () => {
+      window.removeEventListener('config-updated', updateConfig);
+    };
   }, []);
-  
-  const updatePreview = async (path: string) => {
-    previewUrls.value = {
-      endpoint: await buildProxyUrl('/', path),
-      publicKey: await buildProxyUrl('/publickey', path),
-      logout: await buildProxyUrl('/logout', path)
-    };
-    serverStatus.value = 'unknown'; // reseta status visual ao digitar
-  };
 
-  const handleProxyPathChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
-    proxyPath.value = target.value;
-    hasChanges.value = true;
-    updatePreview(target.value);
-  };
-  
-  const handleTestarConexao = async () => {
-    isTesting.value = true;
-    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
+  const runDiagnostics = async () => {
+    const p = profile.value;
     
-    try {
-      const isAlive = await pingProxy(path);
-      if (isAlive) {
-        serverStatus.value = 'ok';
-        showToast('✅ Servidor detectado com sucesso!', 'success');
-      } else {
-        serverStatus.value = 'error';
-        showToast('❌ Servidor não respondeu ou não é um Loco Proxy.', 'error');
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch { envelopeOK = false; }
+    }
+
+    let cameraState = 'prompt', micState = 'prompt';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
+    }
+
+    let storagePersisted = false;
+    let quotaInfo = { usoMB: 0, livreMB: 0 };
+    if ('storage' in navigator) {
+      if (navigator.storage.persisted) {
+        try { storagePersisted = await navigator.storage.persisted(); } catch {}
       }
-    } catch {
-      serverStatus.value = 'error';
-      showToast('❌ Falha na conexão de rede.', 'error');
-    } finally {
-      isTesting.value = false;
+      if (navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          quotaInfo = {
+            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
+            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
+          };
+        } catch {}
+      }
     }
+
+    let swControlando = false, hasBackgroundSync = false;
+    if ('serviceWorker' in navigator) {
+      swControlando = navigator.serviceWorker.controller !== null;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) hasBackgroundSync = 'sync' in reg;
+      } catch {}
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
+      inscricaoRegistrada: !!p?.subscription,
+      inscricaoValida: false,
+      swAtivoEControlando: swControlando,
+      isOnline: navigator.onLine,
+      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
+      permissaoCamera: cameraState,
+      permissaoMicrofone: micState,
+      suporteBarcodeDetector: 'BarcodeDetector' in window,
+      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
+      suporteWebRTC: 'RTCPeerConnection' in window,
+      suporteBackgroundSync: hasBackgroundSync,
+      armazenamentoPersistido: storagePersisted,
+      cotaEspaco: quotaInfo,
+      proxyPath: diagnostic.value.proxyPath,
+      loading: false,
+    };
+
+    if (diag.permissoesNotificacao && p?.subscription) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
+        }
+      } catch {}
+    }
+
+    diagnostic.value = diag;
   };
 
-  const handleSalvar = async () => {
-    const path = proxyPath.value.trim() === '' ? '/' : proxyPath.value.trim();
-    isSaving.value = true;
-    
-    try {
-      await saveConfig('PROXY_PATH', path);
-      showToast(`✅ Configuração salva: ${path}`, 'success');
-      hasChanges.value = false;
-      window.dispatchEvent(new CustomEvent('config-updated'));
-    } catch (error) {
-      console.error('Erro ao salvar configuração:', error);
-      showToast('❌ Erro ao salvar configuração. Verifique o console.', 'error');
-    } finally {
-      isSaving.value = false;
-    }
+  useEffect(() => {
+    runDiagnostics();
+    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+
+  const handleSolicitarPersistenciaManual = async () => {
+    const ok = await solicitarArmazenamentoPersistente();
+    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
+    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
+    await runDiagnostics();
   };
-  
-  const handleReset = async () => {
-    if (!confirm('Tem certeza que deseja resetar todas as configurações para o padrão?')) {
-      return;
-    }
-    try {
-      await resetConfig();
-      const config = await loadAllConfigs(); // engatilha auto-discovery
-      proxyPath.value = config.proxy_path || '/';
-      hasChanges.value = false;
-      serverStatus.value = 'unknown';
-      showToast('✅ Auto-Discovery resetado', 'success');
-      window.dispatchEvent(new CustomEvent('config-updated'));
-    } catch (error) {
-      showToast('❌ Erro ao resetar', 'error');
-    }
+
+  const handleFechar = () => {
+    navigate(''); 
   };
-  
-  const handleCancelar = () => {
-    loadAllConfigs().then(config => {
-      proxyPath.value = config.proxy_path || '';
-      hasChanges.value = false;
-      serverStatus.value = 'unknown';
-      showToast('Alterações descartadas', 'info');
-    });
-  };
-  
+
   return (
     <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
       <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
@@ -1793,102 +1721,82 @@ export function SettingsSection() {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <div style="display: flex; flex-direction: column;">
             <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>settings</md-icon> Configurações de Rede
+              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
             </span>
-            <span style="font-size: 0.75rem; color: #888; margin-left: 30px;">
-              Ajuste o Roteamento de Mensagens
+            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
+              Build Version: v{APP_VERSION}
             </span>
           </div>
-          <md-icon-button onClick={() => navigate('')} title="Fechar Configurações">
+          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
             <md-icon>close</md-icon>
           </md-icon-button>
         </div>
         
-        <div style="display: flex; flex-direction: column; gap: 16px;">
-          
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <label for="proxy-path" style="font-size: 0.9rem; font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; justify-content: space-between; align-items: center;">
-              Servidor Proxy
-              {serverStatus.value === 'ok' && <span style="color: green; font-size: 0.75rem; font-weight: bold;">(Online)</span>}
-              {serverStatus.value === 'error' && <span style="color: red; font-size: 0.75rem; font-weight: bold;">(Offline)</span>}
-            </label>
-            <div style="display: flex; gap: 8px;">
-              <md-outlined-text-field
-                id="proxy-path"
-                value={proxyPath.value}
-                onInput={handleProxyPathChange}
-                placeholder="Ex: /, /api ou https://push.com"
-                style="flex-grow: 1;"
-                disabled={isSaving.value || isTesting.value}
-              >
-                <md-icon slot="leading-icon">dns</md-icon>
-              </md-outlined-text-field>
-              
-              <md-filled-tonal-button onClick={handleTestarConexao} disabled={isTesting.value || isSaving.value} style="height: 56px;">
-                 {isTesting.value ? '...' : 'Testar'}
-              </md-filled-tonal-button>
+        {diag.loading ? (
+          <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin: 0;">Analisando requisitos...</p>
+        ) : (
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                🛑 Requisitos Obrigatórios
+              </h4>
+              {/* 🔥 ARQUITETURA: Uso de --md-sys-color-on-surface para garantir legibilidade no modo escuro */}
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
+                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
+                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
+              </ul>
             </div>
-            <span style="font-size: 0.75rem; color: #666;">
-              Se o PWA foi instalado via GitHub Pages ou IPFS e não possui um servidor nativo, informe a URL absoluta de um Worker ativo do Loco.
-            </span>
-          </div>
-          
-          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px;">
-            <span style="font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-secondary);">
-              🔍 Resolução Dinâmica (Preview):
-            </span>
-            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem;">
-              {/* 🔥 ARQUITETURA: Quebra de palavra e alinhamento flexível para telas mobile pequenas */}
-              <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <span style="color: #666; min-width: 70px; flex-shrink: 0;">Push URL:</span>
-                <code style="color: #444; word-break: break-all; line-height: 1.4;">
-                  {previewUrls.value.endpoint}
-                </code>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: flex-start;">
-                <span style="color: #666; min-width: 70px; flex-shrink: 0;">Ping Test:</span>
-                <code style="color: #444; word-break: break-all; line-height: 1.4;">
-                  {previewUrls.value.endpoint.replace(/\/$/, '')}/ping
-                </code>
-              </div>
+            <md-divider></md-divider>
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                ⚡ Recursos Desejáveis & Status
+              </h4>
+              {/* 🔥 ARQUITETURA: Uso de --md-sys-color-on-surface */}
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
+                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
+                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
+                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
+                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
+                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
+                <li>
+                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
+                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
+                   'ℹ️ Permissão de Câmera (Pendente)'}
+                </li>
+                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
+                  {!diag.armazenamentoPersistido && (
+                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                      Proteger Dados
+                    </md-outlined-button>
+                  )}
+                </li>
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
+                  <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                    <md-icon slot="icon">edit</md-icon>
+                    Configurar
+                  </md-outlined-button>
+                </li>
+                {diag.cotaEspaco.livreMB > 0 && (
+                  <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 4px;">
+                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
+                  </li>
+                )}
+              </ul>
             </div>
           </div>
-          
-          {/* 🔥 ARQUITETURA: Container responsivo (flex-wrap). Os botões esticam e quebram linha. */}
-          <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px;">
-            <md-outlined-button 
-              onClick={handleCancelar} 
-              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
-              style="flex: 1; min-width: 140px;"
-            >
-              Cancelar
-            </md-outlined-button>
-            
-            <md-outlined-button 
-              onClick={handleReset} 
-              disabled={isSaving.value || isTesting.value} 
-              style="color: var(--md-sys-color-error); flex: 1; min-width: 140px;"
-            >
-              Auto-Discovery
-            </md-outlined-button>
-            
-            <md-filled-button 
-              onClick={handleSalvar} 
-              disabled={!hasChanges.value || isSaving.value || isTesting.value} 
-              style="flex: 1; min-width: 140px;"
-            >
-              {isSaving.value ? (
-                <md-circular-progress indeterminate style="width: 20px; height: 20px;"></md-circular-progress>
-              ) : (
-                <>
-                  <md-icon slot="icon">save</md-icon>
-                  Salvar
-                </>
-              )}
-            </md-filled-button>
-          </div>
-          
-        </div>
+        )}
+      </div>
+
+      <div style="max-width: 600px; width: 100%;">
+        <DebugPanel />
       </div>
     </div>
   );
@@ -1911,10 +1819,6 @@ export function LogoutSection() {
   const handleLogout = async () => {
     executando.value = true;
     try {
-      // 🔥 ARQUITETURA OFFLINE-FIRST: 
-      // Em uma aplicação descentralizada sem sessões no servidor, 
-      // o "Logout" é apenas um Wipeout (Expurgo) local do dispositivo.
-      
       status.value = "1/4 Limpando Web Storage e Cookies...";
       window.localStorage.clear();
       window.sessionStorage.clear();
@@ -1953,7 +1857,6 @@ export function LogoutSection() {
         }
       }
 
-      // Desregistra os SWs por último para não engasgar as limpezas de OPFS/Cache
       status.value = "4/4 Desativando Push e Service Workers...";
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
@@ -1968,7 +1871,6 @@ export function LogoutSection() {
 
       status.value = "✅ Destruição de chaves concluída com sucesso!";
       setTimeout(() => {
-        // Força o reload voltando para a raiz limpa do app
         window.location.href = window.location.pathname; 
       }, 1000);
     } catch (erro: any) {
@@ -1983,7 +1885,8 @@ export function LogoutSection() {
         <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
         <h2 style="justify-content: center;">Sair do Sistema</h2>
         
-        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
+        {/* 🔥 ARQUITETURA: Uso dinâmico de cor de texto para modo escuro/claro */}
+        <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px; font-size: 0.95rem;">
           Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
         </p>
 
@@ -2002,6 +1905,107 @@ export function LogoutSection() {
               Cancelar e Voltar
             </md-outlined-button>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ContatosSection.tsx`
+
+```tsx
+import { useEffect } from 'preact/hooks';
+import { contatosComHash, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+
+export function ContatosSection() {
+  useEffect(() => {}, []);
+
+  const abrirChat = (hash: string) => {
+    navigate(`#chat=${hash}`);
+  };
+
+  const abrirDetalhesContato = (e: Event, hash: string) => {
+    e.stopPropagation();
+    navigate(`#detail=${hash}`);
+  };
+
+  return (
+    /* 🔥 ARQUITETURA: Removido a classe .container. Agora é um layout fluido nativo. */
+    <div style="display: flex; flex-direction: column; width: 100%;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
+        <h2 style="font-size: 1rem; margin: 0; color: var(--md-sys-color-on-surface); font-weight: 600;">
+          📇 Meus Contatos
+        </h2>
+        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
+          <md-icon>person_add</md-icon>
+        </md-icon-button>
+      </div>
+      
+      <div style="max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 4px;">
+        {contatosComHash.value.length === 0 ? (
+          <p style="padding: 16px 8px; color: var(--md-sys-color-on-surface-variant); text-align: center; margin: 0; font-size: 0.85rem;">
+            Nenhum contato adicionado.
+          </p>
+        ) : (
+          <md-list style="background: transparent;">
+            {contatosComHash.value.map(({ contato, hash }) => {
+              const nomeExibicao = contato.name?.trim() || "Anônimo";
+              return (
+                <md-list-item 
+                  key={hash} 
+                  onClick={() => abrirChat(hash)}
+                  style="cursor: pointer; background: var(--md-sys-color-surface-variant); border-radius: 8px; margin-bottom: 6px;"
+                >
+                  <md-icon slot="start" style="color: var(--md-sys-color-on-surface-variant);">person</md-icon>
+                  
+                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: block; font-size: 0.95rem; color: var(--md-sys-color-on-surface);">
+                      <strong>{nomeExibicao}</strong>
+                    </span>
+                    {contato.trusted && (
+                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
+                    )}
+                  </div>
+                  
+                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant);">
+                    {contato.email || 'Sem e-mail'}
+                  </span>
+                  
+                  {/* 🔥 Ajustado para ícones menores na lista para caber melhor em telas estreitas */}
+                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
+                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
+                      <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+                    </md-icon-button>
+
+                    {!contato.trusted && (
+                      <md-icon-button onClick={async (e) => {
+                        e.stopPropagation();
+                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
+                        showToast("Contato marcado como confiável!", "success");
+                      }}>
+                        <md-icon style="font-size: 1.2rem;">verified</md-icon>
+                      </md-icon-button>
+                    )}
+
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remover ${nomeExibicao} e apagar todo o histórico de conversas permanentemente?`)) {
+                        await removerContatoCompletamente(hash);
+                      }
+                    }}>
+                      <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-error);">delete</md-icon>
+                    </md-icon-button>
+                  </div>
+                </md-list-item>
+              );
+            })}
+          </md-list>
         )}
       </div>
     </div>
@@ -2159,7 +2163,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.106-msugf07d";
+export const APP_VERSION = "0.2.115-msuhsk1q";
 
 ```
 
@@ -2325,9 +2329,13 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 ## Arquivo: `src/signals/state.ts`
 
 ```ts
+// src/signals/state.ts
 import { signal } from '@preact/signals';
 import { addDebugLog as emitLog } from '../utils/debug-utils.ts';
 
+export type AppTheme = 'system' | 'light' | 'dark';
+
+export const appTheme = signal<AppTheme>('system');
 export const currentMobileView = signal<'list' | 'chat' | 'profile'>('list');
 
 export const contatoSelecionado = signal<string>('');
@@ -2768,6 +2776,7 @@ const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
 export const CONFIG_KEYS = {
   PROXY_PATH: "ProxyPath",
   SERVER_PUBLIC_KEY: "ServerPublicKey", 
+  APP_THEME: "AppTheme", // 🔥 ARQUITETURA: Nova chave para Tema
 } as const;
 
 export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
@@ -2775,7 +2784,6 @@ export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, val
     const configKey = CONFIG_KEYS[key];
     
     if (key === 'PROXY_PATH' && typeof value === 'string') {
-      // 🔥 Centraliza o salvamento de rota diretamente no config.ts
       await setProxyPath(value, true);
       await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
       console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
@@ -2803,7 +2811,8 @@ export async function resetConfig(): Promise<void> {
   try {
     await del(CONFIG_KEYS.PROXY_PATH, configStore);
     await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); 
-    await setProxyPath(DefaultProxyPath, false); // Reseta apenas a RAM, o próximo Boot fará o Auto-Discovery
+    await del(CONFIG_KEYS.APP_THEME, configStore); // Reseta o tema também
+    await setProxyPath(DefaultProxyPath, false); 
   } catch (error) {
     console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
     throw error;
@@ -2818,8 +2827,6 @@ export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
   const proxy_path = await getConfigValue('PROXY_PATH');
   
   if (proxy_path !== undefined) {
-    // 🔥 ARQUITETURA: Memory Hydration
-    // O valor existe. Nós apenas injetamos na RAM para velocidade, sem salvar no disco (evita loops I/O)
     await setProxyPath(proxy_path, false);
     return { proxy_path };
   }
@@ -5797,30 +5804,15 @@ self.addEventListener('message', (event: any) => {
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
   <meta name="application-name" content="loco" />
   
-  <!-- 🔥 ARQUITETURA: Injeção Direta para Bypass do Bundler -->
+<!-- 🔥 ARQUITETURA: Injeção Direta para Bypass do Bundler -->
   <style>
     /* Fonte Self-Hosted para Privacidade e Suporte Offline Garantido */
+    /* Mantido no HTML apenas o mapeamento do arquivo físico (.woff2) para que o bundler do Deno não tente resolvê-lo */
     @font-face {
       font-family: 'Material Symbols Outlined';
       font-style: normal;
       font-weight: 100 700;
       src: url('./fonts/material-symbols-outlined.woff2') format('woff2');
-    }
-
-    .material-symbols-outlined {
-      font-family: 'Material Symbols Outlined';
-      font-weight: normal;
-      font-style: normal;
-      font-size: 24px;
-      line-height: 1;
-      letter-spacing: normal;
-      text-transform: none;
-      display: inline-block;
-      white-space: nowrap;
-      word-wrap: normal;
-      direction: ltr;
-      -webkit-font-feature-settings: 'liga';
-      -webkit-font-smoothing: antialiased;
     }
   </style>
 </head>
@@ -5833,419 +5825,12 @@ self.addEventListener('message', (event: any) => {
 
 ---
 
-## Arquivo: `src/styles.css`
-
-```css
-/* src/styles.css */
-
-/* ==========================================================================
-   1. VARIÁVEIS DE TEMA (Material Design 3)
-   ========================================================================== */
-:root {
-  --md-sys-color-primary: #006c4f;
-  --md-sys-color-on-primary: #ffffff;
-  --md-sys-color-primary-container: #8cf0cf;
-  --md-sys-color-on-primary-container: #002114;
-  --md-sys-color-secondary: #4a6357;
-  --md-sys-color-on-secondary: #ffffff;
-  --md-sys-color-secondary-container: #cce8d8;
-  --md-sys-color-on-secondary-container: #082015;
-  --md-sys-color-tertiary: #3b6375;
-  --md-sys-color-on-tertiary: #ffffff;
-  --md-sys-color-tertiary-container: #bde8fc;
-  --md-sys-color-on-tertiary-container: #001f2a;
-  --md-sys-color-error: #ba1a1a;
-  --md-sys-color-on-error: #ffffff;
-  --md-sys-color-error-container: #ffdad6;
-  --md-sys-color-on-error-container: #410002;
-  --md-sys-color-background: #fbfcf9;
-  --md-sys-color-on-background: #191c1a;
-  --md-sys-color-surface: #fbfcf9;
-  --md-sys-color-on-surface: #191c1a;
-  --md-sys-color-surface-variant: #dbe4dd;
-  --md-sys-color-on-surface-variant: #404842;
-  --md-sys-color-outline: #707873;
-  --md-sys-color-shadow: #000000;
-  --md-sys-color-inverse-surface: #2e312e;
-  --md-sys-color-inverse-on-surface: #eff1ed;
-  --md-sys-color-inverse-primary: #6dd3b4;
-  --md-sys-color-surface-tint: #006c4f;
-}
-
-/* ==========================================================================
-   2. RESET E TIPOGRAFIA BASE (Rolagem e Viewport Ajustados)
-   ========================================================================== */
-* {
-  box-sizing: border-box;
-}
-
-html, body {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  margin: 0;
-  padding: 0;
-  min-height: 100vh;
-  min-height: 100dvh;
-  width: 100vw;
-  background-color: var(--md-sys-color-background);
-  color: var(--md-sys-color-on-background);
-  line-height: 1.6;
-}
-
-/* Habilita rolagem vertical natural quando a página ultrapassa a viewport */
-@media (max-width: 768px) {
-  body {
-    overflow-y: auto;
-  }
-}
-
-h1, h2, h3, h4, h5, h6 {
-  margin-top: 0;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-
-h1 {
-  font-size: 2.25rem;
-  margin-bottom: 0.25rem;
-  color: var(--md-sys-color-primary);
-}
-
-h2 {
-  font-size: 1.5rem;
-  margin-bottom: 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-p {
-  margin-top: 0;
-}
-
-/* 🔥 CORREÇÃO DE CORTE DE ÍCONES (MATERIAL SYMBOLS & WEB COMPONENTS) 🔥 */
-md-icon, .material-symbols-outlined {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  line-height: 1 !important;
-  overflow: visible !important;
-  vertical-align: middle;
-}
-
-md-icon-button {
-  flex-shrink: 0 !important; /* Impede o botão de encolher em containers flex */
-}
-
-/* ==========================================================================
-   3. ESTRUTURA DE LAYOUT APP (Estilo WhatsApp sem cortes na base)
-   ========================================================================== */
-#app-root {
-  display: flex;
-  height: 100vh;
-  height: 100dvh;
-  width: 100%;
-  position: relative;
-  overflow: hidden;
-}
-
-/* --- Painel Lateral (Sidebar) --- */
-.app-sidebar {
-  width: 30%;
-  min-width: 320px;
-  max-width: 450px;
-  border-right: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  display: flex;
-  flex-direction: column;
-  background: var(--md-sys-color-surface);
-  height: 100%;
-  z-index: 10;
-}
-
-.sidebar-header {
-  padding: 16px;
-  background: var(--md-sys-color-surface-variant);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  flex-shrink: 0;
-}
-
-.sidebar-content {
-  flex-grow: 1;
-  overflow-y: auto;
-  padding: 16px;
-  background-color: var(--md-sys-color-background);
-  box-sizing: border-box;
-}
-
-/* --- Painel Principal (Área de Chat) --- */
-.app-main {
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background-color: var(--md-sys-color-surface-container-lowest, #f0f2f5);
-  overflow: hidden;
-}
-
-.chat-header {
-  padding: 16px;
-  background: var(--md-sys-color-surface-variant);
-  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  height: 73px;
-  flex-shrink: 0;
-}
-
-.chat-messages {
-  flex-grow: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.chat-input-area {
-  padding: 16px;
-  background: var(--md-sys-color-surface);
-  border-top: 1px solid var(--md-sys-color-outline-variant, #e0e0e0);
-  flex-shrink: 0;
-}
-
-.back-button {
-  display: none;
-}
-
-@media (max-width: 768px) {
-  #app-root {
-    height: 100dvh;
-  }
-
-  .app-sidebar, .app-main {
-    width: 100%;
-    max-width: 100%;
-    height: 100dvh;
-    position: absolute;
-    top: 0;
-    left: 0;
-    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-  }
-
-  .view-mode-list .app-main {
-    transform: translateX(100%);
-  }
-  .view-mode-list .app-sidebar {
-    transform: translateX(0);
-  }
-
-  .view-mode-chat .app-sidebar {
-    transform: translateX(-30%);
-    opacity: 0;
-    pointer-events: none;
-  }
-  .view-mode-chat .app-main {
-    transform: translateX(0);
-  }
-
-  .back-button {
-    display: inline-flex;
-  }
-}
-
-/* ==========================================================================
-   4. ESTILOS DE COMPONENTES INTERNOS (Cards, inputs, blocos)
-   ========================================================================== */
-
-.container {
-  background: var(--md-sys-color-surface);
-  padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-  margin-bottom: 20px;
-  border-left: 4px solid var(--md-sys-color-primary);
-  transition: box-shadow 0.2s ease;
-}
-
-.container:hover {
-  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
-}
-
-.container-emissor { border-left-color: #002b3d; }
-.container-receptor { border-left-color: #ff6b00; }
-.container-contatos { border-left-color: #6c4f00; }
-
-.row {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-
-.col {
-  flex: 1;
-  min-width: 200px;
-}
-
-md-filled-button,
-md-outlined-button,
-md-text-button {
-  margin-bottom: 8px;
-}
-
-md-outlined-text-field,
-md-filled-text-field,
-md-outlined-select {
-  width: 100%;
-  margin-bottom: 8px;
-}
-
-md-list {
-  background: transparent;
-}
-
-md-list-item {
-  border-radius: 8px;
-  margin-bottom: 4px;
-  background: var(--md-sys-color-surface);
-  overflow: visible !important; /* 🔥 Evita cortar o efeito ripple dos botões */
-}
-
-label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 4px;
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 0.875rem;
-}
-
-.profile-field {
-  background: var(--md-sys-color-surface-variant);
-  padding: 12px;
-  border-radius: 8px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.8rem;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--md-sys-color-outline);
-  color: var(--md-sys-color-on-surface);
-}
-
-/* ==========================================================================
-   5. BALÕES DE CHAT E STATUS
-   ========================================================================== */
-.chat-bubble-wrapper {
-  display: flex;
-  width: 100%;
-  margin-bottom: 8px;
-}
-
-.chat-bubble-wrapper.in { justify-content: flex-start; }
-.chat-bubble-wrapper.out { justify-content: flex-end; }
-
-.chat-bubble {
-  max-width: 80%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  position: relative;
-  box-shadow: 0 1px 1px rgba(0,0,0,0.1);
-  word-wrap: break-word;
-  user-select: none;
-}
-
-.chat-bubble.in {
-  background-color: var(--md-sys-color-surface);
-  border-top-left-radius: 2px;
-}
-
-.chat-bubble.out {
-  background-color: #d9fdd3;
-  color: #111;
-  border-top-right-radius: 2px;
-}
-
-.chat-bubble-text {
-  font-size: 0.95rem;
-  line-height: 1.4;
-  margin-bottom: 2px;
-}
-
-.chat-bubble-meta {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.65rem;
-  color: rgba(0,0,0,0.45);
-  margin-top: 4px;
-  margin-bottom: -4px;
-}
-
-.chat-bubble.out .chat-bubble-meta {
-  color: rgba(0,0,0,0.55);
-}
-
-.status-icon {
-  font-size: 0.7rem;
-  letter-spacing: -2px;
-}
-
-.chat-messages {
-  background-image: url('data:image/svg+xml,%3Csvg width="20" height="20" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M0 0h20v20H0z" fill="%23f0f2f5"/%3E%3Ccircle cx="2" cy="2" r="1" fill="%23d0d4d8"/%3E%3C/svg%3E');
-}
-
-/* ==========================================================================
-   6. PAINEL DE DEBUG E ANIMAÇÕES
-   ========================================================================== */
-#debugPanel {
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.75rem;
-  padding: 12px;
-  border-radius: 8px;
-  max-height: 300px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  border: 1px solid #333;
-}
-
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.mt-10 { margin-top: 10px; }
-.mb-10 { margin-bottom: 10px; }
-.mt-20 { margin-top: 20px; }
-.mb-20 { margin-bottom: 20px; }
-.flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.flex-end { display: flex; gap: 8px; align-items: center; }
-.gap-8 { gap: 8px; }
-.gap-16 { gap: 16px; }
-.w-full { width: 100%; }
-.text-center { text-align: center; }
-.text-muted { color: var(--md-sys-color-on-surface-variant); }
-```
-
----
-
 ## Arquivo: `src/app.tsx`
 
 ```tsx
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
+import { effect } from '@preact/signals';
 import type { ComponentType } from 'preact';
 
 // Componentes da Interface
@@ -6260,9 +5845,9 @@ import { SettingsSection } from './components/SettingsSection.tsx';
 import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 
 // Signals e Lógica de Negócio
-import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced } from './signals/state.ts';
+import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced, appTheme, AppTheme } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
-import { loadAllConfigs } from './stores/config-store.ts';
+import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 
 // Roteador Reativo
 import { activeView, navigate } from './utils/router.ts';
@@ -6270,12 +5855,24 @@ import { activeView, navigate } from './utils/router.ts';
 import "@material/web/all.js";
 import './styles.css';
 
+// 🔥 ARQUITETURA: Bind Reativo do Tema com o HTML Document
+effect(() => {
+  if (typeof document !== 'undefined') {
+    const theme = appTheme.value;
+    if (theme === 'system') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  }
+});
+
 // Componente de Fallback/Home (Quando não há nada selecionado)
 const HomePlaceholder = () => (
-  <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888;">
+  <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-on-surface-variant);">
     <div style="text-align: center;">
       <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
-      <p>Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
+      <p style="font-size: 0.9rem;">Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
     </div>
   </div>
 );
@@ -6286,10 +5883,10 @@ const ViewMap: Record<string, ComponentType<any>> = {
   'chat': ChatSection,
   'detail': ContactDetailSection,
   'advanced': AdvancedSection,
-  'profile': () => <div style="padding: 24px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
+  'profile': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
   'logout': LogoutSection,
   'share': ShareSection,
-  'settings': () => <div style="padding: 24px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><SettingsSection/></div></div>,
+  'settings': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><SettingsSection/></div></div>,
   'home': HomePlaceholder,
 };
 
@@ -6299,7 +5896,12 @@ function App() {
   // Inicialização assíncrona dos Stores locais e Infraestrutura
   useEffect(() => {
     const init = async () => {
-      // 🔥 ARQUITETURA: Ajuste semântico no log para refletir o Fast-Boot.
+      // Carrega Tema salvo
+      const savedTheme = await getConfigValue('APP_THEME');
+      if (savedTheme) {
+        appTheme.value = savedTheme as AppTheme;
+      }
+
       addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
       await loadAllConfigs();
 
@@ -6342,27 +5944,27 @@ function App() {
 
   if (activeView.value === 'profile') {
     headerTitle = profile.value ? "Meu Perfil" : "Configurar Conta";
-    headerSubtitle = "Gerencie sua identidade local e chaves";
+    headerSubtitle = "Gerencie sua identidade local";
     headerIcon = "account_circle";
   } else if (activeView.value === 'logout') {
     headerTitle = "Sair do Sistema";
-    headerSubtitle = "Apagar dados locais e chaves deste dispositivo";
+    headerSubtitle = "Apagar dados locais e chaves";
     headerIcon = "logout";
   } else if (activeView.value === 'share') {
     headerTitle = "Adicionar Contato";
-    headerSubtitle = "Escaneie o QR Code ou cole o convite";
+    headerSubtitle = "QR Code ou link";
     headerIcon = "person_add";
   } else if (activeView.value === 'advanced') {
-    headerTitle = "Opções Avançadas";
-    headerSubtitle = "Diagnóstico do sistema e logs de rede";
+    headerTitle = "Avançado";
+    headerSubtitle = "Diagnóstico e Logs";
     headerIcon = "settings_suggest";
   } else if (activeView.value === 'settings') {
     headerTitle = "Configurações";
-    headerSubtitle = "Configure o servidor Push Proxy e outras opções";
+    headerSubtitle = "Ajustes de Rede e Interface";
     headerIcon = "settings";
   } else if (activeView.value === 'detail') {
-    headerTitle = `Cartão de ${nomeDetalhesAtivo}`;
-    headerSubtitle = "Gerencie as informações e a confiança deste contato";
+    headerTitle = nomeDetalhesAtivo;
+    headerSubtitle = "Cartão de Contato";
     headerIcon = "badge";
   } else if (activeView.value === 'chat') {
     headerTitle = contatoAtivo ? nomeContatoAtivo : "Selecione um contato";
@@ -6370,7 +5972,6 @@ function App() {
     headerIcon = "account_circle";
   }
 
-  // Protege a view: se não tiver perfil, força a tela de perfil independentemente da URL
   const viewToRender = (!profile.value && activeView.value !== 'profile') ? 'profile' : activeView.value;
   const RouteComponent = ViewMap[viewToRender] || ViewMap['home']!;
 
@@ -6415,8 +6016,8 @@ function App() {
         </header>
         
         <div class="sidebar-content" style="padding: 0;">
-          <div style="padding: 16px; animation: fadeIn 0.3s ease;">
-            {profile.value ? <ContatosSection/> : <p style="text-align: center; color: #888; margin-top: 40px;">Configure seu perfil primeiro.</p>}
+          <div style="padding: 12px; animation: fadeIn 0.3s ease;">
+            {profile.value ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
           </div>
         </div>
       </aside>
@@ -6431,17 +6032,17 @@ function App() {
             onClick={() => { if (activeView.value === 'chat' && contatoSelecionado.value) navigate(`#detail=${contatoSelecionado.value}`); }}
             style={`display: flex; align-items: center; gap: 12px; ${activeView.value === 'chat' && contatoAtivo ? 'cursor: pointer;' : ''}`}
           >
-            <md-icon style="font-size: 2rem; color: #555;">{headerIcon}</md-icon>
+            <md-icon style="font-size: 2rem; color: var(--md-sys-color-on-surface-variant);">{headerIcon}</md-icon>
             <div>
               <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
                 {headerTitle}
                 
                 {((activeView.value === 'detail' && contatoDetalhesAtivo?.trusted) || 
                   (activeView.value === 'chat' && contatoAtivo?.trusted)) && (
-                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
                 )}
               </h2>
-              {headerSubtitle && <span style="font-size: 0.8rem; color: #666;">{headerSubtitle}</span>}
+              {headerSubtitle && <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">{headerSubtitle}</span>}
             </div>
           </div>
         </header>
@@ -6458,6 +6059,368 @@ const root = document.getElementById('app');
 if (root) {
   render(<App/>, root);
 }
+```
+
+---
+
+## Arquivo: `src/styles.css`
+
+```css
+/* src/styles.css */
+
+/* ==========================================================================
+   1. CLASSES DE FONTES LOCAIS (Self-Hosted Material Symbols)
+   ========================================================================== */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ==========================================================================
+   2. VARIÁVEIS DE TEMA (Material Design 3) - LIGHT MODE & DARK MODE
+   ========================================================================== */
+
+/* Tema Claro (Padrão) */
+:root, [data-theme="light"] {
+  color-scheme: light;
+  --md-sys-color-primary: #006c4f;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #8cf0cf;
+  --md-sys-color-on-primary-container: #002114;
+  --md-sys-color-secondary: #4a6357;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #cce8d8;
+  --md-sys-color-on-secondary-container: #082015;
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
+  --md-sys-color-background: #fbfcf9;
+  --md-sys-color-on-background: #191c1a;
+  --md-sys-color-surface: #fbfcf9;
+  --md-sys-color-on-surface: #191c1a;
+  --md-sys-color-surface-variant: #dbe4dd;
+  --md-sys-color-on-surface-variant: #404842;
+  
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container: #f3f4f1;
+  --md-sys-color-surface-container-high: #e8e9e6;
+
+  --md-sys-color-outline: #707873;
+  --md-sys-color-outline-variant: #e0e0e0;
+  
+  /* Cores específicas do Chat */
+  --chat-bubble-out-bg: #d9fdd3;
+  --chat-bubble-out-text: #111111;
+  --chat-bubble-meta: rgba(0,0,0,0.55);
+}
+
+/* Tema Escuro (Forçado via Atributo) */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --md-sys-color-primary: #6dd3b4;
+  --md-sys-color-on-primary: #003828;
+  --md-sys-color-primary-container: #00513b;
+  --md-sys-color-on-primary-container: #8cf0cf;
+  --md-sys-color-secondary: #b1ccbe;
+  --md-sys-color-on-secondary: #1d352a;
+  --md-sys-color-secondary-container: #334b3f;
+  --md-sys-color-on-secondary-container: #cce8d8;
+  --md-sys-color-error: #ffb4ab;
+  --md-sys-color-on-error: #690005;
+  --md-sys-color-error-container: #93000a;
+  --md-sys-color-on-error-container: #ffdad6;
+  --md-sys-color-background: #191c1a;
+  --md-sys-color-on-background: #e1e3df;
+  --md-sys-color-surface: #191c1a;
+  --md-sys-color-on-surface: #e1e3df;
+  --md-sys-color-surface-variant: #404842;
+  --md-sys-color-on-surface-variant: #bfc9c2;
+  
+  --md-sys-color-surface-container-lowest: #0e110f;
+  --md-sys-color-surface-container: #1e201e;
+  --md-sys-color-surface-container-high: #282b29;
+
+  --md-sys-color-outline: #89938c;
+  --md-sys-color-outline-variant: #2d312f;
+
+  /* Cores específicas do Chat */
+  --chat-bubble-out-bg: #005c4b;
+  --chat-bubble-out-text: #ffffff;
+  --chat-bubble-meta: rgba(255,255,255,0.7);
+}
+
+/* Tema Escuro (Via OS - Preferência de Sistema) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --md-sys-color-primary: #6dd3b4;
+    --md-sys-color-on-primary: #003828;
+    --md-sys-color-primary-container: #00513b;
+    --md-sys-color-on-primary-container: #8cf0cf;
+    --md-sys-color-secondary: #b1ccbe;
+    --md-sys-color-on-secondary: #1d352a;
+    --md-sys-color-secondary-container: #334b3f;
+    --md-sys-color-on-secondary-container: #cce8d8;
+    --md-sys-color-error: #ffb4ab;
+    --md-sys-color-on-error: #690005;
+    --md-sys-color-error-container: #93000a;
+    --md-sys-color-on-error-container: #ffdad6;
+    --md-sys-color-background: #191c1a;
+    --md-sys-color-on-background: #e1e3df;
+    --md-sys-color-surface: #191c1a;
+    --md-sys-color-on-surface: #e1e3df;
+    --md-sys-color-surface-variant: #404842;
+    --md-sys-color-on-surface-variant: #bfc9c2;
+    
+    --md-sys-color-surface-container-lowest: #0e110f;
+    --md-sys-color-surface-container: #1e201e;
+    --md-sys-color-surface-container-high: #282b29;
+
+    --md-sys-color-outline: #89938c;
+    --md-sys-color-outline-variant: #2d312f;
+
+    --chat-bubble-out-bg: #005c4b;
+    --chat-bubble-out-text: #ffffff;
+    --chat-bubble-meta: rgba(255,255,255,0.7);
+  }
+}
+
+/* 🔥 OVERRIDES DE SEGURANÇA PARA COMPONENTES MD3 */
+md-menu, md-outlined-select {
+  --md-menu-container-color: var(--md-sys-color-surface-container);
+}
+
+/* ==========================================================================
+   3. RESET E TIPOGRAFIA BASE
+   ========================================================================== */
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100vw;
+  background-color: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-background);
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  body { overflow-y: auto; }
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 0;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+h1 { font-size: 1.8rem; margin-bottom: 0.25rem; color: var(--md-sys-color-primary); }
+h2 { font-size: 1.25rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
+p { margin-top: 0; }
+
+md-icon, .material-symbols-outlined {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  overflow: visible !important;
+  vertical-align: middle;
+}
+md-icon-button { flex-shrink: 0 !important; }
+
+/* ==========================================================================
+   4. ESTRUTURA DE LAYOUT APP (Estilo Compacto)
+   ========================================================================== */
+#app-root {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.app-sidebar {
+  width: 30%;
+  min-width: 320px;
+  max-width: 400px; 
+  border-right: 1px solid var(--md-sys-color-outline-variant);
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface);
+  height: 100%;
+  z-index: 10;
+}
+
+.sidebar-header {
+  padding: 8px 16px; 
+  background: var(--md-sys-color-surface-variant);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  flex-shrink: 0;
+  height: 60px; 
+}
+
+.sidebar-content {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 8px; 
+  background-color: var(--md-sys-color-background);
+  box-sizing: border-box;
+}
+
+.app-main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--md-sys-color-surface-container-lowest);
+  overflow: hidden;
+}
+
+.chat-header {
+  padding: 8px 16px; 
+  background: var(--md-sys-color-surface-variant);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 60px; 
+  flex-shrink: 0;
+}
+
+.chat-messages {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px; 
+}
+
+.chat-input-area {
+  padding: 12px 16px; 
+  background: var(--md-sys-color-surface);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  flex-shrink: 0;
+}
+
+.back-button { display: none; }
+
+@media (max-width: 768px) {
+  #app-root { height: 100dvh; }
+  .app-sidebar, .app-main {
+    width: 100%; max-width: 100%; height: 100dvh;
+    position: absolute; top: 0; left: 0;
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+  .view-mode-list .app-main { transform: translateX(100%); }
+  .view-mode-list .app-sidebar { transform: translateX(0); }
+  .view-mode-chat .app-sidebar { transform: translateX(-30%); opacity: 0; pointer-events: none; }
+  .view-mode-chat .app-main { transform: translateX(0); }
+  .back-button { display: inline-flex; }
+}
+
+/* ==========================================================================
+   5. COMPONENTES INTERNOS (Cards, inputs, blocos)
+   ========================================================================== */
+
+/* 🔥 ARQUITETURA: Removida a borda lateral grossa. Aplicado o estilo "Outlined Card" do Material 3 */
+.container {
+  background: var(--md-sys-color-surface);
+  padding: 16px; 
+  border-radius: 12px; 
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  margin-bottom: 16px; 
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+md-list-item {
+  border-radius: 6px;
+  margin-bottom: 2px;
+  background: var(--md-sys-color-surface);
+  overflow: visible !important; 
+}
+
+label {
+  display: block; font-weight: 500; margin-bottom: 4px;
+  color: var(--md-sys-color-on-surface-variant); font-size: 0.85rem;
+}
+
+/* ==========================================================================
+   6. BALÕES DE CHAT E STATUS
+   ========================================================================== */
+.chat-bubble-wrapper {
+  display: flex; width: 100%; margin-bottom: 4px; 
+}
+
+.chat-bubble-wrapper.in { justify-content: flex-start; }
+.chat-bubble-wrapper.out { justify-content: flex-end; }
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 6px 10px; 
+  border-radius: 8px; 
+  position: relative;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  word-wrap: break-word;
+  user-select: none;
+}
+
+.chat-bubble.in {
+  background-color: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  border-top-left-radius: 2px;
+}
+
+.chat-bubble.out {
+  background-color: var(--chat-bubble-out-bg);
+  color: var(--chat-bubble-out-text);
+  border-top-right-radius: 2px;
+}
+
+.chat-bubble-text { font-size: 0.9rem; line-height: 1.4; margin-bottom: 0px; }
+
+.chat-bubble-meta {
+  display: flex; justify-content: flex-end; align-items: center; gap: 4px;
+  font-size: 0.65rem; color: var(--md-sys-color-on-surface-variant);
+  margin-top: 2px; margin-bottom: -2px;
+}
+
+.chat-bubble.out .chat-bubble-meta { color: var(--chat-bubble-meta); }
+.status-icon { font-size: 0.7rem; letter-spacing: -2px; }
+
+/* ==========================================================================
+   7. PAINEL DE DEBUG E ANIMAÇÕES
+   ========================================================================== */
+#debugPanel {
+  background: #1e1e1e; color: #d4d4d4;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.75rem; padding: 12px; border-radius: 8px;
+  max-height: 300px; overflow-y: auto; white-space: pre-wrap;
+  word-break: break-word; border: 1px solid #333;
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 ```
 
 ---
@@ -6873,7 +6836,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.106-msugf07d",
+  "version": "0.2.115-msuhsk1q",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",

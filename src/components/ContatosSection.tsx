@@ -16,46 +16,52 @@ export function ContatosSection() {
   };
 
   return (
-    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
+    /* 🔥 ARQUITETURA: Removido a classe .container. Agora é um layout fluido nativo. */
+    <div style="display: flex; flex-direction: column; width: 100%;">
       
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
+        <h2 style="font-size: 1rem; margin: 0; color: var(--md-sys-color-on-surface); font-weight: 600;">
+          📇 Meus Contatos
+        </h2>
         <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
           <md-icon>person_add</md-icon>
         </md-icon-button>
       </div>
       
-      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+      <div style="max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 4px;">
         {contatosComHash.value.length === 0 ? (
-          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
+          <p style="padding: 16px 8px; color: var(--md-sys-color-on-surface-variant); text-align: center; margin: 0; font-size: 0.85rem;">
+            Nenhum contato adicionado.
+          </p>
         ) : (
-          <md-list>
+          <md-list style="background: transparent;">
             {contatosComHash.value.map(({ contato, hash }) => {
               const nomeExibicao = contato.name?.trim() || "Anônimo";
               return (
                 <md-list-item 
                   key={hash} 
                   onClick={() => abrirChat(hash)}
-                  style="cursor: pointer;"
+                  style="cursor: pointer; background: var(--md-sys-color-surface-variant); border-radius: 8px; margin-bottom: 6px;"
                 >
-                  <md-icon slot="start">person</md-icon>
+                  <md-icon slot="start" style="color: var(--md-sys-color-on-surface-variant);">person</md-icon>
                   
                   <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: block; font-size: 0.95rem; color: var(--md-sys-color-on-surface);">
                       <strong>{nomeExibicao}</strong>
                     </span>
                     {contato.trusted && (
-                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
                     )}
                   </div>
                   
-                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
+                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant);">
                     {contato.email || 'Sem e-mail'}
                   </span>
                   
+                  {/* 🔥 Ajustado para ícones menores na lista para caber melhor em telas estreitas */}
                   <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
                     <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
-                      <md-icon>qr_code_2</md-icon>
+                      <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
                     </md-icon-button>
 
                     {!contato.trusted && (
@@ -64,7 +70,7 @@ export function ContatosSection() {
                         await homologarContatoPorPublicKey(contato.vapidPublicKey);
                         showToast("Contato marcado como confiável!", "success");
                       }}>
-                        <md-icon>verified</md-icon>
+                        <md-icon style="font-size: 1.2rem;">verified</md-icon>
                       </md-icon-button>
                     )}
 
@@ -74,7 +80,7 @@ export function ContatosSection() {
                         await removerContatoCompletamente(hash);
                       }
                     }}>
-                      <md-icon>delete</md-icon>
+                      <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-error);">delete</md-icon>
                     </md-icon-button>
                   </div>
                 </md-list-item>

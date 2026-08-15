@@ -9,6 +9,7 @@ const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
 export const CONFIG_KEYS = {
   PROXY_PATH: "ProxyPath",
   SERVER_PUBLIC_KEY: "ServerPublicKey", 
+  APP_THEME: "AppTheme", // 🔥 ARQUITETURA: Nova chave para Tema
 } as const;
 
 export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
@@ -16,7 +17,6 @@ export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, val
     const configKey = CONFIG_KEYS[key];
     
     if (key === 'PROXY_PATH' && typeof value === 'string') {
-      // 🔥 Centraliza o salvamento de rota diretamente no config.ts
       await setProxyPath(value, true);
       await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
       console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
@@ -44,7 +44,8 @@ export async function resetConfig(): Promise<void> {
   try {
     await del(CONFIG_KEYS.PROXY_PATH, configStore);
     await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); 
-    await setProxyPath(DefaultProxyPath, false); // Reseta apenas a RAM, o próximo Boot fará o Auto-Discovery
+    await del(CONFIG_KEYS.APP_THEME, configStore); // Reseta o tema também
+    await setProxyPath(DefaultProxyPath, false); 
   } catch (error) {
     console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
     throw error;
@@ -59,8 +60,6 @@ export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
   const proxy_path = await getConfigValue('PROXY_PATH');
   
   if (proxy_path !== undefined) {
-    // 🔥 ARQUITETURA: Memory Hydration
-    // O valor existe. Nós apenas injetamos na RAM para velocidade, sem salvar no disco (evita loops I/O)
     await setProxyPath(proxy_path, false);
     return { proxy_path };
   }

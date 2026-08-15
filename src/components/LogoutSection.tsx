@@ -9,10 +9,6 @@ export function LogoutSection() {
   const handleLogout = async () => {
     executando.value = true;
     try {
-      // 🔥 ARQUITETURA OFFLINE-FIRST: 
-      // Em uma aplicação descentralizada sem sessões no servidor, 
-      // o "Logout" é apenas um Wipeout (Expurgo) local do dispositivo.
-      
       status.value = "1/4 Limpando Web Storage e Cookies...";
       window.localStorage.clear();
       window.sessionStorage.clear();
@@ -51,7 +47,6 @@ export function LogoutSection() {
         }
       }
 
-      // Desregistra os SWs por último para não engasgar as limpezas de OPFS/Cache
       status.value = "4/4 Desativando Push e Service Workers...";
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
@@ -66,7 +61,6 @@ export function LogoutSection() {
 
       status.value = "✅ Destruição de chaves concluída com sucesso!";
       setTimeout(() => {
-        // Força o reload voltando para a raiz limpa do app
         window.location.href = window.location.pathname; 
       }, 1000);
     } catch (erro: any) {
@@ -81,7 +75,8 @@ export function LogoutSection() {
         <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
         <h2 style="justify-content: center;">Sair do Sistema</h2>
         
-        <p style="color: #666; margin-bottom: 16px; font-size: 0.95rem;">
+        {/* 🔥 ARQUITETURA: Uso dinâmico de cor de texto para modo escuro/claro */}
+        <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px; font-size: 0.95rem;">
           Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
         </p>
 

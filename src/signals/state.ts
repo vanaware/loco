@@ -1,6 +1,10 @@
+// src/signals/state.ts
 import { signal } from '@preact/signals';
 import { addDebugLog as emitLog } from '../utils/debug-utils.ts';
 
+export type AppTheme = 'system' | 'light' | 'dark';
+
+export const appTheme = signal<AppTheme>('system');
 export const currentMobileView = signal<'list' | 'chat' | 'profile'>('list');
 
 export const contatoSelecionado = signal<string>('');
