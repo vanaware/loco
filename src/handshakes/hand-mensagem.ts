@@ -11,6 +11,9 @@ import {
   salvarChat,
   buscarContatoPorChave,
   buscarProfile,
+  removerTodoHistoricoChat,
+  listarHandshakes,
+  removerHandshake
 } from "../utils/db-helpers.ts";
 import { ehContatoProprio } from "../utils/self-contact-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
@@ -22,14 +25,30 @@ interface MensagemOutParams {
   conteudo?: string;
   mensagem?: string;
   campos?: string[];
-  msgId?: string;       
-  handshakeId?: string; 
+  msgId?: string;        
+  handshakeId?: string;  
   createdAt?: number;
 }
 
 async function notificarUI(chatId: string) {
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
+}
+
+// 🔥 ARQUITETURA: Função de Expurgo Modular
+export async function ExpurgarMensagens(contatoHash: string) {
+  addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens e handshakes do contato ${contatoHash}`);
+  
+  // 1. Apaga fisicamente todas as mensagens do Chat_DB
+  await removerTodoHistoricoChat(contatoHash);
+
+  // 2. Localiza e expurga os handshakes de mensagem pendentes desse contato
+  const todos = await listarHandshakes();
+  for (const h of todos) {
+    if (h.aud === contatoHash && (h.in?.rotas.mensagem || h.out?.rotas.mensagem)) {
+      await removerHandshake(h.id);
+    }
+  }
 }
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
@@ -147,33 +166,24 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
       
       if (ehParaSiMesmo) {
-        // 🔄 FLUXO ESPECIAL: Mensagem para si mesmo (sem envio real, sem handshake)
         addDebugLog(`[HAND-MENSAGEM] 🔄 Detectado envio para si mesmo. Salvando localmente sem handshake.`);
         
         const idReal = msgId || gerarId();
         const agora = Date.now();
         
-        // Cria a mensagem já com status completo (enviada, recebida, lida)
         const chatAuto: Chat = {
-          id: idReal,
-          contatoHash: contatoId,
-          conteudo,
-          tipo: 'out',
-          createdAt: createdAt || agora,
-          sentAt: agora,        // ✅ Marcada como enviada
-          receivedAt: agora,    // ✅ Marcada como recebida
-          readAt: agora,        // ✅ Marcada como lida
-          notifiedAt: agora,    // ✅ Marcada como notificada
-          handshake: 'self'     // 🔥 Handshake especial indicando auto-envio
+          id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
+          createdAt: createdAt || agora, sentAt: agora, receivedAt: agora,
+          readAt: agora, notifiedAt: agora, handshake: 'self'
         };
         
         await salvarChat(chatAuto);
         notificarUI(idReal);
         addDebugLog(`[HAND-MENSAGEM] ✅ Auto-mensagem ${idReal} salva com fluxo completo simulado.`);
-        return; // ⚠️ Sai imediatamente sem criar handshake
+        return;
       }
 
-      // 📤 FLUXO NORMAL: Mensagem para outro contato (com handshake)
+      // 📤 FLUXO NORMAL: Mensagem para outro contato
       const idReal = msgId || gerarId();
       const handIdReal = handshakeId || gerarId();
       
@@ -193,7 +203,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       await salvarHandshake(novoHandshake);
       addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} posta na fila de saída do SW.`);
-      
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }

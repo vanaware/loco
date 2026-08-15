@@ -10,7 +10,9 @@ import {
   buscarProfile,
   buscarContatoPorChave,
   salvarContato,
-  serializarPublicKeyVapid
+  serializarPublicKeyVapid,
+  listarHandshakes,
+  removerHandshake
 } from "../utils/db-helpers.ts";
 import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
@@ -21,6 +23,18 @@ interface ContatoOutParams {
   contato: string;
   campos?: string[];
   responder?: boolean;
+}
+
+// 🔥 ARQUITETURA: Função de Expurgo Modular
+export async function ExpurgarHandshakesContato(contatoHash: string) {
+  addDebugLog("warn", "HAND-CONTATO", `🗑️ Expurgando handshakes de conexão do contato ${contatoHash}`);
+  
+  const todos = await listarHandshakes();
+  for (const h of todos) {
+    if (h.aud === contatoHash && (h.in?.rotas.contato || h.out?.rotas.contato)) {
+      await removerHandshake(h.id);
+    }
+  }
 }
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
@@ -39,7 +53,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         const camposSet = new Set(contatoReq.campos);
         const cp = extrairDadosCompactos(contato);
         
-        // 🔥 Usa o esquema minificado limpo `vp` e `ep`
         if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
         if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
         if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
@@ -82,11 +95,9 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (d.tr === true) novoMeStatus = 'trusted';
         else novoMeStatus = 'saved';
 
-        // Lida com a estrutura nova ou aplica a de retrocompatibilidade
         const d_vp = d.vp as any || { x: d.vx, y: d.vy };
         const d_ep = d.ep as any || { n: d.en };
 
-        // Compara com base no nosso profile extraído (mp)
         if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
             d_vp.x !== mp.vp.x || d_vp.y !== mp.vp.y || d_ep.n !== mp.ep.n || d.ve !== mp.ve) {
           novoMeStatus = 'wrong';
@@ -112,7 +123,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       
       const syncData = contatoReq.sync as unknown as CompactContact;
       
-      // Aplica retrocompatibilidade antes de expandir
       if ((syncData as any).vx && !syncData.vp) {
         syncData.vp = { x: (syncData as any).vx, y: (syncData as any).vy };
         syncData.ep = { n: (syncData as any).en };

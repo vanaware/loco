@@ -10,7 +10,9 @@ import {
   buscarProfile,
   buscarContatoPorChave,
   salvarContato,
-  serializarPublicKeyVapid
+  serializarPublicKeyVapid,
+  listarHandshakes,
+  removerHandshake
 } from "../utils/db-helpers.ts";
 import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from "../utils/crypto-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
@@ -22,8 +24,19 @@ interface ProfileOutParams {
   campos?: string[];
 }
 
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ProfileOutParams }) {
+// 🔥 ARQUITETURA: Função de Expurgo Modular
+export async function ExpurgarHandshakesProfile(contatoHash: string) {
+  addDebugLog("warn", "HAND-PROFILE", `🗑️ Expurgando handshakes de perfil do contato ${contatoHash}`);
   
+  const todos = await listarHandshakes();
+  for (const h of todos) {
+    if (h.aud === contatoHash && (h.in?.rotas.profile || h.out?.rotas.profile)) {
+      await removerHandshake(h.id);
+    }
+  }
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ProfileOutParams }) {
   if (handshakeId) {
     addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
@@ -48,7 +61,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       if (camposSet.has('name')) rotasProfileData.name = profile.name;
       if (camposSet.has('email')) rotasProfileData.email = profile.email;
-      // 🔥 Enviamos o payload totalmente minificado pela rede
       if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = minifyVapidPublic(profile.vapidPublicKey);
       if (camposSet.has('vapidPrivateKeyEnvelope')) rotasProfileData.vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
       if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = minifyRsaPublic(profile.e2ePublicKey);
@@ -84,7 +96,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (typeof d.vapidPrivateKeyEnvelope === 'string') contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
         if (d.subscription !== undefined) contato.subscription = d.subscription as any;
 
-        // 🔥 Expandimos as chaves minificadas que chegaram da rede para o padrão JWK antes de persistir em RAM
         if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = expandVapidPublic(d.vapidPublicKey);
         if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = expandRsaPublic(d.e2ePublicKey);
 

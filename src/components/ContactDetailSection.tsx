@@ -2,9 +2,9 @@ import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
 
-import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
+import { contatosComHash, adicionarContato, removerContatoCompletamente } from '../stores/contatosStore.ts';
 import { profile } from '../stores/profileStore.ts';
-import { contatoCompartilharHash, showToast } from '../signals/state.ts';
+import { contatoCompartilharHash, contatoSelecionado, showToast } from '../signals/state.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
 import { navigate } from '../utils/router.ts';
 import { ehContatoProprio } from '../utils/self-contact-utils.ts';
@@ -38,9 +38,9 @@ export function ContactDetailSection() {
       ehContatoProprio(hash, profile.value).then((ehProprio) => {
         isContatoProprio.value = ehProprio;
         
-        // 🔥 Se for o próprio contato, redireciona para a tela de perfil
+        // Se for o próprio contato, redireciona para a tela de perfil
         if (ehProprio) {
-          navigate('profile');
+          navigate('#profile');
         }
       });
     }
@@ -59,7 +59,6 @@ export function ContactDetailSection() {
 
   if (!contato || !hash) return null;
   
-  // 🔥 Previne renderização se for o contato próprio (já foi redirecionado)
   if (isContatoProprio.value) return null;
 
   const nomeExibicao = contato.name?.trim() || "Anônimo";
@@ -153,6 +152,27 @@ export function ContactDetailSection() {
 
   const handleIniciarChat = () => {
     navigate(`#chat=${hash}`);
+  };
+
+  // 🔥 ARQUITETURA: Função mestre de Expurgo Total da Interface
+  const handleExcluirContato = async () => {
+    const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir ${nomeExibicao} permanentemente.\n\nIsso apagará TODAS as mensagens enviadas, recebidas e todas as pendências de conexão na rede.\n\nDeseja continuar?`;
+    
+    if (confirm(mensagemAlerta)) {
+      try {
+        await removerContatoCompletamente(hash);
+        showToast("🗑️ Contato e histórico excluídos com sucesso.", "success");
+        
+        // Se a pessoa apagada era a que estava selecionada no chat ativo, limpa a tela de fundo
+        if (contatoSelecionado.value === hash) {
+          contatoSelecionado.value = '';
+        }
+        
+        navigate('');
+      } catch (e: any) {
+        showToast(`❌ Erro ao excluir: ${e.message}`, "error");
+      }
+    }
   };
 
   const handleFechar = () => {
@@ -290,6 +310,16 @@ export function ContactDetailSection() {
                 <md-icon slot="icon">chat</md-icon>
                 Iniciar Conversa
               </md-outlined-button>
+
+              <div style="margin-top: 16px;">
+                <md-outlined-button 
+                  onClick={handleExcluirContato} 
+                  style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);"
+                >
+                  <md-icon slot="icon">delete_forever</md-icon>
+                  Excluir Contato e Histórico
+                </md-outlined-button>
+              </div>
             </div>
           </>
         )}

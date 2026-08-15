@@ -6,10 +6,17 @@ import {
   removerContato,
   serializarPublicKeyVapid,
   buscarProfile,
+  removerContatoPorHash,
+  listarHandshakes,
+  removerHandshake
 } from "../utils/db-helpers.ts";
 import type { Contato } from "../constants/db.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
+
+import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
+import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
+import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
 
 export type { Contato };
 
@@ -39,20 +46,17 @@ export async function carregarContatos(): Promise<void> {
     if (profile) {
       const contatoProprio = await gerarContatoProprio(profile);
       if (contatoProprio) {
-        // Verifica se já existe na lista para não duplicar
         const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
         if (indexExistente >= 0) {
-          // Atualiza o existente com os dados mais recentes do profile
           lista[indexExistente] = contatoProprio;
         } else {
-          // Adiciona o contato próprio à lista
           lista.push(contatoProprio);
         }
       }
     }
     
     contatosRaw.value = lista;
-    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos (incluindo próprio) do banco local`);
+    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
   }
@@ -99,16 +103,42 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   });
 }
 
+// Retrocompatibilidade (Chamará o expurgo completo internamente)
 export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
     const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    
-    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
-    
-    await removerContato(vapidPublicKey);
-    addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
+    await removerContatoCompletamente(hash);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
+  }
+}
+
+// 🔥 ARQUITETURA: Orquestrador Central de Expurgo (Wipeout)
+export async function removerContatoCompletamente(hash: string): Promise<void> {
+  try {
+    addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
+
+    // 1. Remove da UI localmente primeiro (Optimistic Update)
+    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
+    
+    // 2. Aciona os expurgos modulares para limpar as entranhas da máquina de estados
+    await ExpurgarMensagens(hash);
+    await ExpurgarHandshakesContato(hash);
+    await ExpurgarHandshakesProfile(hash);
+    
+    // 3. (Fallback de Segurança) Limpa também qualquer handshake genérico órfão desse aud
+    const handshakes = await listarHandshakes();
+    for (const h of handshakes) {
+      if (h.aud === hash) await removerHandshake(h.id);
+    }
+
+    // 4. Remove o contato físico do banco de dados de contatos
+    await removerContatoPorHash(hash);
+    
+    addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
+    throw err;
   }
 }
 

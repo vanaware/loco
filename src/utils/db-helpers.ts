@@ -172,6 +172,20 @@ export async function removerChat(id: string, contatoHash: string): Promise<void
   await salvarChave(storeChat, indexKey, index);
 }
 
+// 🔥 NOVO: Expurgo em Massa (Terra Arrasada para histórico de chat)
+export async function removerTodoHistoricoChat(contatoHash: string): Promise<void> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  // Apaga as mensagens físicas
+  for (const id of index) {
+    await removerChave(storeChat, id);
+  }
+  
+  // Apaga o índice associado
+  await removerChave(storeChat, indexKey);
+}
+
 // ============================================================
 // Contatos
 // ============================================================
@@ -186,8 +200,6 @@ async function sha256(message: string): Promise<string> {
 export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
   if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
   
-  // 🔥 Essencial: Sempre expandir a chave antes de gerar o hash, garantindo que
-  // chaves previamente geradas mantenham o mesmo ID e não quebrem o app.
   const expanded = expandVapidPublic(jwk);
   const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
   return await sha256(raw);
@@ -226,6 +238,11 @@ export async function listarContatos(): Promise<Contato[]> {
 export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
   const key = await serializarPublicKeyVapid(vapidPublicKey);
   await removerChave(storeContatos, key);
+}
+
+// 🔥 NOVO: Remoção direta por Hash
+export async function removerContatoPorHash(hash: string): Promise<void> {
+  await removerChave(storeContatos, hash);
 }
 
 // ============================================================

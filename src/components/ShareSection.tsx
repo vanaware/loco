@@ -7,6 +7,8 @@ import { serializarPublicKeyVapid } from '../utils/db-helpers.ts';
 import { showToast, sharePayload } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
 import type { Contato } from '../constants/db.ts';
+import { profile } from '../stores/profileStore.ts';
+import { ehContatoProprio } from '../utils/self-contact-utils.ts';
 
 export function ShareSection() {
   const preview = useSignal<Partial<Contato> | null>(null);
@@ -30,6 +32,21 @@ export function ShareSection() {
     try {
       error.value = null;
       const resultado = await processarQualquerConvite(input);
+      
+      // 🔥 ARQUITETURA: Self-Contact Guard
+      // Verifica se o usuário está tentando adicionar a si mesmo antes de mostrar o preview
+      if (resultado.vapidPublicKey) {
+        const hashImportado = await serializarPublicKeyVapid(resultado.vapidPublicKey);
+        const ehParaMim = await ehContatoProprio(hashImportado, profile.value);
+        
+        if (ehParaMim) {
+          showToast("👋 Ops! Este é o seu próprio convite.", "info");
+          sharePayload.value = null; // Limpa o payload da URL para não travar num loop
+          navigate('#profile');
+          return;
+        }
+      }
+
       preview.value = resultado;
     } catch (e: any) {
       error.value = e.message || "Falha ao processar convite.";
@@ -152,7 +169,6 @@ export function ShareSection() {
               <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
               <p style="margin: 0; color: #666; font-size: 0.85rem; margin-bottom: 8px;">{preview.value.email || "Sem e-mail"}</p>
               
-              {/* 🔥 ARQUITETURA: Exibição do Proxy de destino para o qual o app enviará os handshakes */}
               <div style="background: rgba(0,0,0,0.05); padding: 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%;">
                 <md-icon style="font-size: 1rem; color: #888;">dns</md-icon> 
                 <span style="font-size: 0.75rem; color: #666; word-break: break-all; text-align: left; line-height: 1.2;">

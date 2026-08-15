@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.94-msu738bx** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.96-msu7l0a3** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.94-msu738bx] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.96-msu7l0a3] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 6:50:11 AM
+Gerado automaticamente em: 8/15/2026, 7:13:19 AM
 
 ---
 
@@ -579,101 +579,6 @@ const styles: Record<string, JSX.CSSProperties> = {
 
 ---
 
-## Arquivo: `src/components/ContatosSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
-
-export function ContatosSection() {
-  useEffect(() => {}, []);
-
-  const abrirChat = (hash: string) => {
-    navigate(`#chat=${hash}`);
-  };
-
-  const abrirDetalhesContato = (e: Event, hash: string) => {
-    e.stopPropagation();
-    navigate(`#detail=${hash}`);
-  };
-
-  return (
-    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
-      
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
-        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
-          <md-icon>person_add</md-icon>
-        </md-icon-button>
-      </div>
-      
-      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
-        {contatosComHash.value.length === 0 ? (
-          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
-        ) : (
-          <md-list>
-            {contatosComHash.value.map(({ contato, hash }) => {
-              const nomeExibicao = contato.name?.trim() || "Anônimo";
-              return (
-                <md-list-item 
-                  key={hash} 
-                  onClick={() => abrirChat(hash)}
-                  style="cursor: pointer;"
-                >
-                  <md-icon slot="start">person</md-icon>
-                  
-                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
-                      <strong>{nomeExibicao}</strong>
-                    </span>
-                    {contato.trusted && (
-                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
-                    )}
-                  </div>
-                  
-                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
-                    {contato.email || 'Sem e-mail'}
-                  </span>
-                  
-                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
-                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
-                      <md-icon>qr_code_2</md-icon>
-                    </md-icon-button>
-
-                    {!contato.trusted && (
-                      <md-icon-button onClick={async (e) => {
-                        e.stopPropagation();
-                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
-                        showToast("Contato marcado como confiável!", "success");
-                      }}>
-                        <md-icon>verified</md-icon>
-                      </md-icon-button>
-                    )}
-
-                    <md-icon-button onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm(`Remover ${nomeExibicao} dos contatos?`)) {
-                        await removerContatoPorPublicKey(contato.vapidPublicKey);
-                      }
-                    }}>
-                      <md-icon>delete</md-icon>
-                    </md-icon-button>
-                  </div>
-                </md-list-item>
-              );
-            })}
-          </md-list>
-        )}
-      </div>
-    </div>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/AdvancedSection.tsx`
 
 ```tsx
@@ -1015,314 +920,6 @@ export function LogoutSection() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ContactDetailSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { contatosComHash, adicionarContato } from '../stores/contatosStore.ts';
-import { profile } from '../stores/profileStore.ts';
-import { contatoCompartilharHash, showToast } from '../signals/state.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-import { navigate } from '../utils/router.ts';
-import { ehContatoProprio } from '../utils/self-contact-utils.ts';
-
-export function ContactDetailSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-  const editNome = useSignal<string>('');
-  const editEmail = useSignal<string>('');
-  const editProxyserver = useSignal<string>('');
-  const isContatoProprio = useSignal<boolean>(false);
-
-  const hash = contatoCompartilharHash.value;
-  const item = contatosComHash.value.find(c => c.hash === hash);
-  const contato = item?.contato;
-
-  useEffect(() => {
-    if (!contato) {
-      qrCodeDataUrl.value = null;
-      isEditing.value = false;
-      isContatoProprio.value = false;
-      return;
-    }
-
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-    editProxyserver.value = contato.subscription?.proxyserver || '';
-
-    // Verifica se é o contato próprio
-    if (hash) {
-      ehContatoProprio(hash, profile.value).then((ehProprio) => {
-        isContatoProprio.value = ehProprio;
-        
-        // 🔥 Se for o próprio contato, redireciona para a tela de perfil
-        if (ehProprio) {
-          navigate('profile');
-        }
-      });
-    }
-
-    try {
-      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
-      const qr = qrcode(0, 'L');
-      qr.addData(payloadBinario);
-      qr.make();
-      qrCodeDataUrl.value = qr.createDataURL(5, 0);
-    } catch (e) {
-      console.error("Erro ao gerar QR Code do contato:", e);
-      qrCodeDataUrl.value = null;
-    }
-  }, [contato, hash]);
-
-  if (!contato || !hash) return null;
-  
-  // 🔥 Previne renderização se for o contato próprio (já foi redirecionado)
-  if (isContatoProprio.value) return null;
-
-  const nomeExibicao = contato.name?.trim() || "Anônimo";
-
-  const handleCopiarLink = async () => {
-    const p = profile.value;
-    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
-
-    try {
-      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
-    } catch (err: any) {
-      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
-    }
-  };
-
-  const handleEnviarMeusDados = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'enviarSubscription',
-            contato: hash,
-            responder: false
-          }
-        }
-      });
-      
-      showToast("🚀 Meus dados foram enviados para o contato!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
-    }
-  };
-
-  const handleSolicitarAtualizacao = async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo.");
-      
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'contato',
-          params: {
-            function: 'confirmarSubscription',
-            contato: hash,
-            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
-          }
-        }
-      });
-      
-      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
-    } catch (err: any) {
-      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
-    }
-  };
-
-  const handleSalvarEdicao = async () => {
-    try {
-      const contatoAtualizado = {
-        ...contato,
-        name: editNome.value.trim(),
-        email: editEmail.value.trim(),
-        subscription: {
-          ...contato.subscription,
-          proxyserver: editProxyserver.value.trim()
-        },
-        updatedAt: Date.now(),
-      };
-
-      await adicionarContato(contatoAtualizado);
-      isEditing.value = false;
-      showToast("✅ Dados do contato atualizados!", "success");
-    } catch (err: any) {
-      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    editNome.value = contato.name || '';
-    editEmail.value = contato.email || '';
-    editProxyserver.value = contato.subscription?.proxyserver || '';
-    isEditing.value = false;
-  };
-
-  const handleIniciarChat = () => {
-    navigate(`#chat=${hash}`);
-  };
-
-  const handleFechar = () => {
-    navigate('');
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>badge</md-icon> Cartão de Contato
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {!isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-            <md-icon-button onClick={handleFechar} title="Fechar">
-              <md-icon>close</md-icon>
-            </md-icon-button>
-          </div>
-        </div>
-
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
-            <md-outlined-text-field
-              label="Nome do Contato"
-              value={editNome.value}
-              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <md-outlined-text-field
-              label="E-mail do Contato"
-              value={editEmail.value}
-              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <md-outlined-text-field
-              label="Proxy Server (URL completa)"
-              value={editProxyserver.value}
-              onInput={(e: Event) => editProxyserver.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 4px;">
-              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
-                💾 Salvar
-              </md-filled-button>
-              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
-                Cancelar
-              </md-outlined-button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {nomeExibicao}
-            </h2>
-
-            {contato.trusted && (
-              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
-                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
-              </div>
-            )}
-
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
-            <p style="color: #888; font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
-              <md-icon style="font-size: 1rem; vertical-align: middle;">dns</md-icon> Proxy: {contato.subscription?.proxyserver || 'Não informado'}
-            </p>
-          </>
-        )}
-
-        {!isEditing.value && (
-          <>
-            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
-              
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO VOCÊ VÊ ESTE CONTATO:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.trusted ? (
-                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
-                  ) : (
-                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
-                  COMO ESTE CONTATO VÊ VOCÊ:
-                </div>
-                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
-                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
-                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
-                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
-                </div>
-              </div>
-
-            </div>
-
-            {qrCodeDataUrl.value && (
-              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
-                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
-                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
-                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
-                </span>
-              </div>
-            )}
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Copiar Link de Indicação
-              </md-filled-button>
-
-              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
-                <md-icon slot="icon">send_to_mobile</md-icon>
-                Enviar meus dados ao contato
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
-                <md-icon slot="icon">sync</md-icon>
-                Verificar Status de Confiança
-              </md-outlined-button>
-
-              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
-                <md-icon slot="icon">chat</md-icon>
-                Iniciar Conversa
-              </md-outlined-button>
-            </div>
-          </>
-        )}
-
-      </div>
-
     </div>
   );
 }
@@ -1739,6 +1336,439 @@ export function ProfileSection() {
 
 ---
 
+## Arquivo: `src/components/ContactDetailSection.tsx`
+
+```tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { contatosComHash, adicionarContato, removerContatoCompletamente } from '../stores/contatosStore.ts';
+import { profile } from '../stores/profileStore.ts';
+import { contatoCompartilharHash, contatoSelecionado, showToast } from '../signals/state.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
+import { ehContatoProprio } from '../utils/self-contact-utils.ts';
+
+export function ContactDetailSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+  const editNome = useSignal<string>('');
+  const editEmail = useSignal<string>('');
+  const editProxyserver = useSignal<string>('');
+  const isContatoProprio = useSignal<boolean>(false);
+
+  const hash = contatoCompartilharHash.value;
+  const item = contatosComHash.value.find(c => c.hash === hash);
+  const contato = item?.contato;
+
+  useEffect(() => {
+    if (!contato) {
+      qrCodeDataUrl.value = null;
+      isEditing.value = false;
+      isContatoProprio.value = false;
+      return;
+    }
+
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+    editProxyserver.value = contato.subscription?.proxyserver || '';
+
+    // Verifica se é o contato próprio
+    if (hash) {
+      ehContatoProprio(hash, profile.value).then((ehProprio) => {
+        isContatoProprio.value = ehProprio;
+        
+        // Se for o próprio contato, redireciona para a tela de perfil
+        if (ehProprio) {
+          navigate('#profile');
+        }
+      });
+    }
+
+    try {
+      const payloadBinario = gerarPayloadQrCodeCompacto(contato);
+      const qr = qrcode(0, 'L');
+      qr.addData(payloadBinario);
+      qr.make();
+      qrCodeDataUrl.value = qr.createDataURL(5, 0);
+    } catch (e) {
+      console.error("Erro ao gerar QR Code do contato:", e);
+      qrCodeDataUrl.value = null;
+    }
+  }, [contato, hash]);
+
+  if (!contato || !hash) return null;
+  
+  if (isContatoProprio.value) return null;
+
+  const nomeExibicao = contato.name?.trim() || "Anônimo";
+
+  const handleCopiarLink = async () => {
+    const p = profile.value;
+    if (!p) return showToast("Configure seu perfil primeiro para indicar contatos.", "error");
+
+    try {
+      const shareUrl = await gerarLinkConviteWeb(contato, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      showToast(`✅ Link de indicação de ${nomeExibicao} copiado!`, "success");
+    } catch (err: any) {
+      showToast(`❌ Falha ao gerar link: ${err.message}`, "error");
+    }
+  };
+
+  const handleEnviarMeusDados = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'enviarSubscription',
+            contato: hash,
+            responder: false
+          }
+        }
+      });
+      
+      showToast("🚀 Meus dados foram enviados para o contato!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao enviar dados: ${err.message}`, "error");
+    }
+  };
+
+  const handleSolicitarAtualizacao = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo.");
+      
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'contato',
+          params: {
+            function: 'confirmarSubscription',
+            contato: hash,
+            campos: ['trusted', 'subscription', 'vapidPublicKey', 'vapidPrivateKeyEnvelope', 'e2ePublicKey']
+          }
+        }
+      });
+      
+      showToast("🔄 Solicitação de diagnóstico enviada!", "info");
+    } catch (err: any) {
+      showToast(`❌ Erro ao solicitar verificação: ${err.message}`, "error");
+    }
+  };
+
+  const handleSalvarEdicao = async () => {
+    try {
+      const contatoAtualizado = {
+        ...contato,
+        name: editNome.value.trim(),
+        email: editEmail.value.trim(),
+        subscription: {
+          ...contato.subscription,
+          proxyserver: editProxyserver.value.trim()
+        },
+        updatedAt: Date.now(),
+      };
+
+      await adicionarContato(contatoAtualizado);
+      isEditing.value = false;
+      showToast("✅ Dados do contato atualizados!", "success");
+    } catch (err: any) {
+      showToast(`❌ Erro ao salvar contato: ${err.message}`, "error");
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    editNome.value = contato.name || '';
+    editEmail.value = contato.email || '';
+    editProxyserver.value = contato.subscription?.proxyserver || '';
+    isEditing.value = false;
+  };
+
+  const handleIniciarChat = () => {
+    navigate(`#chat=${hash}`);
+  };
+
+  // 🔥 ARQUITETURA: Função mestre de Expurgo Total da Interface
+  const handleExcluirContato = async () => {
+    const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir ${nomeExibicao} permanentemente.\n\nIsso apagará TODAS as mensagens enviadas, recebidas e todas as pendências de conexão na rede.\n\nDeseja continuar?`;
+    
+    if (confirm(mensagemAlerta)) {
+      try {
+        await removerContatoCompletamente(hash);
+        showToast("🗑️ Contato e histórico excluídos com sucesso.", "success");
+        
+        // Se a pessoa apagada era a que estava selecionada no chat ativo, limpa a tela de fundo
+        if (contatoSelecionado.value === hash) {
+          contatoSelecionado.value = '';
+        }
+        
+        navigate('');
+      } catch (e: any) {
+        showToast(`❌ Erro ao excluir: ${e.message}`, "error");
+      }
+    }
+  };
+
+  const handleFechar = () => {
+    navigate('');
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 0; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>badge</md-icon> Cartão de Contato
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {!isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar contato">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+            <md-icon-button onClick={handleFechar} title="Fechar">
+              <md-icon>close</md-icon>
+            </md-icon-button>
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 8px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left;">
+            <md-outlined-text-field
+              label="Nome do Contato"
+              value={editNome.value}
+              onInput={(e: Event) => editNome.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <md-outlined-text-field
+              label="E-mail do Contato"
+              value={editEmail.value}
+              onInput={(e: Event) => editEmail.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <md-outlined-text-field
+              label="Proxy Server (URL completa)"
+              value={editProxyserver.value}
+              onInput={(e: Event) => editProxyserver.value = (e.target as HTMLInputElement).value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 4px;">
+              <md-filled-button onClick={handleSalvarEdicao} style="flex: 1;">
+                💾 Salvar
+              </md-filled-button>
+              <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                Cancelar
+              </md-outlined-button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {nomeExibicao}
+            </h2>
+
+            {contato.trusted && (
+              <div style="display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--md-sys-color-primary); font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
+                <md-icon style="font-size: 1.2rem;">verified</md-icon> Contato Confiável
+              </div>
+            )}
+
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 4px;">{contato.email || 'Sem e-mail'}</p>
+            <p style="color: #888; font-size: 0.8rem; margin-bottom: 20px; word-break: break-all;">
+              <md-icon style="font-size: 1rem; vertical-align: middle;">dns</md-icon> Proxy: {contato.subscription?.proxyserver || 'Não informado'}
+            </p>
+          </>
+        )}
+
+        {!isEditing.value && (
+          <>
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 16px;">
+              
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO VOCÊ VÊ ESTE CONTATO:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.trusted ? (
+                    <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon> Identidade verificada (Confiável)</>
+                  ) : (
+                    <><md-icon style="color: #888; font-size: 1.2rem;">help</md-icon> Contato desconhecido (Não verificado)</>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant);">
+                  COMO ESTE CONTATO VÊ VOCÊ:
+                </div>
+                <div style="font-size: 0.9rem; display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                  {contato.me === 'trusted' && <><md-icon style="color: #0b8043; font-size: 1.2rem;">verified_user</md-icon> Ele(a) marcou você como Confiável</>}
+                  {contato.me === 'saved' && <><md-icon style="color: var(--md-sys-color-primary); font-size: 1.2rem;">how_to_reg</md-icon> Ele(a) possui seu contato salvo</>}
+                  {contato.me === 'wrong' && <><md-icon style="color: var(--md-sys-color-error); font-size: 1.2rem;">warning</md-icon> Seus dados no celular dele(a) estão desatualizados</>}
+                  {(!contato.me || contato.me === 'none') && <><md-icon style="color: #888; font-size: 1.2rem;">person_off</md-icon> Ele(a) ainda não possui seu contato salvo</>}
+                </div>
+              </div>
+
+            </div>
+
+            {qrCodeDataUrl.value && (
+              <div style="background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: inline-block;">
+                <img src={qrCodeDataUrl.value} alt="QR Code do Contato" style="max-width: 220px; width: 100%; height: auto; display: block; margin: 0 auto;" />
+                <span style="font-size: 0.75rem; color: #888; display: block; margin-top: 8px;">
+                  Aponte a câmera (pelo App Loco) para se conectar com {nomeExibicao.split(' ')[0]}
+                </span>
+              </div>
+            )}
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-filled-button onClick={handleCopiarLink} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Copiar Link de Indicação
+              </md-filled-button>
+
+              <md-outlined-button onClick={handleEnviarMeusDados} style="width: 100%;">
+                <md-icon slot="icon">send_to_mobile</md-icon>
+                Enviar meus dados ao contato
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleSolicitarAtualizacao} style="width: 100%;">
+                <md-icon slot="icon">sync</md-icon>
+                Verificar Status de Confiança
+              </md-outlined-button>
+
+              <md-outlined-button onClick={handleIniciarChat} style="width: 100%;">
+                <md-icon slot="icon">chat</md-icon>
+                Iniciar Conversa
+              </md-outlined-button>
+
+              <div style="margin-top: 16px;">
+                <md-outlined-button 
+                  onClick={handleExcluirContato} 
+                  style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);"
+                >
+                  <md-icon slot="icon">delete_forever</md-icon>
+                  Excluir Contato e Histórico
+                </md-outlined-button>
+              </div>
+            </div>
+          </>
+        )}
+
+      </div>
+
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ContatosSection.tsx`
+
+```tsx
+import { useEffect } from 'preact/hooks';
+import { contatosComHash, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+
+export function ContatosSection() {
+  useEffect(() => {}, []);
+
+  const abrirChat = (hash: string) => {
+    navigate(`#chat=${hash}`);
+  };
+
+  const abrirDetalhesContato = (e: Event, hash: string) => {
+    e.stopPropagation();
+    navigate(`#detail=${hash}`);
+  };
+
+  return (
+    <div class="container container-contatos" style="border-left-color: #6c4f00; margin-bottom: 24px;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="font-size: 1.1rem; margin: 0;">📇 Meus Contatos</h2>
+        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
+          <md-icon>person_add</md-icon>
+        </md-icon-button>
+      </div>
+      
+      <div style="max-height: calc(100vh - 220px); overflow-y: auto; background: var(--md-sys-color-surface-variant); border-radius: 8px;">
+        {contatosComHash.value.length === 0 ? (
+          <p style="padding: 16px; color: #666; text-align: center; margin: 0;">Nenhum contato adicionado.</p>
+        ) : (
+          <md-list>
+            {contatosComHash.value.map(({ contato, hash }) => {
+              const nomeExibicao = contato.name?.trim() || "Anônimo";
+              return (
+                <md-list-item 
+                  key={hash} 
+                  onClick={() => abrirChat(hash)}
+                  style="cursor: pointer;"
+                >
+                  <md-icon slot="start">person</md-icon>
+                  
+                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; display: block;">
+                      <strong>{nomeExibicao}</strong>
+                    </span>
+                    {contato.trusted && (
+                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.2rem;">verified</md-icon>
+                    )}
+                  </div>
+                  
+                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
+                    {contato.email || 'Sem e-mail'}
+                  </span>
+                  
+                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
+                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
+                      <md-icon>qr_code_2</md-icon>
+                    </md-icon-button>
+
+                    {!contato.trusted && (
+                      <md-icon-button onClick={async (e) => {
+                        e.stopPropagation();
+                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
+                        showToast("Contato marcado como confiável!", "success");
+                      }}>
+                        <md-icon>verified</md-icon>
+                      </md-icon-button>
+                    )}
+
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remover ${nomeExibicao} e apagar todo o histórico de conversas permanentemente?`)) {
+                        await removerContatoCompletamente(hash);
+                      }
+                    }}>
+                      <md-icon>delete</md-icon>
+                    </md-icon-button>
+                  </div>
+                </md-list-item>
+              );
+            })}
+          </md-list>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/components/ShareSection.tsx`
 
 ```tsx
@@ -1751,6 +1781,8 @@ import { serializarPublicKeyVapid } from '../utils/db-helpers.ts';
 import { showToast, sharePayload } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
 import type { Contato } from '../constants/db.ts';
+import { profile } from '../stores/profileStore.ts';
+import { ehContatoProprio } from '../utils/self-contact-utils.ts';
 
 export function ShareSection() {
   const preview = useSignal<Partial<Contato> | null>(null);
@@ -1774,6 +1806,21 @@ export function ShareSection() {
     try {
       error.value = null;
       const resultado = await processarQualquerConvite(input);
+      
+      // 🔥 ARQUITETURA: Self-Contact Guard
+      // Verifica se o usuário está tentando adicionar a si mesmo antes de mostrar o preview
+      if (resultado.vapidPublicKey) {
+        const hashImportado = await serializarPublicKeyVapid(resultado.vapidPublicKey);
+        const ehParaMim = await ehContatoProprio(hashImportado, profile.value);
+        
+        if (ehParaMim) {
+          showToast("👋 Ops! Este é o seu próprio convite.", "info");
+          sharePayload.value = null; // Limpa o payload da URL para não travar num loop
+          navigate('#profile');
+          return;
+        }
+      }
+
       preview.value = resultado;
     } catch (e: any) {
       error.value = e.message || "Falha ao processar convite.";
@@ -1896,7 +1943,6 @@ export function ShareSection() {
               <h3 style="margin: 0; font-size: 1.2rem;">{preview.value.name?.trim() || "Anônimo"}</h3>
               <p style="margin: 0; color: #666; font-size: 0.85rem; margin-bottom: 8px;">{preview.value.email || "Sem e-mail"}</p>
               
-              {/* 🔥 ARQUITETURA: Exibição do Proxy de destino para o qual o app enviará os handshakes */}
               <div style="background: rgba(0,0,0,0.05); padding: 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%;">
                 <md-icon style="font-size: 1rem; color: #888;">dns</md-icon> 
                 <span style="font-size: 0.75rem; color: #666; word-break: break-all; text-align: left; line-height: 1.2;">
@@ -2232,7 +2278,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.94-msu738bx";
+export const APP_VERSION = "0.2.96-msu7l0a3";
 
 ```
 
@@ -2479,167 +2525,6 @@ export async function initMensagensStore() {
 
 ---
 
-## Arquivo: `src/stores/contatosStore.ts`
-
-```ts
-// src/stores/contatosStore.ts
-import { signal, computed } from "@preact/signals";
-import {
-  listarContatos,
-  salvarContato,
-  removerContato,
-  serializarPublicKeyVapid,
-  buscarProfile,
-} from "../utils/db-helpers.ts";
-import type { Contato } from "../constants/db.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
-
-export type { Contato };
-
-export const contatosRaw = signal<Contato[]>([]);
-
-export const contatosComHash = computed(() => {
-  return contatosRaw.value.map((contato) => ({
-    contato,
-    hash: contato.id,
-  }));
-});
-
-export const contatosMap = computed(() => {
-  const map = new Map<string, Contato>();
-  for (const c of contatosRaw.value) {
-    map.set(c.id, c);
-  }
-  return map;
-});
-
-export async function carregarContatos(): Promise<void> {
-  try {
-    const lista = await listarContatos();
-    
-    // 🔥 Carrega o contato próprio (baseado no profile) e adiciona à lista
-    const profile = await buscarProfile();
-    if (profile) {
-      const contatoProprio = await gerarContatoProprio(profile);
-      if (contatoProprio) {
-        // Verifica se já existe na lista para não duplicar
-        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
-        if (indexExistente >= 0) {
-          // Atualiza o existente com os dados mais recentes do profile
-          lista[indexExistente] = contatoProprio;
-        } else {
-          // Adiciona o contato próprio à lista
-          lista.push(contatoProprio);
-        }
-      }
-    }
-    
-    contatosRaw.value = lista;
-    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos (incluindo próprio) do banco local`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
-  }
-}
-
-let isContatosListenerInitialized = false;
-
-export async function initContatosStore(): Promise<void> {
-  await carregarContatos();
-
-  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
-    isContatosListenerInitialized = true;
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data?.type === 'CONTATO_ATUALIZADO') {
-        carregarContatos();
-      }
-    });
-  }
-}
-
-export async function adicionarContato(contato: Contato): Promise<void> {
-  try {
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === contato.id);
-    if (index >= 0) {
-      const novaLista = [...atual];
-      novaLista[index] = contato;
-      contatosRaw.value = novaLista;
-    } else {
-      contatosRaw.value = [...atual, contato];
-    }
-
-    await salvarContato(contato);
-    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
-    throw err;
-  }
-}
-
-export function adicionarOuAtualizarContato(contato: Contato): void {
-  adicionarContato(contato).catch((err) => {
-    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
-  });
-}
-
-export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    
-    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
-    
-    await removerContato(vapidPublicKey);
-    addDebugLog("warn", "STORE:CONTATO", "Contato removido por chave pública");
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
-  }
-}
-
-export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === hash);
-    
-    if (index >= 0 && atual[index]) {
-      const contatoAtual = atual[index];
-      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
-      const novaLista = [...atual];
-      novaLista[index] = contatoModificado;
-      contatosRaw.value = novaLista;
-      
-      await salvarContato(contatoModificado);
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
-    } else {
-      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
-    }
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
-  }
-}
-
-export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
-  const atual = contatosRaw.value;
-  const index = atual.findIndex(c => c.id === id);
-  if (index >= 0 && atual[index]) {
-    const contatoAtual = atual[index];
-    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
-    const novaLista = [...atual];
-    novaLista[index] = contatoModificado;
-    contatosRaw.value = novaLista;
-    
-    salvarContato(contatoModificado).catch(err => {
-        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
-    });
-  } else {
-    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
-  }
-}
-```
-
----
-
 ## Arquivo: `src/stores/config-store.ts`
 
 ```ts
@@ -2738,6 +2623,197 @@ export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
   console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
   await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
   return { proxy_path: FallbackAbsoluteProxy };
+}
+```
+
+---
+
+## Arquivo: `src/stores/contatosStore.ts`
+
+```ts
+// src/stores/contatosStore.ts
+import { signal, computed } from "@preact/signals";
+import {
+  listarContatos,
+  salvarContato,
+  removerContato,
+  serializarPublicKeyVapid,
+  buscarProfile,
+  removerContatoPorHash,
+  listarHandshakes,
+  removerHandshake
+} from "../utils/db-helpers.ts";
+import type { Contato } from "../constants/db.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
+
+import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
+import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
+import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
+
+export type { Contato };
+
+export const contatosRaw = signal<Contato[]>([]);
+
+export const contatosComHash = computed(() => {
+  return contatosRaw.value.map((contato) => ({
+    contato,
+    hash: contato.id,
+  }));
+});
+
+export const contatosMap = computed(() => {
+  const map = new Map<string, Contato>();
+  for (const c of contatosRaw.value) {
+    map.set(c.id, c);
+  }
+  return map;
+});
+
+export async function carregarContatos(): Promise<void> {
+  try {
+    const lista = await listarContatos();
+    
+    // 🔥 Carrega o contato próprio (baseado no profile) e adiciona à lista
+    const profile = await buscarProfile();
+    if (profile) {
+      const contatoProprio = await gerarContatoProprio(profile);
+      if (contatoProprio) {
+        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
+        if (indexExistente >= 0) {
+          lista[indexExistente] = contatoProprio;
+        } else {
+          lista.push(contatoProprio);
+        }
+      }
+    }
+    
+    contatosRaw.value = lista;
+    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
+  }
+}
+
+let isContatosListenerInitialized = false;
+
+export async function initContatosStore(): Promise<void> {
+  await carregarContatos();
+
+  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
+    isContatosListenerInitialized = true;
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'CONTATO_ATUALIZADO') {
+        carregarContatos();
+      }
+    });
+  }
+}
+
+export async function adicionarContato(contato: Contato): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === contato.id);
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = contato;
+      contatosRaw.value = novaLista;
+    } else {
+      contatosRaw.value = [...atual, contato];
+    }
+
+    await salvarContato(contato);
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
+    throw err;
+  }
+}
+
+export function adicionarOuAtualizarContato(contato: Contato): void {
+  adicionarContato(contato).catch((err) => {
+    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
+  });
+}
+
+// Retrocompatibilidade (Chamará o expurgo completo internamente)
+export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    await removerContatoCompletamente(hash);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
+  }
+}
+
+// 🔥 ARQUITETURA: Orquestrador Central de Expurgo (Wipeout)
+export async function removerContatoCompletamente(hash: string): Promise<void> {
+  try {
+    addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
+
+    // 1. Remove da UI localmente primeiro (Optimistic Update)
+    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
+    
+    // 2. Aciona os expurgos modulares para limpar as entranhas da máquina de estados
+    await ExpurgarMensagens(hash);
+    await ExpurgarHandshakesContato(hash);
+    await ExpurgarHandshakesProfile(hash);
+    
+    // 3. (Fallback de Segurança) Limpa também qualquer handshake genérico órfão desse aud
+    const handshakes = await listarHandshakes();
+    for (const h of handshakes) {
+      if (h.aud === hash) await removerHandshake(h.id);
+    }
+
+    // 4. Remove o contato físico do banco de dados de contatos
+    await removerContatoPorHash(hash);
+    
+    addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
+    throw err;
+  }
+}
+
+export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === hash);
+    
+    if (index >= 0 && atual[index]) {
+      const contatoAtual = atual[index];
+      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
+      const novaLista = [...atual];
+      novaLista[index] = contatoModificado;
+      contatosRaw.value = novaLista;
+      
+      await salvarContato(contatoModificado);
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
+    } else {
+      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
+    }
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
+  }
+}
+
+export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
+  const atual = contatosRaw.value;
+  const index = atual.findIndex(c => c.id === id);
+  if (index >= 0 && atual[index]) {
+    const contatoAtual = atual[index];
+    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
+    const novaLista = [...atual];
+    novaLista[index] = contatoModificado;
+    contatosRaw.value = novaLista;
+    
+    salvarContato(contatoModificado).catch(err => {
+        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
+    });
+  } else {
+    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
+  }
 }
 ```
 
@@ -3515,266 +3591,6 @@ export async function obterHashProprio(profile: ProfileConfig | null): Promise<s
   }
 }
 
-```
-
----
-
-## Arquivo: `src/utils/db-helpers.ts`
-
-```ts
-// src/utils/db-helpers.ts
-import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type { ProfileConfig, Chat, Contato, Handshake } from "../constants/db.ts";
-import { 
-  minifyVapidPublic, expandVapidPublic, 
-  minifyVapidPrivate, expandVapidPrivate, 
-  minifyRsaPublic, expandRsaPublic, 
-  minifyRsaPrivate, expandRsaPrivate 
-} from "./crypto-utils.ts";
-
-// ============================================================
-// Criação de Stores
-// ============================================================
-
-export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
-  return createStore(nome, storeName);
-}
-
-const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeChat = criarStore(DB_NAMES.CHAT); 
-export const storeContatos = criarStore(DB_NAMES.CONTATOS);
-export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
-
-// ============================================================
-// Funções Genéricas
-// ============================================================
-
-export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
-  return set(key, value, store);
-}
-
-export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
-  return get(key, store);
-}
-
-export async function removerChave(store: any, key: string): Promise<void> {
-  return del(key, store);
-}
-
-export async function listarChaves<T>(store: any): Promise<[string, T][]> {
-  return entries(store) as Promise<[string, T][]>;
-}
-
-export async function listarValores<T>(store: any): Promise<T[]> {
-  return values(store) as Promise<T[]>;
-}
-
-// ============================================================
-// Interceptadores de Compressão (DB Middlewares)
-// ============================================================
-
-function compactarProfile(p: ProfileConfig): any {
-  return {
-    ...p,
-    vapidPublicKey: minifyVapidPublic(p.vapidPublicKey),
-    vapidPrivateKeyJwk: minifyVapidPrivate(p.vapidPrivateKeyJwk),
-    e2ePublicKey: minifyRsaPublic(p.e2ePublicKey),
-    e2ePrivateKeyJwk: minifyRsaPrivate(p.e2ePrivateKeyJwk)
-  };
-}
-
-function expandirProfile(p: any): ProfileConfig | undefined {
-  if (!p) return undefined;
-  return {
-    ...p,
-    vapidPublicKey: expandVapidPublic(p.vapidPublicKey),
-    vapidPrivateKeyJwk: expandVapidPrivate(p.vapidPrivateKeyJwk, p.vapidPublicKey),
-    e2ePublicKey: expandRsaPublic(p.e2ePublicKey),
-    e2ePrivateKeyJwk: expandRsaPrivate(p.e2ePrivateKeyJwk, p.e2ePublicKey)
-  } as ProfileConfig;
-}
-
-function compactarContato(c: Contato): any {
-  return {
-    ...c,
-    vapidPublicKey: minifyVapidPublic(c.vapidPublicKey),
-    e2ePublicKey: minifyRsaPublic(c.e2ePublicKey)
-  };
-}
-
-function expandirContato(c: any): Contato | undefined {
-  if (!c) return undefined;
-  return {
-    ...c,
-    vapidPublicKey: expandVapidPublic(c.vapidPublicKey),
-    e2ePublicKey: expandRsaPublic(c.e2ePublicKey)
-  } as Contato;
-}
-
-// ============================================================
-// Gerenciamento do Perfil (ProfileConfig)
-// ============================================================
-
-export async function salvarProfile(profile: ProfileConfig): Promise<void> {
-  profile.updatedAt = Date.now();
-  if (!profile.createdAt) {
-    profile.createdAt = Date.now();
-  }
-  await salvarChave(storeConfig, KEY_NAMES.PROFILE, compactarProfile(profile));
-}
-
-export async function buscarProfile(): Promise<ProfileConfig | undefined> {
-  const p = await buscarChave<any>(storeConfig, KEY_NAMES.PROFILE);
-  return expandirProfile(p);
-}
-
-export async function removerProfile(): Promise<void> {
-  await removerChave(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function buscarChaveDecript(): Promise<CryptoKey | null> {
-  try {
-    const profile = await buscarProfile();
-    if (!profile || !profile.e2ePrivateKeyJwk) return null;
-
-    return await crypto.subtle.importKey(
-      "jwk",
-      profile.e2ePrivateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["decrypt"]
-    );
-  } catch (err) {
-    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
-    return null;
-  }
-}
-
-// ============================================================
-// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
-// ============================================================
-
-export async function salvarChat(chat: Chat): Promise<void> {
-  chat.updatedAt = Date.now();
-  await salvarChave(storeChat, chat.id, chat);
-
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  
-  if (!index.includes(chat.id)) {
-    index.push(chat.id);
-    await salvarChave(storeChat, indexKey, index);
-  }
-}
-
-export async function buscarChat(id: string): Promise<Chat | undefined> {
-  return buscarChave<Chat>(storeChat, id);
-}
-
-export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-
-  const total = index.length;
-  if (total === 0 || offset >= total) return [];
-
-  const startIndex = Math.max(0, total - offset - limit);
-  const endIndex = total - offset;
-  
-  const sliceIds = index.slice(startIndex, endIndex);
-
-  const records = await getMany(sliceIds, storeChat);
-  return records.filter(Boolean) as Chat[];
-}
-
-export async function removerChat(id: string, contatoHash: string): Promise<void> {
-  await removerChave(storeChat, id);
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  index = index.filter(x => x !== id);
-  await salvarChave(storeChat, indexKey, index);
-}
-
-// ============================================================
-// Contatos
-// ============================================================
-
-async function sha256(message: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
-  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  
-  // 🔥 Essencial: Sempre expandir a chave antes de gerar o hash, garantindo que
-  // chaves previamente geradas mantenham o mesmo ID e não quebrem o app.
-  const expanded = expandVapidPublic(jwk);
-  const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
-  return await sha256(raw);
-}
-
-export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
-  if (typeof input === 'string') return input;
-  if (typeof input === 'object' && input !== null && ('kty' in input || 'x' in input)) {
-    return await serializarPublicKeyVapid(input as JsonWebKey);
-  }
-  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
-}
-
-export async function salvarContato(contato: Contato): Promise<void> {
-  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
-  await salvarChave(storeContatos, key, compactarContato(contato));
-}
-
-export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  const c = await buscarChave<any>(storeContatos, key);
-  return expandirContato(c);
-}
-
-export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
-  const key = await normalizarChaveContato(chaveOuJwk);
-  const c = await buscarChave<any>(storeContatos, key);
-  return expandirContato(c);
-}
-
-export async function listarContatos(): Promise<Contato[]> {
-  const entriesList = await listarChaves<any>(storeContatos);
-  return entriesList.map(([_, c]) => expandirContato(c) as Contato);
-}
-
-export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  await removerChave(storeContatos, key);
-}
-
-// ============================================================
-// Handshakes
-// ============================================================
-
-export async function salvarHandshake(handshake: Handshake): Promise<void> {
-  handshake.updatedAt = Date.now();
-  if (!handshake.createdAt) {
-    handshake.createdAt = Date.now();
-  }
-  await salvarChave(storeHandshakes, handshake.id, handshake);
-}
-
-export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
-  return buscarChave<Handshake>(storeHandshakes, id);
-}
-
-export async function listarHandshakes(): Promise<Handshake[]> {
-  return listarValores<Handshake>(storeHandshakes);
-}
-
-export async function removerHandshake(id: string): Promise<void> {
-  await removerChave(storeHandshakes, id);
-}
 ```
 
 ---
@@ -4925,6 +4741,283 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
 
 ---
 
+## Arquivo: `src/utils/db-helpers.ts`
+
+```ts
+// src/utils/db-helpers.ts
+import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
+import type { ProfileConfig, Chat, Contato, Handshake } from "../constants/db.ts";
+import { 
+  minifyVapidPublic, expandVapidPublic, 
+  minifyVapidPrivate, expandVapidPrivate, 
+  minifyRsaPublic, expandRsaPublic, 
+  minifyRsaPrivate, expandRsaPrivate 
+} from "./crypto-utils.ts";
+
+// ============================================================
+// Criação de Stores
+// ============================================================
+
+export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
+  return createStore(nome, storeName);
+}
+
+const storeConfig = criarStore(DB_NAMES.CONFIG);
+export const storeChat = criarStore(DB_NAMES.CHAT); 
+export const storeContatos = criarStore(DB_NAMES.CONTATOS);
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
+
+// ============================================================
+// Funções Genéricas
+// ============================================================
+
+export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
+  return set(key, value, store);
+}
+
+export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
+  return get(key, store);
+}
+
+export async function removerChave(store: any, key: string): Promise<void> {
+  return del(key, store);
+}
+
+export async function listarChaves<T>(store: any): Promise<[string, T][]> {
+  return entries(store) as Promise<[string, T][]>;
+}
+
+export async function listarValores<T>(store: any): Promise<T[]> {
+  return values(store) as Promise<T[]>;
+}
+
+// ============================================================
+// Interceptadores de Compressão (DB Middlewares)
+// ============================================================
+
+function compactarProfile(p: ProfileConfig): any {
+  return {
+    ...p,
+    vapidPublicKey: minifyVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: minifyVapidPrivate(p.vapidPrivateKeyJwk),
+    e2ePublicKey: minifyRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: minifyRsaPrivate(p.e2ePrivateKeyJwk)
+  };
+}
+
+function expandirProfile(p: any): ProfileConfig | undefined {
+  if (!p) return undefined;
+  return {
+    ...p,
+    vapidPublicKey: expandVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: expandVapidPrivate(p.vapidPrivateKeyJwk, p.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: expandRsaPrivate(p.e2ePrivateKeyJwk, p.e2ePublicKey)
+  } as ProfileConfig;
+}
+
+function compactarContato(c: Contato): any {
+  return {
+    ...c,
+    vapidPublicKey: minifyVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: minifyRsaPublic(c.e2ePublicKey)
+  };
+}
+
+function expandirContato(c: any): Contato | undefined {
+  if (!c) return undefined;
+  return {
+    ...c,
+    vapidPublicKey: expandVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(c.e2ePublicKey)
+  } as Contato;
+}
+
+// ============================================================
+// Gerenciamento do Perfil (ProfileConfig)
+// ============================================================
+
+export async function salvarProfile(profile: ProfileConfig): Promise<void> {
+  profile.updatedAt = Date.now();
+  if (!profile.createdAt) {
+    profile.createdAt = Date.now();
+  }
+  await salvarChave(storeConfig, KEY_NAMES.PROFILE, compactarProfile(profile));
+}
+
+export async function buscarProfile(): Promise<ProfileConfig | undefined> {
+  const p = await buscarChave<any>(storeConfig, KEY_NAMES.PROFILE);
+  return expandirProfile(p);
+}
+
+export async function removerProfile(): Promise<void> {
+  await removerChave(storeConfig, KEY_NAMES.PROFILE);
+}
+
+export async function buscarChaveDecript(): Promise<CryptoKey | null> {
+  try {
+    const profile = await buscarProfile();
+    if (!profile || !profile.e2ePrivateKeyJwk) return null;
+
+    return await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+  } catch (err) {
+    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
+    return null;
+  }
+}
+
+// ============================================================
+// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
+// ============================================================
+
+export async function salvarChat(chat: Chat): Promise<void> {
+  chat.updatedAt = Date.now();
+  await salvarChave(storeChat, chat.id, chat);
+
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  if (!index.includes(chat.id)) {
+    index.push(chat.id);
+    await salvarChave(storeChat, indexKey, index);
+  }
+}
+
+export async function buscarChat(id: string): Promise<Chat | undefined> {
+  return buscarChave<Chat>(storeChat, id);
+}
+
+export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+
+  const total = index.length;
+  if (total === 0 || offset >= total) return [];
+
+  const startIndex = Math.max(0, total - offset - limit);
+  const endIndex = total - offset;
+  
+  const sliceIds = index.slice(startIndex, endIndex);
+
+  const records = await getMany(sliceIds, storeChat);
+  return records.filter(Boolean) as Chat[];
+}
+
+export async function removerChat(id: string, contatoHash: string): Promise<void> {
+  await removerChave(storeChat, id);
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  index = index.filter(x => x !== id);
+  await salvarChave(storeChat, indexKey, index);
+}
+
+// 🔥 NOVO: Expurgo em Massa (Terra Arrasada para histórico de chat)
+export async function removerTodoHistoricoChat(contatoHash: string): Promise<void> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  // Apaga as mensagens físicas
+  for (const id of index) {
+    await removerChave(storeChat, id);
+  }
+  
+  // Apaga o índice associado
+  await removerChave(storeChat, indexKey);
+}
+
+// ============================================================
+// Contatos
+// ============================================================
+
+async function sha256(message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  
+  const expanded = expandVapidPublic(jwk);
+  const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object' && input !== null && ('kty' in input || 'x' in input)) {
+    return await serializarPublicKeyVapid(input as JsonWebKey);
+  }
+  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
+}
+
+export async function salvarContato(contato: Contato): Promise<void> {
+  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
+  await salvarChave(storeContatos, key, compactarContato(contato));
+}
+
+export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
+}
+
+export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
+  const key = await normalizarChaveContato(chaveOuJwk);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
+}
+
+export async function listarContatos(): Promise<Contato[]> {
+  const entriesList = await listarChaves<any>(storeContatos);
+  return entriesList.map(([_, c]) => expandirContato(c) as Contato);
+}
+
+export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  await removerChave(storeContatos, key);
+}
+
+// 🔥 NOVO: Remoção direta por Hash
+export async function removerContatoPorHash(hash: string): Promise<void> {
+  await removerChave(storeContatos, hash);
+}
+
+// ============================================================
+// Handshakes
+// ============================================================
+
+export async function salvarHandshake(handshake: Handshake): Promise<void> {
+  handshake.updatedAt = Date.now();
+  if (!handshake.createdAt) {
+    handshake.createdAt = Date.now();
+  }
+  await salvarChave(storeHandshakes, handshake.id, handshake);
+}
+
+export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
+  return buscarChave<Handshake>(storeHandshakes, id);
+}
+
+export async function listarHandshakes(): Promise<Handshake[]> {
+  return listarValores<Handshake>(storeHandshakes);
+}
+
+export async function removerHandshake(id: string): Promise<void> {
+  await removerChave(storeHandshakes, id);
+}
+```
+
+---
+
 ## Arquivo: `src/styles.d.ts`
 
 ```ts
@@ -5461,6 +5554,9 @@ import {
   salvarChat,
   buscarContatoPorChave,
   buscarProfile,
+  removerTodoHistoricoChat,
+  listarHandshakes,
+  removerHandshake
 } from "../utils/db-helpers.ts";
 import { ehContatoProprio } from "../utils/self-contact-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
@@ -5472,14 +5568,30 @@ interface MensagemOutParams {
   conteudo?: string;
   mensagem?: string;
   campos?: string[];
-  msgId?: string;       
-  handshakeId?: string; 
+  msgId?: string;        
+  handshakeId?: string;  
   createdAt?: number;
 }
 
 async function notificarUI(chatId: string) {
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
+}
+
+// 🔥 ARQUITETURA: Função de Expurgo Modular
+export async function ExpurgarMensagens(contatoHash: string) {
+  addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens e handshakes do contato ${contatoHash}`);
+  
+  // 1. Apaga fisicamente todas as mensagens do Chat_DB
+  await removerTodoHistoricoChat(contatoHash);
+
+  // 2. Localiza e expurga os handshakes de mensagem pendentes desse contato
+  const todos = await listarHandshakes();
+  for (const h of todos) {
+    if (h.aud === contatoHash && (h.in?.rotas.mensagem || h.out?.rotas.mensagem)) {
+      await removerHandshake(h.id);
+    }
+  }
 }
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
@@ -5597,33 +5709,24 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
       
       if (ehParaSiMesmo) {
-        // 🔄 FLUXO ESPECIAL: Mensagem para si mesmo (sem envio real, sem handshake)
         addDebugLog(`[HAND-MENSAGEM] 🔄 Detectado envio para si mesmo. Salvando localmente sem handshake.`);
         
         const idReal = msgId || gerarId();
         const agora = Date.now();
         
-        // Cria a mensagem já com status completo (enviada, recebida, lida)
         const chatAuto: Chat = {
-          id: idReal,
-          contatoHash: contatoId,
-          conteudo,
-          tipo: 'out',
-          createdAt: createdAt || agora,
-          sentAt: agora,        // ✅ Marcada como enviada
-          receivedAt: agora,    // ✅ Marcada como recebida
-          readAt: agora,        // ✅ Marcada como lida
-          notifiedAt: agora,    // ✅ Marcada como notificada
-          handshake: 'self'     // 🔥 Handshake especial indicando auto-envio
+          id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
+          createdAt: createdAt || agora, sentAt: agora, receivedAt: agora,
+          readAt: agora, notifiedAt: agora, handshake: 'self'
         };
         
         await salvarChat(chatAuto);
         notificarUI(idReal);
         addDebugLog(`[HAND-MENSAGEM] ✅ Auto-mensagem ${idReal} salva com fluxo completo simulado.`);
-        return; // ⚠️ Sai imediatamente sem criar handshake
+        return;
       }
 
-      // 📤 FLUXO NORMAL: Mensagem para outro contato (com handshake)
+      // 📤 FLUXO NORMAL: Mensagem para outro contato
       const idReal = msgId || gerarId();
       const handIdReal = handshakeId || gerarId();
       
@@ -5643,7 +5746,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       await salvarHandshake(novoHandshake);
       addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} posta na fila de saída do SW.`);
-      
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
@@ -5667,7 +5769,9 @@ import {
   buscarProfile,
   buscarContatoPorChave,
   salvarContato,
-  serializarPublicKeyVapid
+  serializarPublicKeyVapid,
+  listarHandshakes,
+  removerHandshake
 } from "../utils/db-helpers.ts";
 import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from "../utils/crypto-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
@@ -5679,8 +5783,19 @@ interface ProfileOutParams {
   campos?: string[];
 }
 
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ProfileOutParams }) {
+// 🔥 ARQUITETURA: Função de Expurgo Modular
+export async function ExpurgarHandshakesProfile(contatoHash: string) {
+  addDebugLog("warn", "HAND-PROFILE", `🗑️ Expurgando handshakes de perfil do contato ${contatoHash}`);
   
+  const todos = await listarHandshakes();
+  for (const h of todos) {
+    if (h.aud === contatoHash && (h.in?.rotas.profile || h.out?.rotas.profile)) {
+      await removerHandshake(h.id);
+    }
+  }
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ProfileOutParams }) {
   if (handshakeId) {
     addDebugLog(`[HAND-PROFILE] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
@@ -5705,7 +5820,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       if (camposSet.has('name')) rotasProfileData.name = profile.name;
       if (camposSet.has('email')) rotasProfileData.email = profile.email;
-      // 🔥 Enviamos o payload totalmente minificado pela rede
       if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = minifyVapidPublic(profile.vapidPublicKey);
       if (camposSet.has('vapidPrivateKeyEnvelope')) rotasProfileData.vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
       if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = minifyRsaPublic(profile.e2ePublicKey);
@@ -5741,7 +5855,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (typeof d.vapidPrivateKeyEnvelope === 'string') contato.vapidPrivateKeyEnvelope = d.vapidPrivateKeyEnvelope;
         if (d.subscription !== undefined) contato.subscription = d.subscription as any;
 
-        // 🔥 Expandimos as chaves minificadas que chegaram da rede para o padrão JWK antes de persistir em RAM
         if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = expandVapidPublic(d.vapidPublicKey);
         if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = expandRsaPublic(d.e2ePublicKey);
 
@@ -5812,7 +5925,9 @@ import {
   buscarProfile,
   buscarContatoPorChave,
   salvarContato,
-  serializarPublicKeyVapid
+  serializarPublicKeyVapid,
+  listarHandshakes,
+  removerHandshake
 } from "../utils/db-helpers.ts";
 import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
@@ -5823,6 +5938,18 @@ interface ContatoOutParams {
   contato: string;
   campos?: string[];
   responder?: boolean;
+}
+
+// 🔥 ARQUITETURA: Função de Expurgo Modular
+export async function ExpurgarHandshakesContato(contatoHash: string) {
+  addDebugLog("warn", "HAND-CONTATO", `🗑️ Expurgando handshakes de conexão do contato ${contatoHash}`);
+  
+  const todos = await listarHandshakes();
+  for (const h of todos) {
+    if (h.aud === contatoHash && (h.in?.rotas.contato || h.out?.rotas.contato)) {
+      await removerHandshake(h.id);
+    }
+  }
 }
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
@@ -5841,7 +5968,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         const camposSet = new Set(contatoReq.campos);
         const cp = extrairDadosCompactos(contato);
         
-        // 🔥 Usa o esquema minificado limpo `vp` e `ep`
         if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
         if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
         if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
@@ -5884,11 +6010,9 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (d.tr === true) novoMeStatus = 'trusted';
         else novoMeStatus = 'saved';
 
-        // Lida com a estrutura nova ou aplica a de retrocompatibilidade
         const d_vp = d.vp as any || { x: d.vx, y: d.vy };
         const d_ep = d.ep as any || { n: d.en };
 
-        // Compara com base no nosso profile extraído (mp)
         if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
             d_vp.x !== mp.vp.x || d_vp.y !== mp.vp.y || d_ep.n !== mp.ep.n || d.ve !== mp.ve) {
           novoMeStatus = 'wrong';
@@ -5914,7 +6038,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       
       const syncData = contatoReq.sync as unknown as CompactContact;
       
-      // Aplica retrocompatibilidade antes de expandir
       if ((syncData as any).vx && !syncData.vp) {
         syncData.vp = { x: (syncData as any).vx, y: (syncData as any).vy };
         syncData.ep = { n: (syncData as any).en };
@@ -6113,8 +6236,6 @@ function App() {
   useEffect(() => {
     const init = async () => {
       // 🔥 ARQUITETURA: Auto-Discovery Executado Globalmente no Boot!
-      // Garante que o PWA descubra a rota correta do Proxy (Raiz ou Cloudflare)
-      // ANTES do usuário interagir com qualquer botão de rede.
       addDebugLog("info", "SYSTEM", "Iniciando Auto-Discovery de Rede...");
       await loadAllConfigs();
 
@@ -6222,10 +6343,8 @@ function App() {
             <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
           </div>
           
+          {/* 🔥 ARQUITETURA: Removido o atalho de adicionar contato duplicado daqui. Mantido apenas Meu Perfil */}
           <div style="display: flex; gap: 4px;">
-            <md-icon-button onClick={() => navigate('#share')} title="Adicionar Contato">
-              <md-icon>person_add</md-icon>
-            </md-icon-button>
             <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
               <md-icon>account_circle</md-icon>
             </md-icon-button>
@@ -6691,7 +6810,7 @@ await build();
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.94-msu738bx",
+  "version": "0.2.96-msu7l0a3",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",

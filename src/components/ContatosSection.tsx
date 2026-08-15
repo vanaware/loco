@@ -1,5 +1,5 @@
 import { useEffect } from 'preact/hooks';
-import { contatosComHash, removerContatoPorPublicKey, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { contatosComHash, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
 import { showToast } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
 
@@ -70,8 +70,8 @@ export function ContatosSection() {
 
                     <md-icon-button onClick={async (e) => {
                       e.stopPropagation();
-                      if (confirm(`Remover ${nomeExibicao} dos contatos?`)) {
-                        await removerContatoPorPublicKey(contato.vapidPublicKey);
+                      if (confirm(`Remover ${nomeExibicao} e apagar todo o histórico de conversas permanentemente?`)) {
+                        await removerContatoCompletamente(hash);
                       }
                     }}>
                       <md-icon>delete</md-icon>
