@@ -113,15 +113,34 @@ elif [ "$AT" = "cloudflare" ]; then
   fi
 
   echo "   Limpando chave antiga (se existir)..."
-  # 🔥 Passamos echo "y" para simular o usuário aceitando a deleção
-  echo "y" | deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml 2>/dev/null || true
+  # Apagamos a chave e suprimimos a saída para manter o terminal limpo
+  echo "y" | deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml > /dev/null 2>&1 || true
 
-  # 🔥 ARQUITETURA: Respiro de 5 segundos para a API da Cloudflare propagar a exclusão.
-  echo "   ⏳ Aguardando propagação da API da Cloudflare (Evitando Race Condition)..."
-  sleep 5
+  echo "   Registrando nova chave no cofre da Cloudflare (com active polling)..."
+  
+  # 🔥 ARQUITETURA: Active Polling
+  # Ao invés de um sleep cego, testamos ativamente a resposta da API até a consistência ocorrer.
+  MAX_RETRIES=10
+  RETRY_COUNT=0
+  SUCCESS=false
 
-  echo "   Registrando nova chave no cofre da Cloudflare..."
-  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
+  while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    # O if suspende temporariamente o "set -e" para podermos tratar a falha pacificamente
+    if echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml > /dev/null 2>&1; then
+      SUCCESS=true
+      break
+    else
+      RETRY_COUNT=$((RETRY_COUNT+1))
+      echo "   ⏳ Aguardando a liberação do nome na API (Tentativa $RETRY_COUNT/$MAX_RETRIES)..."
+      sleep 3
+    fi
+  done
+
+  if [ "$SUCCESS" = false ]; then
+    echo "❌ ERRO: A Cloudflare demorou demais para liberar o segredo. Abortando deploy."
+    exit 1
+  fi
+
   echo "✅ SERVER_PRIVATE_KEY atualizado com segurança."
 
   echo ""
