@@ -70,7 +70,7 @@ function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): bool
       return true;
     }
 
-    const pastasPermitidas = ["src", "public", ".github/workflows"];
+    const pastasPermitidas = ["src", "public", "server", ".github/workflows"];
     const estaEmPastaPermitida = pastasPermitidas.some(pasta => 
       caminhoRelativo.startsWith(`${pasta}/`) || caminhoRelativo.startsWith(`${pasta}\\`)
     );
