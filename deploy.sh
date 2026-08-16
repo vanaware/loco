@@ -4,22 +4,19 @@
 set -e
 
 # ==============================================================================
-# 0. CONFIGURAÇÕES DE AMBIENTE (NON-INTERACTIVE)
+# 0. CONFIGURAÇÕES DE AMBIENTE
 # ==============================================================================
-# Informa aos CLIs (como Wrangler) que estamos em um fluxo de automação,
-# suprimindo prompts (Y/n) e pedidos de envio de métricas.
-export CI=true
+# Apenas removemos o envio de telemetria da Cloudflare.
+# (Removemos o CI=true para não envenenar o comando do Cloudflare Pages)
 export WRANGLER_SEND_METRICS=false
 
 # ==============================================================================
 # 1. PARSING DE ARGUMENTOS (--at=... --m=...)
 # ==============================================================================
 
-# Valores padrão
 AT="github"
 MESSAGE=""
 
-# Loop de extração de parâmetros nominais
 for i in "$@"; do
   case $i in
     --at=*)
@@ -31,7 +28,6 @@ for i in "$@"; do
       shift
       ;;
     *)
-      # Ignora argumentos desconhecidos
       ;;
   esac
 done
@@ -40,12 +36,10 @@ done
 # 2. EXTRAÇÃO DINÂMICA DA VERSÃO E CONFIGURAÇÃO
 # ==============================================================================
 
-# Busca a linha "version", extrai o conteúdo entre aspas e separa o Major.Minor
 FULL_VERSION=$(grep '"version"' deno.jsonc | awk -F'"' '{print $4}')
 MAJOR_MINOR=$(echo $FULL_VERSION | awk -F'.' '{print $1"."$2}')
 TAG_NAME="v${MAJOR_MINOR}"
 
-# Se a mensagem estiver vazia, assume o padrão
 if [ -z "$MESSAGE" ]; then
   MESSAGE="Versão $TAG_NAME"
 fi
@@ -62,16 +56,11 @@ echo "============================================================"
 # ==============================================================================
 # 3. SINCRONIZAÇÃO DO CÓDIGO FONTE (Commit e Push)
 # ==============================================================================
-# Independente do alvo, garantimos que o código esteja a salvo no repositório.
 
 echo ""
 echo "📦 1/4 - Empacotando e enviando código fonte para o repositório..."
 git add .
-
-# Utilizamos "|| true" pois o git commit retorna erro (exit 1) se não houver arquivos alterados
 git commit -m "$MESSAGE" || true
-
-# Envia o código atual para a branch ativa
 git push
 
 # ==============================================================================
@@ -113,19 +102,16 @@ elif [ "$AT" = "cloudflare" ]; then
   fi
 
   echo "   Limpando chave antiga (se existir)..."
-  # Apagamos a chave e suprimimos a saída para manter o terminal limpo
+  # Respondemos ao prompt com 'echo "y"' nativamente, sem forçar o CI=true global
   echo "y" | deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml > /dev/null 2>&1 || true
 
   echo "   Registrando nova chave no cofre da Cloudflare (com active polling)..."
   
-  # 🔥 ARQUITETURA: Active Polling
-  # Ao invés de um sleep cego, testamos ativamente a resposta da API até a consistência ocorrer.
   MAX_RETRIES=10
   RETRY_COUNT=0
   SUCCESS=false
 
   while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    # O if suspende temporariamente o "set -e" para podermos tratar a falha pacificamente
     if echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml > /dev/null 2>&1; then
       SUCCESS=true
       break
@@ -149,6 +135,7 @@ elif [ "$AT" = "cloudflare" ]; then
 
   echo ""
   echo "⚡ 4/4 - Realizando deploy do Frontend (Cloudflare Pages)..."
+  # O comando agora voltará a funcionar lendo o wrangler.toml nativamente!
   deno run -A npm:wrangler pages deploy
 
   echo ""
