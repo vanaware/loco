@@ -7,7 +7,7 @@
 
 # Contexto Exportado do Projeto Loco [v0.2.168-msv8eimr] - Modo: MAIN
 
-Gerado automaticamente em: 8/16/2026, 9:45:34 AM
+Gerado automaticamente em: 8/16/2026, 9:53:14 AM
 
 ---
 
@@ -6820,7 +6820,7 @@ jobs:
           name: deployment-package
           path: |
             build.zip
-            wrangler.toml
+            wrangler-pages.toml
             wrangler-worker.toml
           if-no-files-found: error
           retention-days: 1
@@ -6911,7 +6911,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # 🔥 Comando 100% limpo: o Wrangler Actions lerá o wrangler.toml nativamente!
-          command: pages deploy
+          command: pages deploy -c wrangler-pages.toml
 ```
 
 ---
@@ -7640,22 +7640,6 @@ head_sampling_rate = 1
 
 ---
 
-## Arquivo: `wrangler.toml`
-
-```toml
-#:schema node_modules/wrangler/config-schema.json
-
-# wrangler.toml (FRONTEND - Cloudflare Pages)
-
-name = "loco"
-compatibility_date = "2026-06-01"
-
-# Configuração nativa para o diretório estático do Pages
-pages_build_output_dir = "build/dist"
-```
-
----
-
 ## Arquivo: `deploy.sh`
 
 ```bash
@@ -7768,7 +7752,7 @@ elif [ "$AT" = "cloudflare" ]; then
   echo ""
   echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
   # O Pages lê tudo nativamente do wrangler.toml
-  deno run -A npm:wrangler pages deploy
+  deno run -A npm:wrangler pages deploy -c wrangler-pages.toml
 
   echo ""
   echo "✅ DEPLOY DIRETO NA CLOUDFLARE CONCLUÍDO COM SUCESSO!"
@@ -7780,6 +7764,22 @@ else
 fi
 
 echo "============================================================"
+```
+
+---
+
+## Arquivo: `wrangler-pages.toml`
+
+```toml
+#:schema node_modules/wrangler/config-schema.json
+
+# wrangler.toml (FRONTEND - Cloudflare Pages)
+
+name = "loco"
+compatibility_date = "2026-06-01"
+
+# Configuração nativa para o diretório estático do Pages
+pages_build_output_dir = "build/dist"
 ```
 
 ---
