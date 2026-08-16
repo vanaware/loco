@@ -25,9 +25,9 @@ const ARQUIVO_SAIDA = modo === "docs" ? "EXPORT-DOCS.md" : modo === "tests" ? "E
 // Lista de extensões válidas de texto/código
 const EXTENSOES_PERMITIDAS = [
   ".tsx", ".jsx", ".js", ".ts", ".css", ".html", ".manifest", ".map",
-  ".sh", ".py", ".ps1",
-  ".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".env", ".env.example",
-  ".md", ".txt", ".sql"
+  ".sh", ".py", 
+  ".json", ".jsonc", ".yaml", ".yml", ".toml", ".env.example",
+  ".md"
 ];
 
 /**
@@ -64,13 +64,13 @@ function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): bool
     return caminhoRelativo.startsWith("tests/") || caminhoRelativo.startsWith("tests\\");
   } else {
     // Modo MAIN (Padrão): Pega arquivos da raiz e pastas src/ e public/
-    const arquivosRaizPermitidos = ["main.ts", "worker.ts", "build.ts", "deno.json", "deno.jsonc", "wrangler.toml"];
+    const arquivosRaizPermitidos = ["main.ts", "worker.ts", "build.ts", "deno.json", "deno.jsonc", "wrangler.toml", "wrangler-worker.toml", "deploy.sh"];
     
     if (arquivosRaizPermitidos.includes(caminhoRelativo)) {
       return true;
     }
 
-    const pastasPermitidas = ["src", "public"];
+    const pastasPermitidas = ["src", "public", ".github/workflows"];
     const estaEmPastaPermitida = pastasPermitidas.some(pasta => 
       caminhoRelativo.startsWith(`${pasta}/`) || caminhoRelativo.startsWith(`${pasta}\\`)
     );
@@ -115,6 +115,8 @@ for await (const entry of walk(".", { includeDirs: false })) {
       let extensaoMarkdown = caminhoRelativo.split(".").pop() || "";
       if (extensaoMarkdown === "manifest") extensaoMarkdown = "json";
       if (extensaoMarkdown === "jsonc") extensaoMarkdown = "json";
+      if (extensaoMarkdown === "yml") extensaoMarkdown = "yaml";
+      if (extensaoMarkdown === "sh") extensaoMarkdown = "bash";
       if (caminhoRelativo.includes(".env")) extensaoMarkdown = "properties";
 
       const wrapperCrasis = calcularCraseWrapper(conteudoArquivo);

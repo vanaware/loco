@@ -7,7 +7,7 @@
 
 # Contexto Exportado do Projeto Loco [v0.2.168-msv8eimr] - Modo: MAIN
 
-Gerado automaticamente em: 8/16/2026, 8:09:01 AM
+Gerado automaticamente em: 8/16/2026, 9:08:09 AM
 
 ---
 
@@ -6719,57 +6719,6 @@ if (root) {
 
 ---
 
-## Arquivo: `wrangler.toml`
-
-```toml
-#:schema node_modules/wrangler/config-schema.json
-
-# wrangler.toml
-
-# Nome do seu projeto na Cloudflare
-name = "loco"
-
-# Ponto de entrada do seu Worker (o bundle gerado pelo Deno)
-main = "build/worker.js"
-
-preview_urls = false
-
-# Data de compatibilidade (recomenda-se manter atualizada)
-compatibility_date = "2026-06-01"
-# compatibility_flags = ["nodejs_compat"]
-# routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
-
-# Configuração moderna para servir arquivos estáticos junto com o Worker
-# [assets]
-# Diretório onde estão os arquivos estáticos do PWA
-# directory = "build/dist"
-# binding = "ASSETS" 
-
-# OPCIONAL: Variáveis de ambiente que seu proxy cego do FCM possa precisar
-[vars]
-PROXY_PATH= '/'
-SERVER_PUBLIC_KEY = '{"n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ"}'
-
-
-[observability]
-enabled = true
-head_sampling_rate = 1
-
-[observability.logs]
-enabled = true
-head_sampling_rate = 1
-persist = true
-invocation_logs = true
-
-[observability.traces]
-enabled = true
-persist = true
-head_sampling_rate = 1
-
-```
-
----
-
 ## Arquivo: `main.ts`
 
 ```ts
@@ -6816,6 +6765,149 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
 
 });
 
+```
+
+---
+
+## Arquivo: `.github/workflows/main.yml`
+
+```yaml
+name: Release and Deploy
+
+on:
+  push:
+    tags:
+      - 'v*.*'
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      version: ${{ steps.set_tag.outputs.VERSION_TAG }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Set Tag Output
+        id: set_tag
+        run: echo "VERSION_TAG=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+
+      - name: Run Tests
+        run: deno task tests
+
+      - name: Run Build Script
+        env:
+          SERVER_PRIVATE_KEY: ${{ secrets.SERVER_PRIVATE_KEY }}
+          SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
+          PORT: ${{ secrets.PORT }}
+          PROXY_PATH: ${{ secrets.PROXY_PATH }}
+        run: deno task build noversion
+
+      - name: Zip Release Files
+        run: zip -r build.zip build/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-package
+          path: |
+            build.zip
+            wrangler.toml
+            wrangler-worker.toml
+          if-no-files-found: error
+          retention-days: 1
+
+  create-release:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build.zip
+          name: Release ${{ needs.test-and-build.outputs.version }}
+          tag_name: ${{ needs.test-and-build.outputs.version }}
+
+  deploy-pages:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+
+      - name: Unzip Build
+        run: unzip build.zip
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'build/dist'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  deploy-cloudflare:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+
+      - name: Unzip Build
+        run: unzip build.zip
+
+      - name: Deploy do Backend (Cloudflare Worker)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # 🔥 Passa explicitamente a configuração do backend
+          command: deploy -c wrangler-worker.toml
+          vars: |
+            SERVER_PUBLIC_KEY
+            SERVER_PRIVATE_KEY
+            PROXY_PATH
+        env:
+          SERVER_PRIVATE_KEY: ${{ secrets.SERVER_PRIVATE_KEY }}
+          SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
+          PROXY_PATH: ${{ secrets.PROXY_PATH }}
+
+      - name: Deploy do Frontend (Cloudflare Pages)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Comando limpo (ele lerá o wrangler.toml nativamente)
+          command: pages deploy
 ```
 
 ---
@@ -6883,7 +6975,8 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
     "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
     "clean": "deno clean && rm -rf build && mkdir -p build/dist",
     "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write export.ts"
+    "export": "deno run --allow-read --allow-write export.ts",
+    "deploy": "./deploy.sh"
   },
   "exclude": ["build/", "public/"],
   "nodeModulesDir": "auto"
@@ -7506,6 +7599,193 @@ async function build() {
 }
 
 await build();
+```
+
+---
+
+## Arquivo: `wrangler-worker.toml`
+
+```toml
+#:schema node_modules/wrangler/config-schema.json
+
+# wrangler-worker.toml (BACKEND - Cloudflare Worker)
+
+name = "loco"
+main = "build/worker.js"
+compatibility_date = "2026-06-01"
+
+[vars]
+PROXY_PATH = '/'
+SERVER_PUBLIC_KEY = '{"n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ"}'
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
+```
+
+---
+
+## Arquivo: `wrangler.toml`
+
+```toml
+#:schema node_modules/wrangler/config-schema.json
+
+# wrangler.toml (FRONTEND - Cloudflare Pages)
+
+name = "loco"
+compatibility_date = "2026-06-01"
+
+# Configuração nativa para o diretório estático do Pages
+pages_build_output_dir = "build/dist"
+```
+
+---
+
+## Arquivo: `deploy.sh`
+
+```bash
+#!/bin/bash
+
+# Aborta o script se ocorrer algum erro crítico nas operações normais
+set -e
+
+# ==============================================================================
+# 1. PARSING DE ARGUMENTOS (--at=... --m=...)
+# ==============================================================================
+
+# Valores padrão
+AT="github"
+MESSAGE=""
+
+# Loop de extração de parâmetros nominais
+for i in "$@"; do
+  case $i in
+    --at=*)
+      AT="${i#*=}"
+      shift
+      ;;
+    --m=*)
+      MESSAGE="${i#*=}"
+      shift
+      ;;
+    *)
+      # Ignora argumentos desconhecidos
+      ;;
+  esac
+done
+
+# ==============================================================================
+# 2. EXTRAÇÃO DINÂMICA DA VERSÃO E CONFIGURAÇÃO
+# ==============================================================================
+
+# Busca a linha "version", extrai o conteúdo entre aspas e separa o Major.Minor
+FULL_VERSION=$(grep '"version"' deno.jsonc | awk -F'"' '{print $4}')
+MAJOR_MINOR=$(echo $FULL_VERSION | awk -F'.' '{print $1"."$2}')
+TAG_NAME="v${MAJOR_MINOR}"
+
+# Se a mensagem estiver vazia, assume o padrão
+if [ -z "$MESSAGE" ]; then
+  MESSAGE="Versão $TAG_NAME"
+fi
+
+echo "============================================================"
+echo "🚀 INICIANDO DEPLOY LOCO"
+echo "============================================================"
+echo "📌 Versão completa: $FULL_VERSION"
+echo "🏷️  Tag alvo: $TAG_NAME"
+echo "📝 Mensagem de commit: $MESSAGE"
+echo "🎯 Alvo do Deploy: $AT"
+echo "============================================================"
+
+# ==============================================================================
+# 3. SINCRONIZAÇÃO DO CÓDIGO FONTE (Commit e Push)
+# ==============================================================================
+# Independente do alvo, garantimos que o código esteja a salvo no repositório.
+
+echo ""
+echo "📦 1/4 - Empacotando e enviando código fonte para o repositório..."
+git add .
+
+# Utilizamos "|| true" pois o git commit retorna erro (exit 1) se não houver arquivos alterados
+git commit -m "$MESSAGE" || true
+
+# Envia o código atual para a branch ativa
+git push
+
+# ==============================================================================
+# 4. ROTEAMENTO DO DEPLOY
+# ==============================================================================
+
+if [ "$AT" = "github" ]; then
+  # ----------------------------------------------------------------------------
+  # FLUXO: GITHUB ACTIONS (Via Tags)
+  # ----------------------------------------------------------------------------
+  echo ""
+  echo "🧹 2/4 - Limpando tags antigas ($TAG_NAME)..."
+  
+  git push origin --delete $TAG_NAME 2>/dev/null || true
+  git tag -d $TAG_NAME 2>/dev/null || true
+
+  echo ""
+  echo "🏷️  3/4 - Publicando nova tag (Isso disparará o Github Actions)..."
+
+  git tag -a $TAG_NAME -m "Versão $TAG_NAME"
+  git push origin $TAG_NAME --force
+
+  echo ""
+  echo "✅ DEPLOY VIA GITHUB ACIONADO COM SUCESSO!"
+  echo "Acompanhe o andamento na aba Actions do seu repositório."
+
+elif [ "$AT" = "cloudflare" ]; then
+  # ----------------------------------------------------------------------------
+  # FLUXO: CLOUDFLARE DIRETO (Via Wrangler Deno)
+  # ----------------------------------------------------------------------------
+  echo ""
+  echo "🔐 2/4 - Sincronizando Segredos (Secrets) no Cloudflare Worker..."
+  
+  EXTRACTED_PRIVATE_KEY=$(deno run -A --env-file minify-keys.ts SERVER_PRIVATE_KEY)
+  
+  if [ -z "$EXTRACTED_PRIVATE_KEY" ]; then
+    echo "❌ ERRO: A extração da chave retornou vazia! O deploy foi abortado."
+    exit 1
+  fi
+
+  echo "   Limpando chave antiga (se existir)..."
+  deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml 2>/dev/null || true
+
+  echo "   Registrando nova chave no cofre da Cloudflare..."
+  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
+  echo "✅ SERVER_PRIVATE_KEY atualizado com segurança."
+
+  echo ""
+  echo "⚡ 3/4 - Realizando deploy do Backend (Cloudflare Worker)..."
+  deno run -A npm:wrangler deploy -c wrangler-worker.toml
+
+  echo ""
+  echo "⚡ 4/4 - Realizando deploy do Frontend (Cloudflare Pages)..."
+  deno run -A npm:wrangler pages deploy
+
+  echo ""
+  echo "✅ DEPLOY DIRETO NA CLOUDFLARE CONCLUÍDO COM SUCESSO!"
+  
+else
+  echo ""
+  echo "❌ ERRO: Alvo de deploy desconhecido ('$AT'). Use '--at=github' ou '--at=cloudflare'."
+  exit 1
+fi
+
+echo "============================================================"
 ```
 
 ---
