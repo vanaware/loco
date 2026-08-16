@@ -6,8 +6,7 @@ set -e
 # ==============================================================================
 # 0. CONFIGURAÇÕES DE AMBIENTE (NON-INTERACTIVE)
 # ==============================================================================
-# O CI=true força o Wrangler a não fazer perguntas interativas (ex: Y/n).
-# Ele assumirá "Yes" para deleções e pulará telas de confirmação.
+# O CI=true força o Wrangler a não fazer perguntas interativas.
 export CI=true
 export WRANGLER_SEND_METRICS=false
 
@@ -15,7 +14,7 @@ export WRANGLER_SEND_METRICS=false
 # 1. PARSING DE ARGUMENTOS (--at=... --m=...)
 # ==============================================================================
 
-AT="github"
+# AT="github"
 MESSAGE=""
 
 for i in "$@"; do
@@ -55,32 +54,26 @@ echo "🎯 Alvo do Deploy: $AT"
 echo "============================================================"
 
 # ==============================================================================
-# 3. SINCRONIZAÇÃO DO CÓDIGO FONTE (Commit e Push)
-# ==============================================================================
-
-echo ""
-echo "📦 1/4 - Empacotando e enviando código fonte para o repositório..."
-git add .
-git commit -m "$MESSAGE" || true
-git push
-
-# ==============================================================================
-# 4. ROTEAMENTO DO DEPLOY
+# 3. ROTEAMENTO DO DEPLOY
 # ==============================================================================
 
 if [ "$AT" = "github" ]; then
   # ----------------------------------------------------------------------------
-  # FLUXO: GITHUB ACTIONS (Via Tags)
+  # FLUXO: GITHUB ACTIONS (Com Commit e Push)
   # ----------------------------------------------------------------------------
   echo ""
-  echo "🧹 2/4 - Limpando tags antigas ($TAG_NAME)..."
-  
+  echo "📦 1/3 - Empacotando e enviando código fonte para o repositório..."
+  git add .
+  git commit -m "$MESSAGE" || true
+  git push
+
+  echo ""
+  echo "🧹 2/3 - Limpando tags antigas ($TAG_NAME)..."
   git push origin --delete $TAG_NAME 2>/dev/null || true
   git tag -d $TAG_NAME 2>/dev/null || true
 
   echo ""
-  echo "🏷️  3/4 - Publicando nova tag (Isso disparará o Github Actions)..."
-
+  echo "🏷️  3/3 - Publicando nova tag (Isso disparará o Github Actions)..."
   git tag -a $TAG_NAME -m "Versão $TAG_NAME"
   git push origin $TAG_NAME --force
 
@@ -90,10 +83,10 @@ if [ "$AT" = "github" ]; then
 
 elif [ "$AT" = "cloudflare" ]; then
   # ----------------------------------------------------------------------------
-  # FLUXO: CLOUDFLARE DIRETO (Via Wrangler Deno)
+  # FLUXO: CLOUDFLARE DIRETO (Sem Commit, Sem Push, Apenas Infraestrutura)
   # ----------------------------------------------------------------------------
   echo ""
-  echo "🔐 2/4 - Sincronizando Segredos (Secrets) no Cloudflare Worker..."
+  echo "🔐 1/3 - Sincronizando Segredos (Secrets) no Cloudflare Worker..."
   
   EXTRACTED_PRIVATE_KEY=$(deno run -A --env-file minify-keys.ts SERVER_PRIVATE_KEY)
   
@@ -102,41 +95,18 @@ elif [ "$AT" = "cloudflare" ]; then
     exit 1
   fi
 
-  echo "   Limpando chave antiga (se existir)..."
-  # O CI=true já fará o Wrangler aceitar a deleção silenciosamente
-  deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml > /dev/null 2>&1 || true
-
-  echo "   Registrando nova chave no cofre da Cloudflare (com active polling)..."
-  
-  MAX_RETRIES=10
-  RETRY_COUNT=0
-  SUCCESS=false
-
-  while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml > /dev/null 2>&1; then
-      SUCCESS=true
-      break
-    else
-      RETRY_COUNT=$((RETRY_COUNT+1))
-      echo "   ⏳ Aguardando a liberação do nome na API (Tentativa $RETRY_COUNT/$MAX_RETRIES)..."
-      sleep 3
-    fi
-  done
-
-  if [ "$SUCCESS" = false ]; then
-    echo "❌ ERRO: A Cloudflare demorou demais para liberar o segredo. Abortando deploy."
-    exit 1
-  fi
-
+  # Como removemos a "Var" conflitante, o Wrangler sobrescreve o "Secret" de forma limpa
+  echo "   Registrando chave no cofre da Cloudflare..."
+  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
   echo "✅ SERVER_PRIVATE_KEY atualizado com segurança."
 
   echo ""
-  echo "⚡ 3/4 - Realizando deploy do Backend (Cloudflare Worker)..."
+  echo "⚡ 2/3 - Realizando deploy do Backend (Cloudflare Worker)..."
   deno run -A npm:wrangler deploy -c wrangler-worker.toml
 
   echo ""
-  echo "⚡ 4/4 - Realizando deploy do Frontend (Cloudflare Pages)..."
-  # 🔥 Voltamos para a forma pura: lendo 100% do wrangler.toml
+  echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
+  # O Pages lê tudo nativamente do wrangler.toml
   deno run -A npm:wrangler pages deploy
 
   echo ""

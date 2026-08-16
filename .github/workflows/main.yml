@@ -3,7 +3,7 @@ name: Release and Deploy
 on:
   push:
     tags:
-      - 'v*.*'
+      - 'v*.*' # Dispara apenas para tags iniciando com 'v' (ex: v0.2, v1.0.0)
 
 jobs:
   test-and-build:
@@ -28,12 +28,13 @@ jobs:
       - name: Run Tests
         run: deno task tests
 
+      # No build, as variáveis opcionais podem ficar vazias, o Deno lida bem com isso
       - name: Run Build Script
         env:
           SERVER_PRIVATE_KEY: ${{ secrets.SERVER_PRIVATE_KEY }}
           SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
-          PORT: ${{ secrets.PORT }}
           PROXY_PATH: ${{ secrets.PROXY_PATH }}
+        # Executa o build sem versionamento incremental, pois o deploy.sh já o fez localmente
         run: deno task build noversion
 
       - name: Zip Release Files
@@ -116,10 +117,13 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # 🔥 Passa explicitamente a configuração do backend
           command: deploy -c wrangler-worker.toml
+          # Vars são públicas e seguras (Texto Plano)
           vars: |
             SERVER_PUBLIC_KEY
             PROXY_PATH
+          # Secrets são injetados no cofre de forma segura (Substitui o secret put)
           secrets: |
             SERVER_PRIVATE_KEY
         env:
@@ -132,5 +136,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # 🔥 Parâmetros explícitos forçados para evitar quebra no ambiente de Automação
-          command: pages deploy build/dist --project-name loco --branch main
+          # 🔥 Comando 100% limpo: o Wrangler Actions lerá o wrangler.toml nativamente!
+          command: pages deploy
