@@ -1,7 +1,10 @@
 // minify-keys.ts
-// Script temporário para extrair e minificar as chaves RSA do servidor.
+// Script utilitário para extrair e minificar as chaves RSA do servidor.
 
 async function executarMinificacao() {
+  // Lê o primeiro argumento passado na linha de comando
+  const targetKey = Deno.args[0]; 
+
   // O Deno injeta automaticamente as variáveis de ambiente se passarmos a flag --env-file
   const publicKeyStr = Deno.env.get("SERVER_PUBLIC_KEY");
   const privateKeyStr = Deno.env.get("SERVER_PRIVATE_KEY");
@@ -30,6 +33,22 @@ async function executarMinificacao() {
       qi: privateJwk.qi
     };
 
+    // =========================================================================
+    // MODO SILENCIOSO / AUTOMAÇÃO (Pipeline CI/CD / deploy.sh)
+    // =========================================================================
+    if (targetKey === "SERVER_PRIVATE_KEY") {
+      console.log(JSON.stringify(compactPrivateJwk));
+      Deno.exit(0);
+    } 
+    
+    if (targetKey === "SERVER_PUBLIC_KEY") {
+      console.log(JSON.stringify(compactPublicJwk));
+      Deno.exit(0);
+    }
+
+    // =========================================================================
+    // MODO VERBOSO / INTERATIVO (Para desenvolvedores no terminal)
+    // =========================================================================
     console.log("\n✅ Minificação Dupla concluída com sucesso!\n");
     
     console.log("=====================================================================");
@@ -39,7 +58,7 @@ async function executarMinificacao() {
     console.log("\n");
 
     console.log("=====================================================================");
-    console.log("🔒 SERVER_PRIVATE_KEY (Secret/Encrypt no Cloudflare)");
+    console.log("🔐 SERVER_PRIVATE_KEY (Secret/Encrypt no Cloudflare)");
     console.log("=====================================================================");
     console.log(JSON.stringify(compactPrivateJwk));
     console.log("\n=====================================================================\n");
@@ -47,6 +66,7 @@ async function executarMinificacao() {
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("❌ Falha ao processar as chaves. Verifique se o JSON no .env é válido.", errorMsg);
+    Deno.exit(1);
   }
 }
 

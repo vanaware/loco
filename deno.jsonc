@@ -58,7 +58,8 @@
     "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
     "clean": "deno clean && rm -rf build && mkdir -p build/dist",
     "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write export.ts"
+    "export": "deno run --allow-read --allow-write export.ts",
+    "deploy": "./deploy.sh"
   },
   "exclude": ["build/", "public/"],
   "nodeModulesDir": "auto"
