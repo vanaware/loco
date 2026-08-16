@@ -4,6 +4,14 @@
 set -e
 
 # ==============================================================================
+# 0. CONFIGURAÇÕES DE AMBIENTE (NON-INTERACTIVE)
+# ==============================================================================
+# Informa aos CLIs (como Wrangler) que estamos em um fluxo de automação,
+# suprimindo prompts (Y/n) e pedidos de envio de métricas.
+export CI=true
+export WRANGLER_SEND_METRICS=false
+
+# ==============================================================================
 # 1. PARSING DE ARGUMENTOS (--at=... --m=...)
 # ==============================================================================
 
@@ -105,7 +113,12 @@ elif [ "$AT" = "cloudflare" ]; then
   fi
 
   echo "   Limpando chave antiga (se existir)..."
-  deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml 2>/dev/null || true
+  # 🔥 Passamos echo "y" para simular o usuário aceitando a deleção
+  echo "y" | deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml 2>/dev/null || true
+
+  # 🔥 ARQUITETURA: Respiro de 5 segundos para a API da Cloudflare propagar a exclusão.
+  echo "   ⏳ Aguardando propagação da API da Cloudflare (Evitando Race Condition)..."
+  sleep 5
 
   echo "   Registrando nova chave no cofre da Cloudflare..."
   echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
