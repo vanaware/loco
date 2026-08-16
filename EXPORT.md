@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.153-msv2zuvd** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.156-msv44cl2** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.153-msv2zuvd] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.156-msv44cl2] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 9:50:47 PM
+Gerado automaticamente em: 8/15/2026, 10:18:50 PM
 
 ---
 
@@ -2174,6 +2174,16 @@ export interface EnvelopeCifrado {
 
 ---
 
+## Arquivo: `src/constants/version.ts`
+
+```ts
+// Arquivo gerado automaticamente pelo build.ts
+export const APP_VERSION = "0.2.156-msv44cl2";
+
+```
+
+---
+
 ## Arquivo: `src/constants/config.ts`
 
 ```ts
@@ -2255,7 +2265,8 @@ export async function getAbsoluteProxyUrl(specificProxy?: string): Promise<strin
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
 
   if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
-    return proxyPath.replace(/\/$/, '');
+    // 🔥 CORREÇÃO: Uso de /+ para remover múltiplas barras finais
+    return proxyPath.replace(/\/+$/, '');
   } 
 
   const origin = typeof globalThis !== 'undefined' && globalThis.location 
@@ -2266,7 +2277,8 @@ export async function getAbsoluteProxyUrl(specificProxy?: string): Promise<strin
   const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
   
   let base = origin + appBase + cleanProxyPath;
-  return base.replace(/\/$/, '');
+  // 🔥 CORREÇÃO: Uso de /+ para remover múltiplas barras finais
+  return base.replace(/\/+$/, '');
 }
 
 export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
@@ -2337,16 +2349,6 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     return false;
   }
 }
-```
-
----
-
-## Arquivo: `src/constants/version.ts`
-
-```ts
-// Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.153-msv2zuvd";
-
 ```
 
 ---
@@ -7003,7 +7005,7 @@ const workerHandler = {
       if (method === "POST" && isPushRoute) {
         const contentLength = request.headers.get("content-length");
         if (contentLength && parseInt(contentLength, 10) > 8192) {
-          console.warn(`🛑 [DEFESA] Payload bloqueado (${contentLength} bytes). Origem: ${request.headers.get("cf-connecting-ip")}`);
+          // console.warn(`🛑 [DEFESA] Payload bloqueado (${contentLength} bytes). Origem: ${request.headers.get("cf-connecting-ip")}`);
           return sendResponse({ success: false, error: "Payload Too Large" }, 413);
         }
         
@@ -7012,20 +7014,20 @@ const workerHandler = {
         try {
           body = JSON.parse(rawText);
         } catch (e) {
-          console.warn(`❌ [VALIDAÇÃO] Falha ao processar corpo JSON.`);
+          // console.warn(`❌ [VALIDAÇÃO] Falha ao processar corpo JSON.`);
           return sendResponse({ success: false, error: "Corpo não é JSON válido." }, 400);
         }
 
         const { subscription, payloadText, vapid } = body;
 
         if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
-          console.warn(`❌ [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.`);
+          // console.warn(`❌ [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.`);
           return sendResponse({ success: false, error: "Estrutura P2P Inválida." }, 400);
         }
 
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
-          console.warn(`❌ [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.`);
+          // console.warn(`❌ [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.`);
           return sendResponse({ success: false, error: "Protocolo JWT Inválido." }, 400);
         }
         
@@ -7040,7 +7042,7 @@ const workerHandler = {
              const urlFormatada = proxyserverDestino.startsWith('http') ? proxyserverDestino : `https://${proxyserverDestino}`;
              destinoUrlObj = new URL(urlFormatada);
           } catch(e) {
-             console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
+             // console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
              return sendResponse({ success: false, error: "URL de proxy do destino malformada." }, 400);
           }
 
@@ -7080,7 +7082,7 @@ const workerHandler = {
                 return sendResponse({ success: true, federated: true, target: destinoUrlObj.hostname });
                 
              } catch (relayErr: any) {
-                console.error(`❌ [FEDERAÇÃO] Falha ao reencaminhar pacote para ${destinoUrlObj.hostname}: ${relayErr.message}`);
+                // console.error(`❌ [FEDERAÇÃO] Falha ao reencaminhar pacote para ${destinoUrlObj.hostname}: ${relayErr.message}`);
                 return sendResponse({ success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
              }
           }
@@ -7093,7 +7095,7 @@ const workerHandler = {
           try {
             privateKeyFinal = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
           } catch (decryptErr) {
-            console.warn(`❌ [SEGURANÇA] Falha ao decifrar VAPID. Chave do servidor desincronizada.`);
+            // console.warn(`❌ [SEGURANÇA] Falha ao decifrar VAPID. Chave do servidor desincronizada.`);
             return sendResponse({ success: false, error: "Falha ao descriptografar chave VAPID." }, 400);
           }
         }
@@ -7112,14 +7114,14 @@ const workerHandler = {
         try {
           await subscriber.pushTextMessage(payloadText, {});
         } catch (pushErr: any) {
-          console.error(`❌ [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}`);
+          // console.error(`❌ [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}`);
           throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
         }
 
         return sendResponse({ success: true });
       }
 
-      console.warn(`⚠️ [404] Rota não mapeada tentou ser acessada: ${pathname}`);
+      //console.warn(`⚠️ [404] Rota não mapeada tentou ser acessada: ${pathname}`);
       return sendResponse({ error: "Endpoint não encontrado." }, 404);
 
     } catch (error) {
@@ -7150,7 +7152,7 @@ export default workerHandler;
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.153-msv2zuvd",
+  "version": "0.2.156-msv44cl2",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",

@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.154-msv39jfk** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.156-msv44cl2** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.154-msv39jfk] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.2.156-msv44cl2] - Modo: TESTS
 
-Gerado automaticamente em: 8/15/2026, 9:57:09 PM
+Gerado automaticamente em: 8/15/2026, 10:18:45 PM
 
 ---
 
@@ -1294,6 +1294,292 @@ Deno.test("Crypto Utils - Expansão de chave já expandida (Idempotência)", () 
 
 ---
 
+## Arquivo: `tests/utils/crypto-aes.test.ts`
+
+```ts
+// tests/utils/crypto-aes.test.ts
+/// <reference lib="deno.ns" />
+import { assertEquals, assert, assertRejects } from "@std/assert";
+import { encryptTextAES, decryptTextAES } from "../../src/utils/crypto-utils.ts";
+
+Deno.test("Crypto AES - Criptografar e Descriptografar texto puro (Roundtrip)", async () => {
+  // Gera uma chave AES-GCM temporária para o teste
+  const secretKey = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+
+  const plainText = "Mensagem altamente confidencial P2P do Loco!";
+  
+  // Criptografa
+  const { cipherTextBase64, ivBase64 } = await encryptTextAES(secretKey, plainText);
+  
+  assert(cipherTextBase64.length > 0, "O texto cifrado gerado não pode ser vazio");
+  assert(ivBase64.length > 0, "O Vetor de Inicialização (IV) não pode ser vazio");
+  
+  // Descriptografa
+  const decryptedText = await decryptTextAES(secretKey, cipherTextBase64, ivBase64);
+  
+  assertEquals(decryptedText, plainText, "O texto decifrado deve ser exatamente igual à mensagem original");
+});
+
+Deno.test("Crypto AES - Deve falhar ao descriptografar com a chave AES incorreta", async () => {
+  // Gera duas chaves distintas
+  const key1 = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const key2 = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+
+  // Criptografa com a Chave 1
+  const { cipherTextBase64, ivBase64 } = await encryptTextAES(key1, "Segredo do Handshake");
+
+  // Tenta quebrar a criptografia usando a Chave 2
+  await assertRejects(
+    async () => {
+      await decryptTextAES(key2, cipherTextBase64, ivBase64);
+    },
+    Error,
+    "A decodificação falhou",
+    "A função deve rejeitar (throw Error) quando uma chave AES errada tenta abrir o envelope"
+  );
+});
+
+Deno.test("Crypto AES - Deve falhar caso o IV (Vetor de Inicialização) seja adulterado", async () => {
+  const secretKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const { cipherTextBase64 } = await encryptTextAES(secretKey, "Dados sensíveis");
+
+  // Geramos um IV falso aleatório, simulando uma adulteração (Man-in-the-Middle ou corrupção de rede)
+  const fakeIv = crypto.getRandomValues(new Uint8Array(12));
+  const fakeIvBase64 = btoa(String.fromCharCode(...fakeIv)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  await assertRejects(
+    async () => {
+      await decryptTextAES(secretKey, cipherTextBase64, fakeIvBase64);
+    },
+    Error,
+    "A decodificação falhou",
+    "O AES-GCM deve garantir a integridade e rejeitar a decifragem se o IV for modificado"
+  );
+});
+```
+
+---
+
+## Arquivo: `tests/utils/config.test.ts`
+
+```ts
+// tests/utils/config.test.ts
+/// <reference lib="deno.ns" />
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { getAbsoluteProxyUrl, buildProxyUrl } from "../../src/constants/config.ts";
+
+// Helper para injetar um Mock do objeto `location` global (simulando o Browser no Deno)
+function mockGlobalLocation(origin: string, pathname: string) {
+  (globalThis as any).location = {
+    origin,
+    pathname,
+  };
+}
+
+Deno.test("Config Utils - getAbsoluteProxyUrl respeita URLs absolutas informadas pelo contato", async () => {
+  const urlDestinoExterna = "https://servidor-amigo.workers.dev";
+  
+  // Se o contato forneceu a URL absoluta do servidor dele, o sistema NÂO deve reescrever isso
+  const result = await getAbsoluteProxyUrl(urlDestinoExterna);
+  
+  assertEquals(result, urlDestinoExterna, "Deve retornar a URL absoluta intacta");
+});
+
+Deno.test("Config Utils - getAbsoluteProxyUrl limpa barras duplicadas no final da URL absoluta", async () => {
+  const urlSuja = "https://proxy-baguncado.com//";
+  const result = await getAbsoluteProxyUrl(urlSuja);
+  
+  assertEquals(result, "https://proxy-baguncado.com", "Deve remover barras à direita (trailing slashes)");
+});
+
+Deno.test("Config Utils - getAbsoluteProxyUrl resolve rotas relativas baseado na origem atual do App", async () => {
+  // Simulando que o App está rodando em "https://meu-loco-app.com/"
+  mockGlobalLocation("https://meu-loco-app.com", "/");
+  
+  const rotaRelativaProxy = "/api";
+  const result = await getAbsoluteProxyUrl(rotaRelativaProxy);
+  
+  assertEquals(result, "https://meu-loco-app.com/api", "Deve concatenar a origem local com o caminho do proxy");
+});
+
+Deno.test("Config Utils - getAbsoluteProxyUrl entende quando o PWA é servido a partir de um subdiretório", async () => {
+  // Simulando que o App está hospedado no Github Pages (subdiretório: /meu-repo/)
+  mockGlobalLocation("https://usuario.github.io", "/meu-repo/index.html");
+  
+  const rotaRelativaProxy = "/push-handler";
+  const result = await getAbsoluteProxyUrl(rotaRelativaProxy);
+  
+  // Note que ele deve entender que "/meu-repo/" é a base, e ignorar o arquivo "index.html"
+  assertEquals(result, "https://usuario.github.io/meu-repo/push-handler", "Deve respeitar o subdiretório de hospedagem");
+});
+
+Deno.test("Config Utils - buildProxyUrl monta a URI do endpoint corretamente", async () => {
+  const proxyAbsoluto = "https://relay.loco.net";
+  
+  const urlPush = await buildProxyUrl("/push", proxyAbsoluto);
+  const urlPing = await buildProxyUrl("ping", proxyAbsoluto); // Sem barra inicial para testar resiliência
+  
+  assertEquals(urlPush, "https://relay.loco.net/push");
+  assertEquals(urlPing, "https://relay.loco.net/ping");
+});
+```
+
+---
+
+## Arquivo: `tests/utils/db-helpers.test.ts`
+
+```ts
+// tests/utils/db-helpers.test.ts
+/// <reference lib="deno.ns" />
+
+// 🔥 A MÁGICA ACONTECE AQUI (CORRIGIDO PARA DENO 2.X): 
+// Usando o prefixo 'npm:' nativo do Deno em vez do 'esm.sh'.
+// Ele cria um banco de dados real na RAM e injeta o 'indexedDB' no escopo global (globalThis),
+// enganando a biblioteca 'idb-keyval' perfeitamente.
+import "npm:fake-indexeddb@6.0.0/auto";
+
+import { assertEquals, assertExists } from "@std/assert";
+import {
+  salvarProfile,
+  buscarProfile,
+  removerProfile,
+  salvarChat,
+  listarChatPaginado,
+  removerTodoHistoricoChat
+} from "../../src/utils/db-helpers.ts";
+import type { ProfileConfig, Chat } from "../../src/constants/db.ts";
+
+Deno.test("DB Helpers - Profile: Deve salvar, buscar e remover o perfil corretamente", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Arquiteto Loco",
+    email: "arq@loco.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "123", y: "456" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "789" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "envelope_cifrado",
+    e2ePublicKey: { kty: "RSA", n: "abc", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "def" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/123",
+      keys: { p256dh: "p256", auth: "auth" },
+      proxyserver: "https://loco.proxy"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+
+  // 1. Testa o Salvamento
+  await salvarProfile(mockProfile);
+  
+  // 2. Testa a Busca (Lembrando que o DB Helper faz compressão/descompressão matemática por baixo dos panos)
+  const profileSalvo = await buscarProfile();
+  assertExists(profileSalvo, "O perfil deve existir no IndexedDB da memória");
+  assertEquals(profileSalvo.name, "Arquiteto Loco", "O nome deve ser preservado");
+  assertEquals(profileSalvo.email, "arq@loco.pwa", "O email deve ser preservado");
+  
+  // Verifica se a reconstrução (expandVapidPublic, etc) funcionou
+  assertEquals(profileSalvo.vapidPublicKey.kty, "EC", "A chave pública VAPID deve ser expandida corretamente");
+  
+  // 3. Testa a Remoção
+  await removerProfile();
+  const profileRemovido = await buscarProfile();
+  assertEquals(profileRemovido, undefined, "O perfil deve retornar undefined após ser apagado");
+});
+
+Deno.test("DB Helpers - Chat: Deve salvar mensagens e retornar paginado corretamente", async () => {
+  const contatoHash = "hash-contato-paginacao-123";
+  
+  // Limpa o estado antes do teste (útil se rodar múltiplos testes na mesma RAM)
+  await removerTodoHistoricoChat(contatoHash);
+
+  // 1. Vamos gerar 35 mensagens simuladas para testar a paginação (nosso PAGE_SIZE é 30 no store)
+  const totalMensagens = 35;
+  for (let i = 1; i <= totalMensagens; i++) {
+    const msg: Chat = {
+      id: `msg-${i.toString().padStart(2, '0')}`, // msg-01, msg-02...
+      contatoHash: contatoHash,
+      conteudo: `Mensagem de teste número ${i}`,
+      tipo: 'out',
+      createdAt: 10000 + i, // Tempos sequenciais para garantir ordem
+      handshake: `hand-${i}`
+    };
+    await salvarChat(msg);
+  }
+
+  // 2. Testa a busca da primeira página (limit: 30, offset: 0)
+  // Como são 35 mensagens no total, offset 0 (as mais recentes) deve trazer da msg-06 até msg-35
+  const pagina1 = await listarChatPaginado(contatoHash, 30, 0);
+  
+  assertEquals(pagina1.length, 30, "A primeira página deve trazer exatamente 30 mensagens");
+  
+  // Utilizando '!' para informar ao TypeScript Strict que sabemos que o índice existe
+  assertEquals(pagina1[pagina1.length - 1]!.id, "msg-35", "A última mensagem da página 1 deve ser a mais recente (msg-35)");
+  assertEquals(pagina1[0]!.id, "msg-06", "A primeira mensagem da página 1 deve ser a msg-06");
+
+  // 3. Testa a busca da segunda página (limit: 30, offset: 30)
+  // Como já pulamos 30, devem sobrar as 5 mensagens mais antigas (msg-01 até msg-05)
+  const pagina2 = await listarChatPaginado(contatoHash, 30, 30);
+  
+  assertEquals(pagina2.length, 5, "A segunda página deve trazer as 5 mensagens restantes");
+  assertEquals(pagina2[pagina2.length - 1]!.id, "msg-05", "A última mensagem da página 2 deve ser a msg-05");
+  assertEquals(pagina2[0]!.id, "msg-01", "A primeira mensagem da página 2 deve ser a msg-01");
+
+  // 4. Testa a busca além do limite (offset >= total)
+  const paginaVazia = await listarChatPaginado(contatoHash, 30, 35);
+  assertEquals(paginaVazia.length, 0, "Deve retornar array vazio se o offset ultrapassar o total de mensagens");
+
+  // 5. Limpeza Total
+  await removerTodoHistoricoChat(contatoHash);
+  const paginaPosExclusao = await listarChatPaginado(contatoHash, 30, 0);
+  assertEquals(paginaPosExclusao.length, 0, "O histórico de chat deve estar zerado após o expurgo");
+});
+```
+
+---
+
+## Arquivo: `tests/utils/push-utils.test.ts`
+
+```ts
+// tests/utils/push-utils.test.ts
+/// <reference lib="deno.ns" />
+import { assert, assertEquals } from "@std/assert";
+import { cifrarChaveVapid } from "../../src/utils/push-utils.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+
+Deno.test("Push Utils - Blindagem do Servidor (cifrarChaveVapid)", async () => {
+  // 1. Cenário: O Cliente PWA acabou de gerar sua chave VAPID privada
+  const clientKeys = await generateVAPIDKeys();
+  const clientVapidPrivateJwk = await exportKeyToJWK(clientKeys.privateKey);
+
+  // 2. Cenário: O Servidor (Loco Proxy) disponibilizou sua chave Pública RSA
+  const serverKeys = await generateE2EEKeys();
+  const serverPublicJwk = serverKeys.publicEncrypt;
+
+  // 3. AÇÃO: O Cliente blinda sua chave VAPID privada para enviar ao proxy
+  const envelopeBase64 = await cifrarChaveVapid(clientVapidPrivateJwk, serverPublicJwk);
+  
+  // 4. VERIFICAÇÃO ESTRUTURAL
+  assert(typeof envelopeBase64 === "string", "O envelope gerado deve ser uma string Base64");
+  assert(envelopeBase64.length > 50, "O envelope não pode ser vazio");
+
+  // Decodifica o base64 para verificar o JSON interno (sem quebrar a criptografia AES/RSA)
+  const envelopeJsonStr = atob(envelopeBase64);
+  const envelopeObj = JSON.parse(envelopeJsonStr);
+
+  assert(envelopeObj.iv !== undefined, "O envelope deve conter um Vetor de Inicialização (iv)");
+  assert(envelopeObj.dadosCifrados !== undefined, "O envelope deve conter os dados cifrados em AES (dadosCifrados)");
+  assert(envelopeObj.chaveAesCifrada !== undefined, "O envelope deve conter a chave AES trancada pela chave RSA do servidor (chaveAesCifrada)");
+  
+  // O AES-GCM IV sempre terá 24 caracteres hexadecimais (12 bytes)
+  assertEquals(envelopeObj.iv.length, 24, "O IV em hexadecimal deve ter exatamente 24 caracteres");
+});
+```
+
+---
+
 ## Arquivo: `tests/handshakes/hand-mensagem-self.test.ts`
 
 ```ts
@@ -1614,6 +1900,83 @@ Deno.test("HAND-MENSAGEM SELF: Contato próprio deve ser identificado corretamen
   
   const naoEhEu = await ehContatoProprio("outro-hash", mockProfile);
   assertFalse(naoEhEu);
+});
+```
+
+---
+
+## Arquivo: `tests/stores/mensagensStore.test.ts`
+
+```ts
+// tests/stores/mensagensStore.test.ts
+/// <reference lib="deno.ns" />
+
+// 🔥 Injetamos o Fake IndexedDB para que o store consiga persistir os dados na RAM
+import "npm:fake-indexeddb@6.0.0/auto";
+
+import { assertEquals, assert } from "@std/assert";
+import { 
+  mensagensAtivas, 
+  inicializarChat, 
+  atualizarOuAdicionarChatAtivo 
+} from "../../src/stores/mensagensStore.ts";
+import { removerTodoHistoricoChat, buscarChat } from "../../src/utils/db-helpers.ts";
+import { contatoSelecionado } from "../../src/signals/state.ts";
+import type { Chat } from "../../src/constants/db.ts";
+
+Deno.test("Store: Mensagens - Deve refletir atualizações no Signal de forma Otimista", async () => {
+  const hashContato = "contato-reativo-123";
+  await removerTodoHistoricoChat(hashContato);
+  
+  // 1. Simulamos a UI definindo o contato ativo
+  contatoSelecionado.value = hashContato;
+  
+  // 2. Inicializa o chat (o Signal mensagensAtivas deve zerar)
+  await inicializarChat(hashContato);
+  assertEquals(mensagensAtivas.value.length, 0, "O Signal deve iniciar vazio");
+  
+  const novaMsg: Chat = {
+    id: "msg-signal-01",
+    contatoHash: hashContato,
+    conteudo: "Teste de Reatividade com Signals!",
+    tipo: 'out',
+    createdAt: Date.now(),
+    handshake: "hand-01"
+  };
+
+  // 3. Adicionamos a mensagem via Store
+  await atualizarOuAdicionarChatAtivo(novaMsg);
+  
+  // 4. VERIFICAÇÃO 1 (Reatividade): O Signal atualizou na memória?
+  assertEquals(mensagensAtivas.value.length, 1, "O Signal deve conter 1 mensagem");
+  assertEquals(mensagensAtivas.value[0]!.conteudo, "Teste de Reatividade com Signals!", "O conteúdo no Signal deve bater");
+
+  // 5. VERIFICAÇÃO 2 (Persistência): A mensagem realmente foi pro banco em background?
+  const msgNoBanco = await buscarChat("msg-signal-01");
+  assert(msgNoBanco !== undefined, "A mensagem DEVE ter sido salva no IndexedDB em background");
+  assertEquals(msgNoBanco.conteudo, "Teste de Reatividade com Signals!");
+});
+
+Deno.test("Store: Mensagens - Não deve sujar o Signal se o chat ativo for diferente", async () => {
+  const hashContatoAtivo = "contato-A";
+  const hashOutroContato = "contato-B";
+  
+  contatoSelecionado.value = hashContatoAtivo;
+  await inicializarChat(hashContatoAtivo);
+  
+  const msgParaOutro: Chat = {
+    id: "msg-signal-02",
+    contatoHash: hashOutroContato, // Mensagem de OUTRO contato chegando em background
+    conteudo: "Isso não deve aparecer na tela A",
+    tipo: 'in',
+    createdAt: Date.now(),
+    handshake: "hand-02"
+  };
+
+  await atualizarOuAdicionarChatAtivo(msgParaOutro);
+  
+  // O Signal NÃO deve ter sido alterado, pois a UI está focada no contato-A
+  assertEquals(mensagensAtivas.value.length, 0, "O Signal não deve receber mensagens de um chat inativo");
 });
 ```
 

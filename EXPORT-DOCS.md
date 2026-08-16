@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.80-mss6up14** (DOCUMENTAÇÃO) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.157-msv49ml5** (DOCUMENTAÇÃO) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.80-mss6up14] - Modo: DOCS
+# Contexto Exportado do Projeto Loco [v0.2.157-msv49ml5] - Modo: DOCS
 
-Gerado automaticamente em: 8/13/2026, 9:10:10 PM
+Gerado automaticamente em: 8/15/2026, 10:19:04 PM
 
 ---
 
@@ -373,26 +373,33 @@ O servidor backend (Deno) atua estritamente como um **proxy cego**, sem capacida
 Cada dispositivo (nó) gera localmente dois pares de chaves assimétricas via Web Crypto API na primeira inicialização:
 
 ### A. Par de Chaves de Identidade VAPID (`ECDSA P-256`)
-
 * **Finalidade:** Assinatura digital dos pacotes JWT (`alg: "ES256"`), garantindo a autenticidade do remetente e autorização do serviço Web Push (FCM).
-
-* **Chave Pública (`vapidPublicKey`):** Compartilhada via convite (QR Code ou link `cjwt`). Serve como identificador e chave de verificação de assinatura (`kid`).
-
-* **Chave Privada (`vapidPrivateKeyJwk`):** Armazenada no IndexedDB local (`AppConfig_DB`).
+* **Chave Pública (`vapidPublicKey`):** Compartilhada via convite. Serve como identificador de nó e chave de verificação de assinatura (`kid`).
+* **Chave Privada (`vapidPrivateKeyJwk`):** Armazenada de forma persistente e isolada no IndexedDB local (`AppConfig_DB`).
 
 ### B. Par de Chaves Criptográficas E2E (`RSA-OAEP-2048`)
-
-* **Finalidade:** Cifragem/Decifragem assimétrica da chave simétrica temporária do envelope E2E.
-
+* **Finalidade:** Cifragem/Decifragem assimétrica da chave simétrica temporária (AES) embutida no envelope E2E.
 * **Chave Pública (`e2ePublicKey`):** Módulo N e Expoente E compartilhados no cartão de visitas (`CompactContact`).
+* **Chave Privada (`e2ePrivateKeyJwk`):** Mantida estritamente no dispositivo local para decifrar os pacotes P2P recebidos.
 
-* **Chave Privada (`e2ePrivateKeyJwk`):** Mantida no dispositivo local para decifrar pacotes recebidos.
+## 2. Compressão por Esquema Estático (Static Schema Compression)
 
-## 2. Estrutura do Envelope Cifrado e JWT
+Para garantir máxima eficiência no armazenamento de banco de dados (IndexedDB) e respeitar o rigoroso limite de 4.096 bytes de payload do Google FCM (Web Push), o Loco implementa o conceito de **Compressão por Esquema Estático**.
+
+As chaves criptográficas geradas pela WebCrypto API no formato JWK possuem redundância estrutural fixa (`kty`, `alg`, `ext`, `key_ops`, `e`). O Loco remove essas redundâncias nas fronteiras de I/O (Disco e Rede) e as injeta de volta de forma defensiva ("reidratação") apenas no momento da execução na memória RAM.
+
+| Tipo de Chave | O que é Armazenado/Enviado (Minificado) | O que é Removido (Estático) |
+| --- | --- | --- |
+| **VAPID Pública** | Coordenadas `x` e `y` | `kty`, `crv`, `ext`, `key_ops` |
+| **VAPID Privada** | Escalar privado `d` | `kty`, `crv`, `ext`, `key_ops`, `x`, `y` |
+| **E2E Pública** | Módulo `n` | `kty`, `alg`, `ext`, `key_ops`, `e` ("AQAB") |
+| **E2E Privada** | Fatores primos (`d`, `p`, `q`, `dp`, `dq`, `qi`) | `kty`, `alg`, `ext`, `key_ops`, `e`, `n` |
+
+## 3. Estrutura do Envelope Cifrado e JWT
 
 Todas as comunicações na rede viajam envelopadas em um token JWT assinado contendo um payload cifrado (`ct`):
 
-```
+```text
 +-------------------------------------------------------------------------+
 |                        JWT PAYLOAD (Max 4096 bytes)                     |
 |                                                                         |
@@ -405,110 +412,30 @@ Todas as comunicações na rede viajam envelopadas em um token JWT assinado cont
 |  |   - k: Chave AES Cifrada com RSA-OAEP do Destinatário (Base64)    |  |
 |  +-------------------------------------------------------------------+  |
 +-------------------------------------------------------------------------+
-```
-
-## 3. Fluxo de Criptografia e Envio (Emissor)
-
-Quando o usuário envia uma mensagem ou aciona um handshake (`src/utils/push-utils.ts` & `src/sw/sw-handshakes.ts`):
 
 ```
-Objeto do Handshake (ex: { mensagem: { enviada, conteudo } })
-    |
-    v
-1. Serialização em string JSON
-    |
-    v
-2. Compressão de dados com GZIP (fflate) -> Redução de payload
-    |
-    v
-3. Gera chave simétrica temporária AES-GCM-256 + IV aleatório de 12 bytes
-    |
-    v
-4. Cifra os bytes comprimidos com AES-GCM-256 -> (d)
-    |
-    v
-5. Cifra a chave AES com a e2ePublicKey (RSA-OAEP-2048) do destinatário -> (k)
-    |
-    v
-6. Monta o envelope ct: { i, d, k }
-    |
-    v
-7. Empacota no JWT: { sub: "hand", aud: destinatarioHash, jti: handshakeId, ct }
-    |
-    v
-8. Assina o JWT com a vapidPrivateKeyJwk (ECDSA ES256) do remetente
-    |
-    v
-9. Envia ao Servidor Proxy (Deno) para despacho via Web Push
-```
 
-## 4. Fluxo de Descriptografia e Recebimento (Receptor)
-
-Quando uma notificação Push chega ao Service Worker (`src/sw/push.ts` & `src/sw/sw-handshakes.ts`):
-
-```
-Notificação Push recebida no Service Worker (JWT)
-    |
-    v
-1. Valida a assinatura ECDSA (ES256) do JWT usando o 'kid' (VAPID Public Key)
-    |
-    v
-2. Extrai o envelope ct: { i, d, k }
-    |
-    v
-3. Decifra (k) com a e2ePrivateKey (RSA-OAEP) local -> Obtém a chave AES
-    |
-    v
-4. Decifra (d) com a chave AES + IV (i) -> Obtém os bytes comprimidos
-    |
-    v
-5. Descomprime GZIP (fflate) -> Converte JSON de volta para Objeto de Rotas
-    |
-    v
-6. Encaminha para o módulo especializado (hand-mensagem.ts / hand-contato.ts)
-```
-
-## 5. Blindagem do Servidor Proxy (`vapidPrivateKeyEnvelope`)
+## 4. Blindagem do Servidor Proxy (`vapidPrivateKeyEnvelope`)
 
 Para enviar notificações Push sem expor a chave privada VAPID do usuário no servidor backend nem necessitar de um servidor de banco de dados centralizado:
 
 1. O servidor Deno possui um par de chaves RSA de infraestrutura estático.
-
-2. O cliente cifra sua `vapidPrivateKeyJwk` com a chave pública do servidor Deno, criando um `vapidPrivateKeyEnvelope`.
-
+2. O cliente cifra a versão minificada de sua `vapidPrivateKeyJwk` com a chave pública do servidor Deno, criando um `vapidPrivateKeyEnvelope`.
 3. Ao solicitar a entrega de um Push (`/api/proxy-push`), o cliente envia o envelope cifrado.
+4. O servidor Deno decifra o envelope **exclusivamente na memória RAM**, assina o protocolo HTTP Web Push para o Google FCM, e **descarta a chave imediatamente**.
 
-4. O servidor Deno decifra o envelope **exclusivamente na memória RAM** durante a requisição, assina o protocolo HTTP Web Push para o Google FCM / Apple APNs, e **descarta a chave imediatamente**.
+### 4.1 Invalidação Criptográfica de Cache (Server Key)
 
-5. O servidor Deno executa apenas uma "auditoria cega" nas claims do JWT (`sub`, `aud`, `jti`), sem acesso aos dados da mensagem (`ct`).
+Para maximizar a performance (Offline-First), o PWA armazena a `SERVER_PUBLIC_KEY` no IndexedDB. Contudo, se a URL de Proxy (rota do servidor) for modificada, o cache é **invalidado agressivamente e deletado**. Isso garante que o app jamais crie um envelope VAPID usando uma chave RSA antiga que o novo servidor Edge da Cloudflare seria incapaz de decifrar.
 
-## 6. Tabela Comparativa: Especificação Antiga vs. Implementação Atual
-
-| Recurso | Especificação Legada (Documento Anterior) | Implementação Atual do Loco |
-| --- | --- | --- |
-| **Criptografia E2E** | ❌ Não suportada (apenas local) | ✅ **Nativa e Obrigatória (RSA-OAEP + AES-GCM)** |
-| **Troca de Chaves** | ❌ Inexistente | ✅ **Automatizada via QR Code e Links `CompactContact`** |
-| **Assinatura de Identidade** | ⚠️ VAPID básica local | ✅ **Assinatura ECDSA P-256 (ES256) em cada JWT** |
-| **Compressão de Dados** | ❌ Ausente | ✅ **Compressão GZIP (`fflate`) em todos os handshakes** |
-| **Proteção de Dados em Repouso** | ⚠️ `masterKey` local | ✅ **Isolamento de Origem no IndexedDB e OPFS + `persist()`** |
-| **Função do Servidor** | ❌ Desconhecida / Transparente | ✅ **Proxy Cego com Envelope VAPID em RAM** |
-
-## 7. Proteção contra Ameaças
+## 5. Proteção contra Ameaças
 
 | Cenário de Ameaça | Proteção Implementada | Mecanismo |
 | --- | --- | --- |
-| **Interceptação na Rede (Man-in-the-Middle)** | ✅ **Protegido** | Criptografia E2E com RSA-OAEP-2048 + AES-GCM-256. |
-| **Servidor Proxy / FCM Malicioso** | ✅ **Protegido** | O payload `ct` viaja cifrado. O servidor não possui a chave RSA privada do receptor. |
-| **Acesso Físico ao Dispositivo** | ✅ **Protegido** | Dados isolados no IndexedDB com permissão `storage.persist()` e limpos no Logout. |
-| **Falsificação de Remetente** | ✅ **Protegido** | Validação estrita da assinatura ECDSA P-256 no cabeçalho JWT (`kid`). |
-
-## 8. Melhorias Futuras
-
-1. **Forward Secrecy (Double Ratchet / Signal Protocol):** Evolução do handshake para gerar chaves efêmeras a cada mensagem trocada.
-
-2. **WebAuthn / Biometria:** Bloqueio de acesso ao aplicativo exigindo impressão digital ou biometria facial antes de renderizar os sinais da UI.
-
-3. **Verificação de Fingerprint Criptográfico:** Exibição do código de segurança visual (hash de chaves públicas) para confirmação presencial entre contatos.
+| **Interceptação na Rede (MITM)** | ✅ **Protegido** | Criptografia E2E obrigatória (RSA-OAEP-2048 + AES-GCM-256). |
+| **Servidor Proxy Malicioso** | ✅ **Protegido** | O payload E2E (`ct`) não compartilha a chave AES e o servidor não possui a chave RSA privada do receptor. |
+| **Acesso Físico ao Dispositivo** | ✅ **Protegido** | Dados isolados no IndexedDB e OPFS, destruídos em cascata no Logout. |
+| **Injeção de Caracteres (Base64)** | ✅ **Protegido** | Sanitização agressiva via Expressões Regulares (`/[^A-Za-z0-9\+\/]/g`) no interpretador JWT para mitigar falhas fatais do algoritmo `atob` durante copia/cola. |
 
 ````
 
@@ -1076,11 +1003,19 @@ O **Loco** opera sob a premissa de que **cada navegador é um nó autônomo**. O
 1. **Local-First Absoluto:** Todo o histórico de mensagens, dados de perfil e mídias residem primariamente no dispositivo local. Nenhuma ação de interface (digitar mensagem, alterar perfil, adicionar contato) é bloqueada por ausência de rede.
 2. **Sincronização Assíncrona via Handshakes:** Operações externas são tratadas como intenções registradas em uma fila local no IndexedDB (`Handshake_DB`), processadas assincronamente pelo Service Worker (`sw-handshakes.ts`).
 3. **Resiliência em Três Níveis (Graceful Degradation):** A entrega de dados prioriza conexões diretas P2P, recorre ao Web Push como despertador e utiliza uma fila de retenção (*Polling Autenticado*) caso a infraestrutura de Push falhe.
-4. **Proteção Contra Evicção:** O nó solicita Armazenamento Persistente (`navigator.storage.persist()`) na inicialização para evitar que o sistema operacional purgue o histórico durante períodos de memória baixa.
 
 ---
 
-## 2. Divisão de Armazenamento Local
+## 2. Fast-Boot e Auto-Discovery Inteligente
+
+Para que o PWA mantenha uma experiência ultrafluída de 60fps, o Loco aplica a estratégia de **Fast-Boot**.
+
+* **No Primeiro Acesso (Onboarding):** A aplicação executa uma rotina de *Auto-Discovery* (`loadAllConfigs()` em `config-store.ts`). Ela envia pequenos Heartbeats (método `POST` para furar caches HTTP do navegador/servidor) para a rota atual e para a rota de `Fallback` da Cloudflare, definindo dinamicamente e com segurança o melhor caminho para transitar os envelopes de Push. Se o dispositivo estiver no "Modo Avião", a UI não trava aguardando *timeouts* da rede, inferindo automaticamente as configurações otimizadas para seguir no processo de criação offline.
+* **Em Acessos Subsequentes:** Ao reabrir o App, as configurações do `ProxyPath` são lidas do IndexedDB local de maneira praticamente instantânea (~2ms). O app ignora qualquer Ping de validação externo, despachando o spinner de *Loading* de forma imediata e garantindo acesso instantâneo ao histórico de conversas E2E.
+
+---
+
+## 3. Divisão de Armazenamento Local
 
 A persistência no dispositivo é estritamente setorizada por tipo de recurso para evitar gargalos na thread principal do navegador:
 
@@ -1095,24 +1030,22 @@ A persistência no dispositivo é estritamente setorizada por tipo de recurso pa
        |                                      |                                      |
        v                                      v                                      v
 +------------------------------+       +------------------------------+       +------------------------------+
-|          IndexedDB           |       |             OPFS             |       |         Cache Storage        |
+|          IndexedDB           |       |              OPFS            |       |         Cache Storage        |
 |      (via idb-keyval)        |       | (Origin Private File System) |       |         (sw/cache.ts)        |
 +------------------------------+       +------------------------------+       +------------------------------+
 | - AppConfig_DB               |       | - Fotos originais em alta    |       | - HTMLs (index, share, etc.) |
 | - BrowserB_Contatos_DB       |       | - Áudios e Mensagens de Voz  |       | - JS / TSX empacotados       |
-| - BrowserB_MensagensRecebidas|       | - Vídeos e Documentos P2P    |       | - Estilos CSS (Material 3)   |
-| - BrowserA_MensagensEnviadas |       | - Anexos da Timeline         |       | - Ícones e Fontes da PWA     |
-| - Handshake_DB               |       +------------------------------+       +------------------------------+
-+------------------------------+
-```
+| - Chat_DB                    |       | - Vídeos e Documentos P2P    |       | - Estilos CSS (Material 3)   |
+| - Handshake_DB               |       | - Anexos da Timeline         |       | - Ícones e Fontes da PWA     |
++------------------------------+       +------------------------------+       +------------------------------+
 
-> **Regra Arquitetural:** É terminantemente proibido o uso de `localStorage` para evitar bloqueios síncronos na thread de execução da UI.
+```
 
 ---
 
-## 3. O Ciclo de Vida do Handshake Offline (`Handshake_DB`)
+## 4. O Ciclo de Vida do Handshake Offline (`Handshake_DB`)
 
-Na arquitetura do Loco, **todas as mensagens e ações de rede são Handshakes** submetidos à Máquina de Estados operada pelo Service Worker (`sw-handshakes.ts`):
+Na arquitetura do Loco, **todas as mensagens e ações de rede são Handshakes** submetidos à Máquina de Estados operada pelo Service Worker:
 
 ```text
                [ Usuário envia uma mensagem ]
@@ -1131,68 +1064,33 @@ Na arquitetura do Loco, **todas as mensagens e ações de rede são Handshakes**
                /                             \
               v                               v
 Processa Envio E2E                    Permanece Retido em FluxoOut
-- Tenta P2P (Nível 1)                 - Aguarda evento 'online'
-- Tenta Proxy FCM (Nível 2)           - Retentativas em background
-- Enfileira Deno Pull (Nível 3)       - Status visual: ⏳ (Pendente)
+- Tenta Proxy FCM                     - Aguarda evento 'online'
+- Tenta P2P (Se Online)               - Retentativas em background
+
 ```
 
-### Otimização em Segundo Plano (Piggybacking)
-Se o nó do emissor ficou offline por um longo período e perdeu a sincronização do perfil do destinatário, o Roteador de Handshakes detecta a divergência e **injeta automaticamente o Cartão de Visitas atualizado (`hand-profile.ts`) no mesmo envelope cifrado da mensagem**. O receptor atualiza os dados criptográficos no exato instante em que recebe a mensagem, promovendo a autocura da base sem intervenção do usuário.
-
 ---
 
-## 4. Matriz de Capacidades Offline
+## 5. Matriz de Capacidades Offline
 
 | Funcionalidade do Loco | Modo Offline (Sem Rede) | Com Conectividade (Online) |
-| :--- | :--- | :--- |
+| --- | --- | --- |
 | **Leitura do Histórico de Conversas** | ✅ **100% Funcional** (Leitura do IndexedDB) | ✅ **100% Funcional** |
 | **Visualização de Anexos/Mídia** | ✅ **100% Funcional** (Carregado do OPFS) | ✅ **100% Funcional** |
-| **Composição e Envio de Mensagens** | ⏳ **Enfileirado em `FluxoOut`** (Status `pendente`) | ⚡ **Disparo Imediato via E2E** |
+| **Composição e Envio de Mensagens** | ⏳ **Enfileirado em `FluxoOut**` (Status `pendente`) | ⚡ **Disparo Imediato via E2E** |
 | **Gestão de Perfil e QR Code** | ✅ **100% Funcional** (Geração local do `cqr`) | ✅ **100% Funcional** |
 | **Adição Presencial de Contatos** | ✅ **100% Funcional** (Escaneamento câmera `cqr`) | ✅ **100% Funcional** |
-| **Recebimento de Novas Mensagens** | ❌ Indisponível (Requer canal ativo/Push) | ⚡ **Recebimento e Auto-Ack Instantâneo** |
-| **Sincronização de Fila Retida (PULL)**| ❌ Indisponível | ⚡ **Executa `POST /api/fallback-pull`** |
-
----
-
-## 5. Estratégia de Cache e Ativos PWA (`sw/cache.ts`)
-
-O Service Worker implementa estratégias de cache diferenciadas para garantir que a aplicação seja carregada sem atrasos, mesmo em redes intermitentes:
-
-* **Stale-While-Revalidate / Cache First (Ativos Estáticos):** JavaScripts, bibliotecas Web Components (`@material/web`), CSS e fontes são servidos instantaneamente do `CacheStorage`. Atualizações são baixadas em segundo plano para a execução seguinte.
-* **Network First / Fallback Local (Documentos HTML):** As entradas de página (`index.html`, `share.html`, `profile.html`, `logout.html`) tentam a versão mais recente na rede; caso falhe, utilizam a cópia gravada no cache.
 
 ---
 
 ## 6. Recuperação de Conexão e Ressincronização Automatizada
 
-Quando a conectividade é restabelecida no dispositivo (disparo do evento `online` do navegador ou ativação da PWA):
+Quando a conectividade é restabelecida no dispositivo (disparo do evento `online` do navegador ou ativação do Background Sync):
 
-1. **Descongelamento do Roteador (`sw-handshakes.ts`):** O Service Worker executa a varredura da tabela `Handshake_DB` buscando registros com `out.status === 'pendente'` ou `'enviando'` (interrompidos por falha de rede).
-2. **Re-execução de Tentativas:** O Roteador aplica uma política de até **3 retentativas** por pacote, com intervalo exponencial.
-3. **Resgate da Fila de Fallback (PULL):** O cliente dispara uma requisição autenticada ao servidor Deno Proxy (`POST /api/fallback-pull`) para recuperar eventuais envelopes cifrados que foram retidos enquanto o dispositivo esteve inacessível.
-4. **Atualização da Interface (Signals):** As alterações nos bancos do IndexedDB notificam os stores reativos (`mensagensStore.ts`, `contatosStore.ts`), atualizando as marcas de entrega (`✓` enviada, `✓✓` entregue/lida) sem recarregar a tela.
+1. **Descongelamento do Roteador:** O Service Worker executa a varredura da tabela `Handshake_DB` buscando registros com `out.status === 'pendente'` ou `'enviando'` (interrompidos por falha de rede).
+2. **Re-execução de Tentativas:** O Roteador aplica uma política de até **3 retentativas** por pacote, limitando requisições fantasmas.
+3. **Atualização da Interface:** As alterações nos bancos do IndexedDB notificam os stores reativos, atualizando as marcas de entrega (`✓` enviada, `✓✓` entregue/lida) sem recarregar a tela (Mutação DOM O(1)).
 
----
-
-## 7. Tabela Comparativa: Documentação Anterior vs. Arquitetura Atual
-
-| Recurso / Aspecto | Especificação Legada | Implementação Atual no Loco |
-| :--- | :--- | :--- |
-| **Fila de Envio Offline** | Lógica genérica no frontend | **Roteador de Handshakes em Service Worker (`Handshake_DB`)** |
-| **Serviço de Cache PWA** | Referência a `sw.ts` genérico | **Módulo especializado `src/sw/cache.ts`** |
-| **Resiliência do Servidor** | Dependência exclusiva de Web Push | **Fila de Fallback retida no Deno com Polling Autenticado** |
-| **Retenção de Arquivos** | Sem especificação clara | **OPFS com monitoramento de quota e `storage.persist()`** |
-| **Sincronização de Estado** | Polling não estruturado | **Handshake Auto-Ack com injeção de carona (*Piggybacking*)** |
-
----
-
-## 8. Resumo
-
-- O Loco é projetado sob o paradigma **Local-First**: os dados residem unicamente no dispositivo do usuário.
-- Mídias e arquivos grandes utilizam o **OPFS**, enquanto mensagens e contatos usam o **IndexedDB** (`idb-keyval`).
-- O enfileiramento de Handshakes garante que mensagens compostas offline sejam transmitidas automaticamente assim que a conexão for restabelecida.
-- A combinação de **Cache API**, **Service Worker** e **Fallback Retido no Deno** garante operabilidade total do aplicativo mesmo sob conexões altamente instáveis.
 
 ````
 
@@ -1396,141 +1294,6 @@ Para referência técnica, os seguintes itens listados em rascunhos anteriores *
 * **Incompatibilidade de Subscrição Push (HTTP 410 Gone):** Quando o gateway da Google/Apple rejeita um endpoint expirado, a mensagem é direcionada à Fila de Fallback Retida no Deno. Assim que o contacto reconecta, o *Piggybacking* re-alinha as chaves e restabelece o canal.
 
 ```
-
----
-
-## Arquivo: `docs/changes.md`
-
-````md
-Uma análise aprofundada e estendida do código-fonte do **Loco v0.2.20-msmk6qjq** revela pontos específicos de melhoria, pequenas divergências lógicas e comportamentos não harmoniosos que podem causar *bugs* sutis de concorrência, perda de sincronia visual ou *memory leaks*.
-
----
-
-### 1. Concorrência Crítica e *Race Condition* no Carregamento de Mensagens (`src/stores/mensagensStore.ts`)
-
-* **O Problema:** A função `carregarMaisMensagens` valida o `activeChatHash` no início e logo após o `await listarChatPaginado`. Contudo, o ponteiro global `currentOffset` e o *signal* reativo `mensagensAtivas.value` sofrem mutação sem trava atômica. Se o usuário rolar a tela rapidamente para o topo (disparando múltiplos eventos de scroll simultâneos), chamadas concorrentes a `carregarMaisMensagens` podem ler o mesmo `currentOffset`, duplicando fatias ou corrompendo a ordem temporal das mensagens após o `.sort()`.
-* **Solução Proposta:** Proteger a função de lazy loader com uma variável de guarda de paginação específica para o chat ativo ou bloquear o gatilho de scroll enquanto uma requisição de paginação estiver pendente.
-
----
-
-### 2. Vazamento de Ouve-Eventos (Listeners) de Service Worker no Mount do Chat (`src/components/ChatSection.tsx`)
-
-* **O Problema:** No componente `ChatSection`, o `useEffect` adiciona um listener global de `message` ao `navigator.serviceWorker` toda vez que o sinal `contatoSelecionado.value` muda:
-```tsx
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', handleMessage);
-}
-
-```
-
-
-Embora exista a função de limpeza (`removeEventListener`), se o componente sofrer re-renderizações rápidas com trocas de contato, o listener pode ser anexado múltiplas vezes de forma redundante antes que a desmontagem ocorra, duplicando o processamento de atualizações (`CHAT_ATUALIZADO`).
-* **Solução Proposta:** Isolar a inicialização do listener de mensagens do Service Worker em um ganho de ciclo de vida único (montagem global do app ou em uma store dedicada, similar ao que já é feito em `contatosStore.ts`).
-
----
-
-### 3. Falta de Tratamento de Erro e Bloqueio Visual na Injeção de Perfis (`src/handshakes/hand-profile.ts`)
-
-* **O Problema:** Na rota de entrada de perfil (`hand-profile.ts`), quando um pacote de dados chega e o contato é atualizado no banco local:
-```ts
-const contato = await buscarContatoPorChave(contatoId);
-if (contato) {
-  // ... mutações e salvamento ...
-  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  clients.forEach(client => {
-    client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
-  });
-}
-
-```
-
-
-Se a operação de escrita no IndexedDB (`salvarContato`) falhar por estouro de cota ou concorrência de transação, a interface enviará o sinal `CONTATO_ATUALIZADO` via `postMessage` informando um estado que nunca foi gravado em disco com sucesso.
-* **Solução Proposta:** Envolver a mutação de dados e o despacho do `postMessage` em blocos de salvamento transacional rigorosos, garantindo que a UI só seja notificada após a persistência física ser confirmada.
-
----
-
-### 4. Coerência de Tipagem e Incompatibilidade no Payload do Cache do Service Worker (`src/sw/cache.ts`)
-
-* **O Problema:** No arquivo `src/sw/cache.ts`, a linha de injeção automática de assets do build (`build.ts`) substitui a tag `__GENERATED_ASSETS__` por uma string JSON:
-```ts
-const ASSETS_TO_CACHE = [__GENERATED_ASSETS__];
-
-```
-
-
-No entanto, em `build.ts`, o array gerado é injetado diretamente sem os colchetes externos se a formatação do script não alinhar perfeitamente com os colchetes literais do arquivo `.ts` original, o que pode gerar erros de sintaxe silenciosos na execução em background do Service Worker caso o array fique malformado (`[, , ]`).
-* **Solução Proposta:** Garantir que o array gerado no script de build substitua a declaração inteira da constante `ASSETS_TO_CACHE` em vez de depender de interpolação parcial de strings.
-
----
-
-### 5. Inconsistência no Estado de Erro de Rede do Push Proxy (`main.ts`)
-
-* **O Problema:** No servidor Deno (`main.ts`), quando o envio de uma mensagem via webpush falha com um erro que não é uma instância de `PushMessageError`, o bloco `catch` genérico formata a resposta:
-```ts
-return new Response(
-  JSON.stringify({ success: false, error: errorMessage, type: "InternalError" }),
-  { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-);
-
-```
-
-
-Retornar um status HTTP `400 (Bad Request)` para falhas internas genéricas ou de rede do servidor de push mascara erros reais de infraestrutura (como falhas de DNS ou indisponibilidade do FCM), que deveriam retornar `500 (Internal Server Error)` ou `503`.
-* **Solução Proposta:** Mapear os códigos de erro do Deno/Fetch adequadamente para evitar falsos positivos de requisição malformada no cliente.
-
-
-------
-
-Desacoplar proxy das páginas estaticas
-configgurar proxy enxuto com uma rota apenas GET e POST
-analisar de precisa do logout ou se pode ser get com parametros
-gerar uma versão para cloudflare worker
-
-contato precisa informar o proxy que deve ser usado para enviar as chaves privadas envelopadas para o proxy correto
-
-
--------
-
-# Compatibilidade com cloudflare workers
-
-Análise de Arquitetura: Compatibilidade Híbrida Deno + Cloudflare WorkersSim, o padrão de estruturar o código no formato padrão de **Module Workers** da Cloudflare (`export default { fetch(request, env, ctx) }`) e prover um adaptador local com `Deno.serve` é uma prática amplamente utilizada e altamente recomendada no ecossistema de arquiteturas Serverless e Edge.
-
-## 🔍 Como funciona e por que é amplamente adotado
-
-Grandes frameworks edge-native e desenvolvedores independentes utilizam essa mesma estratégia para alcançar **Write Once, Run Anywhere (WORA)** entre provedores como:
-
-* **Cloudflare Workers** (runtime oficial `workerd`)
-
-* **Deno Deploy** (que também suporta nativamente o padrão `export default { fetch }`)
-
-* **Ambiente Local Deno** (via adaptador com `Deno.serve`)
-
-### Referências e Padrões da Indústria
-
-* A própria documentação oficial do Deno e ferramentas de ecossistema encorajam o uso de Module Workers padronizados baseados no padrão Web Standard para unificar o código fonte em plataformas distribuídas.
-
-* O runtime subjacente da Cloudflare (`workerd`) e o runtime do Deno compartilham a adesão estrita aos padrões Web API (`Request`, `Response`, `CryptoKey`, `fetch`), tornando a manipulação de criptografia e requests totalmente fluida.
-
-## 💡 Dicas Adicionais e Boas Práticas
-
-1. **Gerenciamento de Bindings e Variáveis de Ambiente (`env` vs `Deno.env`):**
-
-   * Na Cloudflare, segredos e chaves de infraestrutura chegam exclusivamente através do argumento `env`.
-
-   * Localmente no Deno, usamos `Deno.env.get()`. O padrão adotado no nosso `main.ts` de mesclar essas origens garante que o código funcione em ambos os mundos sem quebras.
-
-2. **Simulação Real com Wrangler:**
-
-   * Embora você possa rodar o arquivo diretamente com o Deno, a Cloudflare disponibiliza o **Wrangler** (`npx wrangler dev`), que roda o simulador oficial local (`miniflare`). Se quiser testar o comportamento exato da nuvem da Cloudflare antes do deploy, você pode configurar o Wrangler apontando para este mesmo arquivo.
-
-3. **Tratamento do `ctx.waitUntil()`:**
-
-   * Em ambientes Edge, tarefas assíncronas de background devem ser enfileiradas usando `ctx.waitUntil(promise)`. No adaptador Deno local, mockar esse comportamento garante que o fluxo assíncrono não cause encerramentos prematuros da thread ou erros não tratados.
-
---------
-
-````
 
 ---
 
@@ -3222,6 +2985,160 @@ O ciclo de vida de uma navegação no Loco ocorre da seguinte forma:
 
 ---
 
+## Arquivo: `docs/changes.md`
+
+````md
+Uma análise aprofundada e estendida do código-fonte do **Loco v0.2.20-msmk6qjq** revela pontos específicos de melhoria, pequenas divergências lógicas e comportamentos não harmoniosos que podem causar *bugs* sutis de concorrência, perda de sincronia visual ou *memory leaks*.
+
+---
+
+### 1. Concorrência Crítica e *Race Condition* no Carregamento de Mensagens (`src/stores/mensagensStore.ts`)
+
+* **O Problema:** A função `carregarMaisMensagens` valida o `activeChatHash` no início e logo após o `await listarChatPaginado`. Contudo, o ponteiro global `currentOffset` e o *signal* reativo `mensagensAtivas.value` sofrem mutação sem trava atômica. Se o usuário rolar a tela rapidamente para o topo (disparando múltiplos eventos de scroll simultâneos), chamadas concorrentes a `carregarMaisMensagens` podem ler o mesmo `currentOffset`, duplicando fatias ou corrompendo a ordem temporal das mensagens após o `.sort()`.
+* **Solução Proposta:** Proteger a função de lazy loader com uma variável de guarda de paginação específica para o chat ativo ou bloquear o gatilho de scroll enquanto uma requisição de paginação estiver pendente.
+
+---
+
+### 2. Vazamento de Ouve-Eventos (Listeners) de Service Worker no Mount do Chat (`src/components/ChatSection.tsx`)
+
+* **O Problema:** No componente `ChatSection`, o `useEffect` adiciona um listener global de `message` ao `navigator.serviceWorker` toda vez que o sinal `contatoSelecionado.value` muda:
+```tsx
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', handleMessage);
+}
+
+```
+
+
+Embora exista a função de limpeza (`removeEventListener`), se o componente sofrer re-renderizações rápidas com trocas de contato, o listener pode ser anexado múltiplas vezes de forma redundante antes que a desmontagem ocorra, duplicando o processamento de atualizações (`CHAT_ATUALIZADO`).
+* **Solução Proposta:** Isolar a inicialização do listener de mensagens do Service Worker em um ganho de ciclo de vida único (montagem global do app ou em uma store dedicada, similar ao que já é feito em `contatosStore.ts`).
+
+---
+
+### 3. Falta de Tratamento de Erro e Bloqueio Visual na Injeção de Perfis (`src/handshakes/hand-profile.ts`)
+
+* **O Problema:** Na rota de entrada de perfil (`hand-profile.ts`), quando um pacote de dados chega e o contato é atualizado no banco local:
+```ts
+const contato = await buscarContatoPorChave(contatoId);
+if (contato) {
+  // ... mutações e salvamento ...
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  clients.forEach(client => {
+    client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
+  });
+}
+
+```
+
+
+Se a operação de escrita no IndexedDB (`salvarContato`) falhar por estouro de cota ou concorrência de transação, a interface enviará o sinal `CONTATO_ATUALIZADO` via `postMessage` informando um estado que nunca foi gravado em disco com sucesso.
+* **Solução Proposta:** Envolver a mutação de dados e o despacho do `postMessage` em blocos de salvamento transacional rigorosos, garantindo que a UI só seja notificada após a persistência física ser confirmada.
+
+---
+
+### 4. Coerência de Tipagem e Incompatibilidade no Payload do Cache do Service Worker (`src/sw/cache.ts`)
+
+* **O Problema:** No arquivo `src/sw/cache.ts`, a linha de injeção automática de assets do build (`build.ts`) substitui a tag `__GENERATED_ASSETS__` por uma string JSON:
+```ts
+const ASSETS_TO_CACHE = [__GENERATED_ASSETS__];
+
+```
+
+
+No entanto, em `build.ts`, o array gerado é injetado diretamente sem os colchetes externos se a formatação do script não alinhar perfeitamente com os colchetes literais do arquivo `.ts` original, o que pode gerar erros de sintaxe silenciosos na execução em background do Service Worker caso o array fique malformado (`[, , ]`).
+* **Solução Proposta:** Garantir que o array gerado no script de build substitua a declaração inteira da constante `ASSETS_TO_CACHE` em vez de depender de interpolação parcial de strings.
+
+---
+
+### 5. Inconsistência no Estado de Erro de Rede do Push Proxy (`main.ts`)
+
+* **O Problema:** No servidor Deno (`main.ts`), quando o envio de uma mensagem via webpush falha com um erro que não é uma instância de `PushMessageError`, o bloco `catch` genérico formata a resposta:
+```ts
+return new Response(
+  JSON.stringify({ success: false, error: errorMessage, type: "InternalError" }),
+  { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+);
+
+```
+
+
+Retornar um status HTTP `400 (Bad Request)` para falhas internas genéricas ou de rede do servidor de push mascara erros reais de infraestrutura (como falhas de DNS ou indisponibilidade do FCM), que deveriam retornar `500 (Internal Server Error)` ou `503`.
+* **Solução Proposta:** Mapear os códigos de erro do Deno/Fetch adequadamente para evitar falsos positivos de requisição malformada no cliente.
+
+
+------
+
+Desacoplar proxy das páginas estaticas
+configgurar proxy enxuto com uma rota apenas GET e POST
+analisar de precisa do logout ou se pode ser get com parametros
+gerar uma versão para cloudflare worker
+
+contato precisa informar o proxy que deve ser usado para enviar as chaves privadas envelopadas para o proxy correto
+
+
+-------
+
+# Compatibilidade com cloudflare workers
+
+Análise de Arquitetura: Compatibilidade Híbrida Deno + Cloudflare WorkersSim, o padrão de estruturar o código no formato padrão de **Module Workers** da Cloudflare (`export default { fetch(request, env, ctx) }`) e prover um adaptador local com `Deno.serve` é uma prática amplamente utilizada e altamente recomendada no ecossistema de arquiteturas Serverless e Edge.
+
+## 🔍 Como funciona e por que é amplamente adotado
+
+Grandes frameworks edge-native e desenvolvedores independentes utilizam essa mesma estratégia para alcançar **Write Once, Run Anywhere (WORA)** entre provedores como:
+
+* **Cloudflare Workers** (runtime oficial `workerd`)
+
+* **Deno Deploy** (que também suporta nativamente o padrão `export default { fetch }`)
+
+* **Ambiente Local Deno** (via adaptador com `Deno.serve`)
+
+### Referências e Padrões da Indústria
+
+* A própria documentação oficial do Deno e ferramentas de ecossistema encorajam o uso de Module Workers padronizados baseados no padrão Web Standard para unificar o código fonte em plataformas distribuídas.
+
+* O runtime subjacente da Cloudflare (`workerd`) e o runtime do Deno compartilham a adesão estrita aos padrões Web API (`Request`, `Response`, `CryptoKey`, `fetch`), tornando a manipulação de criptografia e requests totalmente fluida.
+
+## 💡 Dicas Adicionais e Boas Práticas
+
+1. **Gerenciamento de Bindings e Variáveis de Ambiente (`env` vs `Deno.env`):**
+
+   * Na Cloudflare, segredos e chaves de infraestrutura chegam exclusivamente através do argumento `env`.
+
+   * Localmente no Deno, usamos `Deno.env.get()`. O padrão adotado no nosso `main.ts` de mesclar essas origens garante que o código funcione em ambos os mundos sem quebras.
+
+2. **Simulação Real com Wrangler:**
+
+   * Embora você possa rodar o arquivo diretamente com o Deno, a Cloudflare disponibiliza o **Wrangler** (`npx wrangler dev`), que roda o simulador oficial local (`miniflare`). Se quiser testar o comportamento exato da nuvem da Cloudflare antes do deploy, você pode configurar o Wrangler apontando para este mesmo arquivo.
+
+3. **Tratamento do `ctx.waitUntil()`:**
+
+   * Em ambientes Edge, tarefas assíncronas de background devem ser enfileiradas usando `ctx.waitUntil(promise)`. No adaptador Deno local, mockar esse comportamento garante que o fluxo assíncrono não cause encerramentos prematuros da thread ou erros não tratados.
+
+--------
+
+## Ativar o Gemini Nano no Chrome
+chrome://flags/#optimization-guide-on-device-model
+  Na opção Enables optimization guide on device, mude o status de Default para Enabled BypassPerfRequirement (isso força a ativação mesmo se o Chrome achar seu hardware modesto).
+
+chrome://flags/#prompt-api-for-gemini-nano
+  Na opção Prompt API for Gemini Nano, mude para Enabled
+
+chrome://components
+  Procure pela linha Optimization Guide On Device Mode. Se a versão estiver 0.0.0.0 ou o status indicar que precisa de atualização, clique no botão Check for update
+
+## Interagindo com o Gemini Nano (Pelo Console)
+Interagindo com o Gemini Nano (Pelo Console)
+```js
+ai.languageModel.capabilities();
+ai.languageModel.create();
+resposta = await sessao.prompt("Explique o que é um PWA em uma frase curta.");
+console.log(resposta);
+```
+
+````
+
+---
+
 ## Arquivo: `README.md`
 
 ````md
@@ -3236,7 +3153,7 @@ O **Loco** é um Progressive Web App (PWA) de mensagens instantâneas descentral
 No Loco, **cada navegador é um nó autônomo** que mantém seu próprio histórico local e suas próprias chaves criptográficas.
 
 * **Sem Servidor de Mensagens:** O servidor backend (Deno 2.x) atua exclusivamente como um *proxy cego* de entrega de notificações Web Push e provedor de infraestrutura de chaves temporárias para envelopes VAPID.
-* **Privacidade por Design:** O servidor não armazena logs de conversas, listas de contatos, metadados ou conteúdo de mensagens.
+* **Privacidade e Anonimato por Design:** A criação do perfil exige apenas um Nome ou pseudônimo (o E-mail é estritamente opcional). O servidor não armazena logs de conversas, listas de contatos, metadados ou conteúdo de mensagens.
 * **Resistência à Evicção:** Os dados do usuário residem unicamente no dispositivo local através do IndexedDB e Origin Private File System (OPFS), protegidos por solicitações de Armazenamento Persistente.
 
 ```text
@@ -3252,6 +3169,7 @@ No Loco, **cada navegador é um nó autônomo** que mantém seu próprio histór
          |                             |                            |      e Decifra E2E
          |                             |                            |
          | <--- 4. Handshake de Resposta (Auto-Ack) via Proxy ----- |
+
 ```
 
 ---
@@ -3264,34 +3182,6 @@ O Roteador (`sw-handshakes.ts`) funciona como uma "Máquina de Estados" assíncr
 
 * **`FluxoIn` (Entrada):** Pacotes recebidos, descriptografados pelo Service Worker e enfileirados para processamento local por módulos especializados.
 * **`FluxoOut` (Saída):** Pacotes preparados pela UI/SW, enfileirados, comprimidos e cifrados para envio à rede (com controle de até 3 tentativas e fallback em restabelecimento de conexão).
-
-```text
-               +-----------------------------------+
-               |     Ações do Usuário / PUSH       |
-               +-----------------+-----------------+
-                                 |
-                                 v
-               +-----------------+-----------------+
-               |     IndexedDB: Handshake_DB       |
-               +--------+-----------------+--------+
-                        |                 |
-             +----------+                 +----------+
-             |                                       |
-             v                                       v
-   +-------------------+                   +-------------------+
-   |   FluxoIn (IN)    |                   |   FluxoOut (OUT)  |
-   | Status: recebido  |                   | Status: pendente  |
-   |   -> processado   |                   |   -> enviado      |
-   +---------+---------+                   +---------+---------+
-             |                                       |
-             v                                       v
-   +-------------------+                   +-------------------+
-   | Módulos Handshake |                   |  Proxy Web Push   |
-   | (mensagem,        |                   |  (AES-GCM +       |
-   |  contato,         |                   |   RSA + JWT)      |
-   |  profile)         |                   +-------------------+
-   +-------------------+
-```
 
 ### 2.1. Módulos Especializados (As Rotas)
 
@@ -3313,12 +3203,8 @@ Para garantir resiliência extrema em redes instáveis ou quando contatos atuali
 
 1. **Runtime Único (Deno 2.x):** Proibido o uso de Node.js, `npm` tradicional ou pacotes com dependências C++ nativas.
 2. **Zero `localStorage`:** É terminantemente proibido utilizar `localStorage` devido a bloqueios síncronos da I/O thread do navegador. Todo o estado persistente utiliza a camada IndexedDB (`src/utils/db-helpers.ts`) via `idb-keyval`.
-3. **Isolamento de Processamento:** Operações síncronas pesadas (compressão GZIP com `fflate`, geração de chaves RSA/ECDSA com WebCrypto, parsing de QR Code) são executadas em segundo plano ou no Service Worker para manter a UI fluída em 60 FPS.
+3. **Isolamento de Processamento:** Operações síncronas pesadas (compressão GZIP com `fflate`, geração de chaves RSA/ECDSA com WebCrypto, parsing de QR Code, Minificação de Chaves) são executadas em segundo plano ou no Service Worker para manter a UI fluída em 60 FPS.
 4. **Interface Reativa:** Construída com **Preact**, gerenciamento de estado via **Signals** (`@preact/signals`) e componentes visuais do **Material Design 3** (`@material/web`).
-
-### 3.2. Padrão Obrigatório de Documentação Tática
-
-Todas as funções utilitárias em `src/utils/` e orquestradores no Service Worker devem incluir comentários em formato **JSDoc**, especificando limites de payload, precondições de segurança e propósitos arquiteturais.
 
 ---
 
@@ -3338,31 +3224,32 @@ O Loco utiliza um modelo de criptografia Híbrida (Assimétrica + Simétrica) em
 |  |   - Chave AES Cifrada: RSA-OAEP-2048 (Chave Pública do Receptor)   |  |
 |  +-------------------------------------------------------------------+  |
 +-------------------------------------------------------------------------+
+
 ```
 
 1. **Identidade / Assinatura (VAPID):** (ECDSA P-256) Usado para assinar os tokens JWT (`alg: "ES256"`), identificando o remetente através da chave pública (`kid`).
 2. **Criptografia Ponto a Ponto (E2E):** (RSA-OAEP-2048 + AES-GCM-256) O conteúdo do handshake é comprimido com GZIP (`fflate`) e cifrado com uma chave AES gerada no momento. Essa chave AES é então cifrada com a chave pública RSA do destinatário.
-3. **Blindagem do Servidor Proxy (VAPID Envelope):** O servidor proxy possui um par de chaves RSA estático. O cliente cifra sua chave privada VAPID em um envelope criptográfico. O servidor proxy abre esse envelope temporariamente na memória RAM apenas para assinar o cabeçalho HTTP VAPID exigido pelo gateway do Web Push (FCM), descartando-a imediatamente após o envio.
+3. **Blindagem do Servidor Proxy (VAPID Envelope):** O servidor proxy possui um par de chaves RSA estático. O cliente cifra a versão minificada de sua chave privada VAPID em um envelope criptográfico. O servidor proxy abre esse envelope temporariamente na memória RAM apenas para assinar o cabeçalho HTTP VAPID exigido pelo gateway do Web Push (FCM), descartando-a imediatamente após o envio.
 
 ---
 
-## 5. Estrutura de Convites e Sincronização Compacta
+## 5. Estrutura de Convites e Sincronização Compacta (Static Schema Compression)
 
-Para respeitar o limite rigoroso de **4.096 bytes** impostos pelos provedores Push (FCM) e manter o QR Code legível pela câmera em matrizes compactas (Versão 40), o Loco implementa a interface `CompactContact` (`src/utils/share-utils.ts`).
+Para respeitar o limite rigoroso de **4.096 bytes** impostos pelos provedores Push (FCM) e manter o QR Code legível pela câmera em matrizes compactas, o Loco implementa a interface `CompactContact` (`src/utils/share-utils.ts`) e o conceito de *Static Schema Compression* nas chaves.
 
-Objetos JWK extensos são mapeados em atributos compactos de 2 letras e endpoints de servidores de push são tokenizados:
+Objetos JWK extensos são reduzidos, eliminando a redundância da WebCrypto API, e mapeados em atributos compactos de duas letras. Endpoints de servidores de push são tokenizados:
 
 | **Atributo Original** | **Atributo Compacto (CompactContact)** | **Descrição** |
 | --- | --- | --- |
-| `email` | `em` | E-mail do contato |
+| `email` | `em` | E-mail do contato (Opcional) |
 | `name` | `nm` | Nome do contato |
-| `vapidPublicKey.x` | `vx` | Coordenada X da chave ECDSA |
-| `vapidPublicKey.y` | `vy` | Coordenada Y da chave ECDSA |
-| `e2ePublicKey.n` | `en` | Módulo N da chave pública RSA |
+| `vapidPublicKey` | `vp` | Chave VAPID Pública Minificada (Apenas coordenadas X e Y) |
+| `e2ePublicKey` | `ep` | Chave RSA Pública E2E Minificada (Apenas módulo N) |
 | `subscription.endpoint` | `se` | Endpoint Push (prefixo `1:` substitui a URL do FCM) |
 | `subscription.keys.p256dh` | `sp` | Chave p256dh da subscrição Push |
 | `subscription.keys.auth` | `sa` | Chave de autorização Push |
 | `vapidPrivateKeyEnvelope` | `ve` | Envelope da chave VAPID cifrada |
+| `subscription.proxyserver` | `ps` | Endereço estrito do Servidor Proxy (Auto-Discovery) |
 | `trusted` | `tr` | Indicador de contato confiável |
 | `request` | `req` | Flag de solicitação de resposta |
 
@@ -3379,10 +3266,12 @@ Cada contato armazenado possui dois indicadores de estado que descrevem a saúde
 
 1. **`trusted` (boolean):** Definido localmente pelo usuário ao escanear o QR Code ou homologar manualmente o contato.
 2. **`me` (MeStatus):** Indica como o dispositivo do contato enxerga o seu perfil local:
-   * `'trusted'`: O contato confirmou que você é um contato confiável no dispositivo dele.
-   * `'saved'`: O contato tem o seu perfil salvo, mas ainda não o marcou como confiável.
-   * `'wrong'`: Os dados do seu perfil no dispositivo do contato estão desatualizados (ex: alteração de subscrição Push).
-   * `'none'`: O contato ainda não possui seus dados salvos.
+* `'trusted'`: O contato confirmou que você é um contato confiável no dispositivo dele.
+* `'saved'`: O contato tem o seu perfil salvo, mas ainda não o marcou como confiável.
+* `'wrong'`: Os dados do seu perfil no dispositivo do contato estão desatualizados (ex: alteração de subscrição Push).
+* `'none'`: O contato ainda não possui seus dados salvos.
+
+
 
 ---
 
@@ -3392,142 +3281,30 @@ Os dados são divididos em bancos de dados isolados utilizando a biblioteca `idb
 
 | **Nome do Banco (DB_NAMES)** | **Chave Primária** | **Tipo de Dado** | **Finalidade** |
 | --- | --- | --- | --- |
-| `AppConfig_DB` | `"profile"` | `ProfileConfig` | Perfil do usuário local, chaves privadas/públicas, envelope VAPID e subscrição Push. |
+| `AppConfig_DB` | `"profile"` | `ProfileConfig` | Perfil do usuário local, chaves, configurações de rede, envelope VAPID e subscrição Push. |
 | `BrowserB_Contatos_DB` | Hash SHA-256 (`vapidPublicKey`) | `Contato` | Agenda de contatos, chaves E2E e estado de confiança (`me` / `trusted`). |
-| `BrowserB_MensagensRecebidas_DB` | ID da Mensagem | `MensagemRecebida` | Histórico de mensagens recebidas e timestamps de leitura. |
-| `BrowserA_MensagensEnviadas_DB` | ID da Mensagem | `MensagemEnviada` | Histórico e fila de envio de mensagens com status do ciclo de vida. |
+| `Chat_DB` | ID da Mensagem | `Chat` | Histórico de mensagens unificado (recebidas/enviadas) com indexação virtual. |
 | `Handshake_DB` | ID do Handshake (`jti`) | `Handshake` | Fila assíncrona da Máquina de Estados (fluxos `in` e `out`). |
 
 ---
 
-## 8. Mapeamento do Código Fonte
+## 8. Diagnóstico e Resolução de Problemas
 
-```text
-loco/
-├── src/
-│   ├── app.tsx                 # Ponto de entrada da SPA principal.
-│   ├── profile.tsx / .html     # Gerenciamento de perfil, QR Code do usuário e chaves.
-│   ├── share.tsx / .html       # Leitor de QR Code via câmera e importador de convites.
-│   ├── logout.tsx / .html      # Expurgo completo do IndexedDB, Caches e OPFS.
-│   ├── service-worker.ts       # Orquestrador do Service Worker.
-│   ├── styles.css              # Tema Material Design 3 e regras de layout responsivo.
-│   ├── styles.d.ts             # Declaração de módulo para import de CSS.
-│   │
-│   ├── components/             # Componentes de interface (Preact)
-│   │   ├── ChatSection.tsx          # Timeline unificada de conversas e caixa de mensagem.
-│   │   ├── ContatosSection.tsx      # Lista de contatos na barra lateral.
-│   │   ├── ContactDetailSection.tsx # Cartão do contato e diagnóstico de confiança.
-│   │   ├── AdvancedSection.tsx      # Painel de diagnósticos do sistema e requisitos.
-│   │   └── DebugPanel.tsx           # Terminal visual de logs de depuração em tempo real.
-│   │
-│   ├── signals/                # Gerenciamento de estado global
-│   │   └── state.ts            # Signals da UI (visões mobile, logs, seleção de chats).
-│   │
-│   ├── stores/                 # Ponte de reatividade entre IndexedDB e Signals
-│   │   ├── profileStore.ts     # Estado reativo do Perfil.
-│   │   ├── contatosStore.ts    # Estado reativo da lista de Contatos.
-│   │   ├── mensagensStore.ts   # Estado reativo de Mensagens.
-│   │   └── index.ts            # Exportador unificado de stores.
-│   │
-│   ├── handshakes/             # Processadores de rotas de negócio (Worker Thread)
-│   │   ├── hand-profile.ts     # Processamento de solicitações e respostas de perfil.
-│   │   ├── hand-contato.ts     # Avaliação do ciclo de confiança ('me' e 'trusted').
-│   │   └── hand-mensagem.ts    # Auto-Ack de leitura, notificações e gravações de mensagens.
-│   │
-│   ├── utils/                  # Utilitários puros
-│   │   ├── share-utils.ts      # [NÚCLEO] Compactação e descompactação de convites.
-│   │   ├── jwt-helpers.ts      # Criação, assinatura (ES256) e verificação de JWTs.
-│   │   ├── push-utils.ts       # Criptografia híbrida (AES-GCM + RSA-OAEP).
-│   │   ├── profile-utils.ts    # Geração de chaves VAPID/RSA e registros de Push.
-│   │   ├── db-helpers.ts       # Abstração de I/O do IndexedDB via idb-keyval.
-│   │   ├── crypto-utils.ts     # Utilitários da WebCrypto API.
-│   │   ├── id-utils.ts         # Gerador de IDs criptográficos.
-│   │   └── sw-utils.ts         # Registro e verificação do Service Worker.
-│   │
-│   ├── sw/                     # Submódulos do Service Worker
-│   │   ├── cache.ts            # Gerenciamento de cache offline (CacheStorage API).
-│   │   ├── push.ts             # Interceptador e roteador de notificações Push.
-│   │   ├── click.ts            # Manipulador de cliques em notificações do SO.
-│   │   └── sw-handshakes.ts    # [NÚCLEO] Processador da fila de Handshakes.
-│   │
-│   └── types/                  # Definições de tipos TypeScript
-│       └── material-web.d.ts   # Tipagem JSX para Web Components do Material Design 3.
-│
-├── main.ts                     # Servidor Deno HTTP (Proxy cego CORS e WebPush FCM).
-├── build.ts                    # Script de bundle, injeção de cache e geração de chaves RSA.
-├── deno.json                   # Configurações do Deno 2.x, import maps e tasks.
-└── README.md                   # Documentação técnica do projeto.
-```
+* **Erro "The string to be decoded is not correctly encoded" ao importar contato:**
+* *Causa:* Quebras de linha ou espaços invisíveis ao colar a string do token.
+* *Solução (Já Implementada):* A camada `jwt-helpers.ts` possui sanitização defensiva via Expressão Regular (`/[^A-Za-z0-9\+\/]/g`) que expurga formatações corrompidas de *copy/paste* antes da decodificação Base64.
 
----
-
-## 9. Comandos e Execução
-
-Todos os comandos automatizados utilizam a interface de linha de comando (CLI) do Deno 2.x e encontram-se rigorosamente mapeados no arquivo de configuração `deno.json`:
-
-* **Processamento de Compilação e Empacotamento de Artefatos:**
-  ```bash
-  deno task build
-  ```
-  *Promove-se a compilação exaustiva dos códigos-fonte em linguagens TSX e JavaScript, mediante a qual se efetua a transferência dos ativos contidos no diretório `public/` para a pasta de destino `dist/`, procedendo-se à geração das chaves criptográficas RSA do servidor — na eventualidade de sua inexistência — e à subsequente injeção da relação de recursos no âmbito do Service Worker.*
-
-* **Execução do Servidor em Âmbito de Produção:**
-  ```bash
-  deno task start
-  ```
-  *Determina-se a inicialização da instância do servidor Deno, a qual passa a operar formalmente por intermédio da porta de comunicação `http://localhost:8000`.*
-
-* **Monitoramento e Modificação Dinâmica em Tempo de Desenvolvimento:**
-  ```bash
-  deno task dev
-  ```
-  *Garante-se a recompilação automática do pacote de artefatos bem como a imediata reinicialização do servidor HTTP a cada alteração detectada nos arquivos-fonte da aplicação.*
-
-* **Validação e Verificação da Integridade Funcional:**
-  ```bash
-  deno task test
-  ```
-  *Procede-se à execução formal dos protocolos de testes automatizados destinados à aferição da integridade e corretude do sistema.*
-
-* **Aferição Cautelar de Tipagem e Conformidade Sintática (TypeScript):**
-  ```bash
-  deno task typecheck
-  ```
-  *Aplica-se a verificação rigorosa estática de tipos, visando assegurar a plena conformidade do código perante as especificações formais de tipagem do TypeScript.*
-
-* **Expurgo e Sanitização dos Arquivos Compilados:**
-  ```bash
-  deno task clean
-  ```
-  *Operabiliza-se a remoção completa e definitiva de todos os artefatos previamente gerados e armazenados no diretório de distribuição.*
-
----
-
-## 10. Diagnóstico e Resolução de Problemas
-
-* **O Service Worker não atualiza as mudanças no frontend:**
-  * *Causa:* O navegador reteve a versão anterior no estado "Aguardando ativação".
-  * *Solução:* Acesse `F12 > Application > Service Workers` e clique em **Update / Skip Waiting**, ou execute a ação de Logout para purgar os caches.
-
-* **Erro de capacidade no QR Code (`code length overflow`):**
-  * *Causa:* Os dados serializados excederam o limite máximo da matriz do QR Code.
-  * *Solução:* Certifique-se de que os objetos de perfil ou contato estejam passando pela função `extrairDadosCompactos()` em `src/utils/share-utils.ts` antes da geração da imagem.
 
 * **Rejeição HTTP 413 no Envio de Mensagem (`Payload muito grande`):**
-  * *Causa:* O JWT ultrapassou o limite de 4.096 bytes imposto pelo serviço Web Push (FCM).
-  * *Solução:* O payload cifrado deve conter apenas os atributos compactados da interface `HandshakeRotas` e utilizar o compressor GZIP (`fflate`).
+* *Causa:* O JWT ultrapassou o limite de 4.096 bytes imposto pelo serviço Web Push (FCM).
+* *Solução:* O payload cifrado utiliza *Static Schema Compression* e o compressor GZIP (`fflate`).
 
-  ## 11. Instalação do Deno Automarizada
-  ```sh
-  apt-get update && apt-get install -y unzip
-  curl -fsSL https://deno.land/install.sh | sh -s -- -y
-  ```
 
-  ## 12. Lançamento de nova versão
-  ```sh
-  git tag -a v0.2 - m "Release v0.2: Nova esteira de CI/CD"
-  git push origin v0.2
-  ```
+* **Erro de Rota de Push Proxy e Falha de CORS:**
+* *Solução:* Acesse as "Configurações" do App e clique em "Auto-Discovery". O sistema remapeará a sua rota estática (como GitHub Pages) para o Worker público de *fallback* ativo.
+
+
+
 ````
 
 ---

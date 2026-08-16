@@ -76,7 +76,8 @@ export async function getAbsoluteProxyUrl(specificProxy?: string): Promise<strin
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
 
   if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
-    return proxyPath.replace(/\/$/, '');
+    // 🔥 CORREÇÃO: Uso de /+ para remover múltiplas barras finais
+    return proxyPath.replace(/\/+$/, '');
   } 
 
   const origin = typeof globalThis !== 'undefined' && globalThis.location 
@@ -87,7 +88,8 @@ export async function getAbsoluteProxyUrl(specificProxy?: string): Promise<strin
   const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
   
   let base = origin + appBase + cleanProxyPath;
-  return base.replace(/\/$/, '');
+  // 🔥 CORREÇÃO: Uso de /+ para remover múltiplas barras finais
+  return base.replace(/\/+$/, '');
 }
 
 export async function buildProxyUrl(endpoint: string, specificProxy?: string): Promise<string> {
