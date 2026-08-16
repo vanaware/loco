@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.156-msv44cl2** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.168-msv8eimr** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.156-msv44cl2] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.168-msv8eimr] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 10:18:50 PM
+Gerado automaticamente em: 8/16/2026, 8:09:01 AM
 
 ---
 
@@ -573,244 +573,6 @@ export function ShareSection() {
 
 ---
 
-## Arquivo: `src/components/AdvancedSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { profile } from '../stores/profileStore.ts';
-import { showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
-import { DebugPanel } from './DebugPanel.tsx';
-import { APP_VERSION } from '../constants/version.ts'; 
-import { navigate } from '../utils/router.ts';
-import { loadAllConfigs, CONFIG_KEYS } from '../stores/config-store.ts';
-
-export function AdvancedSection() {
-  const diagnostic = useSignal({
-    identificacao: false, criptografia: false, blindagemServidor: false,
-    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
-    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
-    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
-    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
-    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
-    proxyPath: '',
-    loading: true,
-  });
-  
-  useEffect(() => {
-    const updateConfig = async () => {
-      const config = await loadAllConfigs();
-      diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
-    };
-    
-    window.addEventListener('config-updated', updateConfig);
-    updateConfig();
-    
-    return () => {
-      window.removeEventListener('config-updated', updateConfig);
-    };
-  }, []);
-
-  const runDiagnostics = async () => {
-    const p = profile.value;
-    
-    let envelopeOK = false;
-    if (p?.vapidPrivateKeyEnvelope) {
-      try {
-        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
-        const envelopeDecoded = JSON.parse(envelopeJson);
-        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
-          envelopeOK = true;
-        }
-      } catch { envelopeOK = false; }
-    }
-
-    let cameraState = 'prompt', micState = 'prompt';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
-    }
-
-    let storagePersisted = false;
-    let quotaInfo = { usoMB: 0, livreMB: 0 };
-    if ('storage' in navigator) {
-      if (navigator.storage.persisted) {
-        try { storagePersisted = await navigator.storage.persisted(); } catch {}
-      }
-      if (navigator.storage.estimate) {
-        try {
-          const estimate = await navigator.storage.estimate();
-          quotaInfo = {
-            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
-            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
-          };
-        } catch {}
-      }
-    }
-
-    let swControlando = false, hasBackgroundSync = false;
-    if ('serviceWorker' in navigator) {
-      swControlando = navigator.serviceWorker.controller !== null;
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) hasBackgroundSync = 'sync' in reg;
-      } catch {}
-    }
-
-    const diag = {
-      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
-      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
-      blindagemServidor: envelopeOK,
-      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
-      inscricaoRegistrada: !!p?.subscription,
-      inscricaoValida: false,
-      swAtivoEControlando: swControlando,
-      isOnline: navigator.onLine,
-      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
-      permissaoCamera: cameraState,
-      permissaoMicrofone: micState,
-      suporteBarcodeDetector: 'BarcodeDetector' in window,
-      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
-      suporteWebRTC: 'RTCPeerConnection' in window,
-      suporteBackgroundSync: hasBackgroundSync,
-      armazenamentoPersistido: storagePersisted,
-      cotaEspaco: quotaInfo,
-      proxyPath: diagnostic.value.proxyPath,
-      loading: false,
-    };
-
-    if (diag.permissoesNotificacao && p?.subscription) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg && reg.pushManager) {
-          const sub = await reg.pushManager.getSubscription();
-          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
-        }
-      } catch {}
-    }
-
-    diagnostic.value = diag;
-  };
-
-  useEffect(() => {
-    runDiagnostics();
-    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
-    };
-  }, [profile.value]);
-
-  const diag = diagnostic.value;
-
-  const handleSolicitarPersistenciaManual = async () => {
-    const ok = await solicitarArmazenamentoPersistente();
-    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
-    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
-    await runDiagnostics();
-  };
-
-  const handleFechar = () => {
-    navigate(''); 
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
-            </span>
-            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
-              Build Version: v{APP_VERSION}
-            </span>
-          </div>
-          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        {diag.loading ? (
-          <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin: 0;">Analisando requisitos...</p>
-        ) : (
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                🛑 Requisitos Obrigatórios
-              </h4>
-              {/* 🔥 ARQUITETURA: Uso de --md-sys-color-on-surface para garantir legibilidade no modo escuro */}
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
-                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
-                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
-                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
-                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
-                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
-                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
-                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
-              </ul>
-            </div>
-            <md-divider></md-divider>
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                ⚡ Recursos Desejáveis & Status
-              </h4>
-              {/* 🔥 ARQUITETURA: Uso de --md-sys-color-on-surface */}
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
-                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
-                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
-                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
-                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
-                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
-                <li>
-                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
-                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
-                   'ℹ️ Permissão de Câmera (Pendente)'}
-                </li>
-                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
-                  {!diag.armazenamentoPersistido && (
-                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                      Proteger Dados
-                    </md-outlined-button>
-                  )}
-                </li>
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
-                  <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                    <md-icon slot="icon">edit</md-icon>
-                    Configurar
-                  </md-outlined-button>
-                </li>
-                {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 4px;">
-                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
-                  </li>
-                )}
-              </ul>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style="max-width: 600px; width: 100%;">
-        <DebugPanel />
-      </div>
-    </div>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/SettingsSection.tsx`
 
 ```tsx
@@ -1061,6 +823,1021 @@ export function SettingsSection() {
 
 ---
 
+## Arquivo: `src/components/LogoutSection.tsx`
+
+```tsx
+// src/components/LogoutSection.tsx
+import { useSignal } from '@preact/signals';
+import { navigate } from '../utils/router.ts';
+
+export function LogoutSection() {
+  const status = useSignal('Aguardando confirmação...');
+  const executando = useSignal(false);
+
+  const handleLogout = async () => {
+    executando.value = true;
+    try {
+      status.value = "1/4 Limpando Web Storage e Cookies...";
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookieStr = cookies[i];
+        if (!cookieStr) continue;
+        const parts = cookieStr.split("=");
+        const part0 = parts[0];
+        if (!part0) continue;
+        const name = part0.trim();
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
+      }
+
+      status.value = "2/4 Apagando bancos IndexedDB...";
+      if (window.indexedDB?.databases) {
+        const dbs = await window.indexedDB.databases();
+        for (const db of dbs) {
+          if (db.name) window.indexedDB.deleteDatabase(db.name);
+        }
+      }
+
+      status.value = "3/4 Limpando disco virtual (OPFS) e Caches...";
+      if (window.caches) {
+        const cacheNames = await window.caches.keys();
+        for (const name of cacheNames) await window.caches.delete(name);
+      }
+      if (navigator.storage?.getDirectory) {
+        try {
+          const root = await navigator.storage.getDirectory();
+          for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+        } catch (e) {
+          console.warn("OPFS Wipe (Opcional):", e);
+        }
+      }
+
+      status.value = "4/4 Desativando Push e Service Workers...";
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          if (registration.pushManager) {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) await subscription.unsubscribe();
+          }
+          await registration.unregister();
+        }
+      }
+
+      status.value = "✅ Destruição de chaves concluída com sucesso!";
+      setTimeout(() => {
+        window.location.href = window.location.pathname; 
+      }, 1000);
+    } catch (erro: any) {
+      status.value = `❌ Erro: ${erro.message}`;
+      executando.value = false;
+    }
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
+        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
+        <h2 style="justify-content: center;">Sair do Sistema</h2>
+        
+        {/* 🔥 ARQUITETURA: Uso dinâmico de cor de texto para modo escuro/claro */}
+        <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px; font-size: 0.95rem;">
+          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
+        </p>
+
+        {executando.value ? (
+          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
+            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
+            <br />
+            {status.value}
+          </div>
+        ) : (
+          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
+            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
+              ⚠️ Sim, Apagar Meus Dados e Sair
+            </md-filled-button>
+            <md-outlined-button onClick={() => navigate('')} style="width: 100%;">
+              Cancelar e Voltar
+            </md-outlined-button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ContatosSection.tsx`
+
+```tsx
+import { useEffect } from 'preact/hooks';
+import { contatosComHash, isCarregandoContatos, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+
+export function ContatosSection() {
+  useEffect(() => {}, []);
+
+  const abrirChat = (hash: string) => {
+    navigate(`#chat=${hash}`);
+  };
+
+  const abrirDetalhesContato = (e: Event, hash: string) => {
+    e.stopPropagation();
+    navigate(`#detail=${hash}`);
+  };
+
+  return (
+    <div style="display: flex; flex-direction: column; width: 100%;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
+        <h2 style="font-size: 1rem; margin: 0; color: var(--md-sys-color-on-surface); font-weight: 600;">
+          📇 Meus Contatos
+        </h2>
+        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
+          <md-icon>person_add</md-icon>
+        </md-icon-button>
+      </div>
+      
+      <div style="max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 4px;">
+        {/* 🔥 ARQUITETURA: Spinner condicionado ao novo signal 'isCarregandoContatos' */}
+        {isCarregandoContatos.value && contatosComHash.value.length === 0 ? (
+          <div style="display: flex; justify-content: center; padding: 24px;">
+            <md-circular-progress indeterminate></md-circular-progress>
+          </div>
+        ) : contatosComHash.value.length === 0 ? (
+          <p style="padding: 16px 8px; color: var(--md-sys-color-on-surface-variant); text-align: center; margin: 0; font-size: 0.85rem;">
+            Nenhum contato adicionado.
+          </p>
+        ) : (
+          <md-list style="background: transparent;">
+            {contatosComHash.value.map(({ contato, hash }) => {
+              const nomeExibicao = contato.name?.trim() || "Anônimo";
+              return (
+                <md-list-item 
+                  key={hash} 
+                  onClick={() => abrirChat(hash)}
+                  style="cursor: pointer; background: var(--md-sys-color-surface-variant); border-radius: 8px; margin-bottom: 6px;"
+                >
+                  <md-icon slot="start" style="color: var(--md-sys-color-on-surface-variant);">person</md-icon>
+                  
+                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: block; font-size: 0.95rem; color: var(--md-sys-color-on-surface);">
+                      <strong>{nomeExibicao}</strong>
+                    </span>
+                    {contato.trusted && (
+                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
+                    )}
+                  </div>
+                  
+                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant);">
+                    {contato.email || 'Sem e-mail'}
+                  </span>
+                  
+                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
+                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
+                      <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+                    </md-icon-button>
+
+                    {!contato.trusted && (
+                      <md-icon-button onClick={async (e) => {
+                        e.stopPropagation();
+                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
+                        showToast("Contato marcado como confiável!", "success");
+                      }}>
+                        <md-icon style="font-size: 1.2rem;">verified</md-icon>
+                      </md-icon-button>
+                    )}
+
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remover ${nomeExibicao} e apagar todo o histórico de conversas permanentemente?`)) {
+                        await removerContatoCompletamente(hash);
+                      }
+                    }}>
+                      <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-error);">delete</md-icon>
+                    </md-icon-button>
+                  </div>
+                </md-list-item>
+              );
+            })}
+          </md-list>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
+// src/components/ProfileSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast, sharePayload } from '../signals/state.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile, serializarPublicKeyVapid } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '../utils/share-utils.ts';
+import { adicionarContato } from '../stores/contatosStore.ts';
+import { navigate } from '../utils/router.ts';
+import type { Contato } from '../constants/db.ts';
+
+export function ProfileSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+  
+  // 🔥 ARQUITETURA: Signals para lidar com a UI (Separados do Store)
+  const isProcessing = useSignal<boolean>(false);
+  const inviterPreview = useSignal<Partial<Contato> | null>(null);
+  const isLoadingInviter = useSignal<boolean>(false);
+
+  useEffect(() => {
+    carregarProfile();
+  }, []);
+
+  const p = profile.value;
+  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+
+  useEffect(() => {
+    if (!temChaveVapid) {
+      isEditing.value = true;
+    } else {
+      isEditing.value = false;
+    }
+  }, [temChaveVapid]);
+
+  // Escuta convites pendentes caso seja o primeiro acesso
+  useEffect(() => {
+    if (!temChaveVapid && sharePayload.value) {
+      isLoadingInviter.value = true;
+      processarQualquerConvite(sharePayload.value)
+        .then(preview => {
+          inviterPreview.value = preview;
+        })
+        .catch(err => {
+          console.warn("Convite inválido no onboarding:", err);
+        })
+        .finally(() => {
+          isLoadingInviter.value = false;
+        });
+    }
+  }, [temChaveVapid, sharePayload.value]);
+
+  useEffect(() => {
+    const renderQrCode = async () => {
+      if (!p) return;
+      try {
+        const payloadBinario = await gerarPayloadQrCodeCompacto(p);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (temChaveVapid) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [p, temChaveVapid]);
+
+  const handleGerarOuCorrigir = async () => {
+    const eraNovo = !temChaveVapid;
+    if (isProcessing.value) return; 
+
+    try {
+      // Trava de UI local (Não interfere na Store)
+      isProcessing.value = true;
+      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      
+      // Salva no banco. O Signal 'profile' reage instantaneamente.
+      await atualizarProfile(pNovo);
+      
+      isEditing.value = false;
+
+      // Se era o primeiro acesso E tinha convite, executa a adição automática
+      if (eraNovo && inviterPreview.value) {
+        const inviter = inviterPreview.value;
+        const contatoId = await serializarPublicKeyVapid(inviter.vapidPublicKey!);
+        
+        const novoContato: Contato = {
+          id: contatoId,
+          vapidPublicKey: inviter.vapidPublicKey!,
+          email: inviter.email || '',
+          name: inviter.name || '', 
+          e2ePublicKey: inviter.e2ePublicKey!,
+          subscription: inviter.subscription!,
+          vapidPrivateKeyEnvelope: inviter.vapidPrivateKeyEnvelope!,
+          trusted: true, 
+          me: 'none', 
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        
+        await adicionarContato(novoContato);
+        
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) {
+          reg.active.postMessage({
+            type: 'CRIAR_HANDSHAKE_OUT',
+            payload: {
+              rotasModulo: 'contato',
+              params: { function: 'enviarSubscription', contato: contatoId, responder: false }
+            }
+          });
+        }
+
+        sharePayload.value = null; 
+        showToast(`✅ Perfil criado e conectado com ${inviter.name}!`, "success");
+        navigate(`#detail=${contatoId}`);
+        return; 
+      }
+
+      if (eraNovo) {
+        showToast(`✅ Perfil inicializado com sucesso!`, "success");
+        navigate(''); 
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+    } finally {
+      isProcessing.value = false;
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    if (p) {
+      profileName.value = p.name || '';
+      profileEmail.value = p.email || '';
+    }
+    isEditing.value = false;
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+      const serverPublicKeyJwk = await getServerPublicKey();
+
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>account_circle</md-icon> Identidade Local
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {temChaveVapid && !isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
+            
+            {!temChaveVapid && isLoadingInviter.value && (
+              <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+                <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
+              </div>
+            )}
+
+            {!temChaveVapid && inviterPreview.value && !isLoadingInviter.value && (
+              <div style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); padding: 16px; border-radius: 12px; margin-bottom: 8px; text-align: center; border: 1px solid var(--md-sys-color-outline-variant);">
+                <md-icon style="font-size: 32px; margin-bottom: 8px; color: var(--md-sys-color-primary);">waving_hand</md-icon>
+                <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 4px;">
+                  Convite de {inviterPreview.value.name?.trim() || 'Anônimo'}
+                </div>
+                <div style="font-size: 0.85rem; opacity: 0.9;">
+                  Preencha seus dados abaixo para criar sua identidade descentralizada e iniciar a conversa com segurança.
+                </div>
+              </div>
+            )}
+
+            {!temChaveVapid && !inviterPreview.value && !isLoadingInviter.value && (
+               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
+                 Este nome será visível para os contatos que você convidar.
+               </p>
+            )}
+
+            <md-outlined-text-field
+              label="Seu Nome"
+              placeholder="Ex: João da Silva"
+              value={profileName.value}
+              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+              disabled={isProcessing.value}
+            ></md-outlined-text-field>
+            
+            <md-outlined-text-field
+              label="Seu E-mail (Opcional)"
+              placeholder="Ex: joao@email.com"
+              value={profileEmail.value}
+              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+              disabled={isProcessing.value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <md-filled-button 
+                onClick={handleGerarOuCorrigir} 
+                style="flex: 1;"
+                disabled={!profileName.value.trim() || isProcessing.value ? true : undefined}
+              >
+                {isProcessing.value ? "⏳ Processando..." : (!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar")}
+              </md-filled-button>
+              
+              {temChaveVapid && (
+                <md-outlined-button 
+                  onClick={handleCancelarEdicao} 
+                  style="flex: 1;"
+                  disabled={isProcessing.value ? true : undefined}
+                >
+                  Cancelar
+                </md-outlined-button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {p?.name?.trim() || "Anônimo"}
+            </h2>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Compartilhar Link de Convite
+              </md-outlined-button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
+        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
+            Seu QR Code
+          </h3>
+          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
+            Mostre isso para um amigo escanear pelo App Loco.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
+        </div>
+      )}
+
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/AdvancedSection.tsx`
+
+```tsx
+// src/components/AdvancedSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { profile } from '../stores/profileStore.ts';
+import { showToast } from '../signals/state.ts';
+import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
+import { DebugPanel } from './DebugPanel.tsx';
+import { APP_VERSION } from '../constants/version.ts'; 
+import { navigate } from '../utils/router.ts';
+import { loadAllConfigs } from '../stores/config-store.ts';
+
+export function AdvancedSection() {
+  const diagnostic = useSignal({
+    identificacao: false, criptografia: false, blindagemServidor: false,
+    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
+    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
+    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
+    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
+    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
+    proxyPath: '',
+    loading: true,
+  });
+  
+  useEffect(() => {
+    const updateConfig = async () => {
+      const config = await loadAllConfigs();
+      diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
+    };
+    
+    window.addEventListener('config-updated', updateConfig);
+    updateConfig();
+    
+    return () => {
+      window.removeEventListener('config-updated', updateConfig);
+    };
+  }, []);
+
+  const runDiagnostics = async () => {
+    const p = profile.value;
+    
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch { envelopeOK = false; }
+    }
+
+    let cameraState = 'prompt', micState = 'prompt';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
+    }
+
+    let storagePersisted = false;
+    let quotaInfo = { usoMB: 0, livreMB: 0 };
+    if ('storage' in navigator) {
+      if (navigator.storage.persisted) {
+        try { storagePersisted = await navigator.storage.persisted(); } catch {}
+      }
+      if (navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          quotaInfo = {
+            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
+            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
+          };
+        } catch {}
+      }
+    }
+
+    let swControlando = false, hasBackgroundSync = false;
+    if ('serviceWorker' in navigator) {
+      swControlando = navigator.serviceWorker.controller !== null;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) hasBackgroundSync = 'sync' in reg;
+      } catch {}
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
+      inscricaoRegistrada: !!p?.subscription,
+      inscricaoValida: false,
+      swAtivoEControlando: swControlando,
+      isOnline: navigator.onLine,
+      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
+      permissaoCamera: cameraState,
+      permissaoMicrofone: micState,
+      suporteBarcodeDetector: 'BarcodeDetector' in window,
+      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
+      suporteWebRTC: 'RTCPeerConnection' in window,
+      suporteBackgroundSync: hasBackgroundSync,
+      armazenamentoPersistido: storagePersisted,
+      cotaEspaco: quotaInfo,
+      proxyPath: diagnostic.value.proxyPath,
+      loading: false,
+    };
+
+    if (diag.permissoesNotificacao && p?.subscription) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
+        }
+      } catch {}
+    }
+
+    diagnostic.value = diag;
+  };
+
+  useEffect(() => {
+    runDiagnostics();
+    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+
+  const handleSolicitarPersistenciaManual = async () => {
+    const ok = await solicitarArmazenamentoPersistente();
+    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
+    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
+    await runDiagnostics();
+  };
+
+  // 🔥 ARQUITETURA: Botão de Forçar Sincronização Manual
+  const handleForceSync = async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) {
+          reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+          showToast("🔄 Comando de sincronização enviado ao Service Worker!", "info");
+        } else {
+          showToast("⚠️ Service Worker inativo.", "error");
+        }
+      } else {
+        showToast("⚠️ Service Worker não suportado.", "error");
+      }
+    } catch (e: any) {
+      showToast(`❌ Erro ao sincronizar: ${e.message}`, "error");
+    }
+  };
+
+  const handleFechar = () => {
+    navigate(''); 
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
+            </span>
+            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
+              Build Version: v{APP_VERSION}
+            </span>
+          </div>
+          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        {diag.loading ? (
+          <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin: 0;">Analisando requisitos...</p>
+        ) : (
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                🛑 Requisitos Obrigatórios
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
+                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
+                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
+              </ul>
+            </div>
+            <md-divider></md-divider>
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                ⚡ Recursos Desejáveis & Status
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
+                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
+                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
+                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
+                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
+                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
+                <li>
+                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
+                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
+                   'ℹ️ Permissão de Câmera (Pendente)'}
+                </li>
+                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
+                
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
+                  {!diag.armazenamentoPersistido && (
+                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                      Proteger Dados
+                    </md-outlined-button>
+                  )}
+                </li>
+                
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
+                  <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                    <md-icon slot="icon">edit</md-icon>
+                    Configurar
+                  </md-outlined-button>
+                </li>
+
+                {/* 🔥 ARQUITETURA: Nova Seção/Linha para controle manual da Fila de Handshakes */}
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--md-sys-color-outline-variant);">
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: bold; color: var(--md-sys-color-primary);">Fila de Handshakes</span>
+                    <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Força o reenvio de pacotes pendentes (Retries).</span>
+                  </div>
+                  <md-outlined-button onClick={handleForceSync} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;" disabled={!diag.isOnline}>
+                    <md-icon slot="icon">sync</md-icon>
+                    Forçar Sync
+                  </md-outlined-button>
+                </li>
+
+                {diag.cotaEspaco.livreMB > 0 && (
+                  <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 12px; text-align: center;">
+                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style="max-width: 600px; width: 100%;">
+        <DebugPanel />
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ChatSection.tsx`
+
+```tsx
+// src/components/ChatSection.tsx
+import { useEffect, useRef } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { contatoSelecionado, showToast } from '../signals/state.ts';
+import { gerarId } from '../utils/id-utils.ts';
+import { 
+  mensagensAtivas, 
+  hasMoreMessages, 
+  isFetchingMensagens, 
+  inicializarChat, 
+  carregarMaisMensagens, 
+  atualizarOuAdicionarChatAtivo, 
+  limparMemoriaChat,
+  excluirMensagem
+} from '../stores/mensagensStore.ts';
+import type { Chat } from '../constants/db.ts';
+
+export function ChatSection() {
+  const inputText = useSignal<string>('');
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const isScrolledUp = useSignal<boolean>(false);
+
+  useEffect(() => {
+    if (contatoSelecionado.value) {
+      inicializarChat(contatoSelecionado.value).then(() => {
+        rolarParaFim();
+      });
+    }
+
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'CHAT_ATUALIZADO' && e.data?.payload?.chatId) {
+        import('../stores/mensagensStore.ts').then(m => {
+           m.processarAtualizacaoDeStatusDB(e.data.payload.chatId).then(() => {
+             if (!isScrolledUp.value) rolarParaFim();
+           });
+        });
+      }
+    };
+    
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+    }
+    
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      }
+      limparMemoriaChat();
+    };
+  }, [contatoSelecionado.value]);
+
+  const rolarParaFim = (force = false) => {
+    setTimeout(() => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    }, force ? 10 : 100);
+  };
+
+  const handleScroll = (e: Event) => {
+    const target = e.target as HTMLDivElement;
+    isScrolledUp.value = target.scrollHeight - target.scrollTop - target.clientHeight > 100;
+
+    if (target.scrollTop < 50 && hasMoreMessages.value) {
+      const oldHeight = target.scrollHeight;
+      carregarMaisMensagens(contatoSelecionado.value).then(() => {
+        requestAnimationFrame(() => {
+          if (chatScrollRef.current) {
+            chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight - oldHeight;
+          }
+        });
+      });
+    }
+  };
+
+  const handleEnviar = async () => {
+    const texto = inputText.value.trim();
+    const hashAtivo = contatoSelecionado.value;
+    
+    if (!texto || !hashAtivo) return;
+    
+    inputText.value = ''; 
+    const msgId = gerarId();
+    const handshakeId = gerarId();
+    const agora = Date.now();
+
+    const novaMensagem: Chat = {
+      id: msgId,
+      contatoHash: hashAtivo,
+      conteudo: texto,
+      tipo: 'out',
+      createdAt: agora,
+      handshake: handshakeId
+    };
+    
+    await atualizarOuAdicionarChatAtivo(novaMensagem);
+    rolarParaFim(true);
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo");
+
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'mensagem',
+          params: { function: 'enviarMensagem', contato: hashAtivo, conteudo: texto, msgId, handshakeId, createdAt: agora }
+        }
+      });
+    } catch (err: any) {
+      showToast(`❌ Erro de thread: ${err.message}`, "error");
+    }
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleEnviar();
+    }
+  };
+
+  const handleExcluir = async (msgId: string) => {
+    if (confirm("Deseja apagar esta mensagem permanentemente?")) {
+      await excluirMensagem(msgId, contatoSelecionado.value);
+    }
+  };
+
+  const renderStatus = (msg: Chat) => {
+    if (msg.tipo === 'in') return null;
+
+    if (msg.errorAt) {
+      return <md-icon title="Falha no envio" style="font-size: 14px; color: var(--md-sys-color-error);">error</md-icon>;
+    }
+    if (msg.readAt) {
+      return <md-icon title="Lida" style="font-size: 14px; color: var(--md-sys-color-primary);">done_all</md-icon>;
+    }
+    if (msg.receivedAt) {
+      return <md-icon title="Entregue ao dispositivo" style="font-size: 14px; opacity: 0.8;">done_all</md-icon>;
+    }
+    if (msg.sentAt) {
+      return <md-icon title="Enviada ao servidor" style="font-size: 14px; opacity: 0.8;">check</md-icon>;
+    }
+    
+    return <md-icon title="Aguardando rede..." style="font-size: 14px; opacity: 0.5;">schedule</md-icon>;
+  };
+
+  return (
+    <div style="display: flex; flex-direction: column; height: 100%; flex-grow: 1; overflow: hidden;">
+      
+      <div 
+        ref={chatScrollRef}
+        onScroll={handleScroll}
+        style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
+      >
+        
+        {isFetchingMensagens.value && (
+           <div style="text-align: center; padding: 10px;">
+             <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
+           </div>
+        )}
+
+        {!isFetchingMensagens.value && mensagensAtivas.value.length === 0 ? (
+          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">
+            Nenhuma mensagem. Diga um "Olá" (criptografado)! 🔒
+          </div>
+        ) : (
+          mensagensAtivas.value.map(msg => {
+            const isMine = msg.tipo === 'out';
+            return (
+              <div 
+                key={msg.id} 
+                style={`display: flex; flex-direction: column; max-width: 85%; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}
+              >
+                <div style={`
+                  padding: 10px 14px;
+                  border-radius: 16px;
+                  background: ${isMine ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)'};
+                  color: ${isMine ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'};
+                  border-bottom-right-radius: ${isMine ? '4px' : '16px'};
+                  border-bottom-left-radius: ${!isMine ? '4px' : '16px'};
+                  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                  white-space: pre-wrap;
+                  word-wrap: break-word;
+                `}>
+                  {msg.conteudo}
+                </div>
+                
+                {/* 🔥 ARQUITETURA: Ícone sutil de lixeira injetado na meta-data da mensagem */}
+                <div style={`display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.7rem; color: #888; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}>
+                  <span>
+                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {renderStatus(msg)}
+                  <md-icon-button 
+                    onClick={() => handleExcluir(msg.id)} 
+                    style="width: 20px; height: 20px; margin-left: 2px;"
+                    title="Apagar mensagem"
+                  >
+                    <md-icon style="font-size: 14px; color: var(--md-sys-color-on-surface-variant);">delete</md-icon>
+                  </md-icon-button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div style="flex-shrink: 0; padding: 12px 16px; background: var(--md-sys-color-surface); border-top: 1px solid var(--md-sys-color-outline-variant); display: flex; gap: 8px; align-items: flex-end;">
+        <md-outlined-text-field
+          style="flex-grow: 1; margin-bottom: 0;"
+          placeholder="Escreva uma mensagem..."
+          value={inputText.value}
+          onInput={(e: Event) => inputText.value = (e.target as HTMLInputElement).value}
+          onKeyDown={handleKeyDown}
+        ></md-outlined-text-field>
+        
+        <md-filled-icon-button 
+          onClick={handleEnviar}
+          disabled={!inputText.value.trim()}
+          style="height: 56px; width: 56px; border-radius: 16px;"
+        >
+          <md-icon>send</md-icon>
+        </md-filled-icon-button>
+      </div>
+
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/components/ContactDetailSection.tsx`
 
 ```tsx
@@ -1070,6 +1847,7 @@ import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
 
 import { contatosComHash, adicionarContato, removerContatoCompletamente } from '../stores/contatosStore.ts';
+import { limparTodoHistorico } from '../stores/mensagensStore.ts';
 import { profile } from '../stores/profileStore.ts';
 import { contatoCompartilharHash, contatoSelecionado, showToast } from '../signals/state.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
@@ -1109,7 +1887,6 @@ export function ContactDetailSection() {
       });
     }
 
-    // 🔥 Protegido com Async IIFE
     (async () => {
       try {
         const payloadBinario = await gerarPayloadQrCodeCompacto(contato);
@@ -1220,13 +1997,25 @@ export function ContactDetailSection() {
     navigate(`#chat=${hash}`);
   };
 
+  const handleExcluirHistorico = async () => {
+    const mensagemAlerta = `🛑 Tem certeza?\n\nTodas as mensagens enviadas e recebidas com ${nomeExibicao} serão apagadas permanentemente. Isso não pode ser desfeito.`;
+    if (confirm(mensagemAlerta)) {
+      try {
+        await limparTodoHistorico(hash);
+        showToast("🗑️ Histórico de mensagens apagado.", "success");
+      } catch (e: any) {
+        showToast(`❌ Erro ao apagar histórico: ${e.message}`, "error");
+      }
+    }
+  };
+
   const handleExcluirContato = async () => {
-    const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir ${nomeExibicao} permanentemente.\n\nIsso apagará TODAS as mensagens enviadas, recebidas e todas as pendências de conexão na rede.\n\nDeseja continuar?`;
+    const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir o perfil de ${nomeExibicao} permanentemente.\n\nDeseja continuar?`;
     
     if (confirm(mensagemAlerta)) {
       try {
         await removerContatoCompletamente(hash);
-        showToast("🗑️ Contato e histórico excluídos com sucesso.", "success");
+        showToast("🗑️ Contato excluído com sucesso.", "success");
         if (contatoSelecionado.value === hash) {
           contatoSelecionado.value = '';
         }
@@ -1371,13 +2160,21 @@ export function ContactDetailSection() {
                 Iniciar Conversa
               </md-outlined-button>
 
-              <div style="margin-top: 16px;">
+              <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+                <md-outlined-button 
+                  onClick={handleExcluirHistorico} 
+                  style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);"
+                >
+                  <md-icon slot="icon">delete_sweep</md-icon>
+                  Apagar Histórico de Mensagens
+                </md-outlined-button>
+
                 <md-outlined-button 
                   onClick={handleExcluirContato} 
                   style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);"
                 >
                   <md-icon slot="icon">delete_forever</md-icon>
-                  Excluir Contato e Histórico
+                  Excluir Contato
                 </md-outlined-button>
               </div>
             </div>
@@ -1387,799 +2184,6 @@ export function ContactDetailSection() {
     </div>
   );
 }
-```
-
----
-
-## Arquivo: `src/components/LogoutSection.tsx`
-
-```tsx
-// src/components/LogoutSection.tsx
-import { useSignal } from '@preact/signals';
-import { navigate } from '../utils/router.ts';
-
-export function LogoutSection() {
-  const status = useSignal('Aguardando confirmação...');
-  const executando = useSignal(false);
-
-  const handleLogout = async () => {
-    executando.value = true;
-    try {
-      status.value = "1/4 Limpando Web Storage e Cookies...";
-      window.localStorage.clear();
-      window.sessionStorage.clear();
-
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const cookieStr = cookies[i];
-        if (!cookieStr) continue;
-        const parts = cookieStr.split("=");
-        const part0 = parts[0];
-        if (!part0) continue;
-        const name = part0.trim();
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=${window.location.hostname}`;
-      }
-
-      status.value = "2/4 Apagando bancos IndexedDB...";
-      if (window.indexedDB?.databases) {
-        const dbs = await window.indexedDB.databases();
-        for (const db of dbs) {
-          if (db.name) window.indexedDB.deleteDatabase(db.name);
-        }
-      }
-
-      status.value = "3/4 Limpando disco virtual (OPFS) e Caches...";
-      if (window.caches) {
-        const cacheNames = await window.caches.keys();
-        for (const name of cacheNames) await window.caches.delete(name);
-      }
-      if (navigator.storage?.getDirectory) {
-        try {
-          const root = await navigator.storage.getDirectory();
-          for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
-        } catch (e) {
-          console.warn("OPFS Wipe (Opcional):", e);
-        }
-      }
-
-      status.value = "4/4 Desativando Push e Service Workers...";
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          if (registration.pushManager) {
-            const subscription = await registration.pushManager.getSubscription();
-            if (subscription) await subscription.unsubscribe();
-          }
-          await registration.unregister();
-        }
-      }
-
-      status.value = "✅ Destruição de chaves concluída com sucesso!";
-      setTimeout(() => {
-        window.location.href = window.location.pathname; 
-      }, 1000);
-    } catch (erro: any) {
-      status.value = `❌ Erro: ${erro.message}`;
-      executando.value = false;
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="border-left-color: var(--md-sys-color-error); text-align: center; max-width: 480px; width: 100%;">
-        <md-icon style="font-size: 48px; color: var(--md-sys-color-error); margin-bottom: 16px;">logout</md-icon>
-        <h2 style="justify-content: center;">Sair do Sistema</h2>
-        
-        {/* 🔥 ARQUITETURA: Uso dinâmico de cor de texto para modo escuro/claro */}
-        <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px; font-size: 0.95rem;">
-          Tem certeza que deseja sair? Como não usamos senhas, <strong>todas as suas chaves criptográficas, contatos e histórico de mensagens</strong> serão apagados irreversivelmente deste dispositivo por segurança.
-        </p>
-
-        {executando.value ? (
-          <div style="background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; font-family: monospace;">
-            <md-circular-progress indeterminate style="width: 24px; height: 24px; margin-bottom: 8px;"></md-circular-progress>
-            <br />
-            {status.value}
-          </div>
-        ) : (
-          <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 24px;">
-            <md-filled-button onClick={handleLogout} style="width: 100%; --md-sys-color-primary: #ba1a1a; --md-sys-color-on-primary: white;">
-              ⚠️ Sim, Apagar Meus Dados e Sair
-            </md-filled-button>
-            <md-outlined-button onClick={() => navigate('')} style="width: 100%;">
-              Cancelar e Voltar
-            </md-outlined-button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ProfileSection.tsx`
-
-```tsx
-// src/components/ProfileSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { profile, isSavingProfile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-import { navigate } from '../utils/router.ts';
-
-export function ProfileSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const p = profile.value;
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
-
-  useEffect(() => {
-    if (!temChaveVapid) {
-      isEditing.value = true;
-    } else {
-      isEditing.value = false;
-    }
-  }, [temChaveVapid]);
-
-  useEffect(() => {
-    const renderQrCode = async () => {
-      if (!p) return;
-      try {
-        const payloadBinario = await gerarPayloadQrCodeCompacto(p);
-        const qr = qrcode(0, 'L');
-        qr.addData(payloadBinario);
-        qr.make();
-        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
-      } catch (e) {
-        console.error("Falha ao gerar QR Code:", e);
-        qrCodeDataUrl.value = null;
-      }
-    };
-
-    if (temChaveVapid) {
-      renderQrCode();
-    } else {
-      qrCodeDataUrl.value = null;
-    }
-  }, [p, temChaveVapid]);
-
-  const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
-    // Bloqueio extra via lógica caso o botão seja burlado
-    if (isSavingProfile.value) return; 
-
-    try {
-      // Como a geração demora (chaves Crypto), ativamos o lock manualmente antes da store
-      isSavingProfile.value = true;
-      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(pNovo);
-      
-      isEditing.value = false;
-
-      if (eraNovo) {
-        showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        navigate(''); 
-      } else {
-        showToast(`✅ Perfil atualizado!`, "success");
-      }
-    } catch (err: any) {
-      addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
-    } finally {
-      isSavingProfile.value = false;
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    if (p) {
-      profileName.value = p.name || '';
-      profileEmail.value = p.email || '';
-    }
-    isEditing.value = false;
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      if (!p) return showToast("Salve o perfil primeiro.", "error");
-      const serverPublicKeyJwk = await getServerPublicKey();
-
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
-
-      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      
-      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>account_circle</md-icon> Identidade Local
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {temChaveVapid && !isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-          </div>
-        </div>
-
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
-            
-            {!temChaveVapid && (
-               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
-                 Este nome será visível para os contatos que você convidar.
-               </p>
-            )}
-
-            <md-outlined-text-field
-              label="Seu Nome"
-              placeholder="Ex: João da Silva"
-              value={profileName.value}
-              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-              disabled={isSavingProfile.value}
-            ></md-outlined-text-field>
-            
-            <md-outlined-text-field
-              label="Seu E-mail (Opcional)"
-              placeholder="Ex: joao@email.com"
-              value={profileEmail.value}
-              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-              disabled={isSavingProfile.value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-              <md-filled-button 
-                onClick={handleGerarOuCorrigir} 
-                style="flex: 1;"
-                disabled={!profileName.value.trim() || isSavingProfile.value ? true : undefined}
-              >
-                {isSavingProfile.value ? "⏳ Salvando..." : (!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar")}
-              </md-filled-button>
-              
-              {temChaveVapid && (
-                <md-outlined-button 
-                  onClick={handleCancelarEdicao} 
-                  style="flex: 1;"
-                  disabled={isSavingProfile.value ? true : undefined}
-                >
-                  Cancelar
-                </md-outlined-button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {p?.name?.trim() || "Anônimo"}
-            </h2>
-            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Compartilhar Link de Convite
-              </md-outlined-button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
-        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
-            Seu QR Code
-          </h3>
-          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
-            Mostre isso para um amigo escanear pelo App Loco.
-          </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
-        </div>
-      )}
-
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ChatSection.tsx`
-
-```tsx
-// src/components/ChatSection.tsx
-import { useEffect, useRef } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { contatoSelecionado, showToast } from '../signals/state.ts';
-import { gerarId } from '../utils/id-utils.ts';
-import { mensagensAtivas, hasMoreMessages, isFetchingMensagens, inicializarChat, carregarMaisMensagens, atualizarOuAdicionarChatAtivo } from '../stores/mensagensStore.ts';
-import type { Chat } from '../constants/db.ts';
-
-export function ChatSection() {
-  const inputText = useSignal<string>('');
-  const chatScrollRef = useRef<HTMLDivElement>(null);
-  const isScrolledUp = useSignal<boolean>(false);
-
-  useEffect(() => {
-    if (contatoSelecionado.value) {
-      inicializarChat(contatoSelecionado.value).then(() => {
-        rolarParaFim();
-      });
-    }
-
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data?.type === 'CHAT_ATUALIZADO' && e.data?.payload?.chatId) {
-        import('../stores/mensagensStore.ts').then(m => {
-           m.processarAtualizacaoDeStatusDB(e.data.payload.chatId).then(() => {
-             if (!isScrolledUp.value) rolarParaFim();
-           });
-        });
-      }
-    };
-    
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleMessage);
-    }
-    return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleMessage);
-      }
-    };
-  }, [contatoSelecionado.value]);
-
-  const rolarParaFim = (force = false) => {
-    setTimeout(() => {
-      if (chatScrollRef.current) {
-        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-      }
-    }, force ? 10 : 100);
-  };
-
-  const handleScroll = (e: Event) => {
-    const target = e.target as HTMLDivElement;
-    isScrolledUp.value = target.scrollHeight - target.scrollTop - target.clientHeight > 100;
-
-    if (target.scrollTop < 50 && hasMoreMessages.value) {
-      const oldHeight = target.scrollHeight;
-      carregarMaisMensagens(contatoSelecionado.value).then(() => {
-        requestAnimationFrame(() => {
-          if (chatScrollRef.current) {
-            chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight - oldHeight;
-          }
-        });
-      });
-    }
-  };
-
-  const handleEnviar = async () => {
-    const texto = inputText.value.trim();
-    const hashAtivo = contatoSelecionado.value;
-    
-    if (!texto || !hashAtivo) return;
-    
-    inputText.value = ''; 
-    const msgId = gerarId();
-    const handshakeId = gerarId();
-    const agora = Date.now();
-
-    const novaMensagem: Chat = {
-      id: msgId,
-      contatoHash: hashAtivo,
-      conteudo: texto,
-      tipo: 'out',
-      createdAt: agora,
-      handshake: handshakeId
-    };
-    
-    await atualizarOuAdicionarChatAtivo(novaMensagem);
-    rolarParaFim(true);
-
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo");
-
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'mensagem',
-          params: { function: 'enviarMensagem', contato: hashAtivo, conteudo: texto, msgId, handshakeId, createdAt: agora }
-        }
-      });
-    } catch (err: any) {
-      showToast(`❌ Erro de thread: ${err.message}`, "error");
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleEnviar();
-    }
-  };
-
-  const renderStatus = (msg: Chat) => {
-    if (msg.tipo === 'in') return null;
-
-    if (msg.errorAt) {
-      return <md-icon title="Falha no envio" style="font-size: 14px; color: var(--md-sys-color-error);">error</md-icon>;
-    }
-    if (msg.readAt) {
-      return <md-icon title="Lida" style="font-size: 14px; color: var(--md-sys-color-primary);">done_all</md-icon>;
-    }
-    if (msg.receivedAt) {
-      return <md-icon title="Entregue ao dispositivo" style="font-size: 14px; opacity: 0.8;">done_all</md-icon>;
-    }
-    if (msg.sentAt) {
-      return <md-icon title="Enviada ao servidor" style="font-size: 14px; opacity: 0.8;">check</md-icon>;
-    }
-    
-    return <md-icon title="Aguardando rede..." style="font-size: 14px; opacity: 0.5;">schedule</md-icon>;
-  };
-
-  return (
-    <div style="display: flex; flex-direction: column; height: 100%; flex-grow: 1; overflow: hidden;">
-      
-      <div 
-        ref={chatScrollRef}
-        onScroll={handleScroll}
-        style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
-      >
-        
-        {/* 🔥 ARQUITETURA: Agora utilizamos um componente visual do Material Design */}
-        {isFetchingMensagens.value && (
-           <div style="text-align: center; padding: 10px;">
-             <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
-           </div>
-        )}
-
-        {!isFetchingMensagens.value && mensagensAtivas.value.length === 0 ? (
-          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">
-            Nenhuma mensagem. Diga um "Olá" (criptografado)! 🔒
-          </div>
-        ) : (
-          mensagensAtivas.value.map(msg => {
-            const isMine = msg.tipo === 'out';
-            return (
-              <div 
-                key={msg.id} 
-                style={`display: flex; flex-direction: column; max-width: 85%; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}
-              >
-                <div style={`
-                  padding: 10px 14px;
-                  border-radius: 16px;
-                  background: ${isMine ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)'};
-                  color: ${isMine ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'};
-                  border-bottom-right-radius: ${isMine ? '4px' : '16px'};
-                  border-bottom-left-radius: ${!isMine ? '4px' : '16px'};
-                  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-                  white-space: pre-wrap;
-                  word-wrap: break-word;
-                `}>
-                  {msg.conteudo}
-                </div>
-                
-                <div style={`display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.7rem; color: #888; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}>
-                  <span>
-                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  {renderStatus(msg)}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <div style="flex-shrink: 0; padding: 12px 16px; background: var(--md-sys-color-surface); border-top: 1px solid var(--md-sys-color-outline-variant); display: flex; gap: 8px; align-items: flex-end;">
-        <md-outlined-text-field
-          style="flex-grow: 1; margin-bottom: 0;"
-          placeholder="Escreva uma mensagem..."
-          value={inputText.value}
-          onInput={(e: Event) => inputText.value = (e.target as HTMLInputElement).value}
-          onKeyDown={handleKeyDown}
-        ></md-outlined-text-field>
-        
-        <md-filled-icon-button 
-          onClick={handleEnviar}
-          disabled={!inputText.value.trim()}
-          style="height: 56px; width: 56px; border-radius: 16px;"
-        >
-          <md-icon>send</md-icon>
-        </md-filled-icon-button>
-      </div>
-
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ContatosSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { contatosComHash, isCarregandoContatos, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
-
-export function ContatosSection() {
-  useEffect(() => {}, []);
-
-  const abrirChat = (hash: string) => {
-    navigate(`#chat=${hash}`);
-  };
-
-  const abrirDetalhesContato = (e: Event, hash: string) => {
-    e.stopPropagation();
-    navigate(`#detail=${hash}`);
-  };
-
-  return (
-    <div style="display: flex; flex-direction: column; width: 100%;">
-      
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
-        <h2 style="font-size: 1rem; margin: 0; color: var(--md-sys-color-on-surface); font-weight: 600;">
-          📇 Meus Contatos
-        </h2>
-        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
-          <md-icon>person_add</md-icon>
-        </md-icon-button>
-      </div>
-      
-      <div style="max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 4px;">
-        {/* 🔥 ARQUITETURA: Spinner condicionado ao novo signal 'isCarregandoContatos' */}
-        {isCarregandoContatos.value && contatosComHash.value.length === 0 ? (
-          <div style="display: flex; justify-content: center; padding: 24px;">
-            <md-circular-progress indeterminate></md-circular-progress>
-          </div>
-        ) : contatosComHash.value.length === 0 ? (
-          <p style="padding: 16px 8px; color: var(--md-sys-color-on-surface-variant); text-align: center; margin: 0; font-size: 0.85rem;">
-            Nenhum contato adicionado.
-          </p>
-        ) : (
-          <md-list style="background: transparent;">
-            {contatosComHash.value.map(({ contato, hash }) => {
-              const nomeExibicao = contato.name?.trim() || "Anônimo";
-              return (
-                <md-list-item 
-                  key={hash} 
-                  onClick={() => abrirChat(hash)}
-                  style="cursor: pointer; background: var(--md-sys-color-surface-variant); border-radius: 8px; margin-bottom: 6px;"
-                >
-                  <md-icon slot="start" style="color: var(--md-sys-color-on-surface-variant);">person</md-icon>
-                  
-                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: block; font-size: 0.95rem; color: var(--md-sys-color-on-surface);">
-                      <strong>{nomeExibicao}</strong>
-                    </span>
-                    {contato.trusted && (
-                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
-                    )}
-                  </div>
-                  
-                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant);">
-                    {contato.email || 'Sem e-mail'}
-                  </span>
-                  
-                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
-                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
-                      <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
-                    </md-icon-button>
-
-                    {!contato.trusted && (
-                      <md-icon-button onClick={async (e) => {
-                        e.stopPropagation();
-                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
-                        showToast("Contato marcado como confiável!", "success");
-                      }}>
-                        <md-icon style="font-size: 1.2rem;">verified</md-icon>
-                      </md-icon-button>
-                    )}
-
-                    <md-icon-button onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm(`Remover ${nomeExibicao} e apagar todo o histórico de conversas permanentemente?`)) {
-                        await removerContatoCompletamente(hash);
-                      }
-                    }}>
-                      <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-error);">delete</md-icon>
-                    </md-icon-button>
-                  </div>
-                </md-list-item>
-              );
-            })}
-          </md-list>
-        )}
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/constants/db.ts`
-
-```ts
-// src/constants/db.ts
-
-export const DB_NAMES = {
-  CONFIG: "AppConfig_DB",
-  CHAT: "Chat_DB", // 🔥 Unificou MensagensEnviadas e MensagensRecebidas
-  CONTATOS: "BrowserB_Contatos_DB",
-  HANDSHAKES: "Handshake_DB",
-} as const;
-
-export const STORE_NAMES = {
-  KEYVAL: "keyval",
-} as const;
-
-export const KEY_NAMES = {
-  PROFILE: "profile",
-  CONTATO: "contato_",
-  CHAT_INDEX: "chat_index_", // 🔥 Novo prefixo para guardar os arrays de paginação
-} as const;
-
-export const MAX_TENTATIVAS = 3;
-export const MAX_PAYLOAD_SIZE = 4096;
-
-export interface ProfileConfig {
-  name: string;
-  email: string;
-  vapidPublicKey: JsonWebKey;
-  vapidPrivateKeyJwk: JsonWebKey;
-  vapidPrivateKeyEnvelope: string;
-  e2ePublicKey: JsonWebKey;
-  e2ePrivateKeyJwk: JsonWebKey;
-  subscription: {
-    endpoint: string;
-    keys: {
-      p256dh: string;
-      auth: string;
-    };
-    proxyserver?: string;
-  };
-  createdAt: number;
-  updatedAt: number;
-}
-
-// 🔥 Nova Estrutura Unificada e Baseada em Timestamps
-export interface Chat {
-  id: string;
-  contatoHash: string;
-  conteudo: string;
-  tipo: 'in' | 'out';
-  readAt?: number;
-  notifiedAt?: number;
-  receivedAt?: number;
-  sentAt?: number;
-  createdAt: number;
-  updatedAt?: number;
-  errorAt?: number;
-  handshake: string;
-}
-
-export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
-
-export interface Contato {
-  id: string; 
-  email: string;
-  name: string;
-  vapidPublicKey: JsonWebKey;
-  e2ePublicKey: JsonWebKey;
-  subscription: {
-    endpoint: string;
-    keys: { p256dh: string; auth: string };
-    proxyserver?: string;
-  };
-  vapidPrivateKeyEnvelope: string;
-  trusted: boolean;
-  me: MeStatus;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface ProfileRouteData {
-  campos?: string[];
-  data?: Record<string, unknown>;
-  id?: string;
-}
-
-export interface MensagemRouteData {
-  recebida?: string;
-  enviada?: string;
-  conteudo?: string;
-  campos?: string[];
-  data?: Record<string, unknown>;
-}
-
-export interface ContatoRouteData {
-  id?: string;
-  campos?: string[];
-  data?: Record<string, unknown>;
-  sync?: Record<string, unknown>;
-}
-
-export interface HandshakeRotas { 
-  profile?: ProfileRouteData; 
-  mensagem?: MensagemRouteData; 
-  contato?: ContatoRouteData; 
-  [key: string]: unknown;
-}
-
-export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
-export type StatusOut = 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
-
-export interface FluxoIn {
-  status: StatusIn;
-  rotas: HandshakeRotas;
-  tentativas: number; 
-  erro?: string;
-}
-
-export interface FluxoOut {
-  status: StatusOut;
-  rotas: HandshakeRotas;
-  tentativas: number; 
-  erro?: string;
-}
-
-export interface Handshake { 
-  id: string; 
-  aud: string; 
-  in?: FluxoIn; 
-  out?: FluxoOut; 
-  createdAt: number; 
-  updatedAt: number; 
-}
-
-export interface EnvelopeCifrado {
-  i: string;
-  d: string;
-  k: string;
-}
-```
-
----
-
-## Arquivo: `src/constants/version.ts`
-
-```ts
-// Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.156-msv44cl2";
-
 ```
 
 ---
@@ -2349,6 +2353,161 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     return false;
   }
 }
+```
+
+---
+
+## Arquivo: `src/constants/db.ts`
+
+```ts
+// src/constants/db.ts
+
+export const DB_NAMES = {
+  CONFIG: "AppConfig_DB",
+  CHAT: "Chat_DB", // 🔥 Unificou MensagensEnviadas e MensagensRecebidas
+  CONTATOS: "BrowserB_Contatos_DB",
+  HANDSHAKES: "Handshake_DB",
+} as const;
+
+export const STORE_NAMES = {
+  KEYVAL: "keyval",
+} as const;
+
+export const KEY_NAMES = {
+  PROFILE: "profile",
+  CONTATO: "contato_",
+  CHAT_INDEX: "chat_index_", // 🔥 Novo prefixo para guardar os arrays de paginação
+} as const;
+
+export const MAX_TENTATIVAS = 3;
+export const MAX_PAYLOAD_SIZE = 4096;
+
+export interface ProfileConfig {
+  name: string;
+  email: string;
+  vapidPublicKey: JsonWebKey;
+  vapidPrivateKeyJwk: JsonWebKey;
+  vapidPrivateKeyEnvelope: string;
+  e2ePublicKey: JsonWebKey;
+  e2ePrivateKeyJwk: JsonWebKey;
+  subscription: {
+    endpoint: string;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+    proxyserver?: string;
+  };
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 🔥 Nova Estrutura Unificada e Baseada em Timestamps
+export interface Chat {
+  id: string;
+  contatoHash: string;
+  conteudo: string;
+  tipo: 'in' | 'out';
+  readAt?: number;
+  notifiedAt?: number;
+  receivedAt?: number;
+  sentAt?: number;
+  createdAt: number;
+  updatedAt?: number;
+  errorAt?: number;
+  handshake: string;
+}
+
+export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
+
+export interface Contato {
+  id: string; 
+  email: string;
+  name: string;
+  vapidPublicKey: JsonWebKey;
+  e2ePublicKey: JsonWebKey;
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    proxyserver?: string;
+  };
+  vapidPrivateKeyEnvelope: string;
+  trusted: boolean;
+  me: MeStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProfileRouteData {
+  campos?: string[];
+  data?: Record<string, unknown>;
+  id?: string;
+}
+
+export interface MensagemRouteData {
+  recebida?: string;
+  enviada?: string;
+  conteudo?: string;
+  excluida?: string; // 🔥 ARQUITETURA: Nova rota para exclusão remota bidirecional
+  campos?: string[];
+  data?: Record<string, unknown>;
+}
+
+export interface ContatoRouteData {
+  id?: string;
+  campos?: string[];
+  data?: Record<string, unknown>;
+  sync?: Record<string, unknown>;
+}
+
+export interface HandshakeRotas { 
+  profile?: ProfileRouteData; 
+  mensagem?: MensagemRouteData; 
+  contato?: ContatoRouteData; 
+  [key: string]: unknown;
+}
+
+export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
+export type StatusOut = 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
+
+export interface FluxoIn {
+  status: StatusIn;
+  rotas: HandshakeRotas;
+  tentativas: number; 
+  erro?: string;
+}
+
+export interface FluxoOut {
+  status: StatusOut;
+  rotas: HandshakeRotas;
+  tentativas: number; 
+  erro?: string;
+}
+
+export interface Handshake { 
+  id: string; 
+  aud: string; 
+  in?: FluxoIn; 
+  out?: FluxoOut; 
+  createdAt: number; 
+  updatedAt: number; 
+}
+
+export interface EnvelopeCifrado {
+  i: string;
+  d: string;
+  k: string;
+}
+```
+
+---
+
+## Arquivo: `src/constants/version.ts`
+
+```ts
+// Arquivo gerado automaticamente pelo build.ts
+export const APP_VERSION = "0.2.168-msv8eimr";
+
 ```
 
 ---
@@ -2531,175 +2690,6 @@ export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
   console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
   await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
   return { proxy_path: FallbackAbsoluteProxy };
-}
-```
-
----
-
-## Arquivo: `src/stores/profileStore.ts`
-
-```ts
-// src/stores/profileStore.ts
-import { signal, batch } from '@preact/signals';
-import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
-
-// 🔥 ARQUITETURA: Transformado em signal para que a UI reaja e bloqueie botões
-export const isSavingProfile = signal<boolean>(false);
-export const profile = signal<ProfileConfig | null>(null);
-
-export async function carregarProfile() {
-  try {
-    const p = await buscarProfile();
-    
-    // 🔥 ARQUITETURA: Uso de batch para agrupar as mudanças de estado e evitar múltiplos renders
-    batch(() => {
-      profile.value = p || null;
-      if (p) {
-        profileName.value = p.name;
-        profileEmail.value = p.email;
-      }
-    });
-  } catch (error) {
-    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
-  }
-}
-
-/**
- * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
- */
-export async function atualizarProfile(p: ProfileConfig) {
-  if (isSavingProfile.value) {
-      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
-      return; 
-  }
-
-  // 1. Atualização Otimista na Memória agrupada
-  batch(() => {
-    profile.value = { ...p };
-    profileName.value = p.name;
-    profileEmail.value = p.email;
-  });
-
-  // 2. Persistência Isolada com trava reativa
-  isSavingProfile.value = true;
-  try {
-    await salvarProfile(p);
-  } catch (error) {
-    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
-  } finally {
-    isSavingProfile.value = false;
-  }
-}
-
-export async function initProfileStore() {
-  await carregarProfile();
-}
-```
-
----
-
-## Arquivo: `src/stores/mensagensStore.ts`
-
-```ts
-// src/stores/mensagensStore.ts
-import { signal, batch } from '@preact/signals';
-import { listarChatPaginado, salvarChat, buscarChat } from '../utils/db-helpers.ts';
-import type { Chat } from '../constants/db.ts';
-import { contatoSelecionado } from '../signals/state.ts';
-
-// O Cache ativo de mensagens na RAM
-export const mensagensAtivas = signal<Chat[]>([]);
-export const hasMoreMessages = signal<boolean>(true);
-
-// 🔥 ARQUITETURA: Expondo o estado de Fetch para UI renderizar os spinners corretamente
-export const isFetchingMensagens = signal<boolean>(false);
-
-const PAGE_SIZE = 30;
-let currentOffset = 0;
-
-/**
- * Reseta e carrega a primeira página de mensagens do contato selecionado.
- */
-export async function inicializarChat(contatoHash: string) {
-  // Reset de estado
-  currentOffset = 0;
-  
-  batch(() => {
-    hasMoreMessages.value = true;
-    mensagensAtivas.value = [];
-  });
-  
-  await carregarMaisMensagens(contatoHash);
-}
-
-/**
- * Lazy Loader: Busca a próxima fatia do IndexedDB e empurra para a RAM.
- */
-export async function carregarMaisMensagens(contatoHash: string) {
-  if (isFetchingMensagens.value || !hasMoreMessages.value) return;
-  
-  isFetchingMensagens.value = true;
-
-  try {
-    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
-    
-    // SEGURANÇA: Verificação de contexto
-    if (contatoHash !== contatoSelecionado.value) {
-      return; 
-    }
-    
-    // 🔥 ARQUITETURA: Batching previne flickering da UI quando o array e a flag alteram juntos
-    batch(() => {
-      if (novas.length < PAGE_SIZE) {
-        hasMoreMessages.value = false;
-      }
-
-      if (novas.length > 0) {
-        currentOffset += novas.length;
-        const unificadas = [...novas, ...mensagensAtivas.value];
-        mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
-      }
-    });
-  } finally {
-    isFetchingMensagens.value = false;
-  }
-}
-
-/**
- * Atualização Otimista O(1): Insere/Atualiza diretamente na memória sem engasgar o app
- */
-export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
-  if (chat.contatoHash === contatoSelecionado.value) {
-    const atual = mensagensAtivas.value;
-    const index = atual.findIndex(m => m.id === chat.id);
-    
-    if (index !== -1) {
-      const nova = [...atual];
-      nova[index] = chat;
-      mensagensAtivas.value = nova;
-    } else {
-      mensagensAtivas.value = [...atual, chat];
-      currentOffset += 1;
-    }
-  }
-
-  await salvarChat(chat);
-}
-
-/**
- * Helper chamado pelos Handshakes no SW (via Broadcast/PostMessage)
- */
-export async function processarAtualizacaoDeStatusDB(chatId: string) {
-  const chatAtualizado = await buscarChat(chatId);
-  if (chatAtualizado) {
-    await atualizarOuAdicionarChatAtivo(chatAtualizado);
-  }
-}
-
-export async function initMensagensStore() {
-  // Inicialização sob demanda pela UI
 }
 ```
 
@@ -2890,6 +2880,215 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
     addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
 }
+```
+
+---
+
+## Arquivo: `src/stores/profileStore.ts`
+
+```ts
+// src/stores/profileStore.ts
+import { signal, batch } from '@preact/signals';
+import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
+
+// Signal dedicado EXCLUSIVAMENTE para indicar operações de I/O no banco
+export const isSavingProfile = signal<boolean>(false);
+export const profile = signal<ProfileConfig | null>(null);
+
+export async function carregarProfile() {
+  try {
+    const p = await buscarProfile();
+    
+    batch(() => {
+      profile.value = p || null;
+      if (p) {
+        profileName.value = p.name;
+        profileEmail.value = p.email;
+      }
+    });
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
+  }
+}
+
+/**
+ * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
+ */
+export async function atualizarProfile(p: ProfileConfig) {
+  // Trava de segurança apenas para evitar gravações simultâneas cruzadas no IndexedDB
+  if (isSavingProfile.value) {
+      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
+      return; 
+  }
+
+  // 1. Atualização Otimista na Memória agrupada (Isso garante que a UI reaja instantaneamente)
+  batch(() => {
+    profile.value = { ...p };
+    profileName.value = p.name;
+    profileEmail.value = p.email;
+  });
+
+  // 2. Persistência Isolada com trava reativa
+  isSavingProfile.value = true;
+  try {
+    await salvarProfile(p);
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
+  } finally {
+    isSavingProfile.value = false;
+  }
+}
+
+export async function initProfileStore() {
+  await carregarProfile();
+}
+```
+
+---
+
+## Arquivo: `src/stores/mensagensStore.ts`
+
+```ts
+// src/stores/mensagensStore.ts
+import { signal, batch } from '@preact/signals';
+import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '../utils/db-helpers.ts';
+import { ExpurgarMensagens } from '../handshakes/hand-mensagem.ts';
+import type { Chat } from '../constants/db.ts';
+import { contatoSelecionado } from '../signals/state.ts';
+
+export const mensagensAtivas = signal<Chat[]>([]);
+export const hasMoreMessages = signal<boolean>(true);
+export const isFetchingMensagens = signal<boolean>(false);
+
+const PAGE_SIZE = 30;
+let currentOffset = 0;
+
+export function limparMemoriaChat() {
+  batch(() => {
+    mensagensAtivas.value = [];
+    hasMoreMessages.value = true;
+    isFetchingMensagens.value = false;
+    currentOffset = 0;
+  });
+}
+
+export async function inicializarChat(contatoHash: string) {
+  limparMemoriaChat();
+  await carregarMaisMensagens(contatoHash);
+}
+
+export async function carregarMaisMensagens(contatoHash: string) {
+  if (isFetchingMensagens.value || !hasMoreMessages.value) return;
+  
+  isFetchingMensagens.value = true;
+
+  try {
+    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
+    
+    if (contatoHash !== contatoSelecionado.value) {
+      return; 
+    }
+    
+    batch(() => {
+      if (novas.length < PAGE_SIZE) {
+        hasMoreMessages.value = false;
+      }
+
+      if (novas.length > 0) {
+        currentOffset += novas.length;
+        const unificadas = [...novas, ...mensagensAtivas.value];
+        mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
+      }
+    });
+  } finally {
+    isFetchingMensagens.value = false;
+  }
+}
+
+export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
+  if (chat.contatoHash === contatoSelecionado.value) {
+    const atual = mensagensAtivas.value;
+    const index = atual.findIndex(m => m.id === chat.id);
+    
+    if (index !== -1) {
+      const nova = [...atual];
+      nova[index] = chat;
+      mensagensAtivas.value = nova;
+    } else {
+      mensagensAtivas.value = [...atual, chat];
+      currentOffset += 1;
+    }
+  }
+
+  await salvarChat(chat);
+}
+
+export async function processarAtualizacaoDeStatusDB(chatId: string) {
+  const chatAtualizado = await buscarChat(chatId);
+  if (chatAtualizado) {
+    await atualizarOuAdicionarChatAtivo(chatAtualizado);
+  } else {
+    // 🔥 ARQUITETURA: Se a mensagem não está mais no DB, foi excluída remotamente
+    const atual = mensagensAtivas.value;
+    const existe = atual.some(m => m.id === chatId);
+    if (existe) {
+      batch(() => {
+        mensagensAtivas.value = atual.filter(m => m.id !== chatId);
+        currentOffset = Math.max(0, currentOffset - 1);
+      });
+    }
+  }
+}
+
+export async function excluirMensagem(msgId: string, contatoHash: string) {
+  // 1. Otimista (limpa da tela imediatamente)
+  if (contatoSelecionado.value === contatoHash) {
+    batch(() => {
+      mensagensAtivas.value = mensagensAtivas.value.filter(m => m.id !== msgId);
+      currentOffset = Math.max(0, currentOffset - 1);
+    });
+  }
+
+  // 2. Busca a mensagem no banco antes de apagar
+  const msgLocal = await buscarChat(msgId);
+  
+  // 🔥 ARQUITETURA [Exclusão Bidirecional]:
+  // Agora não importa mais se a mensagem é 'out' (enviada) ou 'in' (recebida).
+  // Sempre avisaremos o remoto para apagá-la também (se não for uma mensagem auto-enviada).
+  const deveAvisarRemoto = msgLocal && msgLocal.handshake !== 'self';
+
+  // 3. Apaga do IndexedDB
+  await removerChat(msgId, contatoHash);
+
+  // 4. Delega para o Service Worker enviar a notificação de exclusão remota
+  if (deveAvisarRemoto && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'CRIAR_HANDSHAKE_OUT',
+          payload: {
+            rotasModulo: 'mensagem',
+            params: { function: 'excluirMensagem', contato: contatoHash, msgId: msgId }
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Falha ao enviar handshake de exclusão remota", e);
+    }
+  }
+}
+
+export async function limparTodoHistorico(contatoHash: string) {
+  if (contatoSelecionado.value === contatoHash) {
+    limparMemoriaChat();
+  }
+  await ExpurgarMensagens(contatoHash);
+}
+
+export async function initMensagensStore() {}
 ```
 
 ---
@@ -3136,7 +3335,6 @@ declare const self: ServiceWorkerGlobalScope;
 
 import { gunzipSync } from "fflate";
 import { Handshake, MAX_TENTATIVAS } from "../constants/db.ts";
-import { buildProxyUrl } from "../constants/config.ts";
 import { base64UrlToArrayBuffer, criarJWT } from "../utils/jwt-helpers.ts";
 import {
   salvarHandshake,
@@ -3292,134 +3490,142 @@ export async function processarHandshakeRecebido(payload: any, header: any, _jwt
   }
 }
 
-let isProcessingFila = false;
+// 🔥 ARQUITETURA: Mutex baseado em Promise resolve condições de corrida e "Dangling Timeouts"
+let processingPromise: Promise<void> | null = null;
 
-export async function processarFilaHandshake() {
-  if (isProcessingFila) {
-    return;
+export async function processarFilaHandshake(): Promise<void> {
+  if (processingPromise) {
+    // Se a fila já está rodando, quem chamou aguarda o término da execução atual
+    return processingPromise;
   }
   
-  isProcessingFila = true;
-  addDebugLog("[SW-ROUTER] 🔄 Processando fila geral de handshakes...");
+  processingPromise = (async () => {
+    addDebugLog("[SW-ROUTER] 🔄 Processando fila geral de handshakes...");
 
-  try {
-    const todos = await listarHandshakes();
+    try {
+      const todos = await listarHandshakes();
 
-    const pendentesIn = todos.filter(h => h.in && (h.in.status === 'recebido' || (h.in.status === 'processando' && (Date.now() - h.updatedAt) > 60000)) && h.in.tentativas < MAX_TENTATIVAS);
+      const pendentesIn = todos.filter(h => h.in && (h.in.status === 'recebido' || (h.in.status === 'processando' && (Date.now() - h.updatedAt) > 60000)) && h.in.tentativas < MAX_TENTATIVAS);
 
-    for (const h of pendentesIn) {
-      h.in!.status = 'processando';
-      h.in!.tentativas++;
-      h.updatedAt = Date.now();
-      await salvarHandshakeTransacional(h);
-
-      try {
-        if (h.in!.rotas.profile) await ProcessarProfile({ in: h.id });
-        if (h.in!.rotas.contato) await ProcessarContato({ in: h.id });
-        if (h.in!.rotas.mensagem) await ProcessarMensagem({ in: h.id });
-
-        const hFresh = await buscarHandshake(h.id);
-        if (hFresh && hFresh.in) {
-          hFresh.in.status = 'processado';
-          hFresh.updatedAt = Date.now();
-          await salvarHandshakeTransacional(hFresh);
-        }
-      } catch (err: any) {
-        addDebugLog(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}: ${err.message}`);
-        const hFresh = await buscarHandshake(h.id);
-        if (hFresh && hFresh.in) {
-          hFresh.in.status = 'falha';
-          hFresh.in.erro = err.message;
-          hFresh.updatedAt = Date.now();
-          await salvarHandshakeTransacional(hFresh);
-        }
-      }
-    }
-
-    if (!navigator.onLine) {
-      addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
-      return;
-    }
-
-    const todosAposIn = await listarHandshakes();
-    const pendentesOut = todosAposIn.filter(h => h.out && (h.out.status === 'pendente' || (h.out.status === 'enviando' && (Date.now() - h.updatedAt) > 60000)) && h.out.tentativas < MAX_TENTATIVAS);
-
-    for (const h of pendentesOut) {
-      h.out!.status = 'enviando';
-      h.out!.tentativas++;
-      h.updatedAt = Date.now();
-      await salvarHandshakeTransacional(h);
-
-      try {
-        const contatoIdHash = await normalizarChaveContato(h.aud);
-        const contato = await buscarContatoPorChave(contatoIdHash);
-        
-        if (!contato) throw new Error(`Contato alvo (hash: ${contatoIdHash}) não encontrado.`);
-        const profile = await buscarProfile();
-        if (!profile) throw new Error("Perfil local não encontrado.");
-
-        let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
-        if (!vapidPrivateKeyEnvelope) {
-          const serverPublicKeyJwk = await getServerPublicKey();
-          vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
-          profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
-          await salvarProfile(profile);
-        }
-
-        const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
-        const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
-        
-        if (!isSyncHandshake && !isPullHandshake && (contato.me === 'none' || contato.me === 'wrong')) {
-          addDebugLog(`[SW-ROUTER] 💉 Contato desatualizado. Injetando dados de perfil no handshake ${h.id}.`);
-          h.out!.rotas.contato = h.out!.rotas.contato || {};
-          // A extração agora garante envio com rota absoluta resolvendo o 'proxyserver' do próprio perfil
-          h.out!.rotas.contato.sync = await extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
-        }
-
-        // 🔥 ARQUITETURA [PURE STATE]: Não temos mais fallback blindado aqui.
-        // O que estiver no banco de dados (mesmo que seja "/") vai na viagem.
-        const proxyserverDestino = contato.subscription.proxyserver || "";
-
-        const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
-        const payloadJwt = { 
-          sub: "hand", 
-          aud: contato.id, 
-          jti: h.id, 
-          ct: JSON.stringify(envelope),
-          proxyserver: proxyserverDestino
-        };
-        const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
-        
-        if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
-
-        await enviarParaProxy(
-          contato.subscription, jwt,
-          { subject: `mailto:${contato.email || profile.email}`, publicKey: contato.vapidPublicKey, privateKey: contato.vapidPrivateKeyEnvelope }
-        );
-
-        h.out!.status = 'enviado';
+      for (const h of pendentesIn) {
+        h.in!.status = 'processando';
+        h.in!.tentativas++;
         h.updatedAt = Date.now();
         await salvarHandshakeTransacional(h);
-        addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
 
-      } catch (err: any) {
-        addDebugLog(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}: ${err.message}`);
-        const hFresh = await buscarHandshake(h.id);
-        if (hFresh && hFresh.out) {
-          hFresh.out.status = hFresh.out.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
-          hFresh.out.erro = err.message;
-          hFresh.updatedAt = Date.now();
-          await salvarHandshakeTransacional(hFresh);
+        try {
+          if (h.in!.rotas.profile) await ProcessarProfile({ in: h.id });
+          if (h.in!.rotas.contato) await ProcessarContato({ in: h.id });
+          if (h.in!.rotas.mensagem) await ProcessarMensagem({ in: h.id });
+
+          const hFresh = await buscarHandshake(h.id);
+          if (hFresh && hFresh.in) {
+            hFresh.in.status = 'processado';
+            hFresh.updatedAt = Date.now();
+            await salvarHandshakeTransacional(hFresh);
+          }
+        } catch (err: any) {
+          addDebugLog(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}: ${err.message}`);
+          const hFresh = await buscarHandshake(h.id);
+          if (hFresh && hFresh.in) {
+            hFresh.in.status = 'falha';
+            hFresh.in.erro = err.message;
+            hFresh.updatedAt = Date.now();
+            await salvarHandshakeTransacional(hFresh);
+          }
         }
       }
-    }
-    
-    await realizarGarbageCollection(false);
 
-  } catch (err: any) {
-    addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
+      // 🔥 ARQUITETURA: Verificação Segura Cross-Environment (Protege contra erros no Deno CLI)
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
+        return;
+      }
+
+      const todosAposIn = await listarHandshakes();
+      const pendentesOut = todosAposIn.filter(h => h.out && (h.out.status === 'pendente' || (h.out.status === 'enviando' && (Date.now() - h.updatedAt) > 60000)) && h.out.tentativas < MAX_TENTATIVAS);
+
+      for (const h of pendentesOut) {
+        h.out!.status = 'enviando';
+        h.out!.tentativas++;
+        h.updatedAt = Date.now();
+        await salvarHandshakeTransacional(h);
+
+        try {
+          const contatoIdHash = await normalizarChaveContato(h.aud);
+          const contato = await buscarContatoPorChave(contatoIdHash);
+          
+          if (!contato) throw new Error(`Contato alvo (hash: ${contatoIdHash}) não encontrado.`);
+          const profile = await buscarProfile();
+          if (!profile) throw new Error("Perfil local não encontrado.");
+
+          let vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
+          if (!vapidPrivateKeyEnvelope) {
+            const serverPublicKeyJwk = await getServerPublicKey();
+            vapidPrivateKeyEnvelope = await cifrarChaveVapid(profile.vapidPrivateKeyJwk, serverPublicKeyJwk);
+            profile.vapidPrivateKeyEnvelope = vapidPrivateKeyEnvelope;
+            await salvarProfile(profile);
+          }
+
+          const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
+          const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
+          
+          // RESILIÊNCIA & SHADOW SYNC EM RE-TENTATIVAS
+          const ehReTentativa = h.out!.tentativas > 1;
+          const precisaDePerfilInjetado = (contato.me === 'none' || contato.me === 'wrong') || (ehReTentativa && !h.out!.rotas.contato?.sync);
+
+          if (!isSyncHandshake && !isPullHandshake && precisaDePerfilInjetado) {
+            addDebugLog(`[SW-ROUTER] 💉 Injetando dados de perfil no handshake ${h.id} (Motivo: ${ehReTentativa ? 'Re-tentativa/Resiliência' : 'Contato Desatualizado'}).`);
+            h.out!.rotas.contato = h.out!.rotas.contato || {};
+            h.out!.rotas.contato.sync = await extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
+          }
+
+          const proxyserverDestino = contato.subscription.proxyserver || "";
+
+          const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
+          const payloadJwt = { 
+            sub: "hand", 
+            aud: contato.id, 
+            jti: h.id, 
+            ct: JSON.stringify(envelope),
+            proxyserver: proxyserverDestino
+          };
+          const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+          
+          if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
+
+          await enviarParaProxy(
+            contato.subscription, jwt,
+            { subject: `mailto:${contato.email || profile.email}`, publicKey: contato.vapidPublicKey, privateKey: contato.vapidPrivateKeyEnvelope }
+          );
+
+          h.out!.status = 'enviado';
+          h.updatedAt = Date.now();
+          await salvarHandshakeTransacional(h);
+          addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
+
+        } catch (err: any) {
+          addDebugLog(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}: ${err.message}`);
+          if (h && h.out) {
+            h.out.status = h.out.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
+            h.out.erro = err.message;
+            h.updatedAt = Date.now();
+            await salvarHandshakeTransacional(h);
+          }
+        }
+      }
+      
+      await realizarGarbageCollection(false);
+
+    } catch (err: any) {
+      addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
+    }
+  })();
+
+  try {
+    await processingPromise;
   } finally {
-    isProcessingFila = false;
+    processingPromise = null; // Libera o Mutex para as próximas chamadas
   }
 }
 
@@ -3954,80 +4160,6 @@ export async function importJWKToKey(
 
 ---
 
-## Arquivo: `src/utils/router.ts`
-
-```ts
-import { signal, computed, effect } from "@preact/signals";
-import {
-  contatoSelecionado,
-  contatoCompartilharHash,
-  showAdvanced,
-  currentMobileView,
-  sharePayload
-} from "../signals/state.ts";
-
-export const currentHash = signal<string>(globalThis.location?.hash || "");
-
-if (typeof globalThis !== "undefined" && globalThis.addEventListener) {
-  globalThis.addEventListener("hashchange", () => {
-    currentHash.value = globalThis.location.hash;
-  });
-}
-
-export function navigate(hash: string) {
-  if (typeof globalThis !== "undefined") {
-    globalThis.location.hash = hash;
-  }
-}
-
-effect(() => {
-  const hash = currentHash.value;
-
-  // Reset states
-  contatoSelecionado.value = '';
-  contatoCompartilharHash.value = null;
-  showAdvanced.value = false;
-  sharePayload.value = null;
-
-  if (hash.startsWith('#chat=')) {
-    contatoSelecionado.value = hash.substring(6);
-    currentMobileView.value = 'chat';
-  } else if (hash.startsWith('#detail=')) {
-    contatoCompartilharHash.value = hash.substring(8);
-    currentMobileView.value = 'chat';
-  } else if (hash === '#advanced') {
-    showAdvanced.value = true;
-    currentMobileView.value = 'chat';
-  // 🔥 CORREÇÃO: Adicionamos '#settings' para que ele ocupe a área principal no mobile
-  } else if (hash === '#profile' || hash === '#logout' || hash === '#settings') {
-    currentMobileView.value = 'chat'; 
-  } else if (hash.startsWith('#share')) {
-    currentMobileView.value = 'chat';
-    // Extrai o payload caso venha via URL: #share=jwt_aqui
-    if (hash.includes('=')) {
-      sharePayload.value = hash.substring(hash.indexOf('=') + 1);
-    }
-  } else {
-    // Se não for nenhuma das telas acima, volta para a lista (sidebar)
-    currentMobileView.value = 'list';
-  }
-});
-
-export const activeView = computed(() => {
-  const hash = currentHash.value;
-  if (hash.startsWith('#chat=')) return 'chat';
-  if (hash.startsWith('#detail=')) return 'detail';
-  if (hash === '#advanced') return 'advanced';
-  if (hash === '#profile') return 'profile';
-  if (hash === '#logout') return 'logout';
-  if (hash.startsWith('#share')) return 'share';
-  if (hash === '#settings') return 'settings';
-  return 'home';
-});
-```
-
----
-
 ## Arquivo: `src/utils/jwt-helpers.ts`
 
 ```ts
@@ -4209,283 +4341,6 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
   } catch (err: any) {
     throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
   }
-}
-```
-
----
-
-## Arquivo: `src/utils/db-helpers.ts`
-
-```ts
-// src/utils/db-helpers.ts
-import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type { ProfileConfig, Chat, Contato, Handshake } from "../constants/db.ts";
-import { 
-  minifyVapidPublic, expandVapidPublic, 
-  minifyVapidPrivate, expandVapidPrivate, 
-  minifyRsaPublic, expandRsaPublic, 
-  minifyRsaPrivate, expandRsaPrivate 
-} from "./crypto-utils.ts";
-
-// ============================================================
-// Criação de Stores
-// ============================================================
-
-export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
-  return createStore(nome, storeName);
-}
-
-const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeChat = criarStore(DB_NAMES.CHAT); 
-export const storeContatos = criarStore(DB_NAMES.CONTATOS);
-export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
-
-// ============================================================
-// Funções Genéricas
-// ============================================================
-
-export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
-  return set(key, value, store);
-}
-
-export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
-  return get(key, store);
-}
-
-export async function removerChave(store: any, key: string): Promise<void> {
-  return del(key, store);
-}
-
-export async function listarChaves<T>(store: any): Promise<[string, T][]> {
-  return entries(store) as Promise<[string, T][]>;
-}
-
-export async function listarValores<T>(store: any): Promise<T[]> {
-  return values(store) as Promise<T[]>;
-}
-
-// ============================================================
-// Interceptadores de Compressão (DB Middlewares)
-// ============================================================
-
-function compactarProfile(p: ProfileConfig): any {
-  return {
-    ...p,
-    vapidPublicKey: minifyVapidPublic(p.vapidPublicKey),
-    vapidPrivateKeyJwk: minifyVapidPrivate(p.vapidPrivateKeyJwk),
-    e2ePublicKey: minifyRsaPublic(p.e2ePublicKey),
-    e2ePrivateKeyJwk: minifyRsaPrivate(p.e2ePrivateKeyJwk)
-  };
-}
-
-function expandirProfile(p: any): ProfileConfig | undefined {
-  if (!p) return undefined;
-  return {
-    ...p,
-    vapidPublicKey: expandVapidPublic(p.vapidPublicKey),
-    vapidPrivateKeyJwk: expandVapidPrivate(p.vapidPrivateKeyJwk, p.vapidPublicKey),
-    e2ePublicKey: expandRsaPublic(p.e2ePublicKey),
-    e2ePrivateKeyJwk: expandRsaPrivate(p.e2ePrivateKeyJwk, p.e2ePublicKey)
-  } as ProfileConfig;
-}
-
-function compactarContato(c: Contato): any {
-  return {
-    ...c,
-    vapidPublicKey: minifyVapidPublic(c.vapidPublicKey),
-    e2ePublicKey: minifyRsaPublic(c.e2ePublicKey)
-  };
-}
-
-function expandirContato(c: any): Contato | undefined {
-  if (!c) return undefined;
-  return {
-    ...c,
-    vapidPublicKey: expandVapidPublic(c.vapidPublicKey),
-    e2ePublicKey: expandRsaPublic(c.e2ePublicKey)
-  } as Contato;
-}
-
-// ============================================================
-// Gerenciamento do Perfil (ProfileConfig)
-// ============================================================
-
-export async function salvarProfile(profile: ProfileConfig): Promise<void> {
-  profile.updatedAt = Date.now();
-  if (!profile.createdAt) {
-    profile.createdAt = Date.now();
-  }
-  await salvarChave(storeConfig, KEY_NAMES.PROFILE, compactarProfile(profile));
-}
-
-export async function buscarProfile(): Promise<ProfileConfig | undefined> {
-  const p = await buscarChave<any>(storeConfig, KEY_NAMES.PROFILE);
-  return expandirProfile(p);
-}
-
-export async function removerProfile(): Promise<void> {
-  await removerChave(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function buscarChaveDecript(): Promise<CryptoKey | null> {
-  try {
-    const profile = await buscarProfile();
-    if (!profile || !profile.e2ePrivateKeyJwk) return null;
-
-    return await crypto.subtle.importKey(
-      "jwk",
-      profile.e2ePrivateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["decrypt"]
-    );
-  } catch (err) {
-    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
-    return null;
-  }
-}
-
-// ============================================================
-// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
-// ============================================================
-
-export async function salvarChat(chat: Chat): Promise<void> {
-  chat.updatedAt = Date.now();
-  await salvarChave(storeChat, chat.id, chat);
-
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  
-  if (!index.includes(chat.id)) {
-    index.push(chat.id);
-    await salvarChave(storeChat, indexKey, index);
-  }
-}
-
-export async function buscarChat(id: string): Promise<Chat | undefined> {
-  return buscarChave<Chat>(storeChat, id);
-}
-
-export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-
-  const total = index.length;
-  if (total === 0 || offset >= total) return [];
-
-  const startIndex = Math.max(0, total - offset - limit);
-  const endIndex = total - offset;
-  
-  const sliceIds = index.slice(startIndex, endIndex);
-
-  const records = await getMany(sliceIds, storeChat);
-  return records.filter(Boolean) as Chat[];
-}
-
-export async function removerChat(id: string, contatoHash: string): Promise<void> {
-  await removerChave(storeChat, id);
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  index = index.filter(x => x !== id);
-  await salvarChave(storeChat, indexKey, index);
-}
-
-// 🔥 NOVO: Expurgo em Massa (Terra Arrasada para histórico de chat)
-export async function removerTodoHistoricoChat(contatoHash: string): Promise<void> {
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  
-  // Apaga as mensagens físicas
-  for (const id of index) {
-    await removerChave(storeChat, id);
-  }
-  
-  // Apaga o índice associado
-  await removerChave(storeChat, indexKey);
-}
-
-// ============================================================
-// Contatos
-// ============================================================
-
-async function sha256(message: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
-  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  
-  const expanded = expandVapidPublic(jwk);
-  const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
-  return await sha256(raw);
-}
-
-export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
-  if (typeof input === 'string') return input;
-  if (typeof input === 'object' && input !== null && ('kty' in input || 'x' in input)) {
-    return await serializarPublicKeyVapid(input as JsonWebKey);
-  }
-  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
-}
-
-export async function salvarContato(contato: Contato): Promise<void> {
-  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
-  await salvarChave(storeContatos, key, compactarContato(contato));
-}
-
-export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  const c = await buscarChave<any>(storeContatos, key);
-  return expandirContato(c);
-}
-
-export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
-  const key = await normalizarChaveContato(chaveOuJwk);
-  const c = await buscarChave<any>(storeContatos, key);
-  return expandirContato(c);
-}
-
-export async function listarContatos(): Promise<Contato[]> {
-  const entriesList = await listarChaves<any>(storeContatos);
-  return entriesList.map(([_, c]) => expandirContato(c) as Contato);
-}
-
-export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  await removerChave(storeContatos, key);
-}
-
-// 🔥 NOVO: Remoção direta por Hash
-export async function removerContatoPorHash(hash: string): Promise<void> {
-  await removerChave(storeContatos, hash);
-}
-
-// ============================================================
-// Handshakes
-// ============================================================
-
-export async function salvarHandshake(handshake: Handshake): Promise<void> {
-  handshake.updatedAt = Date.now();
-  if (!handshake.createdAt) {
-    handshake.createdAt = Date.now();
-  }
-  await salvarChave(storeHandshakes, handshake.id, handshake);
-}
-
-export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
-  return buscarChave<Handshake>(storeHandshakes, id);
-}
-
-export async function listarHandshakes(): Promise<Handshake[]> {
-  return listarValores<Handshake>(storeHandshakes);
-}
-
-export async function removerHandshake(id: string): Promise<void> {
-  await removerChave(storeHandshakes, id);
 }
 ```
 
@@ -5067,6 +4922,371 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
 
 ---
 
+## Arquivo: `src/utils/router.ts`
+
+```ts
+// src/utils/router.ts
+import { signal, computed, effect } from "@preact/signals";
+import {
+  contatoSelecionado,
+  contatoCompartilharHash,
+  showAdvanced,
+  currentMobileView,
+  sharePayload
+} from "../signals/state.ts";
+
+export const currentHash = signal<string>(globalThis.location?.hash || "");
+
+if (typeof globalThis !== "undefined" && globalThis.addEventListener) {
+  globalThis.addEventListener("hashchange", () => {
+    currentHash.value = globalThis.location.hash;
+  });
+}
+
+export function navigate(hash: string) {
+  if (typeof globalThis !== "undefined") {
+    globalThis.location.hash = hash;
+  }
+}
+
+effect(() => {
+  const hash = currentHash.value;
+
+  // Reset states genéricos
+  contatoSelecionado.value = '';
+  contatoCompartilharHash.value = null;
+  showAdvanced.value = false;
+
+  if (hash.startsWith('#chat=')) {
+    contatoSelecionado.value = hash.substring(6);
+    currentMobileView.value = 'chat';
+    sharePayload.value = null;
+  } else if (hash.startsWith('#detail=')) {
+    contatoCompartilharHash.value = hash.substring(8);
+    currentMobileView.value = 'chat';
+    sharePayload.value = null;
+  } else if (hash === '#advanced') {
+    showAdvanced.value = true;
+    currentMobileView.value = 'chat';
+    sharePayload.value = null;
+  } else if (hash === '#profile') {
+    currentMobileView.value = 'chat';
+    // 🔥 ARQUITETURA: Não limpamos o sharePayload aqui! 
+    // Ele precisa sobreviver ao redirecionamento automático do Route Guard
+    // para que o ProfileSection consiga ler e processar o convite do anfitrião.
+  } else if (hash === '#logout' || hash === '#settings') {
+    currentMobileView.value = 'chat';
+    sharePayload.value = null;
+  } else if (hash.startsWith('#share')) {
+    currentMobileView.value = 'chat';
+    // Extrai o payload caso venha via URL
+    if (hash.includes('=')) {
+      sharePayload.value = hash.substring(hash.indexOf('=') + 1);
+    }
+  } else {
+    // Home / Lista de Contatos
+    currentMobileView.value = 'list';
+    sharePayload.value = null;
+  }
+});
+
+export const activeView = computed(() => {
+  const hash = currentHash.value;
+  if (hash.startsWith('#chat=')) return 'chat';
+  if (hash.startsWith('#detail=')) return 'detail';
+  if (hash === '#advanced') return 'advanced';
+  if (hash === '#profile') return 'profile';
+  if (hash === '#logout') return 'logout';
+  if (hash.startsWith('#share')) return 'share';
+  if (hash === '#settings') return 'settings';
+  return 'home';
+});
+```
+
+---
+
+## Arquivo: `src/utils/db-helpers.ts`
+
+```ts
+// src/utils/db-helpers.ts
+import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
+import type { ProfileConfig, Chat, Contato, Handshake } from "../constants/db.ts";
+import { 
+  minifyVapidPublic, expandVapidPublic, 
+  minifyVapidPrivate, expandVapidPrivate, 
+  minifyRsaPublic, expandRsaPublic, 
+  minifyRsaPrivate, expandRsaPrivate 
+} from "./crypto-utils.ts";
+
+// ============================================================
+// Criação de Stores
+// ============================================================
+
+export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
+  return createStore(nome, storeName);
+}
+
+const storeConfig = criarStore(DB_NAMES.CONFIG);
+export const storeChat = criarStore(DB_NAMES.CHAT); 
+export const storeContatos = criarStore(DB_NAMES.CONTATOS);
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
+
+// ============================================================
+// Funções Genéricas
+// ============================================================
+
+export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
+  return set(key, value, store);
+}
+
+export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
+  return get(key, store);
+}
+
+export async function removerChave(store: any, key: string): Promise<void> {
+  return del(key, store);
+}
+
+export async function listarChaves<T>(store: any): Promise<[string, T][]> {
+  return entries(store) as Promise<[string, T][]>;
+}
+
+export async function listarValores<T>(store: any): Promise<T[]> {
+  return values(store) as Promise<T[]>;
+}
+
+// ============================================================
+// Interceptadores de Compressão (DB Middlewares)
+// ============================================================
+
+function compactarProfile(p: ProfileConfig): any {
+  return {
+    ...p,
+    vapidPublicKey: minifyVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: minifyVapidPrivate(p.vapidPrivateKeyJwk),
+    e2ePublicKey: minifyRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: minifyRsaPrivate(p.e2ePrivateKeyJwk)
+  };
+}
+
+function expandirProfile(p: any): ProfileConfig | undefined {
+  if (!p) return undefined;
+  return {
+    ...p,
+    vapidPublicKey: expandVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: expandVapidPrivate(p.vapidPrivateKeyJwk, p.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: expandRsaPrivate(p.e2ePrivateKeyJwk, p.e2ePublicKey)
+  } as ProfileConfig;
+}
+
+function compactarContato(c: Contato): any {
+  return {
+    ...c,
+    vapidPublicKey: minifyVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: minifyRsaPublic(c.e2ePublicKey)
+  };
+}
+
+function expandirContato(c: any): Contato | undefined {
+  if (!c) return undefined;
+  return {
+    ...c,
+    vapidPublicKey: expandVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(c.e2ePublicKey)
+  } as Contato;
+}
+
+// ============================================================
+// Gerenciamento do Perfil (ProfileConfig)
+// ============================================================
+
+export async function salvarProfile(profile: ProfileConfig): Promise<void> {
+  profile.updatedAt = Date.now();
+  if (!profile.createdAt) {
+    profile.createdAt = Date.now();
+  }
+  await salvarChave(storeConfig, KEY_NAMES.PROFILE, compactarProfile(profile));
+}
+
+export async function buscarProfile(): Promise<ProfileConfig | undefined> {
+  const p = await buscarChave<any>(storeConfig, KEY_NAMES.PROFILE);
+  return expandirProfile(p);
+}
+
+export async function removerProfile(): Promise<void> {
+  await removerChave(storeConfig, KEY_NAMES.PROFILE);
+}
+
+export async function buscarChaveDecript(): Promise<CryptoKey | null> {
+  try {
+    const profile = await buscarProfile();
+    if (!profile || !profile.e2ePrivateKeyJwk) return null;
+
+    return await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+  } catch (err) {
+    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
+    return null;
+  }
+}
+
+// ============================================================
+// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
+// ============================================================
+
+export async function salvarChat(chat: Chat): Promise<void> {
+  chat.updatedAt = Date.now();
+  await salvarChave(storeChat, chat.id, chat);
+
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  if (!index.includes(chat.id)) {
+    index.push(chat.id);
+    await salvarChave(storeChat, indexKey, index);
+  }
+}
+
+export async function buscarChat(id: string): Promise<Chat | undefined> {
+  return buscarChave<Chat>(storeChat, id);
+}
+
+export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+
+  const total = index.length;
+  if (total === 0 || offset >= total) return [];
+
+  const startIndex = Math.max(0, total - offset - limit);
+  const endIndex = total - offset;
+  
+  const sliceIds = index.slice(startIndex, endIndex);
+
+  const records = await getMany(sliceIds, storeChat);
+  return records.filter(Boolean) as Chat[];
+}
+
+// 🔥 ARQUITETURA: Agora a remoção de mensagem localiza e destrói o Handshake fantasma associado!
+export async function removerChat(id: string, contatoHash: string): Promise<void> {
+  const chat = await buscarChat(id);
+  if (chat && chat.handshake && chat.handshake !== 'self') {
+    // Apaga a pendência de envio/recebimento silenciosamente se houver
+    await removerHandshake(chat.handshake);
+  }
+
+  await removerChave(storeChat, id);
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  index = index.filter(x => x !== id);
+  await salvarChave(storeChat, indexKey, index);
+}
+
+export async function removerTodoHistoricoChat(contatoHash: string): Promise<void> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  // Apaga as mensagens físicas
+  for (const id of index) {
+    await removerChave(storeChat, id);
+  }
+  
+  // Apaga o índice associado
+  await removerChave(storeChat, indexKey);
+}
+
+// ============================================================
+// Contatos
+// ============================================================
+
+async function sha256(message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  
+  const expanded = expandVapidPublic(jwk);
+  const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object' && input !== null && ('kty' in input || 'x' in input)) {
+    return await serializarPublicKeyVapid(input as JsonWebKey);
+  }
+  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
+}
+
+export async function salvarContato(contato: Contato): Promise<void> {
+  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
+  await salvarChave(storeContatos, key, compactarContato(contato));
+}
+
+export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
+}
+
+export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
+  const key = await normalizarChaveContato(chaveOuJwk);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
+}
+
+export async function listarContatos(): Promise<Contato[]> {
+  const entriesList = await listarChaves<any>(storeContatos);
+  return entriesList.map(([_, c]) => expandirContato(c) as Contato);
+}
+
+export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  await removerChave(storeContatos, key);
+}
+
+export async function removerContatoPorHash(hash: string): Promise<void> {
+  await removerChave(storeContatos, hash);
+}
+
+// ============================================================
+// Handshakes
+// ============================================================
+
+export async function salvarHandshake(handshake: Handshake): Promise<void> {
+  handshake.updatedAt = Date.now();
+  if (!handshake.createdAt) {
+    handshake.createdAt = Date.now();
+  }
+  await salvarChave(storeHandshakes, handshake.id, handshake);
+}
+
+export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
+  return buscarChave<Handshake>(storeHandshakes, id);
+}
+
+export async function listarHandshakes(): Promise<Handshake[]> {
+  return listarValores<Handshake>(storeHandshakes);
+}
+
+export async function removerHandshake(id: string): Promise<void> {
+  await removerChave(storeHandshakes, id);
+}
+```
+
+---
+
 ## Arquivo: `src/styles.d.ts`
 
 ```ts
@@ -5151,222 +5371,6 @@ declare global {
 
 ---
 
-## Arquivo: `src/handshakes/hand-mensagem.ts`
-
-```ts
-// src/handshakes/hand-mensagem.ts
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-import { Handshake, Chat } from "../constants/db.ts";
-import { gerarId } from "../utils/id-utils.ts";
-import {
-  buscarHandshake,
-  salvarHandshake,
-  buscarChat,
-  salvarChat,
-  buscarContatoPorChave,
-  buscarProfile,
-  removerTodoHistoricoChat,
-  listarHandshakes,
-  removerHandshake
-} from "../utils/db-helpers.ts";
-import { ehContatoProprio } from "../utils/self-contact-utils.ts";
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts"; 
-
-interface MensagemOutParams {
-  function: string;
-  contato: string;
-  conteudo?: string;
-  mensagem?: string;
-  campos?: string[];
-  msgId?: string;        
-  handshakeId?: string;  
-  createdAt?: number;
-}
-
-async function notificarUI(chatId: string) {
-  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
-}
-
-// 🔥 ARQUITETURA: Função de Expurgo Modular
-export async function ExpurgarMensagens(contatoHash: string) {
-  addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens e handshakes do contato ${contatoHash}`);
-  
-  // 1. Apaga fisicamente todas as mensagens do Chat_DB
-  await removerTodoHistoricoChat(contatoHash);
-
-  // 2. Localiza e expurga os handshakes de mensagem pendentes desse contato
-  const todos = await listarHandshakes();
-  for (const h of todos) {
-    if (h.aud === contatoHash && (h.in?.rotas.mensagem || h.out?.rotas.mensagem)) {
-      await removerHandshake(h.id);
-    }
-  }
-}
-
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
-  
-  // 📥 LÓGICA DE ENTRADA (Recebendo Push Criptografado da Rede)
-  if (handshakeId) {
-    addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
-    const handshake = await buscarHandshake(handshakeId);
-    
-    if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
-    const msgReq = handshake.in.rotas.mensagem;
-
-    // Cenário 1: Solicitação PULL de status
-    if (msgReq.recebida && Array.isArray(msgReq.campos)) {
-      addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
-      const msgLocal = await buscarChat(msgReq.recebida);
-      const rotasMsgData: Record<string, unknown> = { recebida: msgReq.recebida };
-
-      if (msgLocal) {
-        const camposSet = new Set(msgReq.campos);
-        if (camposSet.has('readAt')) rotasMsgData.readAt = msgLocal.readAt;
-        if (camposSet.has('receivedAt')) rotasMsgData.receivedAt = msgLocal.receivedAt;
-      }
-
-      handshake.out = { status: 'pendente', tentativas: 0, rotas: { mensagem: { data: rotasMsgData } } };
-      handshake.updatedAt = Date.now();
-      await salvarHandshake(handshake);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    // Cenário 2: Auto-Ack Recebido (Confirmação de chegada física no destino)
-    else if (msgReq.data && typeof msgReq.data.recebida === 'string' && typeof msgReq.data.status === 'string') {
-      addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. Status: ${msgReq.data.status}`);
-      
-      const msgLocal = await buscarChat(msgReq.data.recebida);
-      
-      if (msgLocal && msgLocal.tipo === 'out') {
-        if (msgReq.data.status === 'entregue') msgLocal.receivedAt = Date.now();
-        if (msgReq.data.status === 'lida') msgLocal.readAt = Date.now();
-        
-        await salvarChat(msgLocal);
-        notificarUI(msgLocal.id);
-      }
-    }
-
-    // Cenário 3: Recebendo uma MENSAGEM NOVA
-    else if (msgReq.enviada && msgReq.conteudo) {
-      addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
-      
-      const novaMsgRecebida: Chat = {
-        id: msgReq.enviada,
-        contatoHash: handshake.aud,
-        conteudo: msgReq.conteudo,
-        tipo: 'in',
-        createdAt: Date.now(),
-        receivedAt: Date.now(),
-        handshake: handshakeId
-      };
-      await salvarChat(novaMsgRecebida);
-
-      // Devolve Auto-Ack de recebimento físico para o remetente
-      const ackHandshake: Handshake = {
-        id: gerarId(),
-        aud: handshake.aud,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        out: {
-          status: 'pendente', tentativas: 0,
-          rotas: { mensagem: { data: { recebida: novaMsgRecebida.id, status: 'entregue' } } }
-        }
-      };
-      await salvarHandshake(ackHandshake);
-
-      // 🔍 VERIFICAÇÃO DE CLIENTES ABERTOS
-      const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      const appEstaAberto = windowClients.length > 0;
-
-      // 🔥 Só exibe notificação nativa do sistema se o aplicativo estiver totalmente fechado
-      if (!appEstaAberto) {
-        const contato = await buscarContatoPorChave(handshake.aud);
-        const nomeExibicao = contato?.name?.trim() || "Anônimo";
-        
-        await self.registration.showNotification(`📥 Nova mensagem`, {
-          body: `${novaMsgRecebida.conteudo}\n\nDe: ${nomeExibicao}`,
-          icon: '/icon-192.png',
-          tag: novaMsgRecebida.id
-        });
-      } else {
-        addDebugLog(`[HAND-MENSAGEM] 👁️ O app está aberto (${windowClients.length} janela(s)). Notificação nativa suprimida.`);
-      }
-
-      notificarUI(novaMsgRecebida.id);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-  }
-  
-  // 📤 LÓGICA DE SAÍDA (Criando pacotes Push para enviar)
-  if (outParams) {
-    if (outParams.function === 'confirmarEntrega') {
-      const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
-      const novoHandshake: Handshake = {
-        id: gerarId(), aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { recebida: mensagemId, campos } } }
-      };
-      await salvarHandshake(novoHandshake);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    else if (outParams.function === 'enviarMensagem') {
-      const { contato: contatoId, conteudo, msgId, handshakeId, createdAt } = outParams;
-      if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
-
-      // 🔍 VERIFICA SE É MENSAGEM PARA SI MESMO (AUTO-MENSAGEM)
-      const profile = await buscarProfile();
-      const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
-      
-      if (ehParaSiMesmo) {
-        addDebugLog(`[HAND-MENSAGEM] 🔄 Detectado envio para si mesmo. Salvando localmente sem handshake.`);
-        
-        const idReal = msgId || gerarId();
-        const agora = Date.now();
-        
-        const chatAuto: Chat = {
-          id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
-          createdAt: createdAt || agora, sentAt: agora, receivedAt: agora,
-          readAt: agora, notifiedAt: agora, handshake: 'self'
-        };
-        
-        await salvarChat(chatAuto);
-        notificarUI(idReal);
-        addDebugLog(`[HAND-MENSAGEM] ✅ Auto-mensagem ${idReal} salva com fluxo completo simulado.`);
-        return;
-      }
-
-      // 📤 FLUXO NORMAL: Mensagem para outro contato
-      const idReal = msgId || gerarId();
-      const handIdReal = handshakeId || gerarId();
-      
-      const chatExistente = await buscarChat(idReal);
-      if (!chatExistente) {
-        const chatOut: Chat = {
-          id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
-          createdAt: createdAt || Date.now(), handshake: handIdReal
-        };
-        await salvarChat(chatOut);
-      }
-
-      const novoHandshake: Handshake = {
-        id: handIdReal, aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: idReal, conteudo } } }
-      };
-
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} posta na fila de saída do SW.`);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-  }
-}
-```
-
----
-
 ## Arquivo: `src/handshakes/hand-contato.ts`
 
 ```ts
@@ -5422,7 +5426,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       if (contato) {
         const camposSet = new Set(contatoReq.campos);
-        // 🔥 Agora a extração é assíncrona para garantir a base URL
         const cp = await extrairDadosCompactos(contato);
         
         if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
@@ -5458,7 +5461,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
 
       const d = contatoReq.data as Record<string, unknown>;
-      // 🔥 Await
       const mp = await extrairDadosCompactos(profile);
       let novoMeStatus = contato.me;
 
@@ -5484,8 +5486,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         await salvarContato(contato);
         addDebugLog(`[HAND-CONTATO] ✅ Status alterado de '${statusAnterior}' para: '${novoMeStatus}'`);
         
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+        // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
+        if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+        }
       } else {
         addDebugLog(`[HAND-CONTATO] ✅ Consistência avaliada. Status mantido em: '${novoMeStatus}'`);
       }
@@ -5524,8 +5529,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       await salvarContato(novoContato);
       addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
 
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
+      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      }
 
       if (syncData.req) {
         addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
@@ -5559,7 +5567,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const contatoAlvo = await buscarContatoPorChave(outParams.contato);
       const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
 
-      // 🔥 Await
       const compactSyncData = await extrairDadosCompactos(profile, !outParams.responder, euConfio);
 
       const novoHandshake: Handshake = {
@@ -5606,7 +5613,6 @@ interface ProfileOutParams {
   campos?: string[];
 }
 
-// 🔥 ARQUITETURA: Função de Expurgo Modular
 export async function ExpurgarHandshakesProfile(contatoHash: string) {
   addDebugLog("warn", "HAND-PROFILE", `🗑️ Expurgando handshakes de perfil do contato ${contatoHash}`);
   
@@ -5685,10 +5691,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         await salvarContato(contato);
         addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
 
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => {
-          client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
-        });
+        // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
+        if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          clients.forEach(client => {
+            client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
+          });
+        }
       } else {
         addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
       }
@@ -5725,6 +5734,245 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       await salvarHandshake(novoHandshake);
       addDebugLog(`[HAND-PROFILE] ✅ Handshake de solicitação de perfil criado.`);
       
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+}
+```
+
+---
+
+## Arquivo: `src/handshakes/hand-mensagem.ts`
+
+```ts
+// src/handshakes/hand-mensagem.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { Handshake, Chat } from "../constants/db.ts";
+import { gerarId } from "../utils/id-utils.ts";
+import {
+  buscarHandshake,
+  salvarHandshake,
+  buscarChat,
+  salvarChat,
+  buscarContatoPorChave,
+  buscarProfile,
+  removerTodoHistoricoChat,
+  removerChat,
+  listarHandshakes,
+  removerHandshake
+} from "../utils/db-helpers.ts";
+import { ehContatoProprio } from "../utils/self-contact-utils.ts";
+import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts"; 
+
+interface MensagemOutParams {
+  function: string;
+  contato: string;
+  conteudo?: string;
+  mensagem?: string;
+  campos?: string[];
+  msgId?: string;        
+  handshakeId?: string;  
+  createdAt?: number;
+}
+
+async function notificarUI(chatId: string) {
+  if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
+  }
+}
+
+export async function ExpurgarMensagens(contatoHash: string) {
+  addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens e handshakes do contato ${contatoHash}`);
+  
+  await removerTodoHistoricoChat(contatoHash);
+
+  const todos = await listarHandshakes();
+  for (const h of todos) {
+    if (h.aud === contatoHash && (h.in?.rotas.mensagem || h.out?.rotas.mensagem)) {
+      await removerHandshake(h.id);
+    }
+  }
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
+  
+  if (handshakeId) {
+    addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
+    const handshake = await buscarHandshake(handshakeId);
+    
+    if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
+    const msgReq = handshake.in.rotas.mensagem;
+
+    if (msgReq.recebida && Array.isArray(msgReq.campos)) {
+      addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
+      const msgLocal = await buscarChat(msgReq.recebida);
+      const rotasMsgData: Record<string, unknown> = { recebida: msgReq.recebida };
+
+      if (msgLocal) {
+        const camposSet = new Set(msgReq.campos);
+        if (camposSet.has('readAt')) rotasMsgData.readAt = msgLocal.readAt;
+        if (camposSet.has('receivedAt')) rotasMsgData.receivedAt = msgLocal.receivedAt;
+      }
+
+      handshake.out = { status: 'pendente', tentativas: 0, rotas: { mensagem: { data: rotasMsgData } } };
+      handshake.updatedAt = Date.now();
+      await salvarHandshake(handshake);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    else if (msgReq.data && typeof msgReq.data.recebida === 'string' && typeof msgReq.data.status === 'string') {
+      addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. Status: ${msgReq.data.status}`);
+      
+      const msgLocal = await buscarChat(msgReq.data.recebida);
+      
+      if (msgLocal && msgLocal.tipo === 'out') {
+        if (msgReq.data.status === 'entregue') msgLocal.receivedAt = Date.now();
+        if (msgReq.data.status === 'lida') msgLocal.readAt = Date.now();
+        
+        await salvarChat(msgLocal);
+        await notificarUI(msgLocal.id);
+      }
+    }
+
+    // 🔥 ARQUITETURA [Exclusão Bidirecional]: Recebimento do comando "Apagar para Todos"
+    else if (msgReq.excluida && typeof msgReq.excluida === 'string') {
+      addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação de exclusão remota da mensagem ${msgReq.excluida}`);
+      const msgLocal = await buscarChat(msgReq.excluida);
+      
+      // SEGURANÇA: Só permitimos que a pessoa apague se a mensagem estiver vinculada ao Hash dela
+      // Removida a trava de 'msgLocal.tipo === in', permitindo exclusão bidirecional.
+      if (msgLocal && msgLocal.contatoHash === handshake.aud) {
+        await removerChat(msgReq.excluida, handshake.aud);
+        await notificarUI(msgReq.excluida); // UI atualizará a tela se o chat estiver aberto
+        addDebugLog(`[HAND-MENSAGEM] 🗑️ Mensagem ${msgReq.excluida} apagada remotamente com sucesso.`);
+      } else {
+        addDebugLog(`[HAND-MENSAGEM] ⚠️ Ignorando exclusão. Mensagem inexistente ou violação de autoridade.`);
+      }
+    }
+
+    else if (msgReq.enviada && msgReq.conteudo) {
+      addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
+      
+      const novaMsgRecebida: Chat = {
+        id: msgReq.enviada,
+        contatoHash: handshake.aud,
+        conteudo: msgReq.conteudo,
+        tipo: 'in',
+        createdAt: Date.now(),
+        receivedAt: Date.now(),
+        handshake: handshakeId
+      };
+      await salvarChat(novaMsgRecebida);
+
+      const ackHandshake: Handshake = {
+        id: gerarId(),
+        aud: handshake.aud,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        out: {
+          status: 'pendente', tentativas: 0,
+          rotas: { mensagem: { data: { recebida: novaMsgRecebida.id, status: 'entregue' } } }
+        }
+      };
+      await salvarHandshake(ackHandshake);
+
+      let appEstaAberto = false;
+      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+        const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        appEstaAberto = windowClients.length > 0;
+      }
+
+      if (!appEstaAberto && typeof self !== 'undefined' && self.registration && typeof self.registration.showNotification === 'function') {
+        const contato = await buscarContatoPorChave(handshake.aud);
+        const nomeExibicao = contato?.name?.trim() || "Anônimo";
+        
+        await self.registration.showNotification(`📥 Nova mensagem`, {
+          body: `${novaMsgRecebida.conteudo}\n\nDe: ${nomeExibicao}`,
+          icon: '/icon-192.png',
+          tag: novaMsgRecebida.id
+        });
+      } else {
+        addDebugLog(`[HAND-MENSAGEM] 👁️ O app está aberto ou ambiente sem UI/Notificação. Notificação nativa suprimida.`);
+      }
+
+      await notificarUI(novaMsgRecebida.id);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+  
+  if (outParams) {
+    if (outParams.function === 'confirmarEntrega') {
+      const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { recebida: mensagemId, campos } } }
+      };
+      await salvarHandshake(novoHandshake);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    // 🔥 ARQUITETURA: Cria o pacote para exclusão remota ("Apagar para todos")
+    else if (outParams.function === 'excluirMensagem') {
+      const { contato: contatoId, msgId } = outParams;
+      if (!msgId) throw new Error("ID da mensagem não fornecido para exclusão.");
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { excluida: msgId } } }
+      };
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-MENSAGEM] 🗑️ Handshake de exclusão da mensagem ${msgId} criado e posto na fila.`);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    else if (outParams.function === 'enviarMensagem') {
+      const { contato: contatoId, conteudo, msgId, handshakeId, createdAt } = outParams;
+      if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
+
+      const profile = await buscarProfile();
+      const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
+      
+      if (ehParaSiMesmo) {
+        addDebugLog(`[HAND-MENSAGEM] 🔄 Detectado envio para si mesmo. Salvando localmente sem handshake.`);
+        
+        const idReal = msgId || gerarId();
+        const agora = Date.now();
+        
+        const chatAuto: Chat = {
+          id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
+          createdAt: createdAt || agora, sentAt: agora, receivedAt: agora,
+          readAt: agora, notifiedAt: agora, handshake: 'self'
+        };
+        
+        await salvarChat(chatAuto);
+        await notificarUI(idReal);
+        addDebugLog(`[HAND-MENSAGEM] ✅ Auto-mensagem ${idReal} salva com fluxo completo simulado.`);
+        return;
+      }
+
+      const idReal = msgId || gerarId();
+      const handIdReal = handshakeId || gerarId();
+      
+      const chatExistente = await buscarChat(idReal);
+      if (!chatExistente) {
+        const chatOut: Chat = {
+          id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
+          createdAt: createdAt || Date.now(), handshake: handIdReal
+        };
+        await salvarChat(chatOut);
+      }
+
+      const novoHandshake: Handshake = {
+        id: handIdReal, aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: idReal, conteudo } } }
+      };
+
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} posta na fila de saída do SW.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
@@ -6195,6 +6443,7 @@ label {
 ## Arquivo: `src/app.tsx`
 
 ```tsx
+// src/app.tsx
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { effect } from '@preact/signals';
@@ -6214,6 +6463,7 @@ import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 // Signals e Lógica de Negócio
 import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced, appTheme, AppTheme } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
+import { isCarregandoContatos } from './stores/contatosStore.ts';
 import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 
 // Roteador Reativo
@@ -6222,7 +6472,6 @@ import { activeView, navigate } from './utils/router.ts';
 import "@material/web/all.js";
 import './styles.css';
 
-// 🔥 ARQUITETURA: Bind Reativo do Tema com o HTML Document
 effect(() => {
   if (typeof document !== 'undefined') {
     const theme = appTheme.value;
@@ -6234,7 +6483,6 @@ effect(() => {
   }
 });
 
-// Componente de Fallback/Home (Quando não há nada selecionado)
 const HomePlaceholder = () => (
   <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-on-surface-variant);">
     <div style="text-align: center;">
@@ -6244,7 +6492,6 @@ const HomePlaceholder = () => (
   </div>
 );
 
-// Dicionário de Rotas
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ViewMap: Record<string, ComponentType<any>> = {
   'chat': ChatSection,
@@ -6260,10 +6507,8 @@ const ViewMap: Record<string, ComponentType<any>> = {
 function App() {
   const [isLoading, setIsLoading] = useState(true);
 
-  // Inicialização assíncrona dos Stores locais e Infraestrutura
   useEffect(() => {
     const init = async () => {
-      // Carrega Tema salvo
       const savedTheme = await getConfigValue('APP_THEME');
       if (savedTheme) {
         appTheme.value = savedTheme as AppTheme;
@@ -6274,7 +6519,6 @@ function App() {
 
       await initProfileStore();
       
-      // Se não tem perfil gerado, e a rota não for perfil, força a rota (Route Guard)
       if ((!profile.value || !profile.value.e2ePrivateKeyJwk) && activeView.value !== 'profile') {
         navigate('#profile');
       }
@@ -6287,6 +6531,25 @@ function App() {
     init();
   }, []);
 
+  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
+  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
+
+  // 🔥 ARQUITETURA: Route Guard (Proteção contra Rotas Órfãs)
+  // Previne que o usuário consiga acessar um chat de um contato que ele acabou de excluir.
+  useEffect(() => {
+    if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
+       const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
+       
+       if (hashAlvo) {
+         const contatoExiste = contatosComHash.value.some(c => c.hash === hashAlvo);
+         if (!contatoExiste) {
+           addDebugLog("warn", "ROUTER", "Tentativa de acesso a contato inexistente/excluído. Redirecionando para Home.");
+           navigate(''); 
+         }
+       }
+    }
+  }, [isLoading, isCarregandoContatos.value, activeView.value, contatoSelecionado.value, contatoCompartilharHash.value, contatosComHash.value]);
+
   if (isLoading) {
     return (
       <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
@@ -6295,16 +6558,11 @@ function App() {
     );
   }
 
-  // Preparações para o Cabeçalho Responsivo (Header)
-  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
-  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
-
   const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
   const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
 
   const fecharAreaPrincipal = () => navigate('');
   
-  // Lógica Dinâmica para Títulos e Ícones do Cabeçalho da Área Principal
   let headerTitle = "Loco PWA";
   let headerSubtitle = "";
   let headerIcon = "forum";
@@ -6340,7 +6598,9 @@ function App() {
   }
 
   const viewToRender = (!profile.value && activeView.value !== 'profile') ? 'profile' : activeView.value;
-  const RouteComponent = ViewMap[viewToRender] || ViewMap['home']!;
+  // Fallback seguro caso o route guard demore 1 ciclo para chutar a tela orfã
+  const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
+  const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
 
   return (
     <div id="app-root" class={`view-mode-${currentMobileView.value}`}>
@@ -6480,10 +6740,10 @@ compatibility_date = "2026-06-01"
 # routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
 
 # Configuração moderna para servir arquivos estáticos junto com o Worker
-[assets]
+# [assets]
 # Diretório onde estão os arquivos estáticos do PWA
-directory = "build/dist"
-binding = "ASSETS" 
+# directory = "build/dist"
+# binding = "ASSETS" 
 
 # OPCIONAL: Variáveis de ambiente que seu proxy cego do FCM possa precisar
 [vars]
@@ -6560,6 +6820,397 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
 
 ---
 
+## Arquivo: `deno.jsonc`
+
+```json
+{
+  // ============================================================================
+  // 🚀 LOCO PWA - Manifesto do Deno
+  // Mensageiro PWA Descentralizado, Offline-First & E2EE
+  // ============================================================================
+
+  // 📋 Metadados do Projeto
+  "name": "@vanaware/loco",
+  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
+  "version": "0.2.168-msv8eimr",
+  "exports": "./main.ts",
+  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
+  "author": "Vanaware",
+  "license": "MIT",
+  
+  "workspace": [
+    "proto/_template",
+    "proto/01-push-messaging"
+  ],
+
+  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+
+  // 📦 Gerenciamento de Dependências
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/http": "jsr:@std/http@^1",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
+    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
+    "wrangler": "npm:wrangler@^4.123.0"
+  },
+
+  // 🛠️ Scripts de Automação
+  "tasks": {
+    "test": "deno test --allow-env --allow-net tests/",
+    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
+    "tests": "deno task check && deno task test",
+    "export": "deno run --allow-read --allow-write export.ts"
+  },
+  "exclude": ["build/", "public/"],
+  "nodeModulesDir": "auto"
+}
+```
+
+---
+
+## Arquivo: `worker.ts`
+
+```ts
+// worker.ts
+/// <reference lib="deno.ns" />
+
+import * as webpush from "@negrel/webpush";
+
+let serverPrivateKeyCache: CryptoKey | null = null;
+let serverPublicKeyJwkCache: JsonWebKey | null = null;
+let serverPublicKeyMinifiedCache: any | null = null; 
+
+async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
+  if (serverPrivateKeyCache && serverPublicKeyJwkCache && serverPublicKeyMinifiedCache) {
+    return { 
+      serverPrivateKey: serverPrivateKeyCache, 
+      serverPublicKeyJwk: serverPublicKeyJwkCache,
+      serverPublicKeyMinified: serverPublicKeyMinifiedCache
+    };
+  }
+
+  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
+  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
+
+  if (!publicKeyStr) {
+    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada!");
+  }
+  
+  if (!privateKeyStr) {
+    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada!");
+  }
+
+  try {
+    const rawPublicKeyJwk = JSON.parse(publicKeyStr);
+    let publicKeyJwk = { ...rawPublicKeyJwk };
+    let privateKeyJwk = JSON.parse(privateKeyStr);
+
+    const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
+
+    if (!publicKeyJwk.kty) {
+      publicKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", n: publicKeyJwk.n, e: "AQAB", ext: true, key_ops: ["encrypt"] };
+    }
+
+    if (!privateKeyJwk.kty) {
+      privateKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", e: publicKeyJwk.e, n: publicKeyJwk.n, ext: true, key_ops: ["decrypt"], d: privateKeyJwk.d, p: privateKeyJwk.p, q: privateKeyJwk.q, dp: privateKeyJwk.dp, dq: privateKeyJwk.dq, qi: privateKeyJwk.qi };
+    }
+
+    const serverPrivateKey = await crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+
+    serverPrivateKeyCache = serverPrivateKey;
+    serverPublicKeyJwkCache = publicKeyJwk;
+    serverPublicKeyMinifiedCache = minifiedPublicKey;
+
+    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk, serverPublicKeyMinified: minifiedPublicKey };
+  } catch (err) {
+    throw new Error(`Erro inicializando chaves: ${err}`);
+  }
+}
+
+async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
+  // Nota: Não usar try/catch genérico aqui para que o erro suba limpo e ative o fallback de Federação
+  const envelopeText = atob(base64Envelope);
+  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+
+  const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+  const ivBytes = fromHex(iv);
+  const dadosBytes = fromHex(dadosCifrados);
+  const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+
+  const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
+  const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
+
+  return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
+}
+
+function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
+  try {
+    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
+    const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
+    const expandedPub = pub.kty ? pub : { kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"] };
+    const expandedPriv = priv.kty ? priv : { kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"] };
+    return { publicKey: expandedPub, privateKey: expandedPriv };
+  } catch (err) {
+    throw new Error(`JWK inválido: ${err}`);
+  }
+}
+
+function lerMetadadosJJWT(jwtString: string) {
+  try {
+    const parts = jwtString.split(".");
+    if (parts.length !== 3) return null;
+    
+    const payloadPart = parts[1];
+    if (!payloadPart) return null;
+    
+    let base64Url = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64Url.length % 4) base64Url += "=";
+    return JSON.parse(new TextDecoder().decode(new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))));
+  } catch {
+    return null;
+  }
+}
+
+function createCorsHeaders(request: Request): Headers {
+  const headers = new Headers();
+  const origin = request.headers.get("Origin") || "*";
+  
+  headers.set("Access-Control-Allow-Origin", origin === "null" ? "*" : origin);
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  
+  const reqHeaders = request.headers.get("Access-Control-Request-Headers");
+  headers.set("Access-Control-Allow-Headers", reqHeaders || "*");
+  
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Access-Control-Max-Age", "86400");
+  headers.set("Vary", "Origin");
+  
+  return headers;
+}
+
+const workerHandler = {
+  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    const method = request.method;
+    
+    const corsHeaders = createCorsHeaders(request);
+    
+    if (method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    try {
+      const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
+      const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
+      const isPushRoute = pathname.endsWith("/push") || pathname.endsWith("/push/");
+
+      const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
+
+      const sendResponse = (bodyObj: any, status = 200) => {
+        const respHeaders = new Headers(corsHeaders);
+        respHeaders.set("Content-Type", "application/json");
+        return new Response(JSON.stringify(bodyObj), { status, headers: respHeaders });
+      };
+
+      if ((method === "POST" || method === "GET") && isPing) {
+        return sendResponse({ status: "ok", service: "loco-proxy", timestamp: Date.now() });
+      }
+
+      if (method === "POST" && isPublicKey) {
+        return sendResponse(serverPublicKeyMinified);
+      }
+
+      if (method === "POST" && isPushRoute) {
+        const contentLength = request.headers.get("content-length");
+        if (contentLength && parseInt(contentLength, 10) > 8192) {
+          // [DEFESA] Payload bloqueado (${contentLength} bytes).
+          return sendResponse({ success: false, error: "Payload Too Large" }, 413);
+        }
+        
+        const rawText = await request.text();
+        let body;
+        try {
+          body = JSON.parse(rawText);
+        } catch (e) {
+          // [VALIDAÇÃO] Falha ao processar corpo JSON.
+          return sendResponse({ success: false, error: "Corpo não é JSON válido." }, 400);
+        }
+
+        const { subscription, payloadText, vapid } = body;
+
+        if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
+          // [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.
+          return sendResponse({ success: false, error: "Estrutura P2P Inválida." }, 400);
+        }
+
+        const jwtClaims = lerMetadadosJJWT(payloadText);
+        if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
+          // [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.
+          return sendResponse({ success: false, error: "Protocolo JWT Inválido." }, 400);
+        }
+        
+        // =========================================================================
+        // 🔥 ARQUITETURA INTELIGENTE: Trust the Crypto, not the DNS
+        // =========================================================================
+
+        const proxyserverDestino = jwtClaims.proxyserver;
+        let requiresFederationByDns = false;
+        let destinoUrlObj: URL | null = null;
+
+        // 1. Analisa se, teoricamente, precisaríamos federar
+        if (proxyserverDestino && proxyserverDestino !== '/') {
+          try {
+             const urlFormatada = proxyserverDestino.startsWith('http') ? proxyserverDestino : `https://${proxyserverDestino}`;
+             destinoUrlObj = new URL(urlFormatada);
+             if (url.hostname !== destinoUrlObj.hostname) {
+               requiresFederationByDns = true;
+             }
+          } catch(e) {
+             console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
+             return sendResponse({ success: false, error: "URL de proxy do destino malformada." }, 400);
+          }
+        }
+
+        // 2. Prova de Posse (Proof of Ownership): Tentamos abrir o cadeado
+        let privateKeyFinal = vapid.privateKey;
+        let isMyEnvelope = false;
+
+        if (typeof privateKeyFinal === "string") {
+          try {
+            // Se não der erro, significa que este Worker possui a chave privada que criou este envelope!
+            privateKeyFinal = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
+            isMyEnvelope = true;
+          } catch (decryptErr) {
+            // O envelope pertence a outro servidor.
+            isMyEnvelope = false;
+          }
+        } else {
+          isMyEnvelope = true; // Se não for string, assumimos que já veio limpo/mockado
+        }
+
+        // 3. Tomada de Decisão Arquitetural
+        if (requiresFederationByDns && isMyEnvelope) {
+           // [ARQUITETURA] Bypass de Federação! Hostnames diferem (${url.hostname} vs ${destinoUrlObj!.hostname}), mas as chaves combinam. Economizando latência e disparando Push localmente.
+           requiresFederationByDns = false; // Anula a federação
+        }
+
+        if (requiresFederationByDns && !isMyEnvelope && destinoUrlObj) {
+           // [FEDERAÇÃO] Chave incompatível com nó atual. Repassando pacote para o Proxy destino: ${destinoUrlObj.hostname}
+           try {
+              const baseUrl = proxyserverDestino.endsWith('/') ? proxyserverDestino.slice(0, -1) : proxyserverDestino;
+              const urlDestino = `${baseUrl}/push`;
+              
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 10000); 
+              
+              const relayResponse = await fetch(urlDestino, {
+                  method: "POST",
+                  headers: {
+                      "Content-Type": "text/plain",
+                      "User-Agent": "Loco-Federation-Relay/1.0"
+                  },
+                  body: rawText,
+                  signal: controller.signal
+              });
+              
+              clearTimeout(timeoutId);
+              
+              if (!relayResponse.ok) {
+                 const contentType = relayResponse.headers.get("content-type") || "";
+                 let errText = "";
+                 
+                 if (relayResponse.status >= 500 || contentType.includes("text/html")) {
+                     errText = `Servidor destino (${destinoUrlObj.hostname}) offline ou recusou conexão.`;
+                 } else {
+                     errText = await relayResponse.text();
+                     errText = errText.replace(/<[^>]*>?/gm, '').replace(/\n|\r/g, " ").substring(0, 100) + "...";
+                 }
+                 throw new Error(errText);
+              }
+              
+              return sendResponse({ success: true, federated: true, target: destinoUrlObj.hostname });
+              
+           } catch (relayErr: any) {
+              // [FEDERAÇÃO] Falha ao reencaminhar pacote: ${relayErr.message}
+              return sendResponse({ success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
+           }
+        }
+
+        if (!isMyEnvelope && !requiresFederationByDns) {
+           // [SEGURANÇA] Falha crítica: O envelope VAPID não nos pertence, e não existe rota de federação configurada.
+           return sendResponse({ success: false, error: "Falha ao descriptografar chave VAPID. Nó incorreto." }, 400);
+        }
+
+        // =========================================================================
+        // 🚀 Processamento Final (Disparo Local Nativo)
+        // =========================================================================
+
+        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
+        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
+        
+        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+        const appServer = await webpush.ApplicationServer.new({
+          contactInformation: contact,
+          vapidKeys: vapidKeys,
+        });
+
+        const subscriber = appServer.subscribe(subscription);
+        
+        try {
+          await subscriber.pushTextMessage(payloadText, {});
+        } catch (pushErr: any) {
+          // [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}
+          throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
+        }
+
+        return sendResponse({ success: true });
+      }
+
+      // [404] Rota não mapeada tentou ser acessada: ${pathname}
+      return sendResponse({ error: "Endpoint não encontrado." }, 404);
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      // [WORKER EXCEPTION]: ${errorMessage}
+      
+      const errHeaders = new Headers(corsHeaders);
+      errHeaders.set("Content-Type", "application/json");
+      return new Response(JSON.stringify({ success: false, error: errorMessage }), { status: 400, headers: errHeaders });
+    }
+  }
+};
+
+export default workerHandler;
+```
+
+---
+
 ## Arquivo: `build.ts`
 
 ```ts
@@ -6601,11 +7252,23 @@ interface BundleOptions {
   jsxFragment?: string;
 }
 
-async function incrementVersion(): Promise<string> {
+async function incrementVersion(skipIncrement: boolean = false): Promise<string> {
   const denoJsoncPath = "deno.jsonc";
   let content = await Deno.readTextFile(denoJsoncPath);
   let currentVersion = "0.0.0";
   
+  if (skipIncrement) {
+    // 🔥 ARQUITETURA [READ-ONLY]: O hash do cache já faz parte da versão (ex: 0.2.148-msv0okam).
+    // Apenas lemos a string atual e repassamos, sem tocar no sistema de arquivos.
+    const match = content.match(/"version"\s*:\s*"([^"]+)"/);
+    if (match && match[1]) {
+      currentVersion = match[1];
+    }
+    console.log(`📌 Parâmetro 'noversion' detectado. Mantendo versão e hash de cache intactos: v${currentVersion}`);
+    return currentVersion;
+  }
+
+  // 📈 Fluxo Normal: Incrementa o Patch e gera novo hash de cache (Cache Buster)
   const buildHash = Date.now().toString(36);
 
   content = content.replace(/"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9]+)?"/, (_match, major, minor, patch) => {
@@ -6756,8 +7419,6 @@ async function listarAssetsParaCache(): Promise<string[]> {
     if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
       let webPath = entry.path.replace(join(BUILD_DIR,DIST_DIR), "").replace(/\\/g, "/");
       
-      // 🔥 ARQUITETURA: Garante que os caminhos gerados para o cache sejam relativos.
-      // Substitui "/index.html" por "./index.html" para rodar em subdiretórios.
       if (webPath.startsWith('/')) {
         webPath = '.' + webPath;
       } else {
@@ -6771,10 +7432,14 @@ async function listarAssetsParaCache(): Promise<string[]> {
 }
 
 async function build() {
+  // 🔥 LÊ ARGUMENTOS DA CLI: Identifica se "noversion" foi passado
+  const args = Deno.args.map(a => a.toLowerCase().replace(/^-+/, ''));
+  const skipVersionIncrement = args.includes('noversion');
+
   console.log("\n🚀 Iniciando build Loco ...\n");
   const start = performance.now();
 
-  const appVersion = await incrementVersion();
+  const appVersion = await incrementVersion(skipVersionIncrement);
   await gerarOuCarregarChavesServidor();
   await clean();
   await copyStaticAndSyncManifest(appVersion);
@@ -6841,373 +7506,6 @@ async function build() {
 }
 
 await build();
-```
-
----
-
-## Arquivo: `worker.ts`
-
-```ts
-// worker.ts
-/// <reference lib="deno.ns" />
-
-import * as webpush from "@negrel/webpush";
-
-let serverPrivateKeyCache: CryptoKey | null = null;
-let serverPublicKeyJwkCache: JsonWebKey | null = null;
-let serverPublicKeyMinifiedCache: any | null = null; 
-
-async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
-  if (serverPrivateKeyCache && serverPublicKeyJwkCache && serverPublicKeyMinifiedCache) {
-    return { 
-      serverPrivateKey: serverPrivateKeyCache, 
-      serverPublicKeyJwk: serverPublicKeyJwkCache,
-      serverPublicKeyMinified: serverPublicKeyMinifiedCache
-    };
-  }
-
-  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
-  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
-
-  if (!publicKeyStr) {
-    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada!");
-  }
-  
-  if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada!");
-  }
-
-  try {
-    const rawPublicKeyJwk = JSON.parse(publicKeyStr);
-    let publicKeyJwk = { ...rawPublicKeyJwk };
-    let privateKeyJwk = JSON.parse(privateKeyStr);
-
-    const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
-
-    if (!publicKeyJwk.kty) {
-      publicKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", n: publicKeyJwk.n, e: "AQAB", ext: true, key_ops: ["encrypt"] };
-    }
-
-    if (!privateKeyJwk.kty) {
-      privateKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", e: publicKeyJwk.e, n: publicKeyJwk.n, ext: true, key_ops: ["decrypt"], d: privateKeyJwk.d, p: privateKeyJwk.p, q: privateKeyJwk.q, dp: privateKeyJwk.dp, dq: privateKeyJwk.dq, qi: privateKeyJwk.qi };
-    }
-
-    const serverPrivateKey = await crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-
-    serverPrivateKeyCache = serverPrivateKey;
-    serverPublicKeyJwkCache = publicKeyJwk;
-    serverPublicKeyMinifiedCache = minifiedPublicKey;
-
-    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk, serverPublicKeyMinified: minifiedPublicKey };
-  } catch (err) {
-    throw new Error(`Erro inicializando chaves: ${err}`);
-  }
-}
-
-async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
-  try {
-    const envelopeText = atob(base64Envelope);
-    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
-
-    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-    const ivBytes = fromHex(iv);
-    const dadosBytes = fromHex(dadosCifrados);
-    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
-
-    const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
-    const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-    const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
-
-    return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
-  } catch (err) {
-    throw new Error(`Falha VAPID E2E: ${err}`);
-  }
-}
-
-function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
-  try {
-    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
-    const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
-    const expandedPub = pub.kty ? pub : { kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"] };
-    const expandedPriv = priv.kty ? priv : { kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"] };
-    return { publicKey: expandedPub, privateKey: expandedPriv };
-  } catch (err) {
-    throw new Error(`JWK inválido: ${err}`);
-  }
-}
-
-function lerMetadadosJJWT(jwtString: string) {
-  try {
-    const parts = jwtString.split(".");
-    if (parts.length !== 3) return null;
-    
-    const payloadPart = parts[1];
-    if (!payloadPart) return null;
-    
-    let base64Url = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-    return JSON.parse(new TextDecoder().decode(new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))));
-  } catch {
-    return null;
-  }
-}
-
-function createCorsHeaders(request: Request): Headers {
-  const headers = new Headers();
-  const origin = request.headers.get("Origin") || "*";
-  
-  headers.set("Access-Control-Allow-Origin", origin === "null" ? "*" : origin);
-  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  
-  const reqHeaders = request.headers.get("Access-Control-Request-Headers");
-  headers.set("Access-Control-Allow-Headers", reqHeaders || "*");
-  
-  headers.set("Access-Control-Allow-Credentials", "true");
-  headers.set("Access-Control-Max-Age", "86400");
-  headers.set("Vary", "Origin");
-  
-  return headers;
-}
-
-const workerHandler = {
-  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-    const method = request.method;
-    
-    const corsHeaders = createCorsHeaders(request);
-    
-    if (method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
-    }
-
-    try {
-      const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
-      const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
-      const isPushRoute = pathname.endsWith("/push") || pathname.endsWith("/push/");
-
-      const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
-
-      const sendResponse = (bodyObj: any, status = 200) => {
-        const respHeaders = new Headers(corsHeaders);
-        respHeaders.set("Content-Type", "application/json");
-        return new Response(JSON.stringify(bodyObj), { status, headers: respHeaders });
-      };
-
-      if ((method === "POST" || method === "GET") && isPing) {
-        return sendResponse({ status: "ok", service: "loco-proxy", timestamp: Date.now() });
-      }
-
-      if (method === "POST" && isPublicKey) {
-        return sendResponse(serverPublicKeyMinified);
-      }
-
-      if (method === "POST" && isPushRoute) {
-        const contentLength = request.headers.get("content-length");
-        if (contentLength && parseInt(contentLength, 10) > 8192) {
-          // console.warn(`🛑 [DEFESA] Payload bloqueado (${contentLength} bytes). Origem: ${request.headers.get("cf-connecting-ip")}`);
-          return sendResponse({ success: false, error: "Payload Too Large" }, 413);
-        }
-        
-        const rawText = await request.text();
-        let body;
-        try {
-          body = JSON.parse(rawText);
-        } catch (e) {
-          // console.warn(`❌ [VALIDAÇÃO] Falha ao processar corpo JSON.`);
-          return sendResponse({ success: false, error: "Corpo não é JSON válido." }, 400);
-        }
-
-        const { subscription, payloadText, vapid } = body;
-
-        if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
-          // console.warn(`❌ [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.`);
-          return sendResponse({ success: false, error: "Estrutura P2P Inválida." }, 400);
-        }
-
-        const jwtClaims = lerMetadadosJJWT(payloadText);
-        if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
-          // console.warn(`❌ [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.`);
-          return sendResponse({ success: false, error: "Protocolo JWT Inválido." }, 400);
-        }
-        
-        const proxyserverDestino = jwtClaims.proxyserver;
-        
-        // 🔥 ARQUITETURA [SEPARAÇÃO DE LEGADOS]: 
-        // Só tenta federar se houver de fato um proxy destino completo, e que seja diferente de "/".
-        // Isso resolve o problema de contatos antigos sem quebrar URL ou fazer "guessing" no Edge.
-        if (proxyserverDestino) {
-          let destinoUrlObj: URL;
-          try {
-             const urlFormatada = proxyserverDestino.startsWith('http') ? proxyserverDestino : `https://${proxyserverDestino}`;
-             destinoUrlObj = new URL(urlFormatada);
-          } catch(e) {
-             // console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
-             return sendResponse({ success: false, error: "URL de proxy do destino malformada." }, 400);
-          }
-
-          if (url.hostname !== destinoUrlObj.hostname) {
-             try {
-                const baseUrl = proxyserverDestino.endsWith('/') ? proxyserverDestino.slice(0, -1) : proxyserverDestino;
-                const urlDestino = `${baseUrl}/push`;
-                
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); 
-                
-                const relayResponse = await fetch(urlDestino, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "text/plain",
-                        "User-Agent": "Loco-Federation-Relay/1.0"
-                    },
-                    body: rawText,
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                
-                if (!relayResponse.ok) {
-                   const contentType = relayResponse.headers.get("content-type") || "";
-                   let errText = "";
-                   
-                   if (relayResponse.status >= 500 || contentType.includes("text/html")) {
-                       errText = `Servidor destino (${destinoUrlObj.hostname}) offline ou recusou conexão.`;
-                   } else {
-                       errText = await relayResponse.text();
-                       errText = errText.replace(/<[^>]*>?/gm, '').replace(/\n|\r/g, " ").substring(0, 100) + "...";
-                   }
-                   throw new Error(errText);
-                }
-                
-                return sendResponse({ success: true, federated: true, target: destinoUrlObj.hostname });
-                
-             } catch (relayErr: any) {
-                // console.error(`❌ [FEDERAÇÃO] Falha ao reencaminhar pacote para ${destinoUrlObj.hostname}: ${relayErr.message}`);
-                return sendResponse({ success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
-             }
-          }
-        }
-        
-        // --- Processamento de Push Nativo ---
-        let privateKeyFinal = vapid.privateKey;
-
-        if (typeof privateKeyFinal === "string") {
-          try {
-            privateKeyFinal = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
-          } catch (decryptErr) {
-            // console.warn(`❌ [SEGURANÇA] Falha ao decifrar VAPID. Chave do servidor desincronizada.`);
-            return sendResponse({ success: false, error: "Falha ao descriptografar chave VAPID." }, 400);
-          }
-        }
-
-        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
-        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
-        
-        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
-        const appServer = await webpush.ApplicationServer.new({
-          contactInformation: contact,
-          vapidKeys: vapidKeys,
-        });
-
-        const subscriber = appServer.subscribe(subscription);
-        
-        try {
-          await subscriber.pushTextMessage(payloadText, {});
-        } catch (pushErr: any) {
-          // console.error(`❌ [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}`);
-          throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
-        }
-
-        return sendResponse({ success: true });
-      }
-
-      //console.warn(`⚠️ [404] Rota não mapeada tentou ser acessada: ${pathname}`);
-      return sendResponse({ error: "Endpoint não encontrado." }, 404);
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`❌ [WORKER EXCEPTION]: ${errorMessage}`);
-      
-      const errHeaders = new Headers(corsHeaders);
-      errHeaders.set("Content-Type", "application/json");
-      return new Response(JSON.stringify({ success: false, error: errorMessage }), { status: 400, headers: errHeaders });
-    }
-  }
-};
-
-export default workerHandler;
-```
-
----
-
-## Arquivo: `deno.jsonc`
-
-```json
-{
-  // ============================================================================
-  // 🚀 LOCO PWA - Manifesto do Deno
-  // Mensageiro PWA Descentralizado, Offline-First & E2EE
-  // ============================================================================
-
-  // 📋 Metadados do Projeto
-  "name": "@vanaware/loco",
-  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.156-msv44cl2",
-  "exports": "./main.ts",
-  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
-  "author": "Vanaware",
-  "license": "MIT",
-  
-  "workspace": [
-    "proto/_template",
-    "proto/01-push-messaging"
-  ],
-
-  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-
-  // 📦 Gerenciamento de Dependências
-  "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
-    "@std/fs": "jsr:@std/fs@^1",
-    "@std/http": "jsr:@std/http@^1",
-    "@std/path": "jsr:@std/path@^1",
-    "@std/http/file-server": "jsr:@std/http@^1/file-server",
-    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
-    "preact": "https://esm.sh/preact@10.29.7",
-    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
-    "wrangler": "npm:wrangler@^4.123.0"
-  },
-
-  // 🛠️ Scripts de Automação
-  "tasks": {
-    "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
-    "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
-    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
-    "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write export.ts"
-  },
-  "exclude": ["build/", "public/"],
-  "nodeModulesDir": "auto"
-}
 ```
 
 ---

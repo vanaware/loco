@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.156-msv44cl2** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.168-msv8eimr** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.156-msv44cl2] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.2.168-msv8eimr] - Modo: TESTS
 
-Gerado automaticamente em: 8/15/2026, 10:18:45 PM
+Gerado automaticamente em: 8/16/2026, 8:08:58 AM
 
 ---
 
@@ -1900,6 +1900,423 @@ Deno.test("HAND-MENSAGEM SELF: Contato próprio deve ser identificado corretamen
   
   const naoEhEu = await ehContatoProprio("outro-hash", mockProfile);
   assertFalse(naoEhEu);
+});
+```
+
+---
+
+## Arquivo: `tests/handshakes/integration-shadow-sync.test.ts`
+
+```ts
+// tests/handshakes/integration-shadow-sync.test.ts
+/// <reference lib="deno.ns" />
+
+// Injeta o Fake IndexedDB para simular o banco de dados do navegador no ambiente de testes do Deno
+import "npm:fake-indexeddb@6.0.0/auto";
+
+import { assertEquals, assert, assertExists } from "@std/assert";
+import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
+import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
+import { 
+  salvarProfile, 
+  buscarContatoPorChave, 
+  buscarChat, 
+  listarHandshakes, 
+  salvarHandshake,
+  removerTodoHistoricoChat,
+  serializarPublicKeyVapid
+} from "../../src/utils/db-helpers.ts";
+import type { ProfileConfig, Handshake } from "../../src/constants/db.ts";
+
+Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao receber mensagem de desconhecido", async () => {
+  // 1. SETUP DO "BOB" (O usuário local que vai receber a mensagem de um desconhecido)
+  const bobProfile: ProfileConfig = {
+    name: "Bob",
+    email: "bob@loco.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "bob-x-coord", y: "bob-y-coord" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "bob-priv-key" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env-bob",
+    e2ePublicKey: { kty: "RSA", n: "bob-rsa-n-modulo", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "bob-rsa-priv-d" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/bob",
+      keys: { p256dh: "p256-bob", auth: "auth-bob" },
+      proxyserver: "https://loco.proxy"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(bobProfile); // Salva o perfil do Bob no IndexedDB local
+
+  // 2. PREPARAÇÃO DA IDENTIDADE DE "ALICE" (A remetente desconhecida)
+  const aliceVapidPublic: JsonWebKey = {
+    kty: "EC",
+    crv: "P-256",
+    x: "alice-x-coordinate-base64url",
+    y: "alice-y-coordinate-base64url"
+  };
+
+  // 🔥 Calculamos o hash SHA-256 real da chave da Alice para bater com o comportamento interno do salvarContato
+  const aliceHashId = await serializarPublicKeyVapid(aliceVapidPublic);
+  await removerTodoHistoricoChat(aliceHashId); // Garante ambiente limpo
+
+  // 3. SIMULAÇÃO DO PACOTE RECEBIDO NA REDE (Handshake IN)
+  // A Alice percebeu que o Bob não a tem salva, então ela anexou o "sync" de contato junto com a "mensagem".
+  const handshakeRecebidoId = "handshake-in-001";
+  const handshakeSimulado: Handshake = {
+    id: handshakeRecebidoId,
+    aud: aliceHashId, // Quem mandou foi a Alice (ID derivado da chave VAPID)
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: {
+      status: 'recebido',
+      tentativas: 0,
+      rotas: {
+        // A Alice mandou os dados dela e pediu reciprocidade (req: true)
+        contato: {
+          sync: {
+            req: true,
+            tr: true, // A Alice confia no Bob
+            em: "alice@loco.pwa",
+            nm: "Alice Desconhecida",
+            vp: { x: "alice-x-coordinate-base64url", y: "alice-y-coordinate-base64url" },
+            ep: { n: "alice-rsa-n-modulo" },
+            se: "https://push.com/alice",
+            sp: "alice-p256-key",
+            sa: "alice-auth-secret",
+            ve: "env-alice",
+            ps: "https://loco.proxy"
+          }
+        },
+        // A Alice mandou a mensagem em si
+        mensagem: {
+          enviada: "msg-alice-001",
+          conteudo: "Oi Bob! Sou eu, a Alice. Salva meu contato!"
+        }
+      }
+    }
+  };
+
+  // Salva o Handshake de entrada na fila local do Bob
+  await salvarHandshake(handshakeSimulado);
+
+  // 4. EXECUÇÃO DOS PROCESSADORES (Simulando o orquestrador sw-handshakes.ts)
+  
+  // Passo 4.1: Processa o Contato
+  await ProcessarContato({ in: handshakeRecebidoId });
+  
+  // Passo 4.2: Processa a Mensagem
+  await ProcessarMensagem({ in: handshakeRecebidoId });
+
+  // 5. VERIFICAÇÕES DE INTEGRIDADE DA ARQUITETURA
+  
+  // Verificação A: A Alice foi salva no banco de contatos do Bob pelo Hash SHA-256?
+  const contatoAlice = await buscarContatoPorChave(aliceHashId);
+  assertExists(contatoAlice, "O contato da Alice deve ter sido criado e encontrado pelo Hash VAPID");
+  assertEquals(contatoAlice.name, "Alice Desconhecida", "O nome do contato deve ter sido preenchido");
+  assertEquals(contatoAlice.trusted, false, "CRÍTICO: Um contato criado via Shadow Sync DEVE ser classificado como NÃO CONFIÁVEL por padrão de segurança");
+  
+  // Verificação B: A mensagem da Alice foi salva no Chat do Bob vinculada ao Hash correto?
+  const mensagemAlice = await buscarChat("msg-alice-001");
+  assertExists(mensagemAlice, "A mensagem deve ter sido salva no IndexedDB do Chat");
+  assertEquals(mensagemAlice.conteudo, "Oi Bob! Sou eu, a Alice. Salva meu contato!");
+  assertEquals(mensagemAlice.contatoHash, aliceHashId, "A mensagem deve estar vinculada ao hash do novo contato criado");
+
+  // Verificação C: O Bob gerou as respostas automáticas de saída (Handshakes OUT)?
+  const todosHandshakes = await listarHandshakes();
+  const handshakesDeSaida = todosHandshakes.filter(h => h.out && h.aud === aliceHashId);
+  
+  // Esperamos 2 handshakes de saída para a Alice:
+  // 1 para devolver o Contato do Bob (pois req era true)
+  // 1 para dar o Auto-Ack (entregue) da Mensagem
+  assert(handshakesDeSaida.length >= 2, "O sistema deve ter enfileirado respostas automáticas para a Alice");
+
+  const temRespostaDeContato = handshakesDeSaida.some(h => h.out?.rotas?.contato?.sync !== undefined);
+  const temRespostaDeMensagem = handshakesDeSaida.some(h => h.out?.rotas?.mensagem?.data !== undefined);
+
+  assertEquals(temRespostaDeContato, true, "O Bob deve ter enfileirado o envio dos seus dados de perfil para a Alice (Reciprocidade)");
+  assertEquals(temRespostaDeMensagem, true, "O Bob deve ter enfileirado o recibo de 'Entregue' para a Alice (Auto-Ack)");
+});
+```
+
+---
+
+## Arquivo: `tests/handshakes/retry-resilience.test.ts`
+
+```ts
+// tests/handshakes/retry-resilience.test.ts
+/// <reference lib="deno.ns" />
+
+// Injeta o Fake IndexedDB para simular o banco de dados do navegador no Deno
+import "npm:fake-indexeddb@6.0.0/auto";
+
+import { assertEquals, assertExists, assert } from "@std/assert";
+import { 
+  salvarProfile, 
+  salvarContato, 
+  salvarHandshake, 
+  buscarHandshake,
+  serializarPublicKeyVapid,
+  listarHandshakes,
+  removerHandshake
+} from "../../src/utils/db-helpers.ts";
+import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+
+Deno.test("RETRY RESILIENCE: Re-tentativas de mensagem devem anexar dados de contato (Shadow Sync)", async () => {
+  // 🔥 SEGURANÇA CROSS-TEST: Limpa qualquer handshake residual na memória do Fake IndexedDB
+  const handshakesOrfaos = await listarHandshakes();
+  for (const orfao of handshakesOrfaos) {
+    await removerHandshake(orfao.id);
+  }
+
+  // 1. Setup do Profile local (Alice)
+  const localProfile: ProfileConfig = {
+    name: "Alice",
+    email: "alice@test.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "alice-x-coord", y: "alice-y-coord" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "alice-d-priv" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env-alice",
+    e2ePublicKey: { kty: "RSA", n: "alice-rsa-n", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "alice-rsa-d" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/alice",
+      keys: { p256dh: "p256", auth: "auth" },
+      proxyserver: "https://loco.proxy"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(localProfile);
+
+  // 2. Setup do Contato salvo (Bob)
+  const bobVapidPublic: JsonWebKey = { kty: "EC", crv: "P-256", x: "bob-x-coord", y: "bob-y-coord" };
+  const bobHash = await serializarPublicKeyVapid(bobVapidPublic);
+
+  const bobContato: Contato = {
+    id: bobHash,
+    name: "Bob",
+    email: "bob@test.pwa",
+    vapidPublicKey: bobVapidPublic,
+    e2ePublicKey: { kty: "RSA", n: "bob-rsa-n", e: "AQAB" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/bob",
+      keys: { p256dh: "p256-bob", auth: "auth-bob" },
+      proxyserver: "https://loco.proxy"
+    },
+    vapidPrivateKeyEnvelope: "env-bob",
+    trusted: true,
+    me: 'saved', // Supomos que Bob já possui o contato salvo
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(bobContato);
+
+  // 3. Criamos um Handshake de mensagem com tentativas = 1
+  const handshakeRetryId = "handshake-retry-001";
+  const handshakeRetry: Handshake = {
+    id: handshakeRetryId,
+    aud: bobHash,
+    createdAt: Date.now() - 120000,
+    updatedAt: Date.now() - 120000,
+    out: {
+      status: 'pendente',
+      tentativas: 1, // A próxima tentativa será a #2 (Re-tentativa)
+      rotas: {
+        mensagem: {
+          enviada: "msg-retry-123",
+          conteudo: "Tentando novamente entregar esta mensagem!"
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeRetry);
+
+  // 4. Executa o processador da fila de handshakes
+  // A Promise-Mutex garante que aguardaremos eventuais processamentos paralelos de outros testes
+  await processarFilaHandshake();
+
+  // 5. Verifica no IndexedDB se o Handshake teve o perfil injetado e o contador incrementado
+  const handshakeAposProcessamento = await buscarHandshake(handshakeRetryId);
+  assertExists(handshakeAposProcessamento, "O handshake deve existir no banco de dados");
+  
+  // A tentativa deve ter sido incrementada de 1 para 2
+  assertEquals(
+    handshakeAposProcessamento.out!.tentativas, 
+    2, 
+    "O número de tentativas deve ter sido incrementado de 1 para 2"
+  );
+
+  // Verificação de Shadow Sync: A rota de contato DEVE ter sido injetada automaticamente para recuperar o nó destino
+  assertExists(
+    handshakeAposProcessamento.out!.rotas.contato, 
+    "A rota de contato DEVE ter sido injetada para auto-recuperação na re-tentativa"
+  );
+  
+  assertExists(
+    handshakeAposProcessamento.out!.rotas.contato.sync, 
+    "Os dados compactos (sync) do perfil da Alice devem estar presentes na rota de contato injetada"
+  );
+});
+```
+
+---
+
+## Arquivo: `tests/handshakes/bidirectional-deletion.test.ts`
+
+```ts
+// tests/handshakes/bidirectional-deletion.test.ts
+/// <reference lib="deno.ns" />
+
+// Injeta o Fake IndexedDB para simular o banco de dados do navegador no Deno
+import "npm:fake-indexeddb@6.0.0/auto";
+
+import { assertEquals, assertExists, assert } from "@std/assert";
+import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
+import { 
+  salvarProfile, 
+  salvarContato, 
+  salvarHandshake, 
+  buscarHandshake,
+  salvarChat,
+  buscarChat,
+  serializarPublicKeyVapid,
+  removerTodoHistoricoChat
+} from "../../src/utils/db-helpers.ts";
+import type { ProfileConfig, Contato, Handshake, Chat } from "../../src/constants/db.ts";
+
+Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamente com validação de autoridade", async () => {
+  // 1. SETUP DO "BOB" (O usuário local que receberá a ordem de exclusão)
+  const bobProfile: ProfileConfig = {
+    name: "Bob",
+    email: "bob@loco.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "bob-x", y: "bob-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "bob-priv" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env-bob",
+    e2ePublicKey: { kty: "RSA", n: "bob-n", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "bob-rsa-priv" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/bob",
+      keys: { p256dh: "p256", auth: "auth" },
+      proxyserver: "https://loco.proxy"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(bobProfile);
+
+  // 2. SETUP DA "ALICE" (A remetente legítima)
+  const aliceVapidPublic: JsonWebKey = { kty: "EC", crv: "P-256", x: "alice-x", y: "alice-y" };
+  const aliceHash = await serializarPublicKeyVapid(aliceVapidPublic);
+
+  const aliceContato: Contato = {
+    id: aliceHash,
+    name: "Alice",
+    email: "alice@loco.pwa",
+    vapidPublicKey: aliceVapidPublic,
+    e2ePublicKey: { kty: "RSA", n: "alice-n", e: "AQAB" } as JsonWebKey,
+    subscription: { endpoint: "https://push.com/alice", keys: { p256dh: "p256", auth: "auth" } },
+    vapidPrivateKeyEnvelope: "env-alice",
+    trusted: true,
+    me: 'trusted',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(aliceContato);
+  await removerTodoHistoricoChat(aliceHash); // Limpa resíduos
+
+  // 3. SETUP DO "CHARLIE" (O atacante / contato malicioso)
+  const charlieVapidPublic: JsonWebKey = { kty: "EC", crv: "P-256", x: "charlie-x", y: "charlie-y" };
+  const charlieHash = await serializarPublicKeyVapid(charlieVapidPublic);
+
+  const charlieContato: Contato = {
+    id: charlieHash,
+    name: "Charlie",
+    email: "charlie@loco.pwa",
+    vapidPublicKey: charlieVapidPublic,
+    e2ePublicKey: { kty: "RSA", n: "charlie-n", e: "AQAB" } as JsonWebKey,
+    subscription: { endpoint: "https://push.com/charlie", keys: { p256dh: "p256", auth: "auth" } },
+    vapidPrivateKeyEnvelope: "env-charlie",
+    trusted: true,
+    me: 'trusted',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(charlieContato);
+
+  // 4. MENSAGEM NO BANCO: Alice e Bob possuem uma mensagem no histórico
+  const msgTargetId = "msg-alvo-123";
+  const chatAliceBob: Chat = {
+    id: msgTargetId,
+    contatoHash: aliceHash, // A mensagem pertence ao chat com a Alice
+    conteudo: "Mensagem super secreta que precisa sumir!",
+    tipo: 'in', // Alice enviou para Bob
+    createdAt: Date.now(),
+    handshake: "hand-original-001"
+  };
+  await salvarChat(chatAliceBob);
+
+  // VERIFICAÇÃO INICIAL: A mensagem existe no banco do Bob?
+  let msgNoBanco = await buscarChat(msgTargetId);
+  assertExists(msgNoBanco, "A mensagem deve existir inicialmente no banco do Bob");
+
+  // =========================================================================
+  // CENÁRIO 1: SEGURANÇA (Charlie tenta apagar a mensagem da Alice)
+  // =========================================================================
+  
+  const handshakeAtaqueId = "handshake-attack-001";
+  const handshakeAtaque: Handshake = {
+    id: handshakeAtaqueId,
+    aud: charlieHash, // Charlie é o autor do handshake
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: {
+      status: 'recebido',
+      tentativas: 0,
+      rotas: {
+        mensagem: {
+          excluida: msgTargetId // Charlie tenta apagar a mensagem da Alice
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeAtaque);
+
+  // Processa o ataque
+  await ProcessarMensagem({ in: handshakeAtaqueId });
+
+  // A MENSAGEM DEVE CONTINUAR LÁ!
+  msgNoBanco = await buscarChat(msgTargetId);
+  assertExists(msgNoBanco, "FALHA DE SEGURANÇA: A mensagem foi apagada por um contato sem autoridade sobre o chat!");
+
+  // =========================================================================
+  // CENÁRIO 2: CAMINHO FELIZ (Alice manda apagar a própria mensagem do chat)
+  // =========================================================================
+  
+  const handshakeLegitimoId = "handshake-legitimo-001";
+  const handshakeLegitimo: Handshake = {
+    id: handshakeLegitimoId,
+    aud: aliceHash, // Alice é a autora do handshake
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: {
+      status: 'recebido',
+      tentativas: 0,
+      rotas: {
+        mensagem: {
+          excluida: msgTargetId // Alice manda apagar a mensagem dela
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeLegitimo);
+
+  // Processa o pedido legítimo
+  await ProcessarMensagem({ in: handshakeLegitimoId });
+
+  // A MENSAGEM DEVE TER SUMIDO!
+  msgNoBanco = await buscarChat(msgTargetId);
+  assertEquals(msgNoBanco, undefined, "SUCESSO: A mensagem deve ser completamente deletada do IndexedDB quando a ordem vem da contraparte correta.");
 });
 ```
 

@@ -1,0 +1,6 @@
+# 🔥 ARQUITETURA [SPA FALLBACK]:
+# Qualquer rota requisitada que não seja um arquivo físico (imagem, css, js)
+# será redirecionada internamente (Status 200) para o index.html.
+# Isso permite que o roteador do lado do cliente (Preact) assuma o controle.
+
+/*   /index.html   200

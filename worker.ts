@@ -55,23 +55,20 @@ async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PR
 }
 
 async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
-  try {
-    const envelopeText = atob(base64Envelope);
-    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+  // Nota: Não usar try/catch genérico aqui para que o erro suba limpo e ative o fallback de Federação
+  const envelopeText = atob(base64Envelope);
+  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
 
-    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-    const ivBytes = fromHex(iv);
-    const dadosBytes = fromHex(dadosCifrados);
-    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+  const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+  const ivBytes = fromHex(iv);
+  const dadosBytes = fromHex(dadosCifrados);
+  const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
 
-    const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
-    const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-    const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
+  const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
+  const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
 
-    return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
-  } catch (err) {
-    throw new Error(`Falha VAPID E2E: ${err}`);
-  }
+  return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
 }
 
 function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
@@ -155,7 +152,7 @@ const workerHandler = {
       if (method === "POST" && isPushRoute) {
         const contentLength = request.headers.get("content-length");
         if (contentLength && parseInt(contentLength, 10) > 8192) {
-          // console.warn(`🛑 [DEFESA] Payload bloqueado (${contentLength} bytes). Origem: ${request.headers.get("cf-connecting-ip")}`);
+          // [DEFESA] Payload bloqueado (${contentLength} bytes).
           return sendResponse({ success: false, error: "Payload Too Large" }, 413);
         }
         
@@ -164,91 +161,118 @@ const workerHandler = {
         try {
           body = JSON.parse(rawText);
         } catch (e) {
-          // console.warn(`❌ [VALIDAÇÃO] Falha ao processar corpo JSON.`);
+          // [VALIDAÇÃO] Falha ao processar corpo JSON.
           return sendResponse({ success: false, error: "Corpo não é JSON válido." }, 400);
         }
 
         const { subscription, payloadText, vapid } = body;
 
         if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
-          // console.warn(`❌ [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.`);
+          // [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.
           return sendResponse({ success: false, error: "Estrutura P2P Inválida." }, 400);
         }
 
         const jwtClaims = lerMetadadosJJWT(payloadText);
         if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
-          // console.warn(`❌ [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.`);
+          // [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.
           return sendResponse({ success: false, error: "Protocolo JWT Inválido." }, 400);
         }
         
+        // =========================================================================
+        // 🔥 ARQUITETURA INTELIGENTE: Trust the Crypto, not the DNS
+        // =========================================================================
+
         const proxyserverDestino = jwtClaims.proxyserver;
-        
-        // 🔥 ARQUITETURA [SEPARAÇÃO DE LEGADOS]: 
-        // Só tenta federar se houver de fato um proxy destino completo, e que seja diferente de "/".
-        // Isso resolve o problema de contatos antigos sem quebrar URL ou fazer "guessing" no Edge.
-        if (proxyserverDestino) {
-          let destinoUrlObj: URL;
+        let requiresFederationByDns = false;
+        let destinoUrlObj: URL | null = null;
+
+        // 1. Analisa se, teoricamente, precisaríamos federar
+        if (proxyserverDestino && proxyserverDestino !== '/') {
           try {
              const urlFormatada = proxyserverDestino.startsWith('http') ? proxyserverDestino : `https://${proxyserverDestino}`;
              destinoUrlObj = new URL(urlFormatada);
+             if (url.hostname !== destinoUrlObj.hostname) {
+               requiresFederationByDns = true;
+             }
           } catch(e) {
-             // console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
+             console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
              return sendResponse({ success: false, error: "URL de proxy do destino malformada." }, 400);
           }
-
-          if (url.hostname !== destinoUrlObj.hostname) {
-             try {
-                const baseUrl = proxyserverDestino.endsWith('/') ? proxyserverDestino.slice(0, -1) : proxyserverDestino;
-                const urlDestino = `${baseUrl}/push`;
-                
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); 
-                
-                const relayResponse = await fetch(urlDestino, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "text/plain",
-                        "User-Agent": "Loco-Federation-Relay/1.0"
-                    },
-                    body: rawText,
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                
-                if (!relayResponse.ok) {
-                   const contentType = relayResponse.headers.get("content-type") || "";
-                   let errText = "";
-                   
-                   if (relayResponse.status >= 500 || contentType.includes("text/html")) {
-                       errText = `Servidor destino (${destinoUrlObj.hostname}) offline ou recusou conexão.`;
-                   } else {
-                       errText = await relayResponse.text();
-                       errText = errText.replace(/<[^>]*>?/gm, '').replace(/\n|\r/g, " ").substring(0, 100) + "...";
-                   }
-                   throw new Error(errText);
-                }
-                
-                return sendResponse({ success: true, federated: true, target: destinoUrlObj.hostname });
-                
-             } catch (relayErr: any) {
-                // console.error(`❌ [FEDERAÇÃO] Falha ao reencaminhar pacote para ${destinoUrlObj.hostname}: ${relayErr.message}`);
-                return sendResponse({ success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
-             }
-          }
         }
-        
-        // --- Processamento de Push Nativo ---
+
+        // 2. Prova de Posse (Proof of Ownership): Tentamos abrir o cadeado
         let privateKeyFinal = vapid.privateKey;
+        let isMyEnvelope = false;
 
         if (typeof privateKeyFinal === "string") {
           try {
+            // Se não der erro, significa que este Worker possui a chave privada que criou este envelope!
             privateKeyFinal = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
+            isMyEnvelope = true;
           } catch (decryptErr) {
-            // console.warn(`❌ [SEGURANÇA] Falha ao decifrar VAPID. Chave do servidor desincronizada.`);
-            return sendResponse({ success: false, error: "Falha ao descriptografar chave VAPID." }, 400);
+            // O envelope pertence a outro servidor.
+            isMyEnvelope = false;
           }
+        } else {
+          isMyEnvelope = true; // Se não for string, assumimos que já veio limpo/mockado
         }
+
+        // 3. Tomada de Decisão Arquitetural
+        if (requiresFederationByDns && isMyEnvelope) {
+           // [ARQUITETURA] Bypass de Federação! Hostnames diferem (${url.hostname} vs ${destinoUrlObj!.hostname}), mas as chaves combinam. Economizando latência e disparando Push localmente.
+           requiresFederationByDns = false; // Anula a federação
+        }
+
+        if (requiresFederationByDns && !isMyEnvelope && destinoUrlObj) {
+           // [FEDERAÇÃO] Chave incompatível com nó atual. Repassando pacote para o Proxy destino: ${destinoUrlObj.hostname}
+           try {
+              const baseUrl = proxyserverDestino.endsWith('/') ? proxyserverDestino.slice(0, -1) : proxyserverDestino;
+              const urlDestino = `${baseUrl}/push`;
+              
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 10000); 
+              
+              const relayResponse = await fetch(urlDestino, {
+                  method: "POST",
+                  headers: {
+                      "Content-Type": "text/plain",
+                      "User-Agent": "Loco-Federation-Relay/1.0"
+                  },
+                  body: rawText,
+                  signal: controller.signal
+              });
+              
+              clearTimeout(timeoutId);
+              
+              if (!relayResponse.ok) {
+                 const contentType = relayResponse.headers.get("content-type") || "";
+                 let errText = "";
+                 
+                 if (relayResponse.status >= 500 || contentType.includes("text/html")) {
+                     errText = `Servidor destino (${destinoUrlObj.hostname}) offline ou recusou conexão.`;
+                 } else {
+                     errText = await relayResponse.text();
+                     errText = errText.replace(/<[^>]*>?/gm, '').replace(/\n|\r/g, " ").substring(0, 100) + "...";
+                 }
+                 throw new Error(errText);
+              }
+              
+              return sendResponse({ success: true, federated: true, target: destinoUrlObj.hostname });
+              
+           } catch (relayErr: any) {
+              // [FEDERAÇÃO] Falha ao reencaminhar pacote: ${relayErr.message}
+              return sendResponse({ success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
+           }
+        }
+
+        if (!isMyEnvelope && !requiresFederationByDns) {
+           // [SEGURANÇA] Falha crítica: O envelope VAPID não nos pertence, e não existe rota de federação configurada.
+           return sendResponse({ success: false, error: "Falha ao descriptografar chave VAPID. Nó incorreto." }, 400);
+        }
+
+        // =========================================================================
+        // 🚀 Processamento Final (Disparo Local Nativo)
+        // =========================================================================
 
         let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
         let vapidKeys = await webpush.importVapidKeys(jwkKeys);
@@ -264,19 +288,19 @@ const workerHandler = {
         try {
           await subscriber.pushTextMessage(payloadText, {});
         } catch (pushErr: any) {
-          // console.error(`❌ [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}`);
+          // [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}
           throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
         }
 
         return sendResponse({ success: true });
       }
 
-      //console.warn(`⚠️ [404] Rota não mapeada tentou ser acessada: ${pathname}`);
+      // [404] Rota não mapeada tentou ser acessada: ${pathname}
       return sendResponse({ error: "Endpoint não encontrado." }, 404);
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`❌ [WORKER EXCEPTION]: ${errorMessage}`);
+      // [WORKER EXCEPTION]: ${errorMessage}
       
       const errHeaders = new Headers(corsHeaders);
       errHeaders.set("Content-Type", "application/json");

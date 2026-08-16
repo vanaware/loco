@@ -36,11 +36,23 @@ interface BundleOptions {
   jsxFragment?: string;
 }
 
-async function incrementVersion(): Promise<string> {
+async function incrementVersion(skipIncrement: boolean = false): Promise<string> {
   const denoJsoncPath = "deno.jsonc";
   let content = await Deno.readTextFile(denoJsoncPath);
   let currentVersion = "0.0.0";
   
+  if (skipIncrement) {
+    // 🔥 ARQUITETURA [READ-ONLY]: O hash do cache já faz parte da versão (ex: 0.2.148-msv0okam).
+    // Apenas lemos a string atual e repassamos, sem tocar no sistema de arquivos.
+    const match = content.match(/"version"\s*:\s*"([^"]+)"/);
+    if (match && match[1]) {
+      currentVersion = match[1];
+    }
+    console.log(`📌 Parâmetro 'noversion' detectado. Mantendo versão e hash de cache intactos: v${currentVersion}`);
+    return currentVersion;
+  }
+
+  // 📈 Fluxo Normal: Incrementa o Patch e gera novo hash de cache (Cache Buster)
   const buildHash = Date.now().toString(36);
 
   content = content.replace(/"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9]+)?"/, (_match, major, minor, patch) => {
@@ -191,8 +203,6 @@ async function listarAssetsParaCache(): Promise<string[]> {
     if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
       let webPath = entry.path.replace(join(BUILD_DIR,DIST_DIR), "").replace(/\\/g, "/");
       
-      // 🔥 ARQUITETURA: Garante que os caminhos gerados para o cache sejam relativos.
-      // Substitui "/index.html" por "./index.html" para rodar em subdiretórios.
       if (webPath.startsWith('/')) {
         webPath = '.' + webPath;
       } else {
@@ -206,10 +216,14 @@ async function listarAssetsParaCache(): Promise<string[]> {
 }
 
 async function build() {
+  // 🔥 LÊ ARGUMENTOS DA CLI: Identifica se "noversion" foi passado
+  const args = Deno.args.map(a => a.toLowerCase().replace(/^-+/, ''));
+  const skipVersionIncrement = args.includes('noversion');
+
   console.log("\n🚀 Iniciando build Loco ...\n");
   const start = performance.now();
 
-  const appVersion = await incrementVersion();
+  const appVersion = await incrementVersion(skipVersionIncrement);
   await gerarOuCarregarChavesServidor();
   await clean();
   await copyStaticAndSyncManifest(appVersion);

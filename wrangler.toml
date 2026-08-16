@@ -16,10 +16,10 @@ compatibility_date = "2026-06-01"
 # routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
 
 # Configuração moderna para servir arquivos estáticos junto com o Worker
-[assets]
+# [assets]
 # Diretório onde estão os arquivos estáticos do PWA
-directory = "build/dist"
-binding = "ASSETS" 
+# directory = "build/dist"
+# binding = "ASSETS" 
 
 # OPCIONAL: Variáveis de ambiente que seu proxy cego do FCM possa precisar
 [vars]
