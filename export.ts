@@ -64,7 +64,7 @@ function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): bool
     return caminhoRelativo.startsWith("tests/") || caminhoRelativo.startsWith("tests\\");
   } else {
     // Modo MAIN (Padrão): Pega arquivos da raiz e pastas src/ e public/
-    const arquivosRaizPermitidos = ["main.ts", "worker.ts", "build.ts", "deno.json", "deno.jsonc", "wrangler.toml", "wrangler-worker.toml", "deploy.sh"];
+    const arquivosRaizPermitidos = ["main.ts", "worker.ts", "build.ts", "deno.json", "deno.jsonc", "wrangler.toml", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"];
     
     if (arquivosRaizPermitidos.includes(caminhoRelativo)) {
       return true;

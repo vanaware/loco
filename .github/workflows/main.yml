@@ -46,7 +46,7 @@ jobs:
           name: deployment-package
           path: |
             build.zip
-            wrangler.toml
+            wrangler-pages.toml
             wrangler-worker.toml
           if-no-files-found: error
           retention-days: 1
@@ -137,4 +137,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # 🔥 Comando 100% limpo: o Wrangler Actions lerá o wrangler.toml nativamente!
-          command: pages deploy
+          command: pages deploy -c wrangler-pages.toml

@@ -107,7 +107,7 @@ elif [ "$AT" = "cloudflare" ]; then
   echo ""
   echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
   # O Pages lê tudo nativamente do wrangler.toml
-  deno run -A npm:wrangler pages deploy
+  deno run -A npm:wrangler pages deploy -c wrangler-pages.toml
 
   echo ""
   echo "✅ DEPLOY DIRETO NA CLOUDFLARE CONCLUÍDO COM SUCESSO!"
