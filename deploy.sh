@@ -107,7 +107,13 @@ elif [ "$AT" = "cloudflare" ]; then
   echo ""
   echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
   # O Pages lê tudo nativamente do wrangler.toml
-  deno run -A npm:wrangler pages deploy -c wrangler-pages.toml
+  # Criamos uma cópia temporária do wrangler-pages.toml para satisfazer a CLI da Cloudflare
+  cp wrangler-pages.toml wrangler.toml
+  
+  deno run -A npm:wrangler pages deploy --commit-dirty=true
+  
+  # Limpamos o rastro para o repositório continuar limpo e organizado
+  rm wrangler.toml
 
   echo ""
   echo "✅ DEPLOY DIRETO NA CLOUDFLARE CONCLUÍDO COM SUCESSO!"

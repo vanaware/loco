@@ -120,10 +120,13 @@ jobs:
           # 🔥 Passa explicitamente a configuração do backend
           command: deploy --name loco -c wrangler-worker.toml
 
+      - name: Prepare Pages Config
+        run: mv wrangler-pages.toml wrangler.toml
+
       - name: Deploy do Frontend (Cloudflare Pages)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # 🔥 Comando 100% limpo: o Wrangler Actions lerá o wrangler.toml nativamente!
-          command: pages deploy -c wrangler-pages.toml
+          command: pages deploy

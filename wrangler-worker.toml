@@ -4,7 +4,14 @@
 
 name = "loco"
 main = "build/worker.js"
-compatibility_date = "2026-06-01"
+compatibility_date = "2026-08-16"
+workers_dev = true
+preview_urls = true
+
+[[routes]]
+pattern = "proxy.vanaware.com"
+custom_domain = true
+zone_name = "vanaware.com"
 
 [vars]
 PROXY_PATH = '/'
