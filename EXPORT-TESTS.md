@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.150-msv17qyy** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.154-msv39jfk** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.150-msv17qyy] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.2.154-msv39jfk] - Modo: TESTS
 
-Gerado automaticamente em: 8/15/2026, 8:53:34 PM
+Gerado automaticamente em: 8/15/2026, 9:57:09 PM
 
 ---
 
@@ -1177,6 +1177,118 @@ Deno.test("Share Utils - Reciprocidade na troca de contatos via cJWT", async () 
   );
 
   console.log("✅ Teste de reciprocidade passou!");
+});
+```
+
+---
+
+## Arquivo: `tests/utils/id-utils.test.ts`
+
+```ts
+// tests/id-utils.test.ts
+import { assert, assertEquals, assertNotEquals } from "@std/assert";
+import { gerarId, gerarIdFallback, validarId } from "../../src/utils/id-utils.ts";
+
+Deno.test("gerarId - Deve gerar um ID no formato string e com tamanho adequado", () => {
+  const id = gerarId();
+  
+  assert(typeof id === "string", "O ID gerado deve ser uma string");
+  assert(id.length > 0 && id.length <= 24, "O tamanho do ID deve estar entre 1 e 24 caracteres");
+});
+
+Deno.test("gerarId - Não deve gerar IDs duplicados em chamadas sequenciais", () => {
+  const id1 = gerarId();
+  const id2 = gerarId();
+  
+  assertNotEquals(id1, id2, "IDs gerados sequencialmente não podem ser idênticos");
+});
+
+Deno.test("gerarIdFallback - Deve funcionar como alternativa segura", () => {
+  const idFallback = gerarIdFallback();
+  
+  assert(typeof idFallback === "string", "O ID de fallback deve ser uma string");
+  assert(idFallback.length > 0, "O ID de fallback não pode ser vazio");
+});
+
+Deno.test("validarId - Deve validar corretamente limites de tamanho", () => {
+  const idValido = gerarId();
+  const idInvalidoLongo = "a".repeat(25); // Mais de 24 caracteres
+  const idInvalidoVazio = "";
+
+  assertEquals(validarId(idValido), true, "Deve aceitar um ID gerado pela própria função");
+  assertEquals(validarId(idInvalidoLongo), false, "Não deve aceitar IDs maiores que 24 caracteres");
+  assertEquals(validarId(idInvalidoVazio), false, "Não deve aceitar IDs vazios");
+});
+```
+
+---
+
+## Arquivo: `tests/utils/crypto-utils.test.ts`
+
+```ts
+// tests/crypto-utils.test.ts
+import { assertEquals, assert } from "@std/assert";
+import { 
+  minifyVapidPublic, expandVapidPublic,
+  minifyRsaPublic, expandRsaPublic
+} from "../../src/utils/crypto-utils.ts";
+
+Deno.test("Crypto Utils - Minificação e Expansão de VAPID Public (ECDSA P-256)", () => {
+  const mockJwkOriginal: JsonWebKey = {
+    kty: "EC",
+    crv: "P-256",
+    x: "base64Url_String_X_Aqui_Ficticia",
+    y: "base64Url_String_Y_Aqui_Ficticia",
+    ext: true,
+    key_ops: ["verify"]
+  };
+
+  // Minifica: Deve sobrar apenas X e Y
+  const minified = minifyVapidPublic(mockJwkOriginal);
+  assert(minified.x === mockJwkOriginal.x, "Deve conter a coordenada X");
+  assert(minified.y === mockJwkOriginal.y, "Deve conter a coordenada Y");
+  assert(minified.kty === undefined, "Não deve conter o kty");
+  assert(minified.crv === undefined, "Não deve conter a curva");
+
+  // Expande: Deve reconstruir a chave perfeitamente
+  const expanded = expandVapidPublic(minified);
+  assertEquals(expanded.kty, "EC");
+  assertEquals(expanded.crv, "P-256");
+  assertEquals(expanded.x, mockJwkOriginal.x);
+  assertEquals(expanded.y, mockJwkOriginal.y);
+  assertEquals(expanded.ext, true);
+  assertEquals(expanded.key_ops, ["verify"]);
+});
+
+Deno.test("Crypto Utils - Minificação e Expansão de RSA Public", () => {
+  const mockRsaOriginal: JsonWebKey = {
+    kty: "RSA",
+    alg: "RSA-OAEP-256",
+    e: "AQAB",
+    n: "modulo_matematico_gigante_aqui",
+    ext: true,
+    key_ops: ["encrypt"]
+  };
+
+  // Minifica: Só o módulo 'n' importa em chaves RSA-OAEP padronizadas
+  const minified = minifyRsaPublic(mockRsaOriginal);
+  assert(minified.n === mockRsaOriginal.n, "Deve reter o módulo N");
+  assert(minified.kty === undefined, "Deve omitir a tipagem kty");
+
+  // Expande: Reconstrói o esquema
+  const expanded = expandRsaPublic(minified);
+  assertEquals(expanded.kty, "RSA");
+  assertEquals(expanded.alg, "RSA-OAEP-256");
+  assertEquals(expanded.e, "AQAB");
+  assertEquals(expanded.n, mockRsaOriginal.n);
+});
+
+Deno.test("Crypto Utils - Expansão de chave já expandida (Idempotência)", () => {
+  const jwk: JsonWebKey = { kty: "RSA", n: "123", e: "AQAB" };
+  const expanded = expandRsaPublic(jwk);
+  
+  // Se eu passar algo que já tem 'kty', ele não deve tentar reconstruir o que não precisa
+  assertEquals(expanded, jwk, "A função de expansão deve ser idempotente se a chave não estiver minificada");
 });
 ```
 

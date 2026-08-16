@@ -1,5 +1,5 @@
 // src/stores/mensagensStore.ts
-import { signal } from '@preact/signals';
+import { signal, batch } from '@preact/signals';
 import { listarChatPaginado, salvarChat, buscarChat } from '../utils/db-helpers.ts';
 import type { Chat } from '../constants/db.ts';
 import { contatoSelecionado } from '../signals/state.ts';
@@ -8,9 +8,11 @@ import { contatoSelecionado } from '../signals/state.ts';
 export const mensagensAtivas = signal<Chat[]>([]);
 export const hasMoreMessages = signal<boolean>(true);
 
+// 🔥 ARQUITETURA: Expondo o estado de Fetch para UI renderizar os spinners corretamente
+export const isFetchingMensagens = signal<boolean>(false);
+
 const PAGE_SIZE = 30;
 let currentOffset = 0;
-let isFetching = false;
 
 /**
  * Reseta e carrega a primeira página de mensagens do contato selecionado.
@@ -18,8 +20,11 @@ let isFetching = false;
 export async function inicializarChat(contatoHash: string) {
   // Reset de estado
   currentOffset = 0;
-  hasMoreMessages.value = true;
-  mensagensAtivas.value = [];
+  
+  batch(() => {
+    hasMoreMessages.value = true;
+    mensagensAtivas.value = [];
+  });
   
   await carregarMaisMensagens(contatoHash);
 }
@@ -28,33 +33,32 @@ export async function inicializarChat(contatoHash: string) {
  * Lazy Loader: Busca a próxima fatia do IndexedDB e empurra para a RAM.
  */
 export async function carregarMaisMensagens(contatoHash: string) {
-  // Bloqueio preventivo
-  if (isFetching || !hasMoreMessages.value) return;
+  if (isFetchingMensagens.value || !hasMoreMessages.value) return;
   
-  isFetching = true;
+  isFetchingMensagens.value = true;
 
   try {
     const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
     
-    // 🔥 SEGURANÇA: Verificação de contexto
-    // Se o usuário mudou o contato durante o await, descartamos os dados do contato anterior.
+    // SEGURANÇA: Verificação de contexto
     if (contatoHash !== contatoSelecionado.value) {
       return; 
     }
     
-    if (novas.length < PAGE_SIZE) {
-      hasMoreMessages.value = false;
-    }
+    // 🔥 ARQUITETURA: Batching previne flickering da UI quando o array e a flag alteram juntos
+    batch(() => {
+      if (novas.length < PAGE_SIZE) {
+        hasMoreMessages.value = false;
+      }
 
-    if (novas.length > 0) {
-      currentOffset += novas.length;
-      
-      // Adicionamos as antigas no início, preservando a ordem cronológica
-      const unificadas = [...novas, ...mensagensAtivas.value];
-      mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
-    }
+      if (novas.length > 0) {
+        currentOffset += novas.length;
+        const unificadas = [...novas, ...mensagensAtivas.value];
+        mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
+      }
+    });
   } finally {
-    isFetching = false;
+    isFetchingMensagens.value = false;
   }
 }
 
@@ -62,7 +66,6 @@ export async function carregarMaisMensagens(contatoHash: string) {
  * Atualização Otimista O(1): Insere/Atualiza diretamente na memória sem engasgar o app
  */
 export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
-  // 1. Atualiza memória apenas se o chat pertencer ao contato que está na tela
   if (chat.contatoHash === contatoSelecionado.value) {
     const atual = mensagensAtivas.value;
     const index = atual.findIndex(m => m.id === chat.id);
@@ -72,13 +75,11 @@ export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
       nova[index] = chat;
       mensagensAtivas.value = nova;
     } else {
-      // É nova, empurra pro final da fila e soma no offset
       mensagensAtivas.value = [...atual, chat];
       currentOffset += 1;
     }
   }
 
-  // 2. Persiste assincronamente no DB
   await salvarChat(chat);
 }
 

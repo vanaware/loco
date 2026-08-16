@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { contatoSelecionado, showToast } from '../signals/state.ts';
 import { gerarId } from '../utils/id-utils.ts';
-import { mensagensAtivas, hasMoreMessages, inicializarChat, carregarMaisMensagens, atualizarOuAdicionarChatAtivo } from '../stores/mensagensStore.ts';
+import { mensagensAtivas, hasMoreMessages, isFetchingMensagens, inicializarChat, carregarMaisMensagens, atualizarOuAdicionarChatAtivo } from '../stores/mensagensStore.ts';
 import type { Chat } from '../constants/db.ts';
 
 export function ChatSection() {
@@ -11,7 +11,6 @@ export function ChatSection() {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const isScrolledUp = useSignal<boolean>(false);
 
-  // Efeito principal: Quando o contato muda, reseta a paginação e carrega
   useEffect(() => {
     if (contatoSelecionado.value) {
       inicializarChat(contatoSelecionado.value).then(() => {
@@ -19,12 +18,10 @@ export function ChatSection() {
       });
     }
 
-    // Escuta PostMessages do SW para atualizações em tempo real (Push recebido, Auto-Ack)
     const handleMessage = (e: MessageEvent) => {
       if (e.data?.type === 'CHAT_ATUALIZADO' && e.data?.payload?.chatId) {
         import('../stores/mensagensStore.ts').then(m => {
            m.processarAtualizacaoDeStatusDB(e.data.payload.chatId).then(() => {
-             // Só rola pra baixo automaticamente se o usuário não tiver subido a tela lendo o histórico
              if (!isScrolledUp.value) rolarParaFim();
            });
         });
@@ -49,16 +46,11 @@ export function ChatSection() {
     }, force ? 10 : 100);
   };
 
-  // Observa o scroll para disparar Lazy Loading quando chegar no topo
   const handleScroll = (e: Event) => {
     const target = e.target as HTMLDivElement;
-    
-    // Se o usuário subiu a barra mais que 100px, não forçamos mais a rolagem
     isScrolledUp.value = target.scrollHeight - target.scrollTop - target.clientHeight > 100;
 
-    // Se chegou perto do topo, carrega a página anterior (histórico antigo)
     if (target.scrollTop < 50 && hasMoreMessages.value) {
-      // Guarda a altura antes de carregar para manter a barra no mesmo lugar visual
       const oldHeight = target.scrollHeight;
       carregarMaisMensagens(contatoSelecionado.value).then(() => {
         requestAnimationFrame(() => {
@@ -76,13 +68,11 @@ export function ChatSection() {
     
     if (!texto || !hashAtivo) return;
     
-    // Limpa a caixa de texto e gera os IDs
     inputText.value = ''; 
     const msgId = gerarId();
     const handshakeId = gerarId();
     const agora = Date.now();
 
-    // 1. Atualização Otimista Imediata (O usuário vê a mensagem antes mesmo do SW rodar)
     const novaMensagem: Chat = {
       id: msgId,
       contatoHash: hashAtivo,
@@ -99,7 +89,6 @@ export function ChatSection() {
       const reg = await navigator.serviceWorker.ready;
       if (!reg.active) throw new Error("Service Worker inativo");
 
-      // 2. Delega a blindagem e o despacho para a Thread do SW
       reg.active.postMessage({
         type: 'CRIAR_HANDSHAKE_OUT',
         payload: {
@@ -119,9 +108,8 @@ export function ChatSection() {
     }
   };
 
-  // Helper Inteligente Baseado em Timestamps
   const renderStatus = (msg: Chat) => {
-    if (msg.tipo === 'in') return null; // Recebidas não exibem tique do nosso lado
+    if (msg.tipo === 'in') return null;
 
     if (msg.errorAt) {
       return <md-icon title="Falha no envio" style="font-size: 14px; color: var(--md-sys-color-error);">error</md-icon>;
@@ -142,21 +130,20 @@ export function ChatSection() {
   return (
     <div style="display: flex; flex-direction: column; height: 100%; flex-grow: 1; overflow: hidden;">
       
-      {/* Área de rolagem das mensagens */}
       <div 
         ref={chatScrollRef}
         onScroll={handleScroll}
         style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
       >
         
-        {/* Indicador de Loading para paginação */}
-        {hasMoreMessages.value && mensagensAtivas.value.length > 0 && (
-           <div style="text-align: center; color: #888; font-size: 0.8rem; padding: 10px;">
-             Carregando histórico antigo...
+        {/* 🔥 ARQUITETURA: Agora utilizamos um componente visual do Material Design */}
+        {isFetchingMensagens.value && (
+           <div style="text-align: center; padding: 10px;">
+             <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
            </div>
         )}
 
-        {mensagensAtivas.value.length === 0 ? (
+        {!isFetchingMensagens.value && mensagensAtivas.value.length === 0 ? (
           <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">
             Nenhuma mensagem. Diga um "Olá" (criptografado)! 🔒
           </div>
@@ -194,7 +181,6 @@ export function ChatSection() {
         )}
       </div>
 
-      {/* Input e Barra inferior */}
       <div style="flex-shrink: 0; padding: 12px 16px; background: var(--md-sys-color-surface); border-top: 1px solid var(--md-sys-color-outline-variant); display: flex; gap: 8px; align-items: flex-end;">
         <md-outlined-text-field
           style="flex-grow: 1; margin-bottom: 0;"

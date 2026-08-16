@@ -20,6 +20,8 @@ import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
 
 export type { Contato };
 
+// 🔥 ARQUITETURA: Signal para o loading durante a carga de contatos
+export const isCarregandoContatos = signal<boolean>(false);
 export const contatosRaw = signal<Contato[]>([]);
 
 export const contatosComHash = computed(() => {
@@ -38,10 +40,10 @@ export const contatosMap = computed(() => {
 });
 
 export async function carregarContatos(): Promise<void> {
+  isCarregandoContatos.value = true;
   try {
     const lista = await listarContatos();
     
-    // 🔥 Carrega o contato próprio (baseado no profile) e adiciona à lista
     const profile = await buscarProfile();
     if (profile) {
       const contatoProprio = await gerarContatoProprio(profile);
@@ -59,6 +61,8 @@ export async function carregarContatos(): Promise<void> {
     addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
+  } finally {
+    isCarregandoContatos.value = false;
   }
 }
 
@@ -103,7 +107,6 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   });
 }
 
-// Retrocompatibilidade (Chamará o expurgo completo internamente)
 export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
     const hash = await serializarPublicKeyVapid(vapidPublicKey);
@@ -113,26 +116,21 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
   }
 }
 
-// 🔥 ARQUITETURA: Orquestrador Central de Expurgo (Wipeout)
 export async function removerContatoCompletamente(hash: string): Promise<void> {
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
 
-    // 1. Remove da UI localmente primeiro (Optimistic Update)
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
-    // 2. Aciona os expurgos modulares para limpar as entranhas da máquina de estados
     await ExpurgarMensagens(hash);
     await ExpurgarHandshakesContato(hash);
     await ExpurgarHandshakesProfile(hash);
     
-    // 3. (Fallback de Segurança) Limpa também qualquer handshake genérico órfão desse aud
     const handshakes = await listarHandshakes();
     for (const h of handshakes) {
       if (h.aud === hash) await removerHandshake(h.id);
     }
 
-    // 4. Remove o contato físico do banco de dados de contatos
     await removerContatoPorHash(hash);
     
     addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);

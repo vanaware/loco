@@ -3,7 +3,7 @@ import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
 
-import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profile, isSavingProfile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
 import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
 import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
 import { cifrarChaveVapid } from '../utils/push-utils.ts';
@@ -34,7 +34,6 @@ export function ProfileSection() {
     const renderQrCode = async () => {
       if (!p) return;
       try {
-        // 🔥 Agora suporta Assíncrono perfeitamente
         const payloadBinario = await gerarPayloadQrCodeCompacto(p);
         const qr = qrcode(0, 'L');
         qr.addData(payloadBinario);
@@ -55,7 +54,12 @@ export function ProfileSection() {
 
   const handleGerarOuCorrigir = async () => {
     const eraNovo = !temChaveVapid;
+    // Bloqueio extra via lógica caso o botão seja burlado
+    if (isSavingProfile.value) return; 
+
     try {
+      // Como a geração demora (chaves Crypto), ativamos o lock manualmente antes da store
+      isSavingProfile.value = true;
       const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
       await atualizarProfile(pNovo);
       
@@ -70,6 +74,8 @@ export function ProfileSection() {
     } catch (err: any) {
       addDebugLog(`❌ Erro no processo: ${err.message}`);
       showToast(`❌ Falha: ${err.message}`, "error");
+    } finally {
+      isSavingProfile.value = false;
     }
   };
 
@@ -136,6 +142,7 @@ export function ProfileSection() {
               placeholder="Ex: João da Silva"
               value={profileName.value}
               onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+              disabled={isSavingProfile.value}
             ></md-outlined-text-field>
             
             <md-outlined-text-field
@@ -143,19 +150,24 @@ export function ProfileSection() {
               placeholder="Ex: joao@email.com"
               value={profileEmail.value}
               onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+              disabled={isSavingProfile.value}
             ></md-outlined-text-field>
 
             <div style="display: flex; gap: 8px; margin-top: 8px;">
               <md-filled-button 
                 onClick={handleGerarOuCorrigir} 
                 style="flex: 1;"
-                disabled={!profileName.value.trim() ? true : undefined}
+                disabled={!profileName.value.trim() || isSavingProfile.value ? true : undefined}
               >
-                {!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar"}
+                {isSavingProfile.value ? "⏳ Salvando..." : (!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar")}
               </md-filled-button>
               
               {temChaveVapid && (
-                <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
+                <md-outlined-button 
+                  onClick={handleCancelarEdicao} 
+                  style="flex: 1;"
+                  disabled={isSavingProfile.value ? true : undefined}
+                >
                   Cancelar
                 </md-outlined-button>
               )}

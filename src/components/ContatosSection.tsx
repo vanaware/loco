@@ -1,5 +1,5 @@
 import { useEffect } from 'preact/hooks';
-import { contatosComHash, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { contatosComHash, isCarregandoContatos, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
 import { showToast } from '../signals/state.ts';
 import { navigate } from '../utils/router.ts';
 
@@ -16,7 +16,6 @@ export function ContatosSection() {
   };
 
   return (
-    /* 🔥 ARQUITETURA: Removido a classe .container. Agora é um layout fluido nativo. */
     <div style="display: flex; flex-direction: column; width: 100%;">
       
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
@@ -29,7 +28,12 @@ export function ContatosSection() {
       </div>
       
       <div style="max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 4px;">
-        {contatosComHash.value.length === 0 ? (
+        {/* 🔥 ARQUITETURA: Spinner condicionado ao novo signal 'isCarregandoContatos' */}
+        {isCarregandoContatos.value && contatosComHash.value.length === 0 ? (
+          <div style="display: flex; justify-content: center; padding: 24px;">
+            <md-circular-progress indeterminate></md-circular-progress>
+          </div>
+        ) : contatosComHash.value.length === 0 ? (
           <p style="padding: 16px 8px; color: var(--md-sys-color-on-surface-variant); text-align: center; margin: 0; font-size: 0.85rem;">
             Nenhum contato adicionado.
           </p>
@@ -58,7 +62,6 @@ export function ContatosSection() {
                     {contato.email || 'Sem e-mail'}
                   </span>
                   
-                  {/* 🔥 Ajustado para ícones menores na lista para caber melhor em telas estreitas */}
                   <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
                     <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
                       <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>

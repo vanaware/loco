@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.152-msv2mo7j** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.153-msv2zuvd** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.152-msv2mo7j] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.153-msv2zuvd] - Modo: MAIN
 
-Gerado automaticamente em: 8/15/2026, 9:33:20 PM
+Gerado automaticamente em: 8/15/2026, 9:50:47 PM
 
 ---
 
@@ -1061,434 +1061,6 @@ export function SettingsSection() {
 
 ---
 
-## Arquivo: `src/components/ProfileSection.tsx`
-
-```tsx
-// src/components/ProfileSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
-import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-import { navigate } from '../utils/router.ts';
-
-export function ProfileSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const p = profile.value;
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
-
-  useEffect(() => {
-    if (!temChaveVapid) {
-      isEditing.value = true;
-    } else {
-      isEditing.value = false;
-    }
-  }, [temChaveVapid]);
-
-  useEffect(() => {
-    const renderQrCode = async () => {
-      if (!p) return;
-      try {
-        // 🔥 Agora suporta Assíncrono perfeitamente
-        const payloadBinario = await gerarPayloadQrCodeCompacto(p);
-        const qr = qrcode(0, 'L');
-        qr.addData(payloadBinario);
-        qr.make();
-        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
-      } catch (e) {
-        console.error("Falha ao gerar QR Code:", e);
-        qrCodeDataUrl.value = null;
-      }
-    };
-
-    if (temChaveVapid) {
-      renderQrCode();
-    } else {
-      qrCodeDataUrl.value = null;
-    }
-  }, [p, temChaveVapid]);
-
-  const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
-    try {
-      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      await atualizarProfile(pNovo);
-      
-      isEditing.value = false;
-
-      if (eraNovo) {
-        showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        navigate(''); 
-      } else {
-        showToast(`✅ Perfil atualizado!`, "success");
-      }
-    } catch (err: any) {
-      addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    if (p) {
-      profileName.value = p.name || '';
-      profileEmail.value = p.email || '';
-    }
-    isEditing.value = false;
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      if (!p) return showToast("Salve o perfil primeiro.", "error");
-      const serverPublicKeyJwk = await getServerPublicKey();
-
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
-
-      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      
-      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>account_circle</md-icon> Identidade Local
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {temChaveVapid && !isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-          </div>
-        </div>
-
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
-            
-            {!temChaveVapid && (
-               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
-                 Este nome será visível para os contatos que você convidar.
-               </p>
-            )}
-
-            <md-outlined-text-field
-              label="Seu Nome"
-              placeholder="Ex: João da Silva"
-              value={profileName.value}
-              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-            
-            <md-outlined-text-field
-              label="Seu E-mail (Opcional)"
-              placeholder="Ex: joao@email.com"
-              value={profileEmail.value}
-              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-              <md-filled-button 
-                onClick={handleGerarOuCorrigir} 
-                style="flex: 1;"
-                disabled={!profileName.value.trim() ? true : undefined}
-              >
-                {!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar"}
-              </md-filled-button>
-              
-              {temChaveVapid && (
-                <md-outlined-button onClick={handleCancelarEdicao} style="flex: 1;">
-                  Cancelar
-                </md-outlined-button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {p?.name?.trim() || "Anônimo"}
-            </h2>
-            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Compartilhar Link de Convite
-              </md-outlined-button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
-        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
-            Seu QR Code
-          </h3>
-          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
-            Mostre isso para um amigo escanear pelo App Loco.
-          </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
-        </div>
-      )}
-
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/ChatSection.tsx`
-
-```tsx
-// src/components/ChatSection.tsx
-import { useEffect, useRef } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { contatoSelecionado, showToast } from '../signals/state.ts';
-import { gerarId } from '../utils/id-utils.ts';
-import { mensagensAtivas, hasMoreMessages, inicializarChat, carregarMaisMensagens, atualizarOuAdicionarChatAtivo } from '../stores/mensagensStore.ts';
-import type { Chat } from '../constants/db.ts';
-
-export function ChatSection() {
-  const inputText = useSignal<string>('');
-  const chatScrollRef = useRef<HTMLDivElement>(null);
-  const isScrolledUp = useSignal<boolean>(false);
-
-  // Efeito principal: Quando o contato muda, reseta a paginação e carrega
-  useEffect(() => {
-    if (contatoSelecionado.value) {
-      inicializarChat(contatoSelecionado.value).then(() => {
-        rolarParaFim();
-      });
-    }
-
-    // Escuta PostMessages do SW para atualizações em tempo real (Push recebido, Auto-Ack)
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data?.type === 'CHAT_ATUALIZADO' && e.data?.payload?.chatId) {
-        import('../stores/mensagensStore.ts').then(m => {
-           m.processarAtualizacaoDeStatusDB(e.data.payload.chatId).then(() => {
-             // Só rola pra baixo automaticamente se o usuário não tiver subido a tela lendo o histórico
-             if (!isScrolledUp.value) rolarParaFim();
-           });
-        });
-      }
-    };
-    
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleMessage);
-    }
-    return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleMessage);
-      }
-    };
-  }, [contatoSelecionado.value]);
-
-  const rolarParaFim = (force = false) => {
-    setTimeout(() => {
-      if (chatScrollRef.current) {
-        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-      }
-    }, force ? 10 : 100);
-  };
-
-  // Observa o scroll para disparar Lazy Loading quando chegar no topo
-  const handleScroll = (e: Event) => {
-    const target = e.target as HTMLDivElement;
-    
-    // Se o usuário subiu a barra mais que 100px, não forçamos mais a rolagem
-    isScrolledUp.value = target.scrollHeight - target.scrollTop - target.clientHeight > 100;
-
-    // Se chegou perto do topo, carrega a página anterior (histórico antigo)
-    if (target.scrollTop < 50 && hasMoreMessages.value) {
-      // Guarda a altura antes de carregar para manter a barra no mesmo lugar visual
-      const oldHeight = target.scrollHeight;
-      carregarMaisMensagens(contatoSelecionado.value).then(() => {
-        requestAnimationFrame(() => {
-          if (chatScrollRef.current) {
-            chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight - oldHeight;
-          }
-        });
-      });
-    }
-  };
-
-  const handleEnviar = async () => {
-    const texto = inputText.value.trim();
-    const hashAtivo = contatoSelecionado.value;
-    
-    if (!texto || !hashAtivo) return;
-    
-    // Limpa a caixa de texto e gera os IDs
-    inputText.value = ''; 
-    const msgId = gerarId();
-    const handshakeId = gerarId();
-    const agora = Date.now();
-
-    // 1. Atualização Otimista Imediata (O usuário vê a mensagem antes mesmo do SW rodar)
-    const novaMensagem: Chat = {
-      id: msgId,
-      contatoHash: hashAtivo,
-      conteudo: texto,
-      tipo: 'out',
-      createdAt: agora,
-      handshake: handshakeId
-    };
-    
-    await atualizarOuAdicionarChatAtivo(novaMensagem);
-    rolarParaFim(true);
-
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg.active) throw new Error("Service Worker inativo");
-
-      // 2. Delega a blindagem e o despacho para a Thread do SW
-      reg.active.postMessage({
-        type: 'CRIAR_HANDSHAKE_OUT',
-        payload: {
-          rotasModulo: 'mensagem',
-          params: { function: 'enviarMensagem', contato: hashAtivo, conteudo: texto, msgId, handshakeId, createdAt: agora }
-        }
-      });
-    } catch (err: any) {
-      showToast(`❌ Erro de thread: ${err.message}`, "error");
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleEnviar();
-    }
-  };
-
-  // Helper Inteligente Baseado em Timestamps
-  const renderStatus = (msg: Chat) => {
-    if (msg.tipo === 'in') return null; // Recebidas não exibem tique do nosso lado
-
-    if (msg.errorAt) {
-      return <md-icon title="Falha no envio" style="font-size: 14px; color: var(--md-sys-color-error);">error</md-icon>;
-    }
-    if (msg.readAt) {
-      return <md-icon title="Lida" style="font-size: 14px; color: var(--md-sys-color-primary);">done_all</md-icon>;
-    }
-    if (msg.receivedAt) {
-      return <md-icon title="Entregue ao dispositivo" style="font-size: 14px; opacity: 0.8;">done_all</md-icon>;
-    }
-    if (msg.sentAt) {
-      return <md-icon title="Enviada ao servidor" style="font-size: 14px; opacity: 0.8;">check</md-icon>;
-    }
-    
-    return <md-icon title="Aguardando rede..." style="font-size: 14px; opacity: 0.5;">schedule</md-icon>;
-  };
-
-  return (
-    <div style="display: flex; flex-direction: column; height: 100%; flex-grow: 1; overflow: hidden;">
-      
-      {/* Área de rolagem das mensagens */}
-      <div 
-        ref={chatScrollRef}
-        onScroll={handleScroll}
-        style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
-      >
-        
-        {/* Indicador de Loading para paginação */}
-        {hasMoreMessages.value && mensagensAtivas.value.length > 0 && (
-           <div style="text-align: center; color: #888; font-size: 0.8rem; padding: 10px;">
-             Carregando histórico antigo...
-           </div>
-        )}
-
-        {mensagensAtivas.value.length === 0 ? (
-          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">
-            Nenhuma mensagem. Diga um "Olá" (criptografado)! 🔒
-          </div>
-        ) : (
-          mensagensAtivas.value.map(msg => {
-            const isMine = msg.tipo === 'out';
-            return (
-              <div 
-                key={msg.id} 
-                style={`display: flex; flex-direction: column; max-width: 85%; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}
-              >
-                <div style={`
-                  padding: 10px 14px;
-                  border-radius: 16px;
-                  background: ${isMine ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)'};
-                  color: ${isMine ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'};
-                  border-bottom-right-radius: ${isMine ? '4px' : '16px'};
-                  border-bottom-left-radius: ${!isMine ? '4px' : '16px'};
-                  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-                  white-space: pre-wrap;
-                  word-wrap: break-word;
-                `}>
-                  {msg.conteudo}
-                </div>
-                
-                <div style={`display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.7rem; color: #888; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}>
-                  <span>
-                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  {renderStatus(msg)}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Input e Barra inferior */}
-      <div style="flex-shrink: 0; padding: 12px 16px; background: var(--md-sys-color-surface); border-top: 1px solid var(--md-sys-color-outline-variant); display: flex; gap: 8px; align-items: flex-end;">
-        <md-outlined-text-field
-          style="flex-grow: 1; margin-bottom: 0;"
-          placeholder="Escreva uma mensagem..."
-          value={inputText.value}
-          onInput={(e: Event) => inputText.value = (e.target as HTMLInputElement).value}
-          onKeyDown={handleKeyDown}
-        ></md-outlined-text-field>
-        
-        <md-filled-icon-button 
-          onClick={handleEnviar}
-          disabled={!inputText.value.trim()}
-          style="height: 56px; width: 56px; border-radius: 16px;"
-        >
-          <md-icon>send</md-icon>
-        </md-filled-icon-button>
-      </div>
-
-    </div>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/ContactDetailSection.tsx`
 
 ```tsx
@@ -1819,107 +1391,6 @@ export function ContactDetailSection() {
 
 ---
 
-## Arquivo: `src/components/ContatosSection.tsx`
-
-```tsx
-import { useEffect } from 'preact/hooks';
-import { contatosComHash, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
-
-export function ContatosSection() {
-  useEffect(() => {}, []);
-
-  const abrirChat = (hash: string) => {
-    navigate(`#chat=${hash}`);
-  };
-
-  const abrirDetalhesContato = (e: Event, hash: string) => {
-    e.stopPropagation();
-    navigate(`#detail=${hash}`);
-  };
-
-  return (
-    /* 🔥 ARQUITETURA: Removido a classe .container. Agora é um layout fluido nativo. */
-    <div style="display: flex; flex-direction: column; width: 100%;">
-      
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
-        <h2 style="font-size: 1rem; margin: 0; color: var(--md-sys-color-on-surface); font-weight: 600;">
-          📇 Meus Contatos
-        </h2>
-        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
-          <md-icon>person_add</md-icon>
-        </md-icon-button>
-      </div>
-      
-      <div style="max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 4px;">
-        {contatosComHash.value.length === 0 ? (
-          <p style="padding: 16px 8px; color: var(--md-sys-color-on-surface-variant); text-align: center; margin: 0; font-size: 0.85rem;">
-            Nenhum contato adicionado.
-          </p>
-        ) : (
-          <md-list style="background: transparent;">
-            {contatosComHash.value.map(({ contato, hash }) => {
-              const nomeExibicao = contato.name?.trim() || "Anônimo";
-              return (
-                <md-list-item 
-                  key={hash} 
-                  onClick={() => abrirChat(hash)}
-                  style="cursor: pointer; background: var(--md-sys-color-surface-variant); border-radius: 8px; margin-bottom: 6px;"
-                >
-                  <md-icon slot="start" style="color: var(--md-sys-color-on-surface-variant);">person</md-icon>
-                  
-                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: block; font-size: 0.95rem; color: var(--md-sys-color-on-surface);">
-                      <strong>{nomeExibicao}</strong>
-                    </span>
-                    {contato.trusted && (
-                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
-                    )}
-                  </div>
-                  
-                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant);">
-                    {contato.email || 'Sem e-mail'}
-                  </span>
-                  
-                  {/* 🔥 Ajustado para ícones menores na lista para caber melhor em telas estreitas */}
-                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
-                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
-                      <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
-                    </md-icon-button>
-
-                    {!contato.trusted && (
-                      <md-icon-button onClick={async (e) => {
-                        e.stopPropagation();
-                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
-                        showToast("Contato marcado como confiável!", "success");
-                      }}>
-                        <md-icon style="font-size: 1.2rem;">verified</md-icon>
-                      </md-icon-button>
-                    )}
-
-                    <md-icon-button onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm(`Remover ${nomeExibicao} e apagar todo o histórico de conversas permanentemente?`)) {
-                        await removerContatoCompletamente(hash);
-                      }
-                    }}>
-                      <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-error);">delete</md-icon>
-                    </md-icon-button>
-                  </div>
-                </md-list-item>
-              );
-            })}
-          </md-list>
-        )}
-      </div>
-    </div>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/LogoutSection.tsx`
 
 ```tsx
@@ -2020,6 +1491,536 @@ export function LogoutSection() {
               Cancelar e Voltar
             </md-outlined-button>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
+// src/components/ProfileSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, isSavingProfile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { navigate } from '../utils/router.ts';
+
+export function ProfileSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+
+  useEffect(() => {
+    carregarProfile();
+  }, []);
+
+  const p = profile.value;
+  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+
+  useEffect(() => {
+    if (!temChaveVapid) {
+      isEditing.value = true;
+    } else {
+      isEditing.value = false;
+    }
+  }, [temChaveVapid]);
+
+  useEffect(() => {
+    const renderQrCode = async () => {
+      if (!p) return;
+      try {
+        const payloadBinario = await gerarPayloadQrCodeCompacto(p);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (temChaveVapid) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [p, temChaveVapid]);
+
+  const handleGerarOuCorrigir = async () => {
+    const eraNovo = !temChaveVapid;
+    // Bloqueio extra via lógica caso o botão seja burlado
+    if (isSavingProfile.value) return; 
+
+    try {
+      // Como a geração demora (chaves Crypto), ativamos o lock manualmente antes da store
+      isSavingProfile.value = true;
+      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(pNovo);
+      
+      isEditing.value = false;
+
+      if (eraNovo) {
+        showToast(`✅ Perfil inicializado com sucesso!`, "success");
+        navigate(''); 
+      } else {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha: ${err.message}`, "error");
+    } finally {
+      isSavingProfile.value = false;
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    if (p) {
+      profileName.value = p.name || '';
+      profileEmail.value = p.email || '';
+    }
+    isEditing.value = false;
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+      const serverPublicKeyJwk = await getServerPublicKey();
+
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>account_circle</md-icon> Identidade Local
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {temChaveVapid && !isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
+            
+            {!temChaveVapid && (
+               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
+                 Este nome será visível para os contatos que você convidar.
+               </p>
+            )}
+
+            <md-outlined-text-field
+              label="Seu Nome"
+              placeholder="Ex: João da Silva"
+              value={profileName.value}
+              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+              disabled={isSavingProfile.value}
+            ></md-outlined-text-field>
+            
+            <md-outlined-text-field
+              label="Seu E-mail (Opcional)"
+              placeholder="Ex: joao@email.com"
+              value={profileEmail.value}
+              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+              disabled={isSavingProfile.value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <md-filled-button 
+                onClick={handleGerarOuCorrigir} 
+                style="flex: 1;"
+                disabled={!profileName.value.trim() || isSavingProfile.value ? true : undefined}
+              >
+                {isSavingProfile.value ? "⏳ Salvando..." : (!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar")}
+              </md-filled-button>
+              
+              {temChaveVapid && (
+                <md-outlined-button 
+                  onClick={handleCancelarEdicao} 
+                  style="flex: 1;"
+                  disabled={isSavingProfile.value ? true : undefined}
+                >
+                  Cancelar
+                </md-outlined-button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {p?.name?.trim() || "Anônimo"}
+            </h2>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Compartilhar Link de Convite
+              </md-outlined-button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
+        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
+            Seu QR Code
+          </h3>
+          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
+            Mostre isso para um amigo escanear pelo App Loco.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
+        </div>
+      )}
+
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ChatSection.tsx`
+
+```tsx
+// src/components/ChatSection.tsx
+import { useEffect, useRef } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { contatoSelecionado, showToast } from '../signals/state.ts';
+import { gerarId } from '../utils/id-utils.ts';
+import { mensagensAtivas, hasMoreMessages, isFetchingMensagens, inicializarChat, carregarMaisMensagens, atualizarOuAdicionarChatAtivo } from '../stores/mensagensStore.ts';
+import type { Chat } from '../constants/db.ts';
+
+export function ChatSection() {
+  const inputText = useSignal<string>('');
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const isScrolledUp = useSignal<boolean>(false);
+
+  useEffect(() => {
+    if (contatoSelecionado.value) {
+      inicializarChat(contatoSelecionado.value).then(() => {
+        rolarParaFim();
+      });
+    }
+
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'CHAT_ATUALIZADO' && e.data?.payload?.chatId) {
+        import('../stores/mensagensStore.ts').then(m => {
+           m.processarAtualizacaoDeStatusDB(e.data.payload.chatId).then(() => {
+             if (!isScrolledUp.value) rolarParaFim();
+           });
+        });
+      }
+    };
+    
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+    }
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      }
+    };
+  }, [contatoSelecionado.value]);
+
+  const rolarParaFim = (force = false) => {
+    setTimeout(() => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    }, force ? 10 : 100);
+  };
+
+  const handleScroll = (e: Event) => {
+    const target = e.target as HTMLDivElement;
+    isScrolledUp.value = target.scrollHeight - target.scrollTop - target.clientHeight > 100;
+
+    if (target.scrollTop < 50 && hasMoreMessages.value) {
+      const oldHeight = target.scrollHeight;
+      carregarMaisMensagens(contatoSelecionado.value).then(() => {
+        requestAnimationFrame(() => {
+          if (chatScrollRef.current) {
+            chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight - oldHeight;
+          }
+        });
+      });
+    }
+  };
+
+  const handleEnviar = async () => {
+    const texto = inputText.value.trim();
+    const hashAtivo = contatoSelecionado.value;
+    
+    if (!texto || !hashAtivo) return;
+    
+    inputText.value = ''; 
+    const msgId = gerarId();
+    const handshakeId = gerarId();
+    const agora = Date.now();
+
+    const novaMensagem: Chat = {
+      id: msgId,
+      contatoHash: hashAtivo,
+      conteudo: texto,
+      tipo: 'out',
+      createdAt: agora,
+      handshake: handshakeId
+    };
+    
+    await atualizarOuAdicionarChatAtivo(novaMensagem);
+    rolarParaFim(true);
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) throw new Error("Service Worker inativo");
+
+      reg.active.postMessage({
+        type: 'CRIAR_HANDSHAKE_OUT',
+        payload: {
+          rotasModulo: 'mensagem',
+          params: { function: 'enviarMensagem', contato: hashAtivo, conteudo: texto, msgId, handshakeId, createdAt: agora }
+        }
+      });
+    } catch (err: any) {
+      showToast(`❌ Erro de thread: ${err.message}`, "error");
+    }
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleEnviar();
+    }
+  };
+
+  const renderStatus = (msg: Chat) => {
+    if (msg.tipo === 'in') return null;
+
+    if (msg.errorAt) {
+      return <md-icon title="Falha no envio" style="font-size: 14px; color: var(--md-sys-color-error);">error</md-icon>;
+    }
+    if (msg.readAt) {
+      return <md-icon title="Lida" style="font-size: 14px; color: var(--md-sys-color-primary);">done_all</md-icon>;
+    }
+    if (msg.receivedAt) {
+      return <md-icon title="Entregue ao dispositivo" style="font-size: 14px; opacity: 0.8;">done_all</md-icon>;
+    }
+    if (msg.sentAt) {
+      return <md-icon title="Enviada ao servidor" style="font-size: 14px; opacity: 0.8;">check</md-icon>;
+    }
+    
+    return <md-icon title="Aguardando rede..." style="font-size: 14px; opacity: 0.5;">schedule</md-icon>;
+  };
+
+  return (
+    <div style="display: flex; flex-direction: column; height: 100%; flex-grow: 1; overflow: hidden;">
+      
+      <div 
+        ref={chatScrollRef}
+        onScroll={handleScroll}
+        style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
+      >
+        
+        {/* 🔥 ARQUITETURA: Agora utilizamos um componente visual do Material Design */}
+        {isFetchingMensagens.value && (
+           <div style="text-align: center; padding: 10px;">
+             <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
+           </div>
+        )}
+
+        {!isFetchingMensagens.value && mensagensAtivas.value.length === 0 ? (
+          <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">
+            Nenhuma mensagem. Diga um "Olá" (criptografado)! 🔒
+          </div>
+        ) : (
+          mensagensAtivas.value.map(msg => {
+            const isMine = msg.tipo === 'out';
+            return (
+              <div 
+                key={msg.id} 
+                style={`display: flex; flex-direction: column; max-width: 85%; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}
+              >
+                <div style={`
+                  padding: 10px 14px;
+                  border-radius: 16px;
+                  background: ${isMine ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)'};
+                  color: ${isMine ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'};
+                  border-bottom-right-radius: ${isMine ? '4px' : '16px'};
+                  border-bottom-left-radius: ${!isMine ? '4px' : '16px'};
+                  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                  white-space: pre-wrap;
+                  word-wrap: break-word;
+                `}>
+                  {msg.conteudo}
+                </div>
+                
+                <div style={`display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.7rem; color: #888; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}>
+                  <span>
+                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {renderStatus(msg)}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div style="flex-shrink: 0; padding: 12px 16px; background: var(--md-sys-color-surface); border-top: 1px solid var(--md-sys-color-outline-variant); display: flex; gap: 8px; align-items: flex-end;">
+        <md-outlined-text-field
+          style="flex-grow: 1; margin-bottom: 0;"
+          placeholder="Escreva uma mensagem..."
+          value={inputText.value}
+          onInput={(e: Event) => inputText.value = (e.target as HTMLInputElement).value}
+          onKeyDown={handleKeyDown}
+        ></md-outlined-text-field>
+        
+        <md-filled-icon-button 
+          onClick={handleEnviar}
+          disabled={!inputText.value.trim()}
+          style="height: 56px; width: 56px; border-radius: 16px;"
+        >
+          <md-icon>send</md-icon>
+        </md-filled-icon-button>
+      </div>
+
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ContatosSection.tsx`
+
+```tsx
+import { useEffect } from 'preact/hooks';
+import { contatosComHash, isCarregandoContatos, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
+import { showToast } from '../signals/state.ts';
+import { navigate } from '../utils/router.ts';
+
+export function ContatosSection() {
+  useEffect(() => {}, []);
+
+  const abrirChat = (hash: string) => {
+    navigate(`#chat=${hash}`);
+  };
+
+  const abrirDetalhesContato = (e: Event, hash: string) => {
+    e.stopPropagation();
+    navigate(`#detail=${hash}`);
+  };
+
+  return (
+    <div style="display: flex; flex-direction: column; width: 100%;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
+        <h2 style="font-size: 1rem; margin: 0; color: var(--md-sys-color-on-surface); font-weight: 600;">
+          📇 Meus Contatos
+        </h2>
+        <md-icon-button onClick={() => navigate('#share')} title="Adicionar / Escanear Contato">
+          <md-icon>person_add</md-icon>
+        </md-icon-button>
+      </div>
+      
+      <div style="max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 4px;">
+        {/* 🔥 ARQUITETURA: Spinner condicionado ao novo signal 'isCarregandoContatos' */}
+        {isCarregandoContatos.value && contatosComHash.value.length === 0 ? (
+          <div style="display: flex; justify-content: center; padding: 24px;">
+            <md-circular-progress indeterminate></md-circular-progress>
+          </div>
+        ) : contatosComHash.value.length === 0 ? (
+          <p style="padding: 16px 8px; color: var(--md-sys-color-on-surface-variant); text-align: center; margin: 0; font-size: 0.85rem;">
+            Nenhum contato adicionado.
+          </p>
+        ) : (
+          <md-list style="background: transparent;">
+            {contatosComHash.value.map(({ contato, hash }) => {
+              const nomeExibicao = contato.name?.trim() || "Anônimo";
+              return (
+                <md-list-item 
+                  key={hash} 
+                  onClick={() => abrirChat(hash)}
+                  style="cursor: pointer; background: var(--md-sys-color-surface-variant); border-radius: 8px; margin-bottom: 6px;"
+                >
+                  <md-icon slot="start" style="color: var(--md-sys-color-on-surface-variant);">person</md-icon>
+                  
+                  <div slot="headline" style="display: flex; align-items: center; gap: 6px;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: block; font-size: 0.95rem; color: var(--md-sys-color-on-surface);">
+                      <strong>{nomeExibicao}</strong>
+                    </span>
+                    {contato.trusted && (
+                      <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
+                    )}
+                  </div>
+                  
+                  <span slot="supporting-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant);">
+                    {contato.email || 'Sem e-mail'}
+                  </span>
+                  
+                  <div slot="end" style="display: flex; gap: 0px; align-items: center; flex-shrink: 0;">
+                    <md-icon-button onClick={(e) => abrirDetalhesContato(e, hash)}>
+                      <md-icon style="font-size: 1.2rem;">qr_code_2</md-icon>
+                    </md-icon-button>
+
+                    {!contato.trusted && (
+                      <md-icon-button onClick={async (e) => {
+                        e.stopPropagation();
+                        await homologarContatoPorPublicKey(contato.vapidPublicKey);
+                        showToast("Contato marcado como confiável!", "success");
+                      }}>
+                        <md-icon style="font-size: 1.2rem;">verified</md-icon>
+                      </md-icon-button>
+                    )}
+
+                    <md-icon-button onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remover ${nomeExibicao} e apagar todo o histórico de conversas permanentemente?`)) {
+                        await removerContatoCompletamente(hash);
+                      }
+                    }}>
+                      <md-icon style="font-size: 1.2rem; color: var(--md-sys-color-error);">delete</md-icon>
+                    </md-icon-button>
+                  </div>
+                </md-list-item>
+              );
+            })}
+          </md-list>
         )}
       </div>
     </div>
@@ -2344,7 +2345,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.152-msv2mo7j";
+export const APP_VERSION = "0.2.153-msv2zuvd";
 
 ```
 
@@ -2533,6 +2534,175 @@ export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
 
 ---
 
+## Arquivo: `src/stores/profileStore.ts`
+
+```ts
+// src/stores/profileStore.ts
+import { signal, batch } from '@preact/signals';
+import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
+
+// 🔥 ARQUITETURA: Transformado em signal para que a UI reaja e bloqueie botões
+export const isSavingProfile = signal<boolean>(false);
+export const profile = signal<ProfileConfig | null>(null);
+
+export async function carregarProfile() {
+  try {
+    const p = await buscarProfile();
+    
+    // 🔥 ARQUITETURA: Uso de batch para agrupar as mudanças de estado e evitar múltiplos renders
+    batch(() => {
+      profile.value = p || null;
+      if (p) {
+        profileName.value = p.name;
+        profileEmail.value = p.email;
+      }
+    });
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
+  }
+}
+
+/**
+ * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
+ */
+export async function atualizarProfile(p: ProfileConfig) {
+  if (isSavingProfile.value) {
+      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
+      return; 
+  }
+
+  // 1. Atualização Otimista na Memória agrupada
+  batch(() => {
+    profile.value = { ...p };
+    profileName.value = p.name;
+    profileEmail.value = p.email;
+  });
+
+  // 2. Persistência Isolada com trava reativa
+  isSavingProfile.value = true;
+  try {
+    await salvarProfile(p);
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
+  } finally {
+    isSavingProfile.value = false;
+  }
+}
+
+export async function initProfileStore() {
+  await carregarProfile();
+}
+```
+
+---
+
+## Arquivo: `src/stores/mensagensStore.ts`
+
+```ts
+// src/stores/mensagensStore.ts
+import { signal, batch } from '@preact/signals';
+import { listarChatPaginado, salvarChat, buscarChat } from '../utils/db-helpers.ts';
+import type { Chat } from '../constants/db.ts';
+import { contatoSelecionado } from '../signals/state.ts';
+
+// O Cache ativo de mensagens na RAM
+export const mensagensAtivas = signal<Chat[]>([]);
+export const hasMoreMessages = signal<boolean>(true);
+
+// 🔥 ARQUITETURA: Expondo o estado de Fetch para UI renderizar os spinners corretamente
+export const isFetchingMensagens = signal<boolean>(false);
+
+const PAGE_SIZE = 30;
+let currentOffset = 0;
+
+/**
+ * Reseta e carrega a primeira página de mensagens do contato selecionado.
+ */
+export async function inicializarChat(contatoHash: string) {
+  // Reset de estado
+  currentOffset = 0;
+  
+  batch(() => {
+    hasMoreMessages.value = true;
+    mensagensAtivas.value = [];
+  });
+  
+  await carregarMaisMensagens(contatoHash);
+}
+
+/**
+ * Lazy Loader: Busca a próxima fatia do IndexedDB e empurra para a RAM.
+ */
+export async function carregarMaisMensagens(contatoHash: string) {
+  if (isFetchingMensagens.value || !hasMoreMessages.value) return;
+  
+  isFetchingMensagens.value = true;
+
+  try {
+    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
+    
+    // SEGURANÇA: Verificação de contexto
+    if (contatoHash !== contatoSelecionado.value) {
+      return; 
+    }
+    
+    // 🔥 ARQUITETURA: Batching previne flickering da UI quando o array e a flag alteram juntos
+    batch(() => {
+      if (novas.length < PAGE_SIZE) {
+        hasMoreMessages.value = false;
+      }
+
+      if (novas.length > 0) {
+        currentOffset += novas.length;
+        const unificadas = [...novas, ...mensagensAtivas.value];
+        mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
+      }
+    });
+  } finally {
+    isFetchingMensagens.value = false;
+  }
+}
+
+/**
+ * Atualização Otimista O(1): Insere/Atualiza diretamente na memória sem engasgar o app
+ */
+export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
+  if (chat.contatoHash === contatoSelecionado.value) {
+    const atual = mensagensAtivas.value;
+    const index = atual.findIndex(m => m.id === chat.id);
+    
+    if (index !== -1) {
+      const nova = [...atual];
+      nova[index] = chat;
+      mensagensAtivas.value = nova;
+    } else {
+      mensagensAtivas.value = [...atual, chat];
+      currentOffset += 1;
+    }
+  }
+
+  await salvarChat(chat);
+}
+
+/**
+ * Helper chamado pelos Handshakes no SW (via Broadcast/PostMessage)
+ */
+export async function processarAtualizacaoDeStatusDB(chatId: string) {
+  const chatAtualizado = await buscarChat(chatId);
+  if (chatAtualizado) {
+    await atualizarOuAdicionarChatAtivo(chatAtualizado);
+  }
+}
+
+export async function initMensagensStore() {
+  // Inicialização sob demanda pela UI
+}
+```
+
+---
+
 ## Arquivo: `src/stores/contatosStore.ts`
 
 ```ts
@@ -2558,6 +2728,8 @@ import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
 
 export type { Contato };
 
+// 🔥 ARQUITETURA: Signal para o loading durante a carga de contatos
+export const isCarregandoContatos = signal<boolean>(false);
 export const contatosRaw = signal<Contato[]>([]);
 
 export const contatosComHash = computed(() => {
@@ -2576,10 +2748,10 @@ export const contatosMap = computed(() => {
 });
 
 export async function carregarContatos(): Promise<void> {
+  isCarregandoContatos.value = true;
   try {
     const lista = await listarContatos();
     
-    // 🔥 Carrega o contato próprio (baseado no profile) e adiciona à lista
     const profile = await buscarProfile();
     if (profile) {
       const contatoProprio = await gerarContatoProprio(profile);
@@ -2597,6 +2769,8 @@ export async function carregarContatos(): Promise<void> {
     addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
+  } finally {
+    isCarregandoContatos.value = false;
   }
 }
 
@@ -2641,7 +2815,6 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   });
 }
 
-// Retrocompatibilidade (Chamará o expurgo completo internamente)
 export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
   try {
     const hash = await serializarPublicKeyVapid(vapidPublicKey);
@@ -2651,26 +2824,21 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
   }
 }
 
-// 🔥 ARQUITETURA: Orquestrador Central de Expurgo (Wipeout)
 export async function removerContatoCompletamente(hash: string): Promise<void> {
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
 
-    // 1. Remove da UI localmente primeiro (Optimistic Update)
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
-    // 2. Aciona os expurgos modulares para limpar as entranhas da máquina de estados
     await ExpurgarMensagens(hash);
     await ExpurgarHandshakesContato(hash);
     await ExpurgarHandshakesProfile(hash);
     
-    // 3. (Fallback de Segurança) Limpa também qualquer handshake genérico órfão desse aud
     const handshakes = await listarHandshakes();
     for (const h of handshakes) {
       if (h.aud === hash) await removerHandshake(h.id);
     }
 
-    // 4. Remove o contato físico do banco de dados de contatos
     await removerContatoPorHash(hash);
     
     addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
@@ -2719,171 +2887,6 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
   } else {
     addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
-}
-```
-
----
-
-## Arquivo: `src/stores/mensagensStore.ts`
-
-```ts
-// src/stores/mensagensStore.ts
-import { signal } from '@preact/signals';
-import { listarChatPaginado, salvarChat, buscarChat } from '../utils/db-helpers.ts';
-import type { Chat } from '../constants/db.ts';
-import { contatoSelecionado } from '../signals/state.ts';
-
-// O Cache ativo de mensagens na RAM
-export const mensagensAtivas = signal<Chat[]>([]);
-export const hasMoreMessages = signal<boolean>(true);
-
-const PAGE_SIZE = 30;
-let currentOffset = 0;
-let isFetching = false;
-let activeChatHash: string | null = null; // 🔥 Trava de segurança contra Race Condition
-
-/**
- * Reseta e carrega a primeira página de mensagens do contato selecionado.
- */
-export async function inicializarChat(contatoHash: string) {
-  activeChatHash = contatoHash; // Define o chat atual ativo
-  currentOffset = 0;
-  hasMoreMessages.value = true;
-  mensagensAtivas.value = [];
-  await carregarMaisMensagens(contatoHash);
-}
-
-/**
- * Lazy Loader: Busca a próxima fatia do IndexedDB e empurra para a RAM.
- */
-export async function carregarMaisMensagens(contatoHash: string) {
-  // 🔥 Impede fetch se já estiver buscando, se acabaram as msgs ou se o usuário trocou de chat no meio do await
-  if (isFetching || !hasMoreMessages.value || contatoHash !== activeChatHash) return;
-  isFetching = true;
-
-  try {
-    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
-    
-    // Validação pós-await: se o usuário mudou de chat enquanto o disco respondia, descarta o resultado obsoleto
-    if (contatoHash !== activeChatHash) return;
-    
-    if (novas.length < PAGE_SIZE) {
-      hasMoreMessages.value = false;
-    }
-
-    if (novas.length > 0) {
-      currentOffset += novas.length;
-      
-      // Como estamos carregando de trás pra frente (paginação reversa), 
-      // adicionamos as antigas no início do array
-      mensagensAtivas.value = [...novas, ...mensagensAtivas.value].sort((a, b) => a.createdAt - b.createdAt);
-    }
-  } finally {
-    isFetching = false;
-  }
-}
-
-/**
- * Atualização Otimista O(1): Insere/Atualiza diretamente na memória sem engasgar o app
- */
-export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
-  // 1. Atualiza memória (se o chat pertencer estritamente à tela atual)
-  if (chat.contatoHash === contatoSelecionado.value && chat.contatoHash === activeChatHash) {
-    const atual = mensagensAtivas.value;
-    const index = atual.findIndex(m => m.id === chat.id);
-    
-    if (index !== -1) {
-      const nova = [...atual];
-      nova[index] = chat;
-      mensagensAtivas.value = nova;
-    } else {
-      // É nova, empurra pro final da fila e soma no offset
-      mensagensAtivas.value = [...atual, chat];
-      currentOffset += 1;
-    }
-  }
-
-  // 2. Persiste assincronamente no DB
-  await salvarChat(chat);
-}
-
-/**
- * Helper chamado pelos Handshakes no SW (via Broadcast/PostMessage)
- */
-export async function processarAtualizacaoDeStatusDB(chatId: string) {
-  // Busca a versão consolidada que o SW acabou de gravar no DB
-  const chatAtualizado = await buscarChat(chatId);
-  if (chatAtualizado) {
-    await atualizarOuAdicionarChatAtivo(chatAtualizado);
-  }
-}
-
-export async function initMensagensStore() {
-  // A inicialização inicial agora é vazia, pois carregamos sob demanda na UI
-}
-```
-
----
-
-## Arquivo: `src/stores/profileStore.ts`
-
-```ts
-// src/stores/profileStore.ts
-import { signal } from '@preact/signals';
-import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
-
-// Mutex simples para evitar condições de corrida ao salvar o perfil ativamente
-let isSavingProfile = false;
-
-export const profile = signal<ProfileConfig | null>(null);
-
-export async function carregarProfile() {
-  try {
-    const p = await buscarProfile();
-    profile.value = p || null;
-    
-    // 🔥 Preenche a UI passivamente com os dados salvos no banco de dados
-    if (p) {
-      profileName.value = p.name;
-      profileEmail.value = p.email;
-    }
-  } catch (error) {
-    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
-  }
-}
-
-/**
- * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
- * Implementa um mutex (isSavingProfile) caso multiplas chamadas tentem
- * gravar coisas simultâneas.
- */
-export async function atualizarProfile(p: ProfileConfig) {
-  // 1. Atualização Otimista na Memória
-  profile.value = { ...p };
-  profileName.value = p.name;
-  profileEmail.value = p.email;
-  
-  if (isSavingProfile) {
-      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
-      return; // Previne gravações corrompidas e cruzadas
-  }
-
-  // 2. Persistência Isolada com Trava
-  isSavingProfile = true;
-  try {
-    await salvarProfile(p);
-  } catch (error) {
-    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
-    // Em um app real pesado, faríamos um rollback aqui recarregando do DB: await carregarProfile()
-  } finally {
-    isSavingProfile = false;
-  }
-}
-
-export async function initProfileStore() {
-  await carregarProfile();
 }
 ```
 
@@ -7147,7 +7150,7 @@ export default workerHandler;
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.152-msv2mo7j",
+  "version": "0.2.153-msv2zuvd",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
