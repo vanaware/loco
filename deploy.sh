@@ -4,10 +4,11 @@
 set -e
 
 # ==============================================================================
-# 0. CONFIGURAÇÕES DE AMBIENTE
+# 0. CONFIGURAÇÕES DE AMBIENTE (NON-INTERACTIVE)
 # ==============================================================================
-# Apenas removemos o envio de telemetria da Cloudflare.
-# (Removemos o CI=true para não envenenar o comando do Cloudflare Pages)
+# O CI=true força o Wrangler a não fazer perguntas interativas (ex: Y/n).
+# Ele assumirá "Yes" para deleções e pulará telas de confirmação.
+export CI=true
 export WRANGLER_SEND_METRICS=false
 
 # ==============================================================================
@@ -102,8 +103,8 @@ elif [ "$AT" = "cloudflare" ]; then
   fi
 
   echo "   Limpando chave antiga (se existir)..."
-  # Respondemos ao prompt com 'echo "y"' nativamente, sem forçar o CI=true global
-  echo "y" | deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml > /dev/null 2>&1 || true
+  # O CI=true já fará o Wrangler aceitar a deleção silenciosamente
+  deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY -c wrangler-worker.toml > /dev/null 2>&1 || true
 
   echo "   Registrando nova chave no cofre da Cloudflare (com active polling)..."
   
@@ -135,7 +136,7 @@ elif [ "$AT" = "cloudflare" ]; then
 
   echo ""
   echo "⚡ 4/4 - Realizando deploy do Frontend (Cloudflare Pages)..."
-  # O comando agora voltará a funcionar lendo o wrangler.toml nativamente!
+  # 🔥 Voltamos para a forma pura: lendo 100% do wrangler.toml
   deno run -A npm:wrangler pages deploy
 
   echo ""
