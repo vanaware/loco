@@ -118,7 +118,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # 🔥 Passa explicitamente a configuração do backend
-          command: deploy -c wrangler-worker.toml
+          command: deploy --name loco -c wrangler-worker.toml
           # Vars são públicas e seguras (Texto Plano)
           vars: |
             SERVER_PUBLIC_KEY
