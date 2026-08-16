@@ -97,10 +97,6 @@ elif [ "$AT" = "cloudflare" ]; then
   echo ""
   echo "🔐 2/4 - Sincronizando Segredos (Secrets) no Cloudflare..."
   
-  # Executa o script que extrai a chave privada minificada e captura a saída
-  # (Se o seu script minify-keys.ts precisar de um argumento específico, 
-  # basta adicionar após o nome do arquivo, ex: minify-keys.ts SERVER_PRIVATE_KEY)
-  # O script envia a chave exata pelo stdout (sem sujeira de logs visuais)
   EXTRACTED_PRIVATE_KEY=$(deno run -A --env-file minify-keys.ts SERVER_PRIVATE_KEY)
   
   # Verifica se a chave foi extraída com sucesso
@@ -109,14 +105,19 @@ elif [ "$AT" = "cloudflare" ]; then
     exit 1
   fi
 
-  # O comando wrangler secret put lê de STDIN nativamente. 
-  # Passamos a variável via echo pipe (|) para que o segredo seja salvo com segurança.
+  # 🔥 ARQUITETURA [DevSecOps]: Apaga o segredo antigo antes de recriar.
+  echo "   Limpando chave antiga (se existir)..."
+  deno run -A npm:wrangler secret delete SERVER_PRIVATE_KEY 2>/dev/null || true
+
+  # Insere o novo segredo lendo via STDIN (Pipe)
+  echo "   Registrando nova chave no cofre da Cloudflare..."
   echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY
   echo "✅ SERVER_PRIVATE_KEY atualizado com segurança na Cloudflare."
 
   echo ""
   echo "⚡ 3/4 - Realizando deploy do Frontend (Cloudflare Pages)..."
-  deno run -A npm:wrangler pages deploy build/dist --project-name loco --branch main
+  # O diretório e o nome do projeto agora são lidos automaticamente do wrangler.toml!
+  deno run -A npm:wrangler pages deploy
 
   echo ""
   echo "⚡ 4/4 - Realizando deploy do Backend (Cloudflare Worker)..."

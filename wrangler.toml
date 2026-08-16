@@ -2,30 +2,29 @@
 
 # wrangler.toml
 
-# Nome do seu projeto na Cloudflare
+# Nome unificado do seu projeto na Cloudflare (Usado pelo Worker e pelo Pages)
 name = "loco"
-
-# Ponto de entrada do seu Worker (o bundle gerado pelo Deno)
-main = "build/worker.js"
-
-preview_urls = false
 
 # Data de compatibilidade (recomenda-se manter atualizada)
 compatibility_date = "2026-06-01"
-# compatibility_flags = ["nodejs_compat"]
-# routes = [{ pattern = "push.vanaware.com/*", custom_domain = true }]
 
-# Configuração moderna para servir arquivos estáticos junto com o Worker
-# [assets]
-# Diretório onde estão os arquivos estáticos do PWA
-# directory = "build/dist"
-# binding = "ASSETS" 
+# ==============================================================================
+# ⚡ BACKEND (Cloudflare Worker)
+# ==============================================================================
+# Ponto de entrada do seu Worker (o bundle gerado pelo Deno)
+main = "build/worker.js"
+
+# ==============================================================================
+# 🌐 FRONTEND (Cloudflare Pages)
+# ==============================================================================
+# Configuração nativa para o diretório estático do Pages
+pages_build_output_dir = "build/dist"
+
 
 # OPCIONAL: Variáveis de ambiente que seu proxy cego do FCM possa precisar
 [vars]
-PROXY_PATH= '/'
+PROXY_PATH = '/'
 SERVER_PUBLIC_KEY = '{"n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ"}'
-
 
 [observability]
 enabled = true

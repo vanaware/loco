@@ -128,11 +128,11 @@ jobs:
           SERVER_PRIVATE_KEY: ${{ secrets.SERVER_PRIVATE_KEY }}
           SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
           PROXY_PATH: ${{ secrets.PROXY_PATH }}
+          
       - name: Deploy do Frontend (Cloudflare Pages)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # O comando assume que o seu projeto no Pages se chamará "loco". 
-          # Se tiver outro nome, altere o parâmetro --project-name
-          command: pages deploy build/dist --project-name loco --branch main
+          # O comando agora é limpo! O wrangler.toml diz ao Wrangler onde achar o Frontend
+          command: pages deploy
