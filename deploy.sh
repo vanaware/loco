@@ -102,7 +102,7 @@ elif [ "$AT" = "cloudflare" ]; then
 
   echo ""
   echo "⚡ 2/3 - Realizando deploy do Backend (Cloudflare Worker)..."
-  deno run -A npm:wrangler deploy -c wrangler-worker.toml
+  deno run -A npm:wrangler deploy -c wrangler-worker.toml 
 
   echo ""
   echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."

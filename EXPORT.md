@@ -7,7 +7,7 @@
 
 # Contexto Exportado do Projeto Loco [v0.2.168-msv8eimr] - Modo: MAIN
 
-Gerado automaticamente em: 8/16/2026, 10:51:52 AM
+Gerado automaticamente em: 8/16/2026, 11:38:10 AM
 
 ---
 
@@ -2197,7 +2197,7 @@ import { DB_NAMES } from "./db.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 
 export const DefaultProxyPath: string = "/";
-export const FallbackAbsoluteProxy: string = "https://loco.arvati.workers.dev";
+export const FallbackAbsoluteProxy: string = "https://proxy.vanaware.com";
 
 const PROXY_PATH_KEY = 'ProxyPath';
 
@@ -7609,13 +7609,12 @@ await build();
 name = "loco"
 main = "build/worker.js"
 compatibility_date = "2026-08-16"
-workers_dev = true
-preview_urls = true
+workers_dev = false
+preview_urls = false
 
-[[routes]]
-pattern = "proxy.vanaware.com"
-custom_domain = true
-zone_name = "vanaware.com"
+routes = [
+  { pattern = "proxy.vanaware.com", custom_domain = true }
+]
 
 [vars]
 PROXY_PATH = '/'
@@ -7746,7 +7745,7 @@ elif [ "$AT" = "cloudflare" ]; then
 
   echo ""
   echo "⚡ 2/3 - Realizando deploy do Backend (Cloudflare Worker)..."
-  deno run -A npm:wrangler deploy -c wrangler-worker.toml
+  deno run -A npm:wrangler deploy -c wrangler-worker.toml 
 
   echo ""
   echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."

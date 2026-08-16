@@ -4,7 +4,7 @@ import { DB_NAMES } from "./db.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 
 export const DefaultProxyPath: string = "/";
-export const FallbackAbsoluteProxy: string = "https://loco.arvati.workers.dev";
+export const FallbackAbsoluteProxy: string = "https://proxy.vanaware.com";
 
 const PROXY_PATH_KEY = 'ProxyPath';
 
