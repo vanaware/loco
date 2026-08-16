@@ -7,7 +7,7 @@
 
 # Contexto Exportado do Projeto Loco [v0.2.168-msv8eimr] - Modo: MAIN
 
-Gerado automaticamente em: 8/16/2026, 9:53:14 AM
+Gerado automaticamente em: 8/16/2026, 10:51:52 AM
 
 ---
 
@@ -6892,18 +6892,10 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # 🔥 Passa explicitamente a configuração do backend
-          command: deploy -c wrangler-worker.toml
-          # Vars são públicas e seguras (Texto Plano)
-          vars: |
-            SERVER_PUBLIC_KEY
-            PROXY_PATH
-          # Secrets são injetados no cofre de forma segura (Substitui o secret put)
-          secrets: |
-            SERVER_PRIVATE_KEY
-        env:
-          SERVER_PRIVATE_KEY: ${{ secrets.SERVER_PRIVATE_KEY }}
-          SERVER_PUBLIC_KEY: ${{ secrets.SERVER_PUBLIC_KEY }}
-          PROXY_PATH: ${{ secrets.PROXY_PATH }}
+          command: deploy --name loco -c wrangler-worker.toml
+
+      - name: Prepare Pages Config
+        run: mv wrangler-pages.toml wrangler.toml
 
       - name: Deploy do Frontend (Cloudflare Pages)
         uses: cloudflare/wrangler-action@v3
@@ -6911,7 +6903,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # 🔥 Comando 100% limpo: o Wrangler Actions lerá o wrangler.toml nativamente!
-          command: pages deploy -c wrangler-pages.toml
+          command: pages deploy
 ```
 
 ---
@@ -7616,7 +7608,14 @@ await build();
 
 name = "loco"
 main = "build/worker.js"
-compatibility_date = "2026-06-01"
+compatibility_date = "2026-08-16"
+workers_dev = true
+preview_urls = true
+
+[[routes]]
+pattern = "proxy.vanaware.com"
+custom_domain = true
+zone_name = "vanaware.com"
 
 [vars]
 PROXY_PATH = '/'
@@ -7752,7 +7751,13 @@ elif [ "$AT" = "cloudflare" ]; then
   echo ""
   echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
   # O Pages lê tudo nativamente do wrangler.toml
-  deno run -A npm:wrangler pages deploy -c wrangler-pages.toml
+  # Criamos uma cópia temporária do wrangler-pages.toml para satisfazer a CLI da Cloudflare
+  cp wrangler-pages.toml wrangler.toml
+  
+  deno run -A npm:wrangler pages deploy --commit-dirty=true
+  
+  # Limpamos o rastro para o repositório continuar limpo e organizado
+  rm wrangler.toml
 
   echo ""
   echo "✅ DEPLOY DIRETO NA CLOUDFLARE CONCLUÍDO COM SUCESSO!"
@@ -7776,7 +7781,7 @@ echo "============================================================"
 # wrangler.toml (FRONTEND - Cloudflare Pages)
 
 name = "loco"
-compatibility_date = "2026-06-01"
+compatibility_date = "2026-08-16"
 
 # Configuração nativa para o diretório estático do Pages
 pages_build_output_dir = "build/dist"
