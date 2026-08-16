@@ -3,7 +3,16 @@ import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { contatoSelecionado, showToast } from '../signals/state.ts';
 import { gerarId } from '../utils/id-utils.ts';
-import { mensagensAtivas, hasMoreMessages, isFetchingMensagens, inicializarChat, carregarMaisMensagens, atualizarOuAdicionarChatAtivo } from '../stores/mensagensStore.ts';
+import { 
+  mensagensAtivas, 
+  hasMoreMessages, 
+  isFetchingMensagens, 
+  inicializarChat, 
+  carregarMaisMensagens, 
+  atualizarOuAdicionarChatAtivo, 
+  limparMemoriaChat,
+  excluirMensagem
+} from '../stores/mensagensStore.ts';
 import type { Chat } from '../constants/db.ts';
 
 export function ChatSection() {
@@ -31,10 +40,12 @@ export function ChatSection() {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', handleMessage);
     }
+    
     return () => {
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('message', handleMessage);
       }
+      limparMemoriaChat();
     };
   }, [contatoSelecionado.value]);
 
@@ -108,6 +119,12 @@ export function ChatSection() {
     }
   };
 
+  const handleExcluir = async (msgId: string) => {
+    if (confirm("Deseja apagar esta mensagem permanentemente?")) {
+      await excluirMensagem(msgId, contatoSelecionado.value);
+    }
+  };
+
   const renderStatus = (msg: Chat) => {
     if (msg.tipo === 'in') return null;
 
@@ -136,7 +153,6 @@ export function ChatSection() {
         style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
       >
         
-        {/* 🔥 ARQUITETURA: Agora utilizamos um componente visual do Material Design */}
         {isFetchingMensagens.value && (
            <div style="text-align: center; padding: 10px;">
              <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
@@ -169,11 +185,19 @@ export function ChatSection() {
                   {msg.conteudo}
                 </div>
                 
+                {/* 🔥 ARQUITETURA: Ícone sutil de lixeira injetado na meta-data da mensagem */}
                 <div style={`display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.7rem; color: #888; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}>
                   <span>
                     {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   {renderStatus(msg)}
+                  <md-icon-button 
+                    onClick={() => handleExcluir(msg.id)} 
+                    style="width: 20px; height: 20px; margin-left: 2px;"
+                    title="Apagar mensagem"
+                  >
+                    <md-icon style="font-size: 14px; color: var(--md-sys-color-on-surface-variant);">delete</md-icon>
+                  </md-icon-button>
                 </div>
               </div>
             );

@@ -3,17 +3,24 @@ import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
 
-import { profile, isSavingProfile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast } from '../signals/state.ts';
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast, sharePayload } from '../signals/state.ts';
 import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
 import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
+import { salvarProfile, serializarPublicKeyVapid } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '../utils/share-utils.ts';
+import { adicionarContato } from '../stores/contatosStore.ts';
 import { navigate } from '../utils/router.ts';
+import type { Contato } from '../constants/db.ts';
 
 export function ProfileSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
   const isEditing = useSignal<boolean>(false);
+  
+  // 🔥 ARQUITETURA: Signals para lidar com a UI (Separados do Store)
+  const isProcessing = useSignal<boolean>(false);
+  const inviterPreview = useSignal<Partial<Contato> | null>(null);
+  const isLoadingInviter = useSignal<boolean>(false);
 
   useEffect(() => {
     carregarProfile();
@@ -29,6 +36,23 @@ export function ProfileSection() {
       isEditing.value = false;
     }
   }, [temChaveVapid]);
+
+  // Escuta convites pendentes caso seja o primeiro acesso
+  useEffect(() => {
+    if (!temChaveVapid && sharePayload.value) {
+      isLoadingInviter.value = true;
+      processarQualquerConvite(sharePayload.value)
+        .then(preview => {
+          inviterPreview.value = preview;
+        })
+        .catch(err => {
+          console.warn("Convite inválido no onboarding:", err);
+        })
+        .finally(() => {
+          isLoadingInviter.value = false;
+        });
+    }
+  }, [temChaveVapid, sharePayload.value]);
 
   useEffect(() => {
     const renderQrCode = async () => {
@@ -54,16 +78,55 @@ export function ProfileSection() {
 
   const handleGerarOuCorrigir = async () => {
     const eraNovo = !temChaveVapid;
-    // Bloqueio extra via lógica caso o botão seja burlado
-    if (isSavingProfile.value) return; 
+    if (isProcessing.value) return; 
 
     try {
-      // Como a geração demora (chaves Crypto), ativamos o lock manualmente antes da store
-      isSavingProfile.value = true;
+      // Trava de UI local (Não interfere na Store)
+      isProcessing.value = true;
       const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      
+      // Salva no banco. O Signal 'profile' reage instantaneamente.
       await atualizarProfile(pNovo);
       
       isEditing.value = false;
+
+      // Se era o primeiro acesso E tinha convite, executa a adição automática
+      if (eraNovo && inviterPreview.value) {
+        const inviter = inviterPreview.value;
+        const contatoId = await serializarPublicKeyVapid(inviter.vapidPublicKey!);
+        
+        const novoContato: Contato = {
+          id: contatoId,
+          vapidPublicKey: inviter.vapidPublicKey!,
+          email: inviter.email || '',
+          name: inviter.name || '', 
+          e2ePublicKey: inviter.e2ePublicKey!,
+          subscription: inviter.subscription!,
+          vapidPrivateKeyEnvelope: inviter.vapidPrivateKeyEnvelope!,
+          trusted: true, 
+          me: 'none', 
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        
+        await adicionarContato(novoContato);
+        
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) {
+          reg.active.postMessage({
+            type: 'CRIAR_HANDSHAKE_OUT',
+            payload: {
+              rotasModulo: 'contato',
+              params: { function: 'enviarSubscription', contato: contatoId, responder: false }
+            }
+          });
+        }
+
+        sharePayload.value = null; 
+        showToast(`✅ Perfil criado e conectado com ${inviter.name}!`, "success");
+        navigate(`#detail=${contatoId}`);
+        return; 
+      }
 
       if (eraNovo) {
         showToast(`✅ Perfil inicializado com sucesso!`, "success");
@@ -75,7 +138,7 @@ export function ProfileSection() {
       addDebugLog(`❌ Erro no processo: ${err.message}`);
       showToast(`❌ Falha: ${err.message}`, "error");
     } finally {
-      isSavingProfile.value = false;
+      isProcessing.value = false;
     }
   };
 
@@ -131,7 +194,25 @@ export function ProfileSection() {
         {isEditing.value ? (
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
             
-            {!temChaveVapid && (
+            {!temChaveVapid && isLoadingInviter.value && (
+              <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+                <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
+              </div>
+            )}
+
+            {!temChaveVapid && inviterPreview.value && !isLoadingInviter.value && (
+              <div style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); padding: 16px; border-radius: 12px; margin-bottom: 8px; text-align: center; border: 1px solid var(--md-sys-color-outline-variant);">
+                <md-icon style="font-size: 32px; margin-bottom: 8px; color: var(--md-sys-color-primary);">waving_hand</md-icon>
+                <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 4px;">
+                  Convite de {inviterPreview.value.name?.trim() || 'Anônimo'}
+                </div>
+                <div style="font-size: 0.85rem; opacity: 0.9;">
+                  Preencha seus dados abaixo para criar sua identidade descentralizada e iniciar a conversa com segurança.
+                </div>
+              </div>
+            )}
+
+            {!temChaveVapid && !inviterPreview.value && !isLoadingInviter.value && (
                <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
                  Este nome será visível para os contatos que você convidar.
                </p>
@@ -142,7 +223,7 @@ export function ProfileSection() {
               placeholder="Ex: João da Silva"
               value={profileName.value}
               onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-              disabled={isSavingProfile.value}
+              disabled={isProcessing.value}
             ></md-outlined-text-field>
             
             <md-outlined-text-field
@@ -150,23 +231,23 @@ export function ProfileSection() {
               placeholder="Ex: joao@email.com"
               value={profileEmail.value}
               onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-              disabled={isSavingProfile.value}
+              disabled={isProcessing.value}
             ></md-outlined-text-field>
 
             <div style="display: flex; gap: 8px; margin-top: 8px;">
               <md-filled-button 
                 onClick={handleGerarOuCorrigir} 
                 style="flex: 1;"
-                disabled={!profileName.value.trim() || isSavingProfile.value ? true : undefined}
+                disabled={!profileName.value.trim() || isProcessing.value ? true : undefined}
               >
-                {isSavingProfile.value ? "⏳ Salvando..." : (!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar")}
+                {isProcessing.value ? "⏳ Processando..." : (!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar")}
               </md-filled-button>
               
               {temChaveVapid && (
                 <md-outlined-button 
                   onClick={handleCancelarEdicao} 
                   style="flex: 1;"
-                  disabled={isSavingProfile.value ? true : undefined}
+                  disabled={isProcessing.value ? true : undefined}
                 >
                   Cancelar
                 </md-outlined-button>

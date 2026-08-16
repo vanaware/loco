@@ -164,7 +164,14 @@ export async function listarChatPaginado(contatoHash: string, limit: number, off
   return records.filter(Boolean) as Chat[];
 }
 
+// 🔥 ARQUITETURA: Agora a remoção de mensagem localiza e destrói o Handshake fantasma associado!
 export async function removerChat(id: string, contatoHash: string): Promise<void> {
+  const chat = await buscarChat(id);
+  if (chat && chat.handshake && chat.handshake !== 'self') {
+    // Apaga a pendência de envio/recebimento silenciosamente se houver
+    await removerHandshake(chat.handshake);
+  }
+
   await removerChave(storeChat, id);
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
   let index = await buscarChave<string[]>(storeChat, indexKey) || [];
@@ -172,7 +179,6 @@ export async function removerChat(id: string, contatoHash: string): Promise<void
   await salvarChave(storeChat, indexKey, index);
 }
 
-// 🔥 NOVO: Expurgo em Massa (Terra Arrasada para histórico de chat)
 export async function removerTodoHistoricoChat(contatoHash: string): Promise<void> {
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
   const index = await buscarChave<string[]>(storeChat, indexKey) || [];
@@ -240,7 +246,6 @@ export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> 
   await removerChave(storeContatos, key);
 }
 
-// 🔥 NOVO: Remoção direta por Hash
 export async function removerContatoPorHash(hash: string): Promise<void> {
   await removerChave(storeContatos, hash);
 }

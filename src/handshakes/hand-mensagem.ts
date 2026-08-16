@@ -12,6 +12,7 @@ import {
   buscarContatoPorChave,
   buscarProfile,
   removerTodoHistoricoChat,
+  removerChat,
   listarHandshakes,
   removerHandshake
 } from "../utils/db-helpers.ts";
@@ -31,18 +32,17 @@ interface MensagemOutParams {
 }
 
 async function notificarUI(chatId: string) {
-  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
+  if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
+  }
 }
 
-// 🔥 ARQUITETURA: Função de Expurgo Modular
 export async function ExpurgarMensagens(contatoHash: string) {
   addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens e handshakes do contato ${contatoHash}`);
   
-  // 1. Apaga fisicamente todas as mensagens do Chat_DB
   await removerTodoHistoricoChat(contatoHash);
 
-  // 2. Localiza e expurga os handshakes de mensagem pendentes desse contato
   const todos = await listarHandshakes();
   for (const h of todos) {
     if (h.aud === contatoHash && (h.in?.rotas.mensagem || h.out?.rotas.mensagem)) {
@@ -53,7 +53,6 @@ export async function ExpurgarMensagens(contatoHash: string) {
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: MensagemOutParams }) {
   
-  // 📥 LÓGICA DE ENTRADA (Recebendo Push Criptografado da Rede)
   if (handshakeId) {
     addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
@@ -61,7 +60,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
     const msgReq = handshake.in.rotas.mensagem;
 
-    // Cenário 1: Solicitação PULL de status
     if (msgReq.recebida && Array.isArray(msgReq.campos)) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
       const msgLocal = await buscarChat(msgReq.recebida);
@@ -79,7 +77,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // Cenário 2: Auto-Ack Recebido (Confirmação de chegada física no destino)
     else if (msgReq.data && typeof msgReq.data.recebida === 'string' && typeof msgReq.data.status === 'string') {
       addDebugLog(`[HAND-MENSAGEM] 📩 Auto-Ack recebido. Status: ${msgReq.data.status}`);
       
@@ -90,11 +87,26 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (msgReq.data.status === 'lida') msgLocal.readAt = Date.now();
         
         await salvarChat(msgLocal);
-        notificarUI(msgLocal.id);
+        await notificarUI(msgLocal.id);
       }
     }
 
-    // Cenário 3: Recebendo uma MENSAGEM NOVA
+    // 🔥 ARQUITETURA [Exclusão Bidirecional]: Recebimento do comando "Apagar para Todos"
+    else if (msgReq.excluida && typeof msgReq.excluida === 'string') {
+      addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação de exclusão remota da mensagem ${msgReq.excluida}`);
+      const msgLocal = await buscarChat(msgReq.excluida);
+      
+      // SEGURANÇA: Só permitimos que a pessoa apague se a mensagem estiver vinculada ao Hash dela
+      // Removida a trava de 'msgLocal.tipo === in', permitindo exclusão bidirecional.
+      if (msgLocal && msgLocal.contatoHash === handshake.aud) {
+        await removerChat(msgReq.excluida, handshake.aud);
+        await notificarUI(msgReq.excluida); // UI atualizará a tela se o chat estiver aberto
+        addDebugLog(`[HAND-MENSAGEM] 🗑️ Mensagem ${msgReq.excluida} apagada remotamente com sucesso.`);
+      } else {
+        addDebugLog(`[HAND-MENSAGEM] ⚠️ Ignorando exclusão. Mensagem inexistente ou violação de autoridade.`);
+      }
+    }
+
     else if (msgReq.enviada && msgReq.conteudo) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Nova mensagem recebida do remetente ${handshake.aud}`);
       
@@ -109,7 +121,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
       await salvarChat(novaMsgRecebida);
 
-      // Devolve Auto-Ack de recebimento físico para o remetente
       const ackHandshake: Handshake = {
         id: gerarId(),
         aud: handshake.aud,
@@ -122,12 +133,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
       await salvarHandshake(ackHandshake);
 
-      // 🔍 VERIFICAÇÃO DE CLIENTES ABERTOS
-      const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      const appEstaAberto = windowClients.length > 0;
+      let appEstaAberto = false;
+      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+        const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        appEstaAberto = windowClients.length > 0;
+      }
 
-      // 🔥 Só exibe notificação nativa do sistema se o aplicativo estiver totalmente fechado
-      if (!appEstaAberto) {
+      if (!appEstaAberto && typeof self !== 'undefined' && self.registration && typeof self.registration.showNotification === 'function') {
         const contato = await buscarContatoPorChave(handshake.aud);
         const nomeExibicao = contato?.name?.trim() || "Anônimo";
         
@@ -137,15 +149,14 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           tag: novaMsgRecebida.id
         });
       } else {
-        addDebugLog(`[HAND-MENSAGEM] 👁️ O app está aberto (${windowClients.length} janela(s)). Notificação nativa suprimida.`);
+        addDebugLog(`[HAND-MENSAGEM] 👁️ O app está aberto ou ambiente sem UI/Notificação. Notificação nativa suprimida.`);
       }
 
-      notificarUI(novaMsgRecebida.id);
+      await notificarUI(novaMsgRecebida.id);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
   
-  // 📤 LÓGICA DE SAÍDA (Criando pacotes Push para enviar)
   if (outParams) {
     if (outParams.function === 'confirmarEntrega') {
       const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
@@ -157,11 +168,24 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
+    // 🔥 ARQUITETURA: Cria o pacote para exclusão remota ("Apagar para todos")
+    else if (outParams.function === 'excluirMensagem') {
+      const { contato: contatoId, msgId } = outParams;
+      if (!msgId) throw new Error("ID da mensagem não fornecido para exclusão.");
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { excluida: msgId } } }
+      };
+      await salvarHandshake(novoHandshake);
+      addDebugLog(`[HAND-MENSAGEM] 🗑️ Handshake de exclusão da mensagem ${msgId} criado e posto na fila.`);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
     else if (outParams.function === 'enviarMensagem') {
       const { contato: contatoId, conteudo, msgId, handshakeId, createdAt } = outParams;
       if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
 
-      // 🔍 VERIFICA SE É MENSAGEM PARA SI MESMO (AUTO-MENSAGEM)
       const profile = await buscarProfile();
       const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
       
@@ -178,12 +202,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         };
         
         await salvarChat(chatAuto);
-        notificarUI(idReal);
+        await notificarUI(idReal);
         addDebugLog(`[HAND-MENSAGEM] ✅ Auto-mensagem ${idReal} salva com fluxo completo simulado.`);
         return;
       }
 
-      // 📤 FLUXO NORMAL: Mensagem para outro contato
       const idReal = msgId || gerarId();
       const handIdReal = handshakeId || gerarId();
       

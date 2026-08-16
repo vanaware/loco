@@ -4,7 +4,7 @@ import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
 import type { ProfileConfig } from '../constants/db.ts';
 import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
 
-// 🔥 ARQUITETURA: Transformado em signal para que a UI reaja e bloqueie botões
+// Signal dedicado EXCLUSIVAMENTE para indicar operações de I/O no banco
 export const isSavingProfile = signal<boolean>(false);
 export const profile = signal<ProfileConfig | null>(null);
 
@@ -12,7 +12,6 @@ export async function carregarProfile() {
   try {
     const p = await buscarProfile();
     
-    // 🔥 ARQUITETURA: Uso de batch para agrupar as mudanças de estado e evitar múltiplos renders
     batch(() => {
       profile.value = p || null;
       if (p) {
@@ -29,12 +28,13 @@ export async function carregarProfile() {
  * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
  */
 export async function atualizarProfile(p: ProfileConfig) {
+  // Trava de segurança apenas para evitar gravações simultâneas cruzadas no IndexedDB
   if (isSavingProfile.value) {
       addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
       return; 
   }
 
-  // 1. Atualização Otimista na Memória agrupada
+  // 1. Atualização Otimista na Memória agrupada (Isso garante que a UI reaja instantaneamente)
   batch(() => {
     profile.value = { ...p };
     profileName.value = p.name;

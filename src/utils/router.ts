@@ -1,3 +1,4 @@
+// src/utils/router.ts
 import { signal, computed, effect } from "@preact/signals";
 import {
   contatoSelecionado,
@@ -24,33 +25,41 @@ export function navigate(hash: string) {
 effect(() => {
   const hash = currentHash.value;
 
-  // Reset states
+  // Reset states genéricos
   contatoSelecionado.value = '';
   contatoCompartilharHash.value = null;
   showAdvanced.value = false;
-  sharePayload.value = null;
 
   if (hash.startsWith('#chat=')) {
     contatoSelecionado.value = hash.substring(6);
     currentMobileView.value = 'chat';
+    sharePayload.value = null;
   } else if (hash.startsWith('#detail=')) {
     contatoCompartilharHash.value = hash.substring(8);
     currentMobileView.value = 'chat';
+    sharePayload.value = null;
   } else if (hash === '#advanced') {
     showAdvanced.value = true;
     currentMobileView.value = 'chat';
-  // 🔥 CORREÇÃO: Adicionamos '#settings' para que ele ocupe a área principal no mobile
-  } else if (hash === '#profile' || hash === '#logout' || hash === '#settings') {
-    currentMobileView.value = 'chat'; 
+    sharePayload.value = null;
+  } else if (hash === '#profile') {
+    currentMobileView.value = 'chat';
+    // 🔥 ARQUITETURA: Não limpamos o sharePayload aqui! 
+    // Ele precisa sobreviver ao redirecionamento automático do Route Guard
+    // para que o ProfileSection consiga ler e processar o convite do anfitrião.
+  } else if (hash === '#logout' || hash === '#settings') {
+    currentMobileView.value = 'chat';
+    sharePayload.value = null;
   } else if (hash.startsWith('#share')) {
     currentMobileView.value = 'chat';
-    // Extrai o payload caso venha via URL: #share=jwt_aqui
+    // Extrai o payload caso venha via URL
     if (hash.includes('=')) {
       sharePayload.value = hash.substring(hash.indexOf('=') + 1);
     }
   } else {
-    // Se não for nenhuma das telas acima, volta para a lista (sidebar)
+    // Home / Lista de Contatos
     currentMobileView.value = 'list';
+    sharePayload.value = null;
   }
 });
 

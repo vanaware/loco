@@ -1,3 +1,4 @@
+// src/components/AdvancedSection.tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { profile } from '../stores/profileStore.ts';
@@ -6,7 +7,7 @@ import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
 import { DebugPanel } from './DebugPanel.tsx';
 import { APP_VERSION } from '../constants/version.ts'; 
 import { navigate } from '../utils/router.ts';
-import { loadAllConfigs, CONFIG_KEYS } from '../stores/config-store.ts';
+import { loadAllConfigs } from '../stores/config-store.ts';
 
 export function AdvancedSection() {
   const diagnostic = useSignal({
@@ -138,6 +139,25 @@ export function AdvancedSection() {
     await runDiagnostics();
   };
 
+  // 🔥 ARQUITETURA: Botão de Forçar Sincronização Manual
+  const handleForceSync = async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) {
+          reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+          showToast("🔄 Comando de sincronização enviado ao Service Worker!", "info");
+        } else {
+          showToast("⚠️ Service Worker inativo.", "error");
+        }
+      } else {
+        showToast("⚠️ Service Worker não suportado.", "error");
+      }
+    } catch (e: any) {
+      showToast(`❌ Erro ao sincronizar: ${e.message}`, "error");
+    }
+  };
+
   const handleFechar = () => {
     navigate(''); 
   };
@@ -168,7 +188,6 @@ export function AdvancedSection() {
               <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
                 🛑 Requisitos Obrigatórios
               </h4>
-              {/* 🔥 ARQUITETURA: Uso de --md-sys-color-on-surface para garantir legibilidade no modo escuro */}
               <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
                 <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
                 <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
@@ -184,7 +203,6 @@ export function AdvancedSection() {
               <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
                 ⚡ Recursos Desejáveis & Status
               </h4>
-              {/* 🔥 ARQUITETURA: Uso de --md-sys-color-on-surface */}
               <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
                 <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
                 <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
@@ -197,6 +215,7 @@ export function AdvancedSection() {
                    'ℹ️ Permissão de Câmera (Pendente)'}
                 </li>
                 <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
+                
                 <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
                   <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
                   {!diag.armazenamentoPersistido && (
@@ -205,6 +224,7 @@ export function AdvancedSection() {
                     </md-outlined-button>
                   )}
                 </li>
+                
                 <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
                   <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
                   <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
@@ -212,8 +232,21 @@ export function AdvancedSection() {
                     Configurar
                   </md-outlined-button>
                 </li>
+
+                {/* 🔥 ARQUITETURA: Nova Seção/Linha para controle manual da Fila de Handshakes */}
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--md-sys-color-outline-variant);">
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: bold; color: var(--md-sys-color-primary);">Fila de Handshakes</span>
+                    <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Força o reenvio de pacotes pendentes (Retries).</span>
+                  </div>
+                  <md-outlined-button onClick={handleForceSync} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;" disabled={!diag.isOnline}>
+                    <md-icon slot="icon">sync</md-icon>
+                    Forçar Sync
+                  </md-outlined-button>
+                </li>
+
                 {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 4px;">
+                  <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 12px; text-align: center;">
                     📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
                   </li>
                 )}

@@ -86,6 +86,7 @@ export interface MensagemRouteData {
   recebida?: string;
   enviada?: string;
   conteudo?: string;
+  excluida?: string; // 🔥 ARQUITETURA: Nova rota para exclusão remota bidirecional
   campos?: string[];
   data?: Record<string, unknown>;
 }

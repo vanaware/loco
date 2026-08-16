@@ -1,37 +1,31 @@
 // src/stores/mensagensStore.ts
 import { signal, batch } from '@preact/signals';
-import { listarChatPaginado, salvarChat, buscarChat } from '../utils/db-helpers.ts';
+import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '../utils/db-helpers.ts';
+import { ExpurgarMensagens } from '../handshakes/hand-mensagem.ts';
 import type { Chat } from '../constants/db.ts';
 import { contatoSelecionado } from '../signals/state.ts';
 
-// O Cache ativo de mensagens na RAM
 export const mensagensAtivas = signal<Chat[]>([]);
 export const hasMoreMessages = signal<boolean>(true);
-
-// 🔥 ARQUITETURA: Expondo o estado de Fetch para UI renderizar os spinners corretamente
 export const isFetchingMensagens = signal<boolean>(false);
 
 const PAGE_SIZE = 30;
 let currentOffset = 0;
 
-/**
- * Reseta e carrega a primeira página de mensagens do contato selecionado.
- */
-export async function inicializarChat(contatoHash: string) {
-  // Reset de estado
-  currentOffset = 0;
-  
+export function limparMemoriaChat() {
   batch(() => {
-    hasMoreMessages.value = true;
     mensagensAtivas.value = [];
+    hasMoreMessages.value = true;
+    isFetchingMensagens.value = false;
+    currentOffset = 0;
   });
-  
+}
+
+export async function inicializarChat(contatoHash: string) {
+  limparMemoriaChat();
   await carregarMaisMensagens(contatoHash);
 }
 
-/**
- * Lazy Loader: Busca a próxima fatia do IndexedDB e empurra para a RAM.
- */
 export async function carregarMaisMensagens(contatoHash: string) {
   if (isFetchingMensagens.value || !hasMoreMessages.value) return;
   
@@ -40,12 +34,10 @@ export async function carregarMaisMensagens(contatoHash: string) {
   try {
     const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
     
-    // SEGURANÇA: Verificação de contexto
     if (contatoHash !== contatoSelecionado.value) {
       return; 
     }
     
-    // 🔥 ARQUITETURA: Batching previne flickering da UI quando o array e a flag alteram juntos
     batch(() => {
       if (novas.length < PAGE_SIZE) {
         hasMoreMessages.value = false;
@@ -62,9 +54,6 @@ export async function carregarMaisMensagens(contatoHash: string) {
   }
 }
 
-/**
- * Atualização Otimista O(1): Insere/Atualiza diretamente na memória sem engasgar o app
- */
 export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
   if (chat.contatoHash === contatoSelecionado.value) {
     const atual = mensagensAtivas.value;
@@ -83,16 +72,67 @@ export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
   await salvarChat(chat);
 }
 
-/**
- * Helper chamado pelos Handshakes no SW (via Broadcast/PostMessage)
- */
 export async function processarAtualizacaoDeStatusDB(chatId: string) {
   const chatAtualizado = await buscarChat(chatId);
   if (chatAtualizado) {
     await atualizarOuAdicionarChatAtivo(chatAtualizado);
+  } else {
+    // 🔥 ARQUITETURA: Se a mensagem não está mais no DB, foi excluída remotamente
+    const atual = mensagensAtivas.value;
+    const existe = atual.some(m => m.id === chatId);
+    if (existe) {
+      batch(() => {
+        mensagensAtivas.value = atual.filter(m => m.id !== chatId);
+        currentOffset = Math.max(0, currentOffset - 1);
+      });
+    }
   }
 }
 
-export async function initMensagensStore() {
-  // Inicialização sob demanda pela UI
+export async function excluirMensagem(msgId: string, contatoHash: string) {
+  // 1. Otimista (limpa da tela imediatamente)
+  if (contatoSelecionado.value === contatoHash) {
+    batch(() => {
+      mensagensAtivas.value = mensagensAtivas.value.filter(m => m.id !== msgId);
+      currentOffset = Math.max(0, currentOffset - 1);
+    });
+  }
+
+  // 2. Busca a mensagem no banco antes de apagar
+  const msgLocal = await buscarChat(msgId);
+  
+  // 🔥 ARQUITETURA [Exclusão Bidirecional]:
+  // Agora não importa mais se a mensagem é 'out' (enviada) ou 'in' (recebida).
+  // Sempre avisaremos o remoto para apagá-la também (se não for uma mensagem auto-enviada).
+  const deveAvisarRemoto = msgLocal && msgLocal.handshake !== 'self';
+
+  // 3. Apaga do IndexedDB
+  await removerChat(msgId, contatoHash);
+
+  // 4. Delega para o Service Worker enviar a notificação de exclusão remota
+  if (deveAvisarRemoto && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'CRIAR_HANDSHAKE_OUT',
+          payload: {
+            rotasModulo: 'mensagem',
+            params: { function: 'excluirMensagem', contato: contatoHash, msgId: msgId }
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Falha ao enviar handshake de exclusão remota", e);
+    }
+  }
 }
+
+export async function limparTodoHistorico(contatoHash: string) {
+  if (contatoSelecionado.value === contatoHash) {
+    limparMemoriaChat();
+  }
+  await ExpurgarMensagens(contatoHash);
+}
+
+export async function initMensagensStore() {}

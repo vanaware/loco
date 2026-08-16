@@ -4,6 +4,7 @@ import { useSignal } from '@preact/signals';
 import qrcode from 'qrcode-generator';
 
 import { contatosComHash, adicionarContato, removerContatoCompletamente } from '../stores/contatosStore.ts';
+import { limparTodoHistorico } from '../stores/mensagensStore.ts';
 import { profile } from '../stores/profileStore.ts';
 import { contatoCompartilharHash, contatoSelecionado, showToast } from '../signals/state.ts';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
@@ -43,7 +44,6 @@ export function ContactDetailSection() {
       });
     }
 
-    // 🔥 Protegido com Async IIFE
     (async () => {
       try {
         const payloadBinario = await gerarPayloadQrCodeCompacto(contato);
@@ -154,13 +154,25 @@ export function ContactDetailSection() {
     navigate(`#chat=${hash}`);
   };
 
+  const handleExcluirHistorico = async () => {
+    const mensagemAlerta = `🛑 Tem certeza?\n\nTodas as mensagens enviadas e recebidas com ${nomeExibicao} serão apagadas permanentemente. Isso não pode ser desfeito.`;
+    if (confirm(mensagemAlerta)) {
+      try {
+        await limparTodoHistorico(hash);
+        showToast("🗑️ Histórico de mensagens apagado.", "success");
+      } catch (e: any) {
+        showToast(`❌ Erro ao apagar histórico: ${e.message}`, "error");
+      }
+    }
+  };
+
   const handleExcluirContato = async () => {
-    const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir ${nomeExibicao} permanentemente.\n\nIsso apagará TODAS as mensagens enviadas, recebidas e todas as pendências de conexão na rede.\n\nDeseja continuar?`;
+    const mensagemAlerta = `🛑 ATENÇÃO!\n\nVocê está prestes a excluir o perfil de ${nomeExibicao} permanentemente.\n\nDeseja continuar?`;
     
     if (confirm(mensagemAlerta)) {
       try {
         await removerContatoCompletamente(hash);
-        showToast("🗑️ Contato e histórico excluídos com sucesso.", "success");
+        showToast("🗑️ Contato excluído com sucesso.", "success");
         if (contatoSelecionado.value === hash) {
           contatoSelecionado.value = '';
         }
@@ -305,13 +317,21 @@ export function ContactDetailSection() {
                 Iniciar Conversa
               </md-outlined-button>
 
-              <div style="margin-top: 16px;">
+              <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+                <md-outlined-button 
+                  onClick={handleExcluirHistorico} 
+                  style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);"
+                >
+                  <md-icon slot="icon">delete_sweep</md-icon>
+                  Apagar Histórico de Mensagens
+                </md-outlined-button>
+
                 <md-outlined-button 
                   onClick={handleExcluirContato} 
                   style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);"
                 >
                   <md-icon slot="icon">delete_forever</md-icon>
-                  Excluir Contato e Histórico
+                  Excluir Contato
                 </md-outlined-button>
               </div>
             </div>

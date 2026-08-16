@@ -24,7 +24,6 @@ interface ProfileOutParams {
   campos?: string[];
 }
 
-// 🔥 ARQUITETURA: Função de Expurgo Modular
 export async function ExpurgarHandshakesProfile(contatoHash: string) {
   addDebugLog("warn", "HAND-PROFILE", `🗑️ Expurgando handshakes de perfil do contato ${contatoHash}`);
   
@@ -103,10 +102,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         await salvarContato(contato);
         addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
 
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => {
-          client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
-        });
+        // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
+        if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          clients.forEach(client => {
+            client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
+          });
+        }
       } else {
         addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
       }

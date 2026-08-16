@@ -1,3 +1,4 @@
+// src/app.tsx
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { effect } from '@preact/signals';
@@ -17,6 +18,7 @@ import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 // Signals e Lógica de Negócio
 import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, showAdvanced, appTheme, AppTheme } from './signals/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
+import { isCarregandoContatos } from './stores/contatosStore.ts';
 import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 
 // Roteador Reativo
@@ -25,7 +27,6 @@ import { activeView, navigate } from './utils/router.ts';
 import "@material/web/all.js";
 import './styles.css';
 
-// 🔥 ARQUITETURA: Bind Reativo do Tema com o HTML Document
 effect(() => {
   if (typeof document !== 'undefined') {
     const theme = appTheme.value;
@@ -37,7 +38,6 @@ effect(() => {
   }
 });
 
-// Componente de Fallback/Home (Quando não há nada selecionado)
 const HomePlaceholder = () => (
   <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-on-surface-variant);">
     <div style="text-align: center;">
@@ -47,7 +47,6 @@ const HomePlaceholder = () => (
   </div>
 );
 
-// Dicionário de Rotas
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ViewMap: Record<string, ComponentType<any>> = {
   'chat': ChatSection,
@@ -63,10 +62,8 @@ const ViewMap: Record<string, ComponentType<any>> = {
 function App() {
   const [isLoading, setIsLoading] = useState(true);
 
-  // Inicialização assíncrona dos Stores locais e Infraestrutura
   useEffect(() => {
     const init = async () => {
-      // Carrega Tema salvo
       const savedTheme = await getConfigValue('APP_THEME');
       if (savedTheme) {
         appTheme.value = savedTheme as AppTheme;
@@ -77,7 +74,6 @@ function App() {
 
       await initProfileStore();
       
-      // Se não tem perfil gerado, e a rota não for perfil, força a rota (Route Guard)
       if ((!profile.value || !profile.value.e2ePrivateKeyJwk) && activeView.value !== 'profile') {
         navigate('#profile');
       }
@@ -90,6 +86,25 @@ function App() {
     init();
   }, []);
 
+  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
+  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
+
+  // 🔥 ARQUITETURA: Route Guard (Proteção contra Rotas Órfãs)
+  // Previne que o usuário consiga acessar um chat de um contato que ele acabou de excluir.
+  useEffect(() => {
+    if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
+       const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
+       
+       if (hashAlvo) {
+         const contatoExiste = contatosComHash.value.some(c => c.hash === hashAlvo);
+         if (!contatoExiste) {
+           addDebugLog("warn", "ROUTER", "Tentativa de acesso a contato inexistente/excluído. Redirecionando para Home.");
+           navigate(''); 
+         }
+       }
+    }
+  }, [isLoading, isCarregandoContatos.value, activeView.value, contatoSelecionado.value, contatoCompartilharHash.value, contatosComHash.value]);
+
   if (isLoading) {
     return (
       <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
@@ -98,16 +113,11 @@ function App() {
     );
   }
 
-  // Preparações para o Cabeçalho Responsivo (Header)
-  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
-  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
-
   const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
   const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
 
   const fecharAreaPrincipal = () => navigate('');
   
-  // Lógica Dinâmica para Títulos e Ícones do Cabeçalho da Área Principal
   let headerTitle = "Loco PWA";
   let headerSubtitle = "";
   let headerIcon = "forum";
@@ -143,7 +153,9 @@ function App() {
   }
 
   const viewToRender = (!profile.value && activeView.value !== 'profile') ? 'profile' : activeView.value;
-  const RouteComponent = ViewMap[viewToRender] || ViewMap['home']!;
+  // Fallback seguro caso o route guard demore 1 ciclo para chutar a tela orfã
+  const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
+  const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
 
   return (
     <div id="app-root" class={`view-mode-${currentMobileView.value}`}>

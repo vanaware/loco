@@ -50,7 +50,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       if (contato) {
         const camposSet = new Set(contatoReq.campos);
-        // 🔥 Agora a extração é assíncrona para garantir a base URL
         const cp = await extrairDadosCompactos(contato);
         
         if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
@@ -86,7 +85,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
 
       const d = contatoReq.data as Record<string, unknown>;
-      // 🔥 Await
       const mp = await extrairDadosCompactos(profile);
       let novoMeStatus = contato.me;
 
@@ -112,8 +110,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         await salvarContato(contato);
         addDebugLog(`[HAND-CONTATO] ✅ Status alterado de '${statusAnterior}' para: '${novoMeStatus}'`);
         
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+        // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
+        if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+        }
       } else {
         addDebugLog(`[HAND-CONTATO] ✅ Consistência avaliada. Status mantido em: '${novoMeStatus}'`);
       }
@@ -152,8 +153,11 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       await salvarContato(novoContato);
       addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
 
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
+      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      }
 
       if (syncData.req) {
         addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
@@ -187,7 +191,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const contatoAlvo = await buscarContatoPorChave(outParams.contato);
       const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
 
-      // 🔥 Await
       const compactSyncData = await extrairDadosCompactos(profile, !outParams.responder, euConfio);
 
       const novoHandshake: Handshake = {
