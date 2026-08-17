@@ -248,7 +248,10 @@ async function build() {
   console.log("📦 Compilando Cloudflare Worker ...");
   await runBundle("worker", {
     entrypoints: [
-      "./worker.ts"
+      "./server/worker.ts", 
+      "./server/functions/ping.ts",
+      "./server/functions/publickey.ts",
+      "./server/functions/push.ts",
     ],
     outputDir: join(BUILD_DIR),
     platform: "browser",

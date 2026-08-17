@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.169-msvwtr3n** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.175-mswjgnci** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.169-msvwtr3n] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.175-mswjgnci] - Modo: MAIN
 
-Gerado automaticamente em: 8/16/2026, 7:10:03 PM
+Gerado automaticamente em: 8/16/2026, 10:12:08 PM
 
 ---
 
@@ -2348,7 +2348,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     if (!res || !res.ok) return false;
     
     const data = await res.json();
-    return data && data.status === "ok" && data.service === "loco-proxy";
+    return data && data.service === "loco-proxy";
   } catch (err) {
     return false;
   }
@@ -2506,7 +2506,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.169-msvwtr3n";
+export const APP_VERSION = "0.2.175-mswjgnci";
 
 ```
 
@@ -3154,81 +3154,6 @@ self.addEventListener('push', function (event) {
 
 ---
 
-## Arquivo: `src/sw/cache.ts`
-
-```ts
-// src/sw/cache.ts
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-declare const __GENERATED_ASSETS__: string[];
-
-const CACHE_VERSION = "VERSION_HASH";
-const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
-
-const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
-
-self.addEventListener("install", (event) => {
-  console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log("[SW-CACHE] 📦 Armazenando assets essenciais no cache local...");
-      return Promise.all(
-        ASSETS_TO_CACHE.map((url) => {
-          return cache.add(url).catch((err) => {
-            console.error(`[SW-CACHE] ❌ Falha ao cachear recurso: ${url}`, err);
-          });
-        })
-      );
-    }).then(() => self.skipWaiting())
-  );
-});
-
-self.addEventListener("activate", (event) => {
-  console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log(`[SW-CACHE] 🗑️ Removendo cache obsoleto: ${cache}`);
-            return caches.delete(cache);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener("fetch", (event: any) => {
-  if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
-    return;
-  }
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-        }
-        return response;
-      })
-      .catch(() => {
-        console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) return cachedResponse;
-          return new Response("Você está offline e este recurso não foi mapeado no cache.", {
-            status: 503,
-            headers: { "Content-Type": "text/plain; charset=utf-8" }
-          });
-        });
-      })
-  );
-});
-```
-
----
-
 ## Arquivo: `src/sw/click.ts`
 
 ```ts
@@ -3641,6 +3566,89 @@ self.addEventListener('online', function (event: Event) {
   } else {
     processarFilaHandshake();
   }
+});
+```
+
+---
+
+## Arquivo: `src/sw/cache.ts`
+
+```ts
+// src/sw/cache.ts
+
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+declare const __GENERATED_ASSETS__: string[];
+
+const CACHE_VERSION = "VERSION_HASH";
+const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
+
+const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
+
+self.addEventListener("install", (event) => {
+  console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      console.log("[SW-CACHE] 📦 Armazenando assets essenciais no cache local...");
+      return Promise.all(
+        ASSETS_TO_CACHE.map((url) => {
+          return cache.add(url).catch((err) => {
+            console.error(`[SW-CACHE] ❌ Falha ao cachear recurso: ${url}`, err);
+          });
+        })
+      );
+    }).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            console.log(`[SW-CACHE] 🗑️ Removendo cache obsoleto: ${cache}`);
+            return caches.delete(cache);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (event: any) => {
+  // 🔥 ARQUITETURA [Method Guard]: A Cache API nativa suporta estritamente requisições GET.
+  // Ignoramos requisições POST, PUT e DELETE para evitar o TypeError: 'POST' is unsupported.
+  if (event.request.method !== "GET") {
+    return;
+  }
+
+  // Ignora requisições de outros domínios ou rotas dinâmicas de API
+  if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
+    return;
+  }
+  
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
+        return response;
+      })
+      .catch(() => {
+        console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          return new Response("Você está offline e este recurso não foi mapeado no cache.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" }
+          });
+        });
+      })
+  );
 });
 ```
 
@@ -6719,56 +6727,6 @@ if (root) {
 
 ---
 
-## Arquivo: `main.ts`
-
-```ts
-/// <reference lib="deno.ns" />
-
-import { serveDir } from "@std/http/file-server";
-import workerHandler from "./worker.ts";
-
-const env = Deno.env.toObject()
-Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {    
-    const url = new URL(req.url);
-    const ctx = {
-        waitUntil: (p: Promise<any>) => { p.catch(console.error); },
-        passThroughOnException: () => {}
-    };
-
-// 1. Tenta processar a requisição através do workerHandler (APIs e Proxy Push)
-    const workerResponse = await workerHandler.fetch(req, env, ctx);
-
-    // 2. Se o worker processou com sucesso ou retornou erro de API (ex: 400, 403, 500), retorna o resultado dele
-    if (workerResponse.status !== 404) {
-        return workerResponse;
-    }
-
-    // 3. Se o worker retornou 404 (Endpoint não encontrado), significa que não é uma API.
-    // Deixamos o serveDir processar para entregar o arquivo estático correspondente (HTML, JS, CSS, Ícones) do ./dist.
-    try {
-        const staticResponse = await serveDir(req, {
-            fsRoot: "./build/dist",
-            showDirListing: false,
-            quiet: true,
-        });
-
-        // Se o arquivo estático foi encontrado e servido com sucesso, retorna-o
-        if (staticResponse.status !== 404) {
-            return staticResponse;
-        }
-    } catch {
-        // Silencia erros de IO do disco
-    }
-
-    // 4. Se nem a API nem o disco possuíam o recurso, retorna o 404 limpo do worker
-    return workerResponse; 
-
-});
-
-```
-
----
-
 ## Arquivo: `.github/workflows/main.yml`
 
 ```yaml
@@ -6895,7 +6853,9 @@ jobs:
           command: deploy --name loco -c wrangler-worker.toml
 
       - name: Prepare Pages Config
-        run: mv wrangler-pages.toml wrangler.toml
+        run: |
+          mv wrangler-pages.toml wrangler.toml
+          mv build/functions build/dist/
 
       - name: Deploy do Frontend (Cloudflare Pages)
         uses: cloudflare/wrangler-action@v3
@@ -6920,7 +6880,7 @@ jobs:
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.169-msvwtr3n",
+  "version": "0.2.175-mswjgnci",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -6965,10 +6925,10 @@ jobs:
   // 🛠️ Scripts de Automação
   "tasks": {
     "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx",
+    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx server/**/*.ts",
     "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch main.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./server/main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./server/main.ts",
     "clean": "deno clean && rm -rf build && mkdir -p build/dist",
     "tests": "deno task check && deno task test",
     "export": "deno run --allow-read --allow-write export.ts",
@@ -6977,325 +6937,6 @@ jobs:
   "exclude": ["build/", "public/"],
   "nodeModulesDir": "auto"
 }
-```
-
----
-
-## Arquivo: `worker.ts`
-
-```ts
-// worker.ts
-/// <reference lib="deno.ns" />
-
-import * as webpush from "@negrel/webpush";
-
-let serverPrivateKeyCache: CryptoKey | null = null;
-let serverPublicKeyJwkCache: JsonWebKey | null = null;
-let serverPublicKeyMinifiedCache: any | null = null; 
-
-async function getOrInitServerKeys(env?: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
-  if (serverPrivateKeyCache && serverPublicKeyJwkCache && serverPublicKeyMinifiedCache) {
-    return { 
-      serverPrivateKey: serverPrivateKeyCache, 
-      serverPublicKeyJwk: serverPublicKeyJwkCache,
-      serverPublicKeyMinified: serverPublicKeyMinifiedCache
-    };
-  }
-
-  const publicKeyStr = env?.SERVER_PUBLIC_KEY;
-  const privateKeyStr = env?.SERVER_PRIVATE_KEY;
-
-  if (!publicKeyStr) {
-    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada!");
-  }
-  
-  if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada!");
-  }
-
-  try {
-    const rawPublicKeyJwk = JSON.parse(publicKeyStr);
-    let publicKeyJwk = { ...rawPublicKeyJwk };
-    let privateKeyJwk = JSON.parse(privateKeyStr);
-
-    const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
-
-    if (!publicKeyJwk.kty) {
-      publicKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", n: publicKeyJwk.n, e: "AQAB", ext: true, key_ops: ["encrypt"] };
-    }
-
-    if (!privateKeyJwk.kty) {
-      privateKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", e: publicKeyJwk.e, n: publicKeyJwk.n, ext: true, key_ops: ["decrypt"], d: privateKeyJwk.d, p: privateKeyJwk.p, q: privateKeyJwk.q, dp: privateKeyJwk.dp, dq: privateKeyJwk.dq, qi: privateKeyJwk.qi };
-    }
-
-    const serverPrivateKey = await crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-
-    serverPrivateKeyCache = serverPrivateKey;
-    serverPublicKeyJwkCache = publicKeyJwk;
-    serverPublicKeyMinifiedCache = minifiedPublicKey;
-
-    return { serverPrivateKey, serverPublicKeyJwk: publicKeyJwk, serverPublicKeyMinified: minifiedPublicKey };
-  } catch (err) {
-    throw new Error(`Erro inicializando chaves: ${err}`);
-  }
-}
-
-async function decryptWithServerKey(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
-  // Nota: Não usar try/catch genérico aqui para que o erro suba limpo e ative o fallback de Federação
-  const envelopeText = atob(base64Envelope);
-  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
-
-  const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-  const ivBytes = fromHex(iv);
-  const dadosBytes = fromHex(dadosCifrados);
-  const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
-
-  const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
-  const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-  const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
-
-  return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
-}
-
-function parseVapidKeysToJwk(publicKey: any, privateKey: any) {
-  try {
-    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
-    const priv = typeof privateKey === "string" ? JSON.parse(privateKey) : privateKey;
-    const expandedPub = pub.kty ? pub : { kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"] };
-    const expandedPriv = priv.kty ? priv : { kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"] };
-    return { publicKey: expandedPub, privateKey: expandedPriv };
-  } catch (err) {
-    throw new Error(`JWK inválido: ${err}`);
-  }
-}
-
-function lerMetadadosJJWT(jwtString: string) {
-  try {
-    const parts = jwtString.split(".");
-    if (parts.length !== 3) return null;
-    
-    const payloadPart = parts[1];
-    if (!payloadPart) return null;
-    
-    let base64Url = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-    return JSON.parse(new TextDecoder().decode(new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))));
-  } catch {
-    return null;
-  }
-}
-
-function createCorsHeaders(request: Request): Headers {
-  const headers = new Headers();
-  const origin = request.headers.get("Origin") || "*";
-  
-  headers.set("Access-Control-Allow-Origin", origin === "null" ? "*" : origin);
-  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  
-  const reqHeaders = request.headers.get("Access-Control-Request-Headers");
-  headers.set("Access-Control-Allow-Headers", reqHeaders || "*");
-  
-  headers.set("Access-Control-Allow-Credentials", "true");
-  headers.set("Access-Control-Max-Age", "86400");
-  headers.set("Vary", "Origin");
-  
-  return headers;
-}
-
-const workerHandler = {
-  async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-    const method = request.method;
-    
-    const corsHeaders = createCorsHeaders(request);
-    
-    if (method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
-    }
-
-    try {
-      const isPing = pathname.endsWith("/ping") || pathname.endsWith("/ping/");
-      const isPublicKey = pathname.endsWith("/publickey") || pathname.endsWith("/publickey/");
-      const isPushRoute = pathname.endsWith("/push") || pathname.endsWith("/push/");
-
-      const { serverPrivateKey, serverPublicKeyMinified } = await getOrInitServerKeys(env);
-
-      const sendResponse = (bodyObj: any, status = 200) => {
-        const respHeaders = new Headers(corsHeaders);
-        respHeaders.set("Content-Type", "application/json");
-        return new Response(JSON.stringify(bodyObj), { status, headers: respHeaders });
-      };
-
-      if ((method === "POST" || method === "GET") && isPing) {
-        return sendResponse({ status: "ok", service: "loco-proxy", timestamp: Date.now() });
-      }
-
-      if (method === "POST" && isPublicKey) {
-        return sendResponse(serverPublicKeyMinified);
-      }
-
-      if (method === "POST" && isPushRoute) {
-        const contentLength = request.headers.get("content-length");
-        if (contentLength && parseInt(contentLength, 10) > 8192) {
-          // [DEFESA] Payload bloqueado (${contentLength} bytes).
-          return sendResponse({ success: false, error: "Payload Too Large" }, 413);
-        }
-        
-        const rawText = await request.text();
-        let body;
-        try {
-          body = JSON.parse(rawText);
-        } catch (e) {
-          // [VALIDAÇÃO] Falha ao processar corpo JSON.
-          return sendResponse({ success: false, error: "Corpo não é JSON válido." }, 400);
-        }
-
-        const { subscription, payloadText, vapid } = body;
-
-        if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
-          // [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.
-          return sendResponse({ success: false, error: "Estrutura P2P Inválida." }, 400);
-        }
-
-        const jwtClaims = lerMetadadosJJWT(payloadText);
-        if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
-          // [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.
-          return sendResponse({ success: false, error: "Protocolo JWT Inválido." }, 400);
-        }
-        
-        // =========================================================================
-        // 🔥 ARQUITETURA INTELIGENTE: Trust the Crypto, not the DNS
-        // =========================================================================
-
-        const proxyserverDestino = jwtClaims.proxyserver;
-        let requiresFederationByDns = false;
-        let destinoUrlObj: URL | null = null;
-
-        // 1. Analisa se, teoricamente, precisaríamos federar
-        if (proxyserverDestino && proxyserverDestino !== '/') {
-          try {
-             const urlFormatada = proxyserverDestino.startsWith('http') ? proxyserverDestino : `https://${proxyserverDestino}`;
-             destinoUrlObj = new URL(urlFormatada);
-             if (url.hostname !== destinoUrlObj.hostname) {
-               requiresFederationByDns = true;
-             }
-          } catch(e) {
-             console.warn(`❌ [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}`);
-             return sendResponse({ success: false, error: "URL de proxy do destino malformada." }, 400);
-          }
-        }
-
-        // 2. Prova de Posse (Proof of Ownership): Tentamos abrir o cadeado
-        let privateKeyFinal = vapid.privateKey;
-        let isMyEnvelope = false;
-
-        if (typeof privateKeyFinal === "string") {
-          try {
-            // Se não der erro, significa que este Worker possui a chave privada que criou este envelope!
-            privateKeyFinal = await decryptWithServerKey(privateKeyFinal, serverPrivateKey);
-            isMyEnvelope = true;
-          } catch (decryptErr) {
-            // O envelope pertence a outro servidor.
-            isMyEnvelope = false;
-          }
-        } else {
-          isMyEnvelope = true; // Se não for string, assumimos que já veio limpo/mockado
-        }
-
-        // 3. Tomada de Decisão Arquitetural
-        if (requiresFederationByDns && isMyEnvelope) {
-           // [ARQUITETURA] Bypass de Federação! Hostnames diferem (${url.hostname} vs ${destinoUrlObj!.hostname}), mas as chaves combinam. Economizando latência e disparando Push localmente.
-           requiresFederationByDns = false; // Anula a federação
-        }
-
-        if (requiresFederationByDns && !isMyEnvelope && destinoUrlObj) {
-           // [FEDERAÇÃO] Chave incompatível com nó atual. Repassando pacote para o Proxy destino: ${destinoUrlObj.hostname}
-           try {
-              const baseUrl = proxyserverDestino.endsWith('/') ? proxyserverDestino.slice(0, -1) : proxyserverDestino;
-              const urlDestino = `${baseUrl}/push`;
-              
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 10000); 
-              
-              const relayResponse = await fetch(urlDestino, {
-                  method: "POST",
-                  headers: {
-                      "Content-Type": "text/plain",
-                      "User-Agent": "Loco-Federation-Relay/1.0"
-                  },
-                  body: rawText,
-                  signal: controller.signal
-              });
-              
-              clearTimeout(timeoutId);
-              
-              if (!relayResponse.ok) {
-                 const contentType = relayResponse.headers.get("content-type") || "";
-                 let errText = "";
-                 
-                 if (relayResponse.status >= 500 || contentType.includes("text/html")) {
-                     errText = `Servidor destino (${destinoUrlObj.hostname}) offline ou recusou conexão.`;
-                 } else {
-                     errText = await relayResponse.text();
-                     errText = errText.replace(/<[^>]*>?/gm, '').replace(/\n|\r/g, " ").substring(0, 100) + "...";
-                 }
-                 throw new Error(errText);
-              }
-              
-              return sendResponse({ success: true, federated: true, target: destinoUrlObj.hostname });
-              
-           } catch (relayErr: any) {
-              // [FEDERAÇÃO] Falha ao reencaminhar pacote: ${relayErr.message}
-              return sendResponse({ success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
-           }
-        }
-
-        if (!isMyEnvelope && !requiresFederationByDns) {
-           // [SEGURANÇA] Falha crítica: O envelope VAPID não nos pertence, e não existe rota de federação configurada.
-           return sendResponse({ success: false, error: "Falha ao descriptografar chave VAPID. Nó incorreto." }, 400);
-        }
-
-        // =========================================================================
-        // 🚀 Processamento Final (Disparo Local Nativo)
-        // =========================================================================
-
-        let jwkKeys = parseVapidKeysToJwk(vapid.publicKey, privateKeyFinal);
-        let vapidKeys = await webpush.importVapidKeys(jwkKeys);
-        
-        const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
-        const appServer = await webpush.ApplicationServer.new({
-          contactInformation: contact,
-          vapidKeys: vapidKeys,
-        });
-
-        const subscriber = appServer.subscribe(subscription);
-        
-        try {
-          await subscriber.pushTextMessage(payloadText, {});
-        } catch (pushErr: any) {
-          // [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}
-          throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
-        }
-
-        return sendResponse({ success: true });
-      }
-
-      // [404] Rota não mapeada tentou ser acessada: ${pathname}
-      return sendResponse({ error: "Endpoint não encontrado." }, 404);
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      // [WORKER EXCEPTION]: ${errorMessage}
-      
-      const errHeaders = new Headers(corsHeaders);
-      errHeaders.set("Content-Type", "application/json");
-      return new Response(JSON.stringify({ success: false, error: errorMessage }), { status: 400, headers: errHeaders });
-    }
-  }
-};
-
-export default workerHandler;
 ```
 
 ---
@@ -7553,7 +7194,10 @@ async function build() {
   console.log("📦 Compilando Cloudflare Worker ...");
   await runBundle("worker", {
     entrypoints: [
-      "./worker.ts"
+      "./server/worker.ts", 
+      "./server/functions/ping.ts",
+      "./server/functions/publickey.ts",
+      "./server/functions/push.ts",
     ],
     outputDir: join(BUILD_DIR),
     platform: "browser",
@@ -7791,21 +7435,21 @@ pages_build_output_dir = "build/dist"
 ## Arquivo: `server/functions/ping.ts`
 
 ```ts
-/// <reference types="https://esm.sh/@cloudflare/workers-types@4.20241022.0/index.d.ts" />
 
 import { sendResponse, handlePreflight } from "../shared.ts";
 
 export async function handlePing(request: Request, env?: any): Promise<Response> {
-  const method = request.method;
-  if (request.method === "OPTIONS") {
-    return handlePreflight(request);
-  }
-  return sendResponse(request, { status: "ok", service: "loco-proxy", timestamp: Date.now() });
+  return sendResponse(request, { success: true, service: "loco-proxy", timestamp: Date.now() });
 }
 
-export const onRequest: PagesFunction<any> = async (context) => {
+export const onRequestPost = async (context: any) => {
   return await handlePing(context.request, context.env);
 };
+
+export const onRequestOptions = async (context: any) => {
+  return handlePreflight(context.request);;
+};
+
 ```
 
 ---
@@ -7813,21 +7457,21 @@ export const onRequest: PagesFunction<any> = async (context) => {
 ## Arquivo: `server/functions/publickey.ts`
 
 ```ts
-/// <reference types="https://esm.sh/@cloudflare/workers-types@4.20241022.0/index.d.ts" />
+
 
 import { sendResponse, handlePreflight, getOrInitServerKeys } from "../shared.ts";
 
 export async function handlePublicKey(request: Request, env?: any): Promise<Response> {
-  const method = request.method;
-  if (request.method === "OPTIONS") {
-    return handlePreflight(request);
-  }
   const { serverPublicKeyMinified } = await getOrInitServerKeys(env);
   return sendResponse(request, serverPublicKeyMinified);
 }
 
-export const onRequest: PagesFunction<any> = async (context) => {
+export const onRequestPost = async (context: any) => {
   return await handlePublicKey(context.request, context.env);
+};
+
+export const onRequestOptions = async (context: any) => {
+  return handlePreflight(context.request);;
 };
 ```
 
@@ -7836,10 +7480,9 @@ export const onRequest: PagesFunction<any> = async (context) => {
 ## Arquivo: `server/functions/push.ts`
 
 ```ts
-/// <reference types="https://esm.sh/@cloudflare/workers-types@4.20241022.0/index.d.ts" />
+
 
 import { sendResponse, handlePreflight, decryptWithServerKey } from "../shared.ts";
-
 import * as webpush from "@negrel/webpush";
 
 function lerMetadadosJJWT(jwtString: string) {
@@ -7858,7 +7501,7 @@ function lerMetadadosJJWT(jwtString: string) {
   }
 }
 
-async function parseVapidKeysToJwk(env:any, publicKey: any, privateKey: any) {
+async function parseVapidKeysToJwk(env: any, publicKey: any, privateKey: any) {
   try {
     const privateKeyFinal = await decryptWithServerKey(env, privateKey);
     const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
@@ -7872,131 +7515,117 @@ async function parseVapidKeysToJwk(env:any, publicKey: any, privateKey: any) {
 }
 
 async function sendPush(jwkKeys: any, subscription: any, payloadText: string, vapid: any) {
-    let vapidKeys = await webpush.importVapidKeys(jwkKeys);
-    const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
-    const appServer = await webpush.ApplicationServer.new({
-        contactInformation: contact,
-        vapidKeys: vapidKeys,
-    });
-    const subscriber = appServer.subscribe(subscription);
-    try {
-        await subscriber.pushTextMessage(payloadText, {});
-    } catch (pushErr: any) {
-        // [FCM/WEBPUSH ERROR] O provedor rejeitou o envio: ${pushErr.message}
-        throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
-    }
+  const vapidKeys = await webpush.importVapidKeys(jwkKeys);
+  const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+  const appServer = await webpush.ApplicationServer.new({
+    contactInformation: contact,
+    vapidKeys: vapidKeys,
+  });
+  const subscriber = appServer.subscribe(subscription);
+  try {
+    await subscriber.pushTextMessage(payloadText, {});
+  } catch (pushErr: any) {
+    throw new Error(`O provedor de Push (Google/Apple) rejeitou o pacote: ${pushErr.message}`);
+  }
 }
 
-async function routePush(proxyserverDestino: string, rawText: string, request: Request, env?: any): Promise<Response> {
-    try {   
-        const baseUrl = proxyserverDestino.endsWith('/') ? proxyserverDestino.slice(0, -1) : proxyserverDestino;
-        const urlDestino = `${baseUrl}/push`;
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); 
-        const relayResponse = await fetch(urlDestino, {
-            method: "POST",
-            headers: {
-                "Content-Type": "text/plain",
-                "User-Agent": "Loco-Federation-Relay/1.0"
-            },
-            body: rawText,
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        if (!relayResponse.ok) {
-            const contentType = relayResponse.headers.get("content-type") || "";
-            let errText = "";
-            if (relayResponse.status >= 500 || contentType.includes("text/html")) {
-                errText = `Servidor destino (${destinoUrlObj.hostname}) offline ou recusou conexão.`;
-            } else {
-                errText = await relayResponse.text();
-                errText = errText.replace(/<[^>]*>?/gm, '').replace(/\n|\r/g, " ").substring(0, 100) + "...";
-            }
-            throw new Error(errText);
-        }
-        return sendResponse(request, { success: true, federated: true, target: urlDestino });
-    } catch (relayErr: any) {
-        // [FEDERAÇÃO] Falha ao reencaminhar pacote: ${relayErr.message}
-        return sendResponse(request, { success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
+async function routePush(proxyserverDestino: string, rawText: string, request: Request): Promise<Response> {
+  try {   
+    const baseUrl = proxyserverDestino.startsWith("http") ? proxyserverDestino : `https://${proxyserverDestino}`;
+    const urlFormatada = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+    const urlDestinoObj = new URL(`${urlFormatada}/push`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); 
+
+    const relayResponse = await fetch(urlDestinoObj.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        "User-Agent": "Loco-Federation-Relay/1.0"
+      },
+      body: rawText,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!relayResponse.ok) {
+      const contentType = relayResponse.headers.get("content-type") || "";
+      let errText = "";
+      if (relayResponse.status >= 500 || contentType.includes("text/html")) {
+        errText = `Servidor destino (${urlDestinoObj.toString()}) offline ou recusou conexão.`;
+      } else {
+        errText = await relayResponse.text();
+        errText = errText.replace(/<[^>]*>?/gm, "").replace(/\n|\r/g, " ").substring(0, 100) + "...";
+      }
+      throw new Error(errText);
     }
+    return sendResponse(request, { success: true, federated: true, target: urlDestinoObj.toString() });
+  } catch (relayErr: any) {
+    return sendResponse(request, { success: false, error: `Falha na ponte: ${relayErr.message}` }, 424);
+  }
 }
 
 export async function handlePush(request: Request, env?: any): Promise<Response> {
-  const method = request.method;
-  const url = new URL(request.url);
 
-  if (request.method === "OPTIONS") {
-    return handlePreflight(request);
+  const url = new URL(request.url);
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > 8192) {
+    return sendResponse(request, { success: false, error: "Payload Too Large" }, 413);
   }
 
-    const contentLength = request.headers.get("content-length");
-    if (contentLength && parseInt(contentLength, 10) > 8192) {
-        // [DEFESA] Payload bloqueado (${contentLength} bytes).
-        return sendResponse(request, { success: false, error: "Payload Too Large" }, 413);
-    }
+  const rawText = await request.text();
+  let body;
+  try {
+    body = JSON.parse(rawText);
+  } catch (_e) {
+    return sendResponse(request, { success: false, error: "Corpo não é JSON válido." }, 400);
+  }
 
-    const rawText = await request.text();
-    let body;
+  const { subscription, payloadText, vapid } = body;
+  if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
+    return sendResponse(request, { success: false, error: "Estrutura P2P Inválida." }, 400);
+  }
+
+  const jwtClaims = lerMetadadosJJWT(payloadText);
+  if (!jwtClaims || !jwtClaims.sub || !["hand", "contact"].includes(jwtClaims.sub)) {
+    return sendResponse(request, { success: false, error: "Protocolo JWT Inválido." }, 400);
+  }
+
+  const proxyserverDestino = jwtClaims.proxyserver;
+
+  // Prova de Posse (Proof of Ownership): Tentamos abrir o envelope com a nossa chave privada
+  try {
+    const jwkKeys = await parseVapidKeysToJwk(env, vapid.publicKey, vapid.privateKey);
+    await sendPush(jwkKeys, subscription, payloadText, vapid);
+    return sendResponse(request, { success: true });
+  } catch (_decryptErr) {
+    // O envelope pertence a outro nó na rede de federação
+  }
+
+  // Se o envelope não é nosso, avaliamos o roteamento de federação via DNS
+  if (proxyserverDestino) {
     try {
-        body = JSON.parse(rawText);
-    } catch (e) {
-        // [VALIDAÇÃO] Falha ao processar corpo JSON.
-        return sendResponse(request,{ success: false, error: "Corpo não é JSON válido." }, 400);
+      const urlFormatada = proxyserverDestino.startsWith("http") ? proxyserverDestino : `https://${proxyserverDestino}`;
+      const destinoUrlObj = new URL(urlFormatada);
+      
+      if (url.hostname !== destinoUrlObj.hostname) {
+        return await routePush(proxyserverDestino, rawText, request);
+      }
+    } catch (_e) {
+      return sendResponse(request, { success: false, error: "URL de proxy do destino malformada." }, 400);
     }
+  }
 
-    const { subscription, payloadText, vapid } = body;
-    if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
-        // [VALIDAÇÃO] Estrutura P2P incompleta ou corrompida.
-        return sendResponse(request, { success: false, error: "Estrutura P2P Inválida." }, 400);
-    }
-
-    const jwtClaims = lerMetadadosJJWT(payloadText);
-    if (!jwtClaims || !jwtClaims.sub || !['hand', 'contact'].includes(jwtClaims.sub)) {
-        // [VALIDAÇÃO] Assinatura JWT não reconhecida pelo protocolo Loco.
-        return sendResponse(request, { success: false, error: "Protocolo JWT Inválido." }, 400);
-    }
-
-    const proxyserverDestino = jwtClaims.proxyserver;
-    let destinoUrlObj: URL | null = null;
-
-    // Prova de Posse (Proof of Ownership): Tentamos abrir o cadeado
-    let isMyEnvelope = false;
-    try {
-        // Se não der erro, significa que este Worker possui a chave privada que criou este envelope!
-        let jwkKeys = await parseVapidKeysToJwk(env, vapid.publicKey, vapid.privateKey);
-        await sendPush(jwkKeys, subscription, payloadText, vapid)
-        isMyEnvelope = true;
-        return sendResponse(request, { success: true });
-    } catch (decryptErr) {
-        // O envelope pertence a outro servidor.
-        isMyEnvelope = false;
-    }
-    let requiresFederationByDns = false;
-    if (!isMyEnvelope) {
-        try {
-            const urlFormatada = proxyserverDestino.startsWith('http') ? proxyserverDestino : `https://${proxyserverDestino}`;
-            destinoUrlObj = new URL(urlFormatada);
-            if (url.hostname !== destinoUrlObj.hostname) {
-            requiresFederationByDns = true;
-            }
-        } catch(e) {
-            // [FEDERAÇÃO] URL destino malformada: ${proxyserverDestino}
-            return sendResponse(request, { success: false, error: "URL de proxy do destino malformada." }, 400);
-        }
-        if (requiresFederationByDns && destinoUrlObj) {
-            await routePush(proxyserverDestino, rawText, request, env);
-        } else {
-           // [SEGURANÇA] Falha crítica: O envelope VAPID não nos pertence, e não existe rota de federação configurada.
-           return sendResponse(request, { success: false, error: "Falha ao descriptografar chave VAPID. Nó incorreto." }, 400);
-        }
-    }
-
-
+  return sendResponse(request, { success: false, error: "Falha ao descriptografar chave VAPID. Nó incorreto." }, 400);
 }
 
-export const onRequest: PagesFunction<any> = async (context) => {
+export const onRequestPost = async (context: any) => {
   return await handlePush(context.request, context.env);
+};
+
+export const onRequestOptions = async (context: any) => {
+  return handlePreflight(context.request);;
 };
 ```
 
@@ -8074,19 +7703,23 @@ const workerHandler = {
           return handlePreflight(request);
       }
 
-      // Roteamento explícito delegando a execução para os handlers importados
-      switch (pathname) {
-        case "/ping":
-          return await handlePing(request, env);
+      if (method === "POST") {
+        // Roteamento explícito delegando a execução para os handlers importados
+        switch (pathname) {
+          case "/ping":
+            return await handlePing(request, env);
 
-        case "/publickey":
-          return await handlePublicKey(request, env);
+          case "/publickey":
+            return await handlePublicKey(request, env);
 
-        case "/push":
-          return await handlePush(request, env);
+          case "/push":
+            return await handlePush(request, env);
 
-        default:
-          return sendResponse(request, { error: `Rota '${pathname}' não encontrada no Worker.` }, 404);
+          default:
+            return sendResponse(request, { error: `Rota '${pathname}' não encontrada no Worker.` }, 404);
+        }
+      } else {
+        return sendResponse(request, { error: `Método '${method}' não encontrado no Worker.` }, 404);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -8127,21 +7760,20 @@ function corsHeaders(request: Request): Headers {
     headers.set("Access-Control-Max-Age", "86400");
     headers.set("Vary", "Origin");
     return headers;
-  } catch (err) {
-    // Erro ao gerar cabeçalhos CORS
+  } catch (_err) {
     return new Headers(DEFAULT_CORS_HEADERS);
   }
 }
 
 export function handlePreflight(request: Request): Response {
-    const headers = corsHeaders(request);
-    return new Response(null, { status: 204, headers });
-};
+  const headers = corsHeaders(request);
+  return new Response(null, { status: 204, headers });
+}
 
-export function sendResponse(request: Request,data: unknown, status = 200): Response {
+export function sendResponse(request: Request, data: unknown, status = 200): Response {
   const headers = corsHeaders(request);
   headers.set("Content-Type", "application/json");
-  return new Response(JSON.stringify(data), { status, headers});
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
 export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
@@ -8192,10 +7824,18 @@ export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SER
 }
 
 export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }, base64Envelope: string): Promise<any> {
-  // Nota: Não usar try/catch genérico aqui para que o erro suba limpo e ative o fallback de Federação
   const { serverPrivateKey } = await getOrInitServerKeys(env);
-  const envelopeText = atob(base64Envelope);
-  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+  
+  // Tratamento seguro de Base64 e JSON parse
+  let binaryString: string;
+  try {
+    binaryString = atob(base64Envelope);
+  } catch (_e) {
+    const base64Standard = base64Envelope.replace(/-/g, "+").replace(/_/g, "/");
+    binaryString = atob(base64Standard);
+  }
+
+  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(binaryString);
 
   const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
   const ivBytes = fromHex(iv);
@@ -8207,7 +7847,7 @@ export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SE
   const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
 
   return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
-} 
+}
 ```
 
 ---

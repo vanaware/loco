@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.168-msv8eimr** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.175-mswjgnci** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.168-msv8eimr] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.2.175-mswjgnci] - Modo: TESTS
 
-Gerado automaticamente em: 8/16/2026, 8:08:58 AM
+Gerado automaticamente em: 8/16/2026, 10:12:22 PM
 
 ---
 
@@ -2394,6 +2394,42 @@ Deno.test("Store: Mensagens - Não deve sujar o Signal se o chat ativo for difer
   
   // O Signal NÃO deve ter sido alterado, pois a UI está focada no contato-A
   assertEquals(mensagensAtivas.value.length, 0, "O Signal não deve receber mensagens de um chat inativo");
+});
+```
+
+---
+
+## Arquivo: `tests/federation_routing_test.ts`
+
+```ts
+// testes/federation_routing_test.ts
+
+import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { handlePing } from "../server/functions/ping.ts";
+import { handlePush } from "../server/functions/push.ts";
+
+Deno.test("Server - Handler /ping deve retornar HTTP 200 com status OK", async () => {
+  const req = new Request("https://proxy.vanaware.com/ping", {
+    method: "POST"});
+  const res = await handlePing(req);
+
+  assertEquals(res.status, 200);
+  const data = await res.json();
+  assertEquals(data.success, true);
+  assertEquals(data.service, "loco-proxy");
+});
+
+Deno.test("Server - Handler /push deve rejeitar payload vazio com HTTP 400", async () => {
+  const req = new Request("https://proxy.vanaware.com/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "invalid-json",
+  });
+
+  const res = await handlePush(req);
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error, "Corpo não é JSON válido.");
 });
 ```
 

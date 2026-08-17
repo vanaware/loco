@@ -21,21 +21,20 @@ function corsHeaders(request: Request): Headers {
     headers.set("Access-Control-Max-Age", "86400");
     headers.set("Vary", "Origin");
     return headers;
-  } catch (err) {
-    // Erro ao gerar cabeçalhos CORS
+  } catch (_err) {
     return new Headers(DEFAULT_CORS_HEADERS);
   }
 }
 
 export function handlePreflight(request: Request): Response {
-    const headers = corsHeaders(request);
-    return new Response(null, { status: 204, headers });
-};
+  const headers = corsHeaders(request);
+  return new Response(null, { status: 204, headers });
+}
 
-export function sendResponse(request: Request,data: unknown, status = 200): Response {
+export function sendResponse(request: Request, data: unknown, status = 200): Response {
   const headers = corsHeaders(request);
   headers.set("Content-Type", "application/json");
-  return new Response(JSON.stringify(data), { status, headers});
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
 export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }) {
@@ -86,10 +85,18 @@ export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SER
 }
 
 export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }, base64Envelope: string): Promise<any> {
-  // Nota: Não usar try/catch genérico aqui para que o erro suba limpo e ative o fallback de Federação
   const { serverPrivateKey } = await getOrInitServerKeys(env);
-  const envelopeText = atob(base64Envelope);
-  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(envelopeText);
+  
+  // Tratamento seguro de Base64 e JSON parse
+  let binaryString: string;
+  try {
+    binaryString = atob(base64Envelope);
+  } catch (_e) {
+    const base64Standard = base64Envelope.replace(/-/g, "+").replace(/_/g, "/");
+    binaryString = atob(base64Standard);
+  }
+
+  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(binaryString);
 
   const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
   const ivBytes = fromHex(iv);
@@ -101,4 +108,4 @@ export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SE
   const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
 
   return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
-} 
+}

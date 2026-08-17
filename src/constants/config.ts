@@ -155,7 +155,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
     if (!res || !res.ok) return false;
     
     const data = await res.json();
-    return data && data.status === "ok" && data.service === "loco-proxy";
+    return data && data.service === "loco-proxy";
   } catch (err) {
     return false;
   }

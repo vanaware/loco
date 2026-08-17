@@ -17,19 +17,23 @@ const workerHandler = {
           return handlePreflight(request);
       }
 
-      // Roteamento explícito delegando a execução para os handlers importados
-      switch (pathname) {
-        case "/ping":
-          return await handlePing(request, env);
+      if (method === "POST") {
+        // Roteamento explícito delegando a execução para os handlers importados
+        switch (pathname) {
+          case "/ping":
+            return await handlePing(request, env);
 
-        case "/publickey":
-          return await handlePublicKey(request, env);
+          case "/publickey":
+            return await handlePublicKey(request, env);
 
-        case "/push":
-          return await handlePush(request, env);
+          case "/push":
+            return await handlePush(request, env);
 
-        default:
-          return sendResponse(request, { error: `Rota '${pathname}' não encontrada no Worker.` }, 404);
+          default:
+            return sendResponse(request, { error: `Rota '${pathname}' não encontrada no Worker.` }, 404);
+        }
+      } else {
+        return sendResponse(request, { error: `Método '${method}' não encontrado no Worker.` }, 404);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

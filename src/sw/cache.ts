@@ -42,9 +42,17 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event: any) => {
+  // 🔥 ARQUITETURA [Method Guard]: A Cache API nativa suporta estritamente requisições GET.
+  // Ignoramos requisições POST, PUT e DELETE para evitar o TypeError: 'POST' is unsupported.
+  if (event.request.method !== "GET") {
+    return;
+  }
+
+  // Ignora requisições de outros domínios ou rotas dinâmicas de API
   if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
     return;
   }
+  
   event.respondWith(
     fetch(event.request)
       .then((response) => {

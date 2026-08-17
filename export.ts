@@ -13,14 +13,18 @@ import { walk } from "jsr:@std/fs/walk";
 import { relative } from "jsr:@std/path/relative";
 import { APP_VERSION } from "./src/constants/version.ts";
 
-type ModoExportacao = "main" | "docs" | "tests";
+type ModoExportacao = "main" | "docs" | "tests" | "server";
 
 // 1. Leitura do parâmetro via CLI nativo do Deno
 const argModo = Deno.args[0]?.toLowerCase();
-const modo: ModoExportacao = (argModo === "docs" || argModo === "tests") ? argModo : "main";
+const modo: ModoExportacao = (argModo === "docs" || argModo === "tests" || argModo === "server") ? argModo : "main";
 
 // Nomes de arquivos de saída distintos para cada modo de operação
-const ARQUIVO_SAIDA = modo === "docs" ? "EXPORT-DOCS.md" : modo === "tests" ? "EXPORT-TESTS.md" : "EXPORT.md";
+const ARQUIVO_SAIDA = 
+  modo === "docs" ? "EXPORT-DOCS.md" : 
+  modo === "tests" ? "EXPORT-TESTS.md" : 
+  modo === "server" ? "EXPORT-SERVER.md" :
+  "EXPORT.md";
 
 // Lista de extensões válidas de texto/código
 const EXTENSOES_PERMITIDAS = [
@@ -47,7 +51,10 @@ function calcularCraseWrapper(texto: string): string {
  * Avalia se o arquivo deve ser incluído com base no modo selecionado.
  */
 function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): boolean {
-  if (caminhoRelativo === "EXPORT.md" || caminhoRelativo === "EXPORT-DOCS.md" || caminhoRelativo === "EXPORT-TESTS.md") {
+  if (caminhoRelativo === "EXPORT.md" || 
+      caminhoRelativo === "EXPORT-DOCS.md" || 
+      caminhoRelativo === "EXPORT-TESTS.md" ||
+      caminhoRelativo === "EXPORT-SERVER.md") {
     return false;
   }
 
@@ -62,9 +69,12 @@ function deveIncluirArquivo(caminhoRelativo: string, modo: ModoExportacao): bool
   } else if (modo === "tests") {
     // Modo TESTES: Pega tudo dentro da pasta /tests
     return caminhoRelativo.startsWith("tests/") || caminhoRelativo.startsWith("tests\\");
+  } else if (modo === "server") {
+    // Modo SERVER: Pega tudo dentro da pasta /server
+    return caminhoRelativo.startsWith("server/") || caminhoRelativo.startsWith("server\\");
   } else {
     // Modo MAIN (Padrão): Pega arquivos da raiz e pastas src/ e public/
-    const arquivosRaizPermitidos = ["main.ts", "worker.ts", "build.ts", "deno.json", "deno.jsonc", "wrangler.toml", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"];
+    const arquivosRaizPermitidos = ["build.ts", "deno.json", "deno.jsonc", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"];
     
     if (arquivosRaizPermitidos.includes(caminhoRelativo)) {
       return true;

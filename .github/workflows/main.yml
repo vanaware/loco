@@ -121,7 +121,9 @@ jobs:
           command: deploy --name loco -c wrangler-worker.toml
 
       - name: Prepare Pages Config
-        run: mv wrangler-pages.toml wrangler.toml
+        run: |
+          mv wrangler-pages.toml wrangler.toml
+          mv build/functions build/dist/
 
       - name: Deploy do Frontend (Cloudflare Pages)
         uses: cloudflare/wrangler-action@v3
