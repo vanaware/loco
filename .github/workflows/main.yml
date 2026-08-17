@@ -123,7 +123,7 @@ jobs:
       - name: Prepare Pages Config
         run: |
           mv wrangler-pages.toml wrangler.toml
-          mv build/functions build/dist/
+          mv build/functions ./
 
       - name: Deploy do Frontend (Cloudflare Pages)
         uses: cloudflare/wrangler-action@v3

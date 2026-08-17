@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.175-mswjgnci** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.177-mswm909i** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.175-mswjgnci] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.177-mswm909i] - Modo: MAIN
 
-Gerado automaticamente em: 8/16/2026, 10:12:08 PM
+Gerado automaticamente em: 8/16/2026, 11:30:36 PM
 
 ---
 
@@ -2506,7 +2506,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.175-mswjgnci";
+export const APP_VERSION = "0.2.177-mswm909i";
 
 ```
 
@@ -6855,7 +6855,7 @@ jobs:
       - name: Prepare Pages Config
         run: |
           mv wrangler-pages.toml wrangler.toml
-          mv build/functions build/dist/
+          mv build/functions ./
 
       - name: Deploy do Frontend (Cloudflare Pages)
         uses: cloudflare/wrangler-action@v3
@@ -6880,7 +6880,7 @@ jobs:
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.175-mswjgnci",
+  "version": "0.2.177-mswm909i",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -7396,11 +7396,13 @@ elif [ "$AT" = "cloudflare" ]; then
   # O Pages lê tudo nativamente do wrangler.toml
   # Criamos uma cópia temporária do wrangler-pages.toml para satisfazer a CLI da Cloudflare
   cp wrangler-pages.toml wrangler.toml
+  mv build/dist/functions ./
   
   deno run -A npm:wrangler pages deploy --commit-dirty=true
   
   # Limpamos o rastro para o repositório continuar limpo e organizado
   rm wrangler.toml
+  mv ./functions build/
 
   echo ""
   echo "✅ DEPLOY DIRETO NA CLOUDFLARE CONCLUÍDO COM SUCESSO!"
