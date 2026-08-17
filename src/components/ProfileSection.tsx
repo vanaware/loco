@@ -17,7 +17,6 @@ export function ProfileSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
   const isEditing = useSignal<boolean>(false);
   
-  // 🔥 ARQUITETURA: Signals para lidar com a UI (Separados do Store)
   const isProcessing = useSignal<boolean>(false);
   const inviterPreview = useSignal<Partial<Contato> | null>(null);
   const isLoadingInviter = useSignal<boolean>(false);
@@ -27,19 +26,19 @@ export function ProfileSection() {
   }, []);
 
   const p = profile.value;
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
+  // Apenas garantimos a Identidade Criptográfica (A falta do Endpoint de Push não trava mais a tela)
+  const isIdentityComplete = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk && p?.name);
 
   useEffect(() => {
-    if (!temChaveVapid) {
+    if (!isIdentityComplete) {
       isEditing.value = true;
     } else {
       isEditing.value = false;
     }
-  }, [temChaveVapid]);
+  }, [isIdentityComplete]);
 
-  // Escuta convites pendentes caso seja o primeiro acesso
   useEffect(() => {
-    if (!temChaveVapid && sharePayload.value) {
+    if (!isIdentityComplete && sharePayload.value) {
       isLoadingInviter.value = true;
       processarQualquerConvite(sharePayload.value)
         .then(preview => {
@@ -52,11 +51,11 @@ export function ProfileSection() {
           isLoadingInviter.value = false;
         });
     }
-  }, [temChaveVapid, sharePayload.value]);
+  }, [isIdentityComplete, sharePayload.value]);
 
   useEffect(() => {
     const renderQrCode = async () => {
-      if (!p) return;
+      if (!p || !isIdentityComplete) return;
       try {
         const payloadBinario = await gerarPayloadQrCodeCompacto(p);
         const qr = qrcode(0, 'L');
@@ -69,74 +68,72 @@ export function ProfileSection() {
       }
     };
 
-    if (temChaveVapid) {
+    if (isIdentityComplete) {
       renderQrCode();
     } else {
       qrCodeDataUrl.value = null;
     }
-  }, [p, temChaveVapid]);
+  }, [p, isIdentityComplete]);
 
   const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
+    const eraNovo = !isIdentityComplete;
     if (isProcessing.value) return; 
 
     try {
-      // Trava de UI local (Não interfere na Store)
       isProcessing.value = true;
       const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      
-      // Salva no banco. O Signal 'profile' reage instantaneamente.
       await atualizarProfile(pNovo);
       
-      isEditing.value = false;
+      // Processa a Inclusão de Contato do Convite, mesmo se o Push falhou silenciosamente
+      if (eraNovo && inviterPreview.value && pNovo.vapidPublicKey) {
+        try {
+          const inviter = inviterPreview.value;
+          const contatoId = await serializarPublicKeyVapid(inviter.vapidPublicKey!);
+          
+          const novoContato: Contato = {
+            id: contatoId,
+            vapidPublicKey: inviter.vapidPublicKey!,
+            email: inviter.email || '',
+            name: inviter.name || '', 
+            e2ePublicKey: inviter.e2ePublicKey!,
+            subscription: inviter.subscription!,
+            vapidPrivateKeyEnvelope: inviter.vapidPrivateKeyEnvelope!,
+            trusted: true, 
+            me: 'none', 
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          };
+          
+          await adicionarContato(novoContato);
+          
+          const reg = await navigator.serviceWorker.ready;
+          if (reg.active) {
+            reg.active.postMessage({
+              type: 'CRIAR_HANDSHAKE_OUT',
+              payload: { rotasModulo: 'contato', params: { function: 'enviarSubscription', contato: contatoId, responder: false } }
+            });
+          }
 
-      // Se era o primeiro acesso E tinha convite, executa a adição automática
-      if (eraNovo && inviterPreview.value) {
-        const inviter = inviterPreview.value;
-        const contatoId = await serializarPublicKeyVapid(inviter.vapidPublicKey!);
-        
-        const novoContato: Contato = {
-          id: contatoId,
-          vapidPublicKey: inviter.vapidPublicKey!,
-          email: inviter.email || '',
-          name: inviter.name || '', 
-          e2ePublicKey: inviter.e2ePublicKey!,
-          subscription: inviter.subscription!,
-          vapidPrivateKeyEnvelope: inviter.vapidPrivateKeyEnvelope!,
-          trusted: true, 
-          me: 'none', 
-          createdAt: Date.now(),
-          updatedAt: Date.now()
-        };
-        
-        await adicionarContato(novoContato);
-        
-        const reg = await navigator.serviceWorker.ready;
-        if (reg.active) {
-          reg.active.postMessage({
-            type: 'CRIAR_HANDSHAKE_OUT',
-            payload: {
-              rotasModulo: 'contato',
-              params: { function: 'enviarSubscription', contato: contatoId, responder: false }
-            }
-          });
+          sharePayload.value = null; 
+          showToast(`✅ Identidade criada! Conectado com ${inviter.name}.`, "success");
+          navigate(`#detail=${contatoId}`);
+          return;
+        } catch (errContato) {
+          console.error("Falha ao salvar contato durante onboarding", errContato);
         }
-
-        sharePayload.value = null; 
-        showToast(`✅ Perfil criado e conectado com ${inviter.name}!`, "success");
-        navigate(`#detail=${contatoId}`);
-        return; 
       }
 
-      if (eraNovo) {
+      isEditing.value = false;
+      if (eraNovo && !inviterPreview.value) {
         showToast(`✅ Perfil inicializado com sucesso!`, "success");
         navigate(''); 
-      } else {
+      } else if (!eraNovo) {
         showToast(`✅ Perfil atualizado!`, "success");
       }
+
     } catch (err: any) {
       addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
+      showToast(`❌ Falha Crítica: ${err.message}`, "error");
     } finally {
       isProcessing.value = false;
     }
@@ -181,7 +178,7 @@ export function ProfileSection() {
             <md-icon>account_circle</md-icon> Identidade Local
           </span>
           <div style="display: flex; gap: 4px;">
-            {temChaveVapid && !isEditing.value && (
+            {isIdentityComplete && !isEditing.value && (
               <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
                 <md-icon>edit</md-icon>
               </md-icon-button>
@@ -194,13 +191,13 @@ export function ProfileSection() {
         {isEditing.value ? (
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
             
-            {!temChaveVapid && isLoadingInviter.value && (
+            {!isIdentityComplete && isLoadingInviter.value && (
               <div style="display: flex; justify-content: center; margin-bottom: 16px;">
                 <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
               </div>
             )}
 
-            {!temChaveVapid && inviterPreview.value && !isLoadingInviter.value && (
+            {!isIdentityComplete && inviterPreview.value && !isLoadingInviter.value && (
               <div style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); padding: 16px; border-radius: 12px; margin-bottom: 8px; text-align: center; border: 1px solid var(--md-sys-color-outline-variant);">
                 <md-icon style="font-size: 32px; margin-bottom: 8px; color: var(--md-sys-color-primary);">waving_hand</md-icon>
                 <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 4px;">
@@ -212,7 +209,7 @@ export function ProfileSection() {
               </div>
             )}
 
-            {!temChaveVapid && !inviterPreview.value && !isLoadingInviter.value && (
+            {!isIdentityComplete && !inviterPreview.value && !isLoadingInviter.value && (
                <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
                  Este nome será visível para os contatos que você convidar.
                </p>
@@ -240,10 +237,10 @@ export function ProfileSection() {
                 style="flex: 1;"
                 disabled={!profileName.value.trim() || isProcessing.value ? true : undefined}
               >
-                {isProcessing.value ? "⏳ Processando..." : (!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar")}
+                {isProcessing.value ? "⏳ Processando..." : (!isIdentityComplete ? "🚀 Iniciar Perfil" : "💾 Salvar")}
               </md-filled-button>
               
-              {temChaveVapid && (
+              {isIdentityComplete && (
                 <md-outlined-button 
                   onClick={handleCancelarEdicao} 
                   style="flex: 1;"
@@ -271,7 +268,7 @@ export function ProfileSection() {
         )}
       </div>
 
-      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
+      {qrCodeDataUrl.value && isIdentityComplete && !isEditing.value && (
         <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
           <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
             <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>

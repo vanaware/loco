@@ -2,7 +2,7 @@
 /// <reference lib="deno.ns" />
 
 // 🔥 Injetamos o Fake IndexedDB para que o store consiga persistir os dados na RAM
-import "npm:fake-indexeddb@6.0.0/auto";
+import "fake-indexeddb";
 
 import { assertEquals, assert } from "@std/assert";
 import { 

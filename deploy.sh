@@ -97,12 +97,12 @@ elif [ "$AT" = "cloudflare" ]; then
 
   # Como removemos a "Var" conflitante, o Wrangler sobrescreve o "Secret" de forma limpa
   echo "   Registrando chave no cofre da Cloudflare..."
-  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
+  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
   echo "✅ SERVER_PRIVATE_KEY atualizado com segurança."
 
   echo ""
   echo "⚡ 2/3 - Realizando deploy do Backend (Cloudflare Worker)..."
-  deno run -A npm:wrangler deploy -c wrangler-worker.toml 
+  deno run -A wrangler deploy -c wrangler-worker.toml 
 
   echo ""
   echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
@@ -111,7 +111,7 @@ elif [ "$AT" = "cloudflare" ]; then
   cp wrangler-pages.toml wrangler.toml
   mv build/dist/functions ./
   
-  deno run -A npm:wrangler pages deploy --commit-dirty=true
+  deno run -A wrangler pages deploy --commit-dirty=true
   
   # Limpamos o rastro para o repositório continuar limpo e organizado
   rm wrangler.toml

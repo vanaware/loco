@@ -21,7 +21,6 @@ export async function getServerPublicKey() {
 
   addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
   
-  // 🔥 ARQUITETURA: Subsitui o fetch solto pelo Wrapper Central
   const response = await fetchLocoProxy('/publickey');
   
   if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
@@ -51,6 +50,58 @@ export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   return false;
 }
 
+// 🔥 ARQUITETURA: Nova função de auto-healing disparada pelo Painel Avançado
+export async function repararSubscricaoPush(): Promise<boolean> {
+  addDebugLog("info", "PROFILE", "Iniciando rotina de reparo da Subscrição Push...");
+  try {
+    if (Notification.permission !== "granted") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("Permissão de notificação negada pelo usuário.");
+    }
+
+    const registration = await registrarServiceWorker();
+    if (!registration.pushManager) throw new Error("Push API não suportada pelo navegador.");
+
+    const p = await buscarProfile();
+    if (!p) throw new Error("Perfil local não encontrado. Crie um perfil primeiro.");
+
+    let sub = await registration.pushManager.getSubscription();
+    if (sub) {
+      await sub.unsubscribe(); // Força a renovação para garantir chaves frescas
+    }
+
+    const rawPublicKey = await window.crypto.subtle.exportKey("raw", await window.crypto.subtle.importKey("jwk", p.vapidPublicKey, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
+    sub = await registration.pushManager.subscribe({
+      applicationServerKey: new Uint8Array(rawPublicKey),
+      userVisibleOnly: true
+    });
+
+    const p256dhBuffer = sub.getKey('p256dh');
+    const authBuffer = sub.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) throw new Error("Falha ao extrair chaves da subscrição gerada.");
+
+    p.subscription = {
+      endpoint: sub.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      },
+      proxyserver: p.subscription?.proxyserver || '/'
+    };
+    p.updatedAt = Date.now();
+
+    // Import dinâmico para evitar dependência circular
+    const { atualizarProfile } = await import('../stores/profileStore.ts');
+    await atualizarProfile(p);
+    
+    addDebugLog("success", "PROFILE", "Subscrição Push reparada com sucesso!");
+    return true;
+  } catch (err: any) {
+    addDebugLog("error", "PROFILE", `Falha ao reparar Push: ${err.message}`);
+    return false;
+  }
+}
+
 export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
   addDebugLog("📦 Gerando/Atualizando perfil unificado...");
 
@@ -58,120 +109,101 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
     throw new Error("Preencha pelo menos o seu Nome.");
   }
 
-  try {
-    addDebugLog("Step 1: Verificando permissão de notificação...");
-    try {
-      if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida.");
-        }
-      }
-    } catch (notifErr: any) {
-      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
-    }
+  let vapidKeyPair: CryptoKeyPair | undefined = undefined;
+  let publicKeyJwk: JsonWebKey | undefined = undefined;
+  let privateKeyJwk: JsonWebKey | undefined = undefined;
+  let e2ePublicKey: JsonWebKey | undefined = undefined;
+  let e2ePrivateKeyJwk: JsonWebKey | undefined = undefined;
+  
+  const existingProfile = await buscarProfile();
+  
+  // 🔥 CORREÇÃO (TS2322): Define estritamente o tipo da subscription inicializando com um fallback seguro.
+  // Isso impede que o TypeScript avalie finalSubscription como "undefined".
+  let finalSubscription: ProfileConfig['subscription'] = existingProfile?.subscription || {
+    endpoint: '',
+    keys: { p256dh: '', auth: '' },
+    proxyserver: '/'
+  };
 
-    addDebugLog("Step 2: Registrando Service Worker...");
+  try {
+    addDebugLog("Step 1: Registrando Service Worker...");
     const registration = await registrarServiceWorker();
 
-    addDebugLog("Step 3: Buscando chave pública do servidor...");
+    addDebugLog("Step 2: Buscando chave pública do servidor...");
     const serverPublicKeyJwk = await getServerPublicKey();
-    addDebugLog("Step 3.5: Chave do servidor garantida");
 
-    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
-    let publicKeyJwk: JsonWebKey | undefined = undefined;
-    let privateKeyJwk: JsonWebKey | undefined = undefined;
-
-    let existingProfile = await buscarProfile();
+    // Reutiliza ou gera chaves VAPID
     if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
       publicKeyJwk = existingProfile.vapidPublicKey;
       privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
-      try {
-        vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
-        } as CryptoKeyPair;
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
-        existingProfile = undefined;
-      }
-    }
-    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
+    } else {
       addDebugLog("🔑 Gerando novas chaves VAPID...");
       vapidKeyPair = await generateVAPIDKeys();
       publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
       privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
     }
 
-    addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) throw new Error("Service Worker registration é null/undefined");
-    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
-    let subscriptionValida = false;
-
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        if (existingProfile) {
-           delete (existingProfile as any).subscription;
-           await salvarProfile(existingProfile);
-        }
-        existingSubscription = null;
-      }
-    }
-    
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
-
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    
-    // Deixa que a URL do proxy seja puramente "/" no storage interno. O wrapper resolverá dinamicamente depois.
-    const subscription = {
-      endpoint: existingSubscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      },
-      proxyserver: '/'
-    };
-
-    let e2ePublicKey: JsonWebKey;
-    let e2ePrivateKeyJwk: JsonWebKey;
-
+    // Reutiliza ou gera chaves E2E
     if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      addDebugLog("📂 Chaves E2E encontradas no perfil.");
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
-      try {
-        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
-        const newKeys = await generateE2EEKeys();
-        e2ePublicKey = newKeys.publicEncrypt;
-        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      }
     } else {
       addDebugLog("🔑 Gerando novas chaves E2E...");
       const newKeys = await generateE2EEKeys();
       e2ePublicKey = newKeys.publicEncrypt;
       e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+    }
+
+    addDebugLog("Step 3: Tentando obter subscription Push...");
+    try {
+      if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+
+      if (Notification.permission === 'granted' && registration.pushManager) {
+        let existingSubscription = await registration.pushManager.getSubscription();
+        let subscriptionValida = false;
+
+        // Se já havia subscrição, valida se o endpoint bate com o que temos guardado
+        if (existingSubscription) {
+          if (existingProfile?.subscription && existingProfile.subscription.endpoint === existingSubscription.endpoint) {
+            subscriptionValida = true;
+          } else {
+            await existingSubscription.unsubscribe();
+            existingSubscription = null;
+          }
+        }
+        
+        if (!existingSubscription || !subscriptionValida) {
+          if (!publicKeyJwk) throw new Error("Chave VAPID pública ausente.");
+          const rawPublicKey = await window.crypto.subtle.exportKey("raw", await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
+          existingSubscription = await registration.pushManager.subscribe({
+            applicationServerKey: new Uint8Array(rawPublicKey),
+            userVisibleOnly: true
+          });
+        }
+
+        const p256dhBuffer = existingSubscription.getKey('p256dh');
+        const authBuffer = existingSubscription.getKey('auth');
+        
+        if (p256dhBuffer && authBuffer) {
+          finalSubscription = {
+            endpoint: existingSubscription.endpoint,
+            keys: { p256dh: rawBufferToBase64Url(p256dhBuffer), auth: rawBufferToBase64Url(authBuffer) },
+            proxyserver: existingProfile?.subscription?.proxyserver || '/'
+          };
+        }
+      } else {
+        throw new Error("Permissão de Push negada ou API indisponível no navegador.");
+      }
+    } catch (subErr: any) {
+      // 🔥 ONBOARDING SUAVE: Se o Push falhar, deixamos o 'finalSubscription' com o fallback default (sem travar o TS).
+      addDebugLog("warn", "PROFILE", "Falha na subscrição Push. Salvando perfil offline-only.", subErr);
+    }
+
+    // Type Guard de proteção para o TypeScript aceitar a montagem do objeto sem avisos de undefined
+    if (!privateKeyJwk || !publicKeyJwk || !e2ePrivateKeyJwk || !e2ePublicKey) {
+      throw new Error("Falha interna: Chaves criptográficas corrompidas ou não geradas.");
     }
 
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
@@ -184,7 +216,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       vapidPrivateKeyEnvelope: privateKeyEncrypted, 
       e2ePublicKey: e2ePublicKey, 
       e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, 
+      subscription: finalSubscription, // Agora o TS entende que é ProfileConfig['subscription'] estrito
       createdAt: existingProfile?.createdAt || Date.now(), 
       updatedAt: Date.now()
     };
@@ -192,10 +224,10 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
     await salvarProfile(profile);
     await solicitarArmazenamentoPersistente();
 
-    addDebugLog("✅ Perfil salvo com sucesso.");
+    addDebugLog("✅ Perfil gerado/atualizado e persistido com sucesso.");
     return profile;
   } catch (err) {
-    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    addDebugLog("error", "PROFILE", "Erro fatal ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
     throw err;
   }
 }

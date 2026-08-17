@@ -24,7 +24,7 @@ import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 // Roteador Reativo
 import { activeView, navigate } from './utils/router.ts';
 
-import "@material/web/all.js";
+import "@material/web";
 import './styles.css';
 
 effect(() => {
@@ -46,6 +46,33 @@ const HomePlaceholder = () => (
     </div>
   </div>
 );
+
+// 🔥 ARQUITETURA: Banner não-bloqueante para falhas de rede/push
+const PushAlertBanner = () => {
+  const p = profile.value;
+  const currentView = activeView.value; // 🔥 Truque reativo: Força a re-avaliação do componente ao mudar de tela
+  
+  // Se o perfil não existe ou não tem nome, não exibe
+  if (!p || !p.name) return null;
+
+  const hasEndpoint = !!(p.subscription && p.subscription.endpoint);
+  const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+
+  // Se a permissão foi revogada no navegador OU se não tem endpoint salvo, o banner deve aparecer
+  if (hasEndpoint && hasPermission) return null;
+
+  return (
+    <div style="background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.85rem; z-index: 50; flex-shrink: 0; border-bottom: 1px solid var(--md-sys-color-error);">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <md-icon style="color: var(--md-sys-color-error);">notifications_off</md-icon>
+        <span><strong>Rede Incompleta:</strong> Você não pode receber notificações ou mensagens diretas.</span>
+      </div>
+      <md-outlined-button onClick={() => navigate('#advanced')} style="flex-shrink: 0; --md-sys-color-outline: var(--md-sys-color-on-error-container); color: var(--md-sys-color-on-error-container);">
+        Corrigir
+      </md-outlined-button>
+    </div>
+  );
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ViewMap: Record<string, ComponentType<any>> = {
@@ -74,7 +101,11 @@ function App() {
 
       await initProfileStore();
       
-      if ((!profile.value || !profile.value.e2ePrivateKeyJwk) && activeView.value !== 'profile') {
+      // 🔥 RECLASSIFICAÇÃO DE IDENTIDADE: Para navegar, basta ter as Chaves VAPID/E2E e o Nome.
+      const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
+      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'settings', 'logout'].includes(activeView.value);
+      
+      if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
         navigate('#profile');
       }
 
@@ -89,8 +120,6 @@ function App() {
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
   const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
 
-  // 🔥 ARQUITETURA: Route Guard (Proteção contra Rotas Órfãs)
-  // Previne que o usuário consiga acessar um chat de um contato que ele acabou de excluir.
   useEffect(() => {
     if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
        const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
@@ -152,89 +181,100 @@ function App() {
     headerIcon = "account_circle";
   }
 
-  const viewToRender = (!profile.value && activeView.value !== 'profile') ? 'profile' : activeView.value;
-  // Fallback seguro caso o route guard demore 1 ciclo para chutar a tela orfã
+  // Permite navegação se a identidade existir, ignorando a falta do endpoint
+  const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
+  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'settings', 'logout'].includes(activeView.value);
+  const viewToRender = (!isIdentityValid && !isRouteAllowedWithoutProfile) ? 'profile' : activeView.value;
+  
   const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
   const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
 
   return (
-    <div id="app-root" class={`view-mode-${currentMobileView.value}`}>
+    // NOVO WRAPPER: Controla a tela inteira em formato de coluna
+    <div style="display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; overflow: hidden;">
       
-      <aside class="app-sidebar">
-        <header class="sidebar-header">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="position: relative;">
-              <md-icon-button id="btn-menu" onClick={() => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const menu: any = document.getElementById('main-menu');
-                if(menu) menu.open = !menu.open;
-              }}>
-                <md-icon>menu</md-icon>
-              </md-icon-button>
-              
-              <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
-                <md-menu-item onClick={() => { navigate('#settings'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                  <div slot="headline">Configurações</div>
-                  <md-icon slot="start">settings</md-icon>
-                </md-menu-item>
-                <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                  <div slot="headline">Avançado</div>
-                  <md-icon slot="start">settings_suggest</md-icon>
-                </md-menu-item>
-                <md-menu-item onClick={() => { navigate('#logout'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                  <div slot="headline">Sair do App (Logout)</div>
-                  <md-icon slot="start">logout</md-icon>
-                </md-menu-item>
-              </md-menu>
-            </div>
-            <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
-          </div>
-          
-          <div style="display: flex; gap: 4px;">
-            <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
-              <md-icon>account_circle</md-icon>
-            </md-icon-button>
-          </div>
-        </header>
+      {/* 🔥 BANNER GLOBAL NO TOPO ABSOLUTO (Ocupa 100% da largura da tela) */}
+      <PushAlertBanner />
+
+      <div id="app-root" class={`view-mode-${currentMobileView.value}`} style="flex-grow: 1; display: flex; position: relative; min-height: 0;">
         
-        <div class="sidebar-content" style="padding: 0;">
-          <div style="padding: 12px; animation: fadeIn 0.3s ease;">
-            {profile.value ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
-          </div>
-        </div>
-      </aside>
-
-      <main class="app-main">
-        <header class="chat-header">
-          <md-icon-button class="back-button" onClick={fecharAreaPrincipal}>
-            <md-icon>arrow_back</md-icon>
-          </md-icon-button>
-          
-          <div 
-            onClick={() => { if (activeView.value === 'chat' && contatoSelecionado.value) navigate(`#detail=${contatoSelecionado.value}`); }}
-            style={`display: flex; align-items: center; gap: 12px; ${activeView.value === 'chat' && contatoAtivo ? 'cursor: pointer;' : ''}`}
-          >
-            <md-icon style="font-size: 2rem; color: var(--md-sys-color-on-surface-variant);">{headerIcon}</md-icon>
-            <div>
-              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
-                {headerTitle}
+        <aside class="app-sidebar">
+          <header class="sidebar-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="position: relative;">
+                <md-icon-button id="btn-menu" onClick={() => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const menu: any = document.getElementById('main-menu');
+                  if(menu) menu.open = !menu.open;
+                }}>
+                  <md-icon>menu</md-icon>
+                </md-icon-button>
                 
-                {((activeView.value === 'detail' && contatoDetalhesAtivo?.trusted) || 
-                  (activeView.value === 'chat' && contatoAtivo?.trusted)) && (
-                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
-                )}
-              </h2>
-              {headerSubtitle && <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">{headerSubtitle}</span>}
+                <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
+                  <md-menu-item onClick={() => { navigate('#settings'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                    <div slot="headline">Configurações</div>
+                    <md-icon slot="start">settings</md-icon>
+                  </md-menu-item>
+                  <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                    <div slot="headline">Avançado</div>
+                    <md-icon slot="start">settings_suggest</md-icon>
+                  </md-menu-item>
+                  <md-menu-item onClick={() => { navigate('#logout'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                    <div slot="headline">Sair do App (Logout)</div>
+                    <md-icon slot="start">logout</md-icon>
+                  </md-menu-item>
+                </md-menu>
+              </div>
+              <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
+            </div>
+            
+            <div style="display: flex; gap: 4px;">
+              <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
+                <md-icon>account_circle</md-icon>
+              </md-icon-button>
+            </div>
+          </header>
+          
+          <div class="sidebar-content" style="padding: 0;">
+            <div style="padding: 12px; animation: fadeIn 0.3s ease;">
+              {isIdentityValid ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
             </div>
           </div>
-        </header>
+        </aside>
 
-        <RouteComponent/>
+        <main class="app-main">
+          <header class="chat-header">
+            <md-icon-button class="back-button" onClick={fecharAreaPrincipal}>
+              <md-icon>arrow_back</md-icon>
+            </md-icon-button>
+            
+            <div 
+              onClick={() => { if (activeView.value === 'chat' && contatoSelecionado.value) navigate(`#detail=${contatoSelecionado.value}`); }}
+              style={`display: flex; align-items: center; gap: 12px; ${activeView.value === 'chat' && contatoAtivo ? 'cursor: pointer;' : ''}`}
+            >
+              <md-icon style="font-size: 2rem; color: var(--md-sys-color-on-surface-variant);">{headerIcon}</md-icon>
+              <div>
+                <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
+                  {headerTitle}
+                  
+                  {((activeView.value === 'detail' && contatoDetalhesAtivo?.trusted) || 
+                    (activeView.value === 'chat' && contatoAtivo?.trusted)) && (
+                    <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
+                  )}
+                </h2>
+                {headerSubtitle && <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">{headerSubtitle}</span>}
+              </div>
+            </div>
+          </header>
 
-      </main>
-      <ToastSnackbar/>
+          <RouteComponent/>
+
+        </main>
+        <ToastSnackbar/>
+      </div>
     </div>
   );
+
 }
 
 const root = document.getElementById('app');

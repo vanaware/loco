@@ -2,7 +2,7 @@
 /// <reference lib="deno.ns" />
 
 // Injeta o Fake IndexedDB para simular o banco de dados do navegador no ambiente de testes do Deno
-import "npm:fake-indexeddb@6.0.0/auto";
+import "fake-indexeddb";
 
 import { assertEquals, assert, assertExists } from "@std/assert";
 import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";

@@ -3,7 +3,7 @@ import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { profile } from '../stores/profileStore.ts';
 import { showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
+import { solicitarArmazenamentoPersistente, repararSubscricaoPush } from '../utils/profile-utils.ts';
 import { DebugPanel } from './DebugPanel.tsx';
 import { APP_VERSION } from '../constants/version.ts'; 
 import { navigate } from '../utils/router.ts';
@@ -21,6 +21,8 @@ export function AdvancedSection() {
     loading: true,
   });
   
+  const isReparing = useSignal(false);
+
   useEffect(() => {
     const updateConfig = async () => {
       const config = await loadAllConfigs();
@@ -50,11 +52,8 @@ export function AdvancedSection() {
     }
 
     let cameraState = 'prompt', micState = 'prompt';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
     }
 
@@ -89,7 +88,7 @@ export function AdvancedSection() {
       criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
       blindagemServidor: envelopeOK,
       permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
-      inscricaoRegistrada: !!p?.subscription,
+      inscricaoRegistrada: !!(p?.subscription && p.subscription.endpoint),
       inscricaoValida: false,
       swAtivoEControlando: swControlando,
       isOnline: navigator.onLine,
@@ -106,7 +105,7 @@ export function AdvancedSection() {
       loading: false,
     };
 
-    if (diag.permissoesNotificacao && p?.subscription) {
+    if (diag.permissoesNotificacao && p?.subscription?.endpoint) {
       try {
         const reg = await navigator.serviceWorker.getRegistration();
         if (reg && reg.pushManager) {
@@ -139,7 +138,6 @@ export function AdvancedSection() {
     await runDiagnostics();
   };
 
-  // 🔥 ARQUITETURA: Botão de Forçar Sincronização Manual
   const handleForceSync = async () => {
     try {
       if ('serviceWorker' in navigator) {
@@ -155,6 +153,24 @@ export function AdvancedSection() {
       }
     } catch (e: any) {
       showToast(`❌ Erro ao sincronizar: ${e.message}`, "error");
+    }
+  };
+
+  const handleRepararPush = async () => {
+    isReparing.value = true;
+    try {
+      showToast("Tentando reparar infraestrutura de Push...", "info");
+      const sucesso = await repararSubscricaoPush();
+      if (sucesso) {
+        showToast("✅ Conexão restaurada com sucesso!", "success");
+        await runDiagnostics();
+      } else {
+        showToast("❌ Não foi possível reparar a conexão. Verifique as permissões de notificação no cadeado do navegador.", "error");
+      }
+    } catch (e: any) {
+      showToast(`❌ Erro: ${e.message}`, "error");
+    } finally {
+      isReparing.value = false;
     }
   };
 
@@ -197,6 +213,19 @@ export function AdvancedSection() {
                 <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
                 <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
               </ul>
+              
+              {/* 🔥 ARQUITETURA: Botão de Reparo de Push injetado caso haja falha na subscrição */}
+              {(!diag.inscricaoValida || !diag.inscricaoRegistrada || !diag.permissoesNotificacao) && (
+                <div style="margin-top: 12px; padding: 12px; background: var(--md-sys-color-error-container); border-radius: 8px;">
+                  <span style="display: block; color: var(--md-sys-color-on-error-container); font-size: 0.8rem; font-weight: 500; margin-bottom: 8px;">
+                    Falha detectada na infraestrutura de rede (Web Push). Você não conseguirá receber mensagens.
+                  </span>
+                  <md-filled-button onClick={handleRepararPush} disabled={isReparing.value} style="width: 100%; --md-sys-color-primary: var(--md-sys-color-error); --md-sys-color-on-primary: var(--md-sys-color-on-error);">
+                    <md-icon slot="icon">build</md-icon>
+                    {isReparing.value ? "Reparando..." : "Tentar Reparar Conexão Push"}
+                  </md-filled-button>
+                </div>
+              )}
             </div>
             <md-divider></md-divider>
             <div>
@@ -233,7 +262,6 @@ export function AdvancedSection() {
                   </md-outlined-button>
                 </li>
 
-                {/* 🔥 ARQUITETURA: Nova Seção/Linha para controle manual da Fila de Handshakes */}
                 <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--md-sys-color-outline-variant);">
                   <div style="display: flex; flex-direction: column;">
                     <span style="font-weight: bold; color: var(--md-sys-color-primary);">Fila de Handshakes</span>

@@ -11,7 +11,7 @@
 
 import { walk } from "jsr:@std/fs/walk";
 import { relative } from "jsr:@std/path/relative";
-import { APP_VERSION } from "./src/constants/version.ts";
+import { APP_VERSION } from "../src/constants/version.ts";
 
 type ModoExportacao = "main" | "docs" | "tests" | "server";
 
@@ -21,10 +21,10 @@ const modo: ModoExportacao = (argModo === "docs" || argModo === "tests" || argMo
 
 // Nomes de arquivos de saída distintos para cada modo de operação
 const ARQUIVO_SAIDA = 
-  modo === "docs" ? "EXPORT-DOCS.md" : 
-  modo === "tests" ? "EXPORT-TESTS.md" : 
-  modo === "server" ? "EXPORT-SERVER.md" :
-  "EXPORT.md";
+  modo === "docs" ? "exports/docs.md" : 
+  modo === "tests" ? "exports/tests.md" : 
+  modo === "server" ? "exports/server.md" :
+  "exports/main.md";
 
 // Lista de extensões válidas de texto/código
 const EXTENSOES_PERMITIDAS = [

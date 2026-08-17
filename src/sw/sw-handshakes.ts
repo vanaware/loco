@@ -21,6 +21,7 @@ import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/pu
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 import { getServerPublicKey } from '../utils/profile-utils.ts';
+import { gerarId } from "../utils/id-utils.ts";
 
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
@@ -241,26 +242,74 @@ export async function processarFilaHandshake(): Promise<void> {
           
           // RESILIÊNCIA & SHADOW SYNC EM RE-TENTATIVAS
           const ehReTentativa = h.out!.tentativas > 1;
-          const precisaDePerfilInjetado = (contato.me === 'none' || contato.me === 'wrong') || (ehReTentativa && !h.out!.rotas.contato?.sync);
+          
+          // 🛡️ SANITY CHECK: Valida se o perfil está completo para compartilhamento
+          const isProfilePiggybackReady = !!(
+            profile.vapidPublicKey && 
+            profile.e2ePublicKey && 
+            profile.subscription?.endpoint && 
+            profile.subscription?.proxyserver // <- Exigência da Rota de Retorno (Proxy)
+          );
+
+          const precisaDePerfilInjetado = isProfilePiggybackReady && ((contato.me === 'none' || contato.me === 'wrong') || (ehReTentativa && !h.out!.rotas.contato?.sync));
+
+          let injetouPIGNestaRodada = false;
 
           if (!isSyncHandshake && !isPullHandshake && precisaDePerfilInjetado) {
             addDebugLog(`[SW-ROUTER] 💉 Injetando dados de perfil no handshake ${h.id} (Motivo: ${ehReTentativa ? 'Re-tentativa/Resiliência' : 'Contato Desatualizado'}).`);
             h.out!.rotas.contato = h.out!.rotas.contato || {};
             h.out!.rotas.contato.sync = await extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
+            injetouPIGNestaRodada = true;
           }
 
           const proxyserverDestino = contato.subscription.proxyserver || "";
 
-          const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
-          const payloadJwt = { 
+          let envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
+          let payloadJwt: any = { 
             sub: "hand", 
             aud: contato.id, 
             jti: h.id, 
             ct: JSON.stringify(envelope),
             proxyserver: proxyserverDestino
           };
-          const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+          let jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
           
+          // ✂️ SPLITTER DINÂMICO: Fragmenta o pacote se o PIG estourou o limite de MTU (4KB)
+          if (jwt.length > 4000 && injetouPIGNestaRodada) {
+            addDebugLog(`[SW-ROUTER] ✂️ MTU Excedido (${jwt.length} bytes). Fragmentando o PIG para um Handshake independente...`);
+            
+            // 1. Extrai o PIG recém injetado
+            const pigSyncData = h.out!.rotas.contato!.sync;
+            
+            // 2. Desfaz a injeção na rota atual
+            delete h.out!.rotas.contato!.sync;
+            if (Object.keys(h.out!.rotas.contato!).length === 0) {
+              delete h.out!.rotas.contato;
+            }
+
+            // 3. Recalcula a criptografia e o JWT para a mensagem original (agora mais leve)
+            envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
+            payloadJwt.ct = JSON.stringify(envelope);
+            jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+
+            // 4. Cria e enfileira um NOVO handshake exclusivo para o PIG
+            const handshakePIG: Handshake = {
+              id: gerarId(),
+              aud: contato.id,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              out: {
+                status: 'pendente',
+                tentativas: 0,
+                rotas: {
+                  contato: { sync: pigSyncData }
+                }
+              }
+            };
+            // Salva o novo handshake na fila (será processado automaticamente na próxima rodada do loop ou sync)
+            await salvarHandshakeTransacional(handshakePIG, `[SW-ROUTER] ✅ Handshake de PIG fragmentado (${handshakePIG.id}) salvo na fila.`);
+          }
+
           if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
 
           await enviarParaProxy(

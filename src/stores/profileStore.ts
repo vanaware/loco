@@ -34,6 +34,22 @@ export async function atualizarProfile(p: ProfileConfig) {
       return; 
   }
 
+  // 🔥 ARQUITETURA [AUTO-DOWNGRADE]: Deep Check para identificar mudanças críticas na identidade
+  let requiresDowngrade = false;
+  const oldP = profile.value;
+  
+  if (oldP) {
+    if (
+      oldP.vapidPrivateKeyEnvelope !== p.vapidPrivateKeyEnvelope ||
+      oldP.subscription?.endpoint !== p.subscription?.endpoint ||
+      oldP.subscription?.proxyserver !== p.subscription?.proxyserver ||
+      JSON.stringify(oldP.e2ePublicKey) !== JSON.stringify(p.e2ePublicKey) ||
+      JSON.stringify(oldP.vapidPublicKey) !== JSON.stringify(p.vapidPublicKey)
+    ) {
+      requiresDowngrade = true;
+    }
+  }
+
   // 1. Atualização Otimista na Memória agrupada (Isso garante que a UI reaja instantaneamente)
   batch(() => {
     profile.value = { ...p };
@@ -45,6 +61,14 @@ export async function atualizarProfile(p: ProfileConfig) {
   isSavingProfile.value = true;
   try {
     await salvarProfile(p);
+    
+    // Se a identidade ou rota mudou, notifica a agenda de contatos em background 
+    // Utilizamos o import dinâmico para evitar dependência circular entre stores!
+    if (requiresDowngrade) {
+       addDebugLog("info", "STORE:PROFILE", "Mudança estrutural detectada na identidade. Disparando rebaixamento de confiança...");
+       const { rebaixarConfiancaContatos } = await import('./contatosStore.ts');
+       await rebaixarConfiancaContatos();
+    }
   } catch (error) {
     addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
   } finally {

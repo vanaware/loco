@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.177-mswm909i** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.178-msxsid27** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.177-mswm909i] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.2.178-msxsid27] - Modo: MAIN
 
-Gerado automaticamente em: 8/16/2026, 11:30:36 PM
+Gerado automaticamente em: 8/17/2026, 7:29:03 PM
 
 ---
 
@@ -1036,573 +1036,6 @@ export function ContatosSection() {
 
 ---
 
-## Arquivo: `src/components/ProfileSection.tsx`
-
-```tsx
-// src/components/ProfileSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import qrcode from 'qrcode-generator';
-
-import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
-import { profileName, profileEmail, addDebugLog, showToast, sharePayload } from '../signals/state.ts';
-import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
-import { cifrarChaveVapid } from '../utils/push-utils.ts';
-import { salvarProfile, serializarPublicKeyVapid } from '../utils/db-helpers.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '../utils/share-utils.ts';
-import { adicionarContato } from '../stores/contatosStore.ts';
-import { navigate } from '../utils/router.ts';
-import type { Contato } from '../constants/db.ts';
-
-export function ProfileSection() {
-  const qrCodeDataUrl = useSignal<string | null>(null);
-  const isEditing = useSignal<boolean>(false);
-  
-  // 🔥 ARQUITETURA: Signals para lidar com a UI (Separados do Store)
-  const isProcessing = useSignal<boolean>(false);
-  const inviterPreview = useSignal<Partial<Contato> | null>(null);
-  const isLoadingInviter = useSignal<boolean>(false);
-
-  useEffect(() => {
-    carregarProfile();
-  }, []);
-
-  const p = profile.value;
-  const temChaveVapid = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk);
-
-  useEffect(() => {
-    if (!temChaveVapid) {
-      isEditing.value = true;
-    } else {
-      isEditing.value = false;
-    }
-  }, [temChaveVapid]);
-
-  // Escuta convites pendentes caso seja o primeiro acesso
-  useEffect(() => {
-    if (!temChaveVapid && sharePayload.value) {
-      isLoadingInviter.value = true;
-      processarQualquerConvite(sharePayload.value)
-        .then(preview => {
-          inviterPreview.value = preview;
-        })
-        .catch(err => {
-          console.warn("Convite inválido no onboarding:", err);
-        })
-        .finally(() => {
-          isLoadingInviter.value = false;
-        });
-    }
-  }, [temChaveVapid, sharePayload.value]);
-
-  useEffect(() => {
-    const renderQrCode = async () => {
-      if (!p) return;
-      try {
-        const payloadBinario = await gerarPayloadQrCodeCompacto(p);
-        const qr = qrcode(0, 'L');
-        qr.addData(payloadBinario);
-        qr.make();
-        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
-      } catch (e) {
-        console.error("Falha ao gerar QR Code:", e);
-        qrCodeDataUrl.value = null;
-      }
-    };
-
-    if (temChaveVapid) {
-      renderQrCode();
-    } else {
-      qrCodeDataUrl.value = null;
-    }
-  }, [p, temChaveVapid]);
-
-  const handleGerarOuCorrigir = async () => {
-    const eraNovo = !temChaveVapid;
-    if (isProcessing.value) return; 
-
-    try {
-      // Trava de UI local (Não interfere na Store)
-      isProcessing.value = true;
-      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
-      
-      // Salva no banco. O Signal 'profile' reage instantaneamente.
-      await atualizarProfile(pNovo);
-      
-      isEditing.value = false;
-
-      // Se era o primeiro acesso E tinha convite, executa a adição automática
-      if (eraNovo && inviterPreview.value) {
-        const inviter = inviterPreview.value;
-        const contatoId = await serializarPublicKeyVapid(inviter.vapidPublicKey!);
-        
-        const novoContato: Contato = {
-          id: contatoId,
-          vapidPublicKey: inviter.vapidPublicKey!,
-          email: inviter.email || '',
-          name: inviter.name || '', 
-          e2ePublicKey: inviter.e2ePublicKey!,
-          subscription: inviter.subscription!,
-          vapidPrivateKeyEnvelope: inviter.vapidPrivateKeyEnvelope!,
-          trusted: true, 
-          me: 'none', 
-          createdAt: Date.now(),
-          updatedAt: Date.now()
-        };
-        
-        await adicionarContato(novoContato);
-        
-        const reg = await navigator.serviceWorker.ready;
-        if (reg.active) {
-          reg.active.postMessage({
-            type: 'CRIAR_HANDSHAKE_OUT',
-            payload: {
-              rotasModulo: 'contato',
-              params: { function: 'enviarSubscription', contato: contatoId, responder: false }
-            }
-          });
-        }
-
-        sharePayload.value = null; 
-        showToast(`✅ Perfil criado e conectado com ${inviter.name}!`, "success");
-        navigate(`#detail=${contatoId}`);
-        return; 
-      }
-
-      if (eraNovo) {
-        showToast(`✅ Perfil inicializado com sucesso!`, "success");
-        navigate(''); 
-      } else {
-        showToast(`✅ Perfil atualizado!`, "success");
-      }
-    } catch (err: any) {
-      addDebugLog(`❌ Erro no processo: ${err.message}`);
-      showToast(`❌ Falha: ${err.message}`, "error");
-    } finally {
-      isProcessing.value = false;
-    }
-  };
-
-  const handleCancelarEdicao = () => {
-    if (p) {
-      profileName.value = p.name || '';
-      profileEmail.value = p.email || '';
-    }
-    isEditing.value = false;
-  };
-
-  const handleCompartilhar = async () => {
-    try {
-      if (!p) return showToast("Salve o perfil primeiro.", "error");
-      const serverPublicKeyJwk = await getServerPublicKey();
-
-      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
-      p.vapidPrivateKeyEnvelope = novoEnvelope;
-      p.updatedAt = Date.now();
-      await salvarProfile(p);
-      await atualizarProfile(p);
-
-      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
-      await navigator.clipboard.writeText(shareUrl);
-      
-      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
-    } catch (err: any) {
-      addDebugLog(`❌ Erro: ${err.message}`);
-      showToast(`❌ ${err.message}`, "error");
-    }
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
-      
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <md-icon>account_circle</md-icon> Identidade Local
-          </span>
-          <div style="display: flex; gap: 4px;">
-            {temChaveVapid && !isEditing.value && (
-              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
-                <md-icon>edit</md-icon>
-              </md-icon-button>
-            )}
-          </div>
-        </div>
-
-        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
-
-        {isEditing.value ? (
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
-            
-            {!temChaveVapid && isLoadingInviter.value && (
-              <div style="display: flex; justify-content: center; margin-bottom: 16px;">
-                <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
-              </div>
-            )}
-
-            {!temChaveVapid && inviterPreview.value && !isLoadingInviter.value && (
-              <div style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); padding: 16px; border-radius: 12px; margin-bottom: 8px; text-align: center; border: 1px solid var(--md-sys-color-outline-variant);">
-                <md-icon style="font-size: 32px; margin-bottom: 8px; color: var(--md-sys-color-primary);">waving_hand</md-icon>
-                <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 4px;">
-                  Convite de {inviterPreview.value.name?.trim() || 'Anônimo'}
-                </div>
-                <div style="font-size: 0.85rem; opacity: 0.9;">
-                  Preencha seus dados abaixo para criar sua identidade descentralizada e iniciar a conversa com segurança.
-                </div>
-              </div>
-            )}
-
-            {!temChaveVapid && !inviterPreview.value && !isLoadingInviter.value && (
-               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
-                 Este nome será visível para os contatos que você convidar.
-               </p>
-            )}
-
-            <md-outlined-text-field
-              label="Seu Nome"
-              placeholder="Ex: João da Silva"
-              value={profileName.value}
-              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
-              disabled={isProcessing.value}
-            ></md-outlined-text-field>
-            
-            <md-outlined-text-field
-              label="Seu E-mail (Opcional)"
-              placeholder="Ex: joao@email.com"
-              value={profileEmail.value}
-              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
-              disabled={isProcessing.value}
-            ></md-outlined-text-field>
-
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-              <md-filled-button 
-                onClick={handleGerarOuCorrigir} 
-                style="flex: 1;"
-                disabled={!profileName.value.trim() || isProcessing.value ? true : undefined}
-              >
-                {isProcessing.value ? "⏳ Processando..." : (!temChaveVapid ? "🚀 Iniciar Perfil" : "💾 Salvar")}
-              </md-filled-button>
-              
-              {temChaveVapid && (
-                <md-outlined-button 
-                  onClick={handleCancelarEdicao} 
-                  style="flex: 1;"
-                  disabled={isProcessing.value ? true : undefined}
-                >
-                  Cancelar
-                </md-outlined-button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <>
-            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              {p?.name?.trim() || "Anônimo"}
-            </h2>
-            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
-                <md-icon slot="icon">share</md-icon>
-                Compartilhar Link de Convite
-              </md-outlined-button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {qrCodeDataUrl.value && temChaveVapid && !isEditing.value && (
-        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
-          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
-            Seu QR Code
-          </h3>
-          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
-            Mostre isso para um amigo escanear pelo App Loco.
-          </p>
-          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
-        </div>
-      )}
-
-    </div>
-  );
-}
-```
-
----
-
-## Arquivo: `src/components/AdvancedSection.tsx`
-
-```tsx
-// src/components/AdvancedSection.tsx
-import { useEffect } from 'preact/hooks';
-import { useSignal } from '@preact/signals';
-import { profile } from '../stores/profileStore.ts';
-import { showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente } from '../utils/profile-utils.ts';
-import { DebugPanel } from './DebugPanel.tsx';
-import { APP_VERSION } from '../constants/version.ts'; 
-import { navigate } from '../utils/router.ts';
-import { loadAllConfigs } from '../stores/config-store.ts';
-
-export function AdvancedSection() {
-  const diagnostic = useSignal({
-    identificacao: false, criptografia: false, blindagemServidor: false,
-    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
-    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
-    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
-    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
-    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
-    proxyPath: '',
-    loading: true,
-  });
-  
-  useEffect(() => {
-    const updateConfig = async () => {
-      const config = await loadAllConfigs();
-      diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
-    };
-    
-    window.addEventListener('config-updated', updateConfig);
-    updateConfig();
-    
-    return () => {
-      window.removeEventListener('config-updated', updateConfig);
-    };
-  }, []);
-
-  const runDiagnostics = async () => {
-    const p = profile.value;
-    
-    let envelopeOK = false;
-    if (p?.vapidPrivateKeyEnvelope) {
-      try {
-        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
-        const envelopeDecoded = JSON.parse(envelopeJson);
-        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
-          envelopeOK = true;
-        }
-      } catch { envelopeOK = false; }
-    }
-
-    let cameraState = 'prompt', micState = 'prompt';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
-    }
-
-    let storagePersisted = false;
-    let quotaInfo = { usoMB: 0, livreMB: 0 };
-    if ('storage' in navigator) {
-      if (navigator.storage.persisted) {
-        try { storagePersisted = await navigator.storage.persisted(); } catch {}
-      }
-      if (navigator.storage.estimate) {
-        try {
-          const estimate = await navigator.storage.estimate();
-          quotaInfo = {
-            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
-            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
-          };
-        } catch {}
-      }
-    }
-
-    let swControlando = false, hasBackgroundSync = false;
-    if ('serviceWorker' in navigator) {
-      swControlando = navigator.serviceWorker.controller !== null;
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) hasBackgroundSync = 'sync' in reg;
-      } catch {}
-    }
-
-    const diag = {
-      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
-      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
-      blindagemServidor: envelopeOK,
-      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
-      inscricaoRegistrada: !!p?.subscription,
-      inscricaoValida: false,
-      swAtivoEControlando: swControlando,
-      isOnline: navigator.onLine,
-      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
-      permissaoCamera: cameraState,
-      permissaoMicrofone: micState,
-      suporteBarcodeDetector: 'BarcodeDetector' in window,
-      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
-      suporteWebRTC: 'RTCPeerConnection' in window,
-      suporteBackgroundSync: hasBackgroundSync,
-      armazenamentoPersistido: storagePersisted,
-      cotaEspaco: quotaInfo,
-      proxyPath: diagnostic.value.proxyPath,
-      loading: false,
-    };
-
-    if (diag.permissoesNotificacao && p?.subscription) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg && reg.pushManager) {
-          const sub = await reg.pushManager.getSubscription();
-          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
-        }
-      } catch {}
-    }
-
-    diagnostic.value = diag;
-  };
-
-  useEffect(() => {
-    runDiagnostics();
-    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
-    };
-  }, [profile.value]);
-
-  const diag = diagnostic.value;
-
-  const handleSolicitarPersistenciaManual = async () => {
-    const ok = await solicitarArmazenamentoPersistente();
-    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
-    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
-    await runDiagnostics();
-  };
-
-  // 🔥 ARQUITETURA: Botão de Forçar Sincronização Manual
-  const handleForceSync = async () => {
-    try {
-      if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.ready;
-        if (reg.active) {
-          reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
-          showToast("🔄 Comando de sincronização enviado ao Service Worker!", "info");
-        } else {
-          showToast("⚠️ Service Worker inativo.", "error");
-        }
-      } else {
-        showToast("⚠️ Service Worker não suportado.", "error");
-      }
-    } catch (e: any) {
-      showToast(`❌ Erro ao sincronizar: ${e.message}`, "error");
-    }
-  };
-
-  const handleFechar = () => {
-    navigate(''); 
-  };
-
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
-            </span>
-            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
-              Build Version: v{APP_VERSION}
-            </span>
-          </div>
-          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
-            <md-icon>close</md-icon>
-          </md-icon-button>
-        </div>
-        
-        {diag.loading ? (
-          <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin: 0;">Analisando requisitos...</p>
-        ) : (
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                🛑 Requisitos Obrigatórios
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
-                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
-                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
-                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
-                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
-                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
-                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
-                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
-              </ul>
-            </div>
-            <md-divider></md-divider>
-            <div>
-              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
-                ⚡ Recursos Desejáveis & Status
-              </h4>
-              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
-                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
-                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
-                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
-                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
-                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
-                <li>
-                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
-                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
-                   'ℹ️ Permissão de Câmera (Pendente)'}
-                </li>
-                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
-                
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
-                  {!diag.armazenamentoPersistido && (
-                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                      Proteger Dados
-                    </md-outlined-button>
-                  )}
-                </li>
-                
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
-                  <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
-                  <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
-                    <md-icon slot="icon">edit</md-icon>
-                    Configurar
-                  </md-outlined-button>
-                </li>
-
-                {/* 🔥 ARQUITETURA: Nova Seção/Linha para controle manual da Fila de Handshakes */}
-                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--md-sys-color-outline-variant);">
-                  <div style="display: flex; flex-direction: column;">
-                    <span style="font-weight: bold; color: var(--md-sys-color-primary);">Fila de Handshakes</span>
-                    <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Força o reenvio de pacotes pendentes (Retries).</span>
-                  </div>
-                  <md-outlined-button onClick={handleForceSync} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;" disabled={!diag.isOnline}>
-                    <md-icon slot="icon">sync</md-icon>
-                    Forçar Sync
-                  </md-outlined-button>
-                </li>
-
-                {diag.cotaEspaco.livreMB > 0 && (
-                  <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 12px; text-align: center;">
-                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
-                  </li>
-                )}
-              </ul>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style="max-width: 600px; width: 100%;">
-        <DebugPanel />
-      </div>
-    </div>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/ChatSection.tsx`
 
 ```tsx
@@ -2188,6 +1621,598 @@ export function ContactDetailSection() {
 
 ---
 
+## Arquivo: `src/components/AdvancedSection.tsx`
+
+```tsx
+// src/components/AdvancedSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import { profile } from '../stores/profileStore.ts';
+import { showToast } from '../signals/state.ts';
+import { solicitarArmazenamentoPersistente, repararSubscricaoPush } from '../utils/profile-utils.ts';
+import { DebugPanel } from './DebugPanel.tsx';
+import { APP_VERSION } from '../constants/version.ts'; 
+import { navigate } from '../utils/router.ts';
+import { loadAllConfigs } from '../stores/config-store.ts';
+
+export function AdvancedSection() {
+  const diagnostic = useSignal({
+    identificacao: false, criptografia: false, blindagemServidor: false,
+    permissoesNotificacao: false, inscricaoRegistrada: false, inscricaoValida: false,
+    swAtivoEControlando: false, isOnline: navigator.onLine, isPwaInstalado: false,
+    permissaoCamera: 'prompt', permissaoMicrofone: 'prompt', suporteBarcodeDetector: false,
+    suporteOpfs: false, suporteWebRTC: false, suporteBackgroundSync: false,
+    armazenamentoPersistido: false, cotaEspaco: { usoMB: 0, livreMB: 0 },
+    proxyPath: '',
+    loading: true,
+  });
+  
+  const isReparing = useSignal(false);
+
+  useEffect(() => {
+    const updateConfig = async () => {
+      const config = await loadAllConfigs();
+      diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
+    };
+    
+    window.addEventListener('config-updated', updateConfig);
+    updateConfig();
+    
+    return () => {
+      window.removeEventListener('config-updated', updateConfig);
+    };
+  }, []);
+
+  const runDiagnostics = async () => {
+    const p = profile.value;
+    
+    let envelopeOK = false;
+    if (p?.vapidPrivateKeyEnvelope) {
+      try {
+        const envelopeJson = atob(p.vapidPrivateKeyEnvelope);
+        const envelopeDecoded = JSON.parse(envelopeJson);
+        if (envelopeDecoded.iv && envelopeDecoded.dadosCifrados && envelopeDecoded.chaveAesCifrada) {
+          envelopeOK = true;
+        }
+      } catch { envelopeOK = false; }
+    }
+
+    let cameraState = 'prompt', micState = 'prompt';
+    if ('navigator' in window && 'permissions' in navigator && (navigator as any).permissions.query) {
+      try { cameraState = (await (navigator as any).permissions.query({ name: 'camera' as any })).state; } catch {}
+      try { micState = (await (navigator as any).permissions.query({ name: 'microphone' as any })).state; } catch {}
+    }
+
+    let storagePersisted = false;
+    let quotaInfo = { usoMB: 0, livreMB: 0 };
+    if ('storage' in navigator) {
+      if (navigator.storage.persisted) {
+        try { storagePersisted = await navigator.storage.persisted(); } catch {}
+      }
+      if (navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          quotaInfo = {
+            usoMB: +((estimate.usage || 0) / (1024 * 1024)).toFixed(1),
+            livreMB: +(((estimate.quota || 0) - (estimate.usage || 0)) / (1024 * 1024)).toFixed(0)
+          };
+        } catch {}
+      }
+    }
+
+    let swControlando = false, hasBackgroundSync = false;
+    if ('serviceWorker' in navigator) {
+      swControlando = navigator.serviceWorker.controller !== null;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) hasBackgroundSync = 'sync' in reg;
+      } catch {}
+    }
+
+    const diag = {
+      identificacao: !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk),
+      criptografia: !!(p?.e2ePublicKey && p?.e2ePrivateKeyJwk),
+      blindagemServidor: envelopeOK,
+      permissoesNotificacao: 'Notification' in window && Notification.permission === 'granted',
+      inscricaoRegistrada: !!(p?.subscription && p.subscription.endpoint),
+      inscricaoValida: false,
+      swAtivoEControlando: swControlando,
+      isOnline: navigator.onLine,
+      isPwaInstalado: window.matchMedia('(display-mode: standalone)').matches,
+      permissaoCamera: cameraState,
+      permissaoMicrofone: micState,
+      suporteBarcodeDetector: 'BarcodeDetector' in window,
+      suporteOpfs: 'storage' in navigator && 'getDirectory' in navigator.storage,
+      suporteWebRTC: 'RTCPeerConnection' in window,
+      suporteBackgroundSync: hasBackgroundSync,
+      armazenamentoPersistido: storagePersisted,
+      cotaEspaco: quotaInfo,
+      proxyPath: diagnostic.value.proxyPath,
+      loading: false,
+    };
+
+    if (diag.permissoesNotificacao && p?.subscription?.endpoint) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.pushManager) {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub && sub.endpoint === p.subscription.endpoint) diag.inscricaoValida = true;
+        }
+      } catch {}
+    }
+
+    diagnostic.value = diag;
+  };
+
+  useEffect(() => {
+    runDiagnostics();
+    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, [profile.value]);
+
+  const diag = diagnostic.value;
+
+  const handleSolicitarPersistenciaManual = async () => {
+    const ok = await solicitarArmazenamentoPersistente();
+    if (ok) showToast("✅ Armazenamento Persistente protegido com sucesso!", "success");
+    else showToast("ℹ️ O navegador manteve o armazenamento padrão. Tente adicionar o app à Tela Inicial.", "info");
+    await runDiagnostics();
+  };
+
+  const handleForceSync = async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) {
+          reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+          showToast("🔄 Comando de sincronização enviado ao Service Worker!", "info");
+        } else {
+          showToast("⚠️ Service Worker inativo.", "error");
+        }
+      } else {
+        showToast("⚠️ Service Worker não suportado.", "error");
+      }
+    } catch (e: any) {
+      showToast(`❌ Erro ao sincronizar: ${e.message}`, "error");
+    }
+  };
+
+  const handleRepararPush = async () => {
+    isReparing.value = true;
+    try {
+      showToast("Tentando reparar infraestrutura de Push...", "info");
+      const sucesso = await repararSubscricaoPush();
+      if (sucesso) {
+        showToast("✅ Conexão restaurada com sucesso!", "success");
+        await runDiagnostics();
+      } else {
+        showToast("❌ Não foi possível reparar a conexão. Verifique as permissões de notificação no cadeado do navegador.", "error");
+      }
+    } catch (e: any) {
+      showToast(`❌ Erro: ${e.message}`, "error");
+    } finally {
+      isReparing.value = false;
+    }
+  };
+
+  const handleFechar = () => {
+    navigate(''); 
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <md-icon>health_and_safety</md-icon> Diagnóstico do Sistema
+            </span>
+            <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 30px;">
+              Build Version: v{APP_VERSION}
+            </span>
+          </div>
+          <md-icon-button onClick={handleFechar} title="Fechar Avançado">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        </div>
+        
+        {diag.loading ? (
+          <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin: 0;">Analisando requisitos...</p>
+        ) : (
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-primary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                🛑 Requisitos Obrigatórios
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
+                <li>{diag.identificacao ? '✅' : '❌'} Identidade (Chaves VAPID)</li>
+                <li>{diag.criptografia ? '✅' : '❌'} Criptografia Ponto a Ponta (E2E)</li>
+                <li>{diag.blindagemServidor ? '✅' : '❌'} Blindagem do Servidor (Envelope)</li>
+                <li>{diag.permissoesNotificacao ? '✅' : '❌'} Permissão de Notificações</li>
+                <li>{diag.inscricaoRegistrada ? '✅' : '❌'} Inscrição Push registrada</li>
+                <li>{diag.inscricaoValida ? '✅' : '❌'} Inscrição Push válida/ativa</li>
+                <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
+              </ul>
+              
+              {/* 🔥 ARQUITETURA: Botão de Reparo de Push injetado caso haja falha na subscrição */}
+              {(!diag.inscricaoValida || !diag.inscricaoRegistrada || !diag.permissoesNotificacao) && (
+                <div style="margin-top: 12px; padding: 12px; background: var(--md-sys-color-error-container); border-radius: 8px;">
+                  <span style="display: block; color: var(--md-sys-color-on-error-container); font-size: 0.8rem; font-weight: 500; margin-bottom: 8px;">
+                    Falha detectada na infraestrutura de rede (Web Push). Você não conseguirá receber mensagens.
+                  </span>
+                  <md-filled-button onClick={handleRepararPush} disabled={isReparing.value} style="width: 100%; --md-sys-color-primary: var(--md-sys-color-error); --md-sys-color-on-primary: var(--md-sys-color-on-error);">
+                    <md-icon slot="icon">build</md-icon>
+                    {isReparing.value ? "Reparando..." : "Tentar Reparar Conexão Push"}
+                  </md-filled-button>
+                </div>
+              )}
+            </div>
+            <md-divider></md-divider>
+            <div>
+              <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                ⚡ Recursos Desejáveis & Status
+              </h4>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.8;">
+                <li>{diag.isOnline ? '✅ Conexão com a Internet' : '⚠️ Dispositivo Offline (Mensagens enfileiradas)'}</li>
+                <li>{diag.isPwaInstalado ? '✅ App Instalado (PWA Standalone)' : 'ℹ️ Executando na Aba do Navegador'}</li>
+                <li>{diag.suporteOpfs ? '✅ Disco Virtual OPFS Suportado' : '⚠️ Sem suporte a OPFS'}</li>
+                <li>{diag.suporteWebRTC ? '✅ P2P WebRTC Disponível' : '⚠️ Sem Suporte a WebRTC P2P'}</li>
+                <li>{diag.suporteBackgroundSync ? '✅ Background Sync Ativo' : 'ℹ️ Sem Background Sync nativo'}</li>
+                <li>
+                  {diag.permissaoCamera === 'granted' ? '✅ Permissão de Câmera Concedida' :
+                   diag.permissaoCamera === 'denied' ? '⚠️ Permissão de Câmera Negada' :
+                   'ℹ️ Permissão de Câmera (Pendente)'}
+                </li>
+                <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
+                
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
+                  {!diag.armazenamentoPersistido && (
+                    <md-outlined-button onClick={handleSolicitarPersistenciaManual} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                      Proteger Dados
+                    </md-outlined-button>
+                  )}
+                </li>
+                
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+                  <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
+                  <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
+                    <md-icon slot="icon">edit</md-icon>
+                    Configurar
+                  </md-outlined-button>
+                </li>
+
+                <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--md-sys-color-outline-variant);">
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: bold; color: var(--md-sys-color-primary);">Fila de Handshakes</span>
+                    <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Força o reenvio de pacotes pendentes (Retries).</span>
+                  </div>
+                  <md-outlined-button onClick={handleForceSync} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;" disabled={!diag.isOnline}>
+                    <md-icon slot="icon">sync</md-icon>
+                    Forçar Sync
+                  </md-outlined-button>
+                </li>
+
+                {diag.cotaEspaco.livreMB > 0 && (
+                  <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 12px; text-align: center;">
+                    📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style="max-width: 600px; width: 100%;">
+        <DebugPanel />
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `src/components/ProfileSection.tsx`
+
+```tsx
+// src/components/ProfileSection.tsx
+import { useEffect } from 'preact/hooks';
+import { useSignal } from '@preact/signals';
+import qrcode from 'qrcode-generator';
+
+import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
+import { profileName, profileEmail, addDebugLog, showToast, sharePayload } from '../signals/state.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile-utils.ts';
+import { cifrarChaveVapid } from '../utils/push-utils.ts';
+import { salvarProfile, serializarPublicKeyVapid } from '../utils/db-helpers.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '../utils/share-utils.ts';
+import { adicionarContato } from '../stores/contatosStore.ts';
+import { navigate } from '../utils/router.ts';
+import type { Contato } from '../constants/db.ts';
+
+export function ProfileSection() {
+  const qrCodeDataUrl = useSignal<string | null>(null);
+  const isEditing = useSignal<boolean>(false);
+  
+  const isProcessing = useSignal<boolean>(false);
+  const inviterPreview = useSignal<Partial<Contato> | null>(null);
+  const isLoadingInviter = useSignal<boolean>(false);
+
+  useEffect(() => {
+    carregarProfile();
+  }, []);
+
+  const p = profile.value;
+  // Apenas garantimos a Identidade Criptográfica (A falta do Endpoint de Push não trava mais a tela)
+  const isIdentityComplete = !!(p?.vapidPublicKey && p?.vapidPrivateKeyJwk && p?.name);
+
+  useEffect(() => {
+    if (!isIdentityComplete) {
+      isEditing.value = true;
+    } else {
+      isEditing.value = false;
+    }
+  }, [isIdentityComplete]);
+
+  useEffect(() => {
+    if (!isIdentityComplete && sharePayload.value) {
+      isLoadingInviter.value = true;
+      processarQualquerConvite(sharePayload.value)
+        .then(preview => {
+          inviterPreview.value = preview;
+        })
+        .catch(err => {
+          console.warn("Convite inválido no onboarding:", err);
+        })
+        .finally(() => {
+          isLoadingInviter.value = false;
+        });
+    }
+  }, [isIdentityComplete, sharePayload.value]);
+
+  useEffect(() => {
+    const renderQrCode = async () => {
+      if (!p || !isIdentityComplete) return;
+      try {
+        const payloadBinario = await gerarPayloadQrCodeCompacto(p);
+        const qr = qrcode(0, 'L');
+        qr.addData(payloadBinario);
+        qr.make();
+        qrCodeDataUrl.value = qr.createDataURL(5, 0); 
+      } catch (e) {
+        console.error("Falha ao gerar QR Code:", e);
+        qrCodeDataUrl.value = null;
+      }
+    };
+
+    if (isIdentityComplete) {
+      renderQrCode();
+    } else {
+      qrCodeDataUrl.value = null;
+    }
+  }, [p, isIdentityComplete]);
+
+  const handleGerarOuCorrigir = async () => {
+    const eraNovo = !isIdentityComplete;
+    if (isProcessing.value) return; 
+
+    try {
+      isProcessing.value = true;
+      const pNovo = await gerarProfileCompleto(profileName.value, profileEmail.value);
+      await atualizarProfile(pNovo);
+      
+      // Processa a Inclusão de Contato do Convite, mesmo se o Push falhou silenciosamente
+      if (eraNovo && inviterPreview.value && pNovo.vapidPublicKey) {
+        try {
+          const inviter = inviterPreview.value;
+          const contatoId = await serializarPublicKeyVapid(inviter.vapidPublicKey!);
+          
+          const novoContato: Contato = {
+            id: contatoId,
+            vapidPublicKey: inviter.vapidPublicKey!,
+            email: inviter.email || '',
+            name: inviter.name || '', 
+            e2ePublicKey: inviter.e2ePublicKey!,
+            subscription: inviter.subscription!,
+            vapidPrivateKeyEnvelope: inviter.vapidPrivateKeyEnvelope!,
+            trusted: true, 
+            me: 'none', 
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          };
+          
+          await adicionarContato(novoContato);
+          
+          const reg = await navigator.serviceWorker.ready;
+          if (reg.active) {
+            reg.active.postMessage({
+              type: 'CRIAR_HANDSHAKE_OUT',
+              payload: { rotasModulo: 'contato', params: { function: 'enviarSubscription', contato: contatoId, responder: false } }
+            });
+          }
+
+          sharePayload.value = null; 
+          showToast(`✅ Identidade criada! Conectado com ${inviter.name}.`, "success");
+          navigate(`#detail=${contatoId}`);
+          return;
+        } catch (errContato) {
+          console.error("Falha ao salvar contato durante onboarding", errContato);
+        }
+      }
+
+      isEditing.value = false;
+      if (eraNovo && !inviterPreview.value) {
+        showToast(`✅ Perfil inicializado com sucesso!`, "success");
+        navigate(''); 
+      } else if (!eraNovo) {
+        showToast(`✅ Perfil atualizado!`, "success");
+      }
+
+    } catch (err: any) {
+      addDebugLog(`❌ Erro no processo: ${err.message}`);
+      showToast(`❌ Falha Crítica: ${err.message}`, "error");
+    } finally {
+      isProcessing.value = false;
+    }
+  };
+
+  const handleCancelarEdicao = () => {
+    if (p) {
+      profileName.value = p.name || '';
+      profileEmail.value = p.email || '';
+    }
+    isEditing.value = false;
+  };
+
+  const handleCompartilhar = async () => {
+    try {
+      if (!p) return showToast("Salve o perfil primeiro.", "error");
+      const serverPublicKeyJwk = await getServerPublicKey();
+
+      const novoEnvelope = await cifrarChaveVapid(p.vapidPrivateKeyJwk, serverPublicKeyJwk);
+      p.vapidPrivateKeyEnvelope = novoEnvelope;
+      p.updatedAt = Date.now();
+      await salvarProfile(p);
+      await atualizarProfile(p);
+
+      const shareUrl = await gerarLinkConviteWeb(p, p.vapidPrivateKeyJwk, p.vapidPublicKey);
+      await navigator.clipboard.writeText(shareUrl);
+      
+      showToast("✅ Link de convite copiado! Agora envie para seu contato.", "success");
+    } catch (err: any) {
+      addDebugLog(`❌ Erro: ${err.message}`);
+      showToast(`❌ ${err.message}`, "error");
+    }
+  };
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 24px 0; overflow-y: auto;">
+      
+      <div class="container" style="background: var(--md-sys-color-surface); max-width: 480px; width: 100%; margin-bottom: 24px; text-align: center;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <span style="font-size: 0.9rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <md-icon>account_circle</md-icon> Identidade Local
+          </span>
+          <div style="display: flex; gap: 4px;">
+            {isIdentityComplete && !isEditing.value && (
+              <md-icon-button onClick={() => isEditing.value = true} title="Editar meu perfil">
+                <md-icon>edit</md-icon>
+              </md-icon-button>
+            )}
+          </div>
+        </div>
+
+        <md-icon style="font-size: 64px; color: var(--md-sys-color-primary); margin-bottom: 24px;">account_circle</md-icon>
+
+        {isEditing.value ? (
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; text-align: left;">
+            
+            {!isIdentityComplete && isLoadingInviter.value && (
+              <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+                <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
+              </div>
+            )}
+
+            {!isIdentityComplete && inviterPreview.value && !isLoadingInviter.value && (
+              <div style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); padding: 16px; border-radius: 12px; margin-bottom: 8px; text-align: center; border: 1px solid var(--md-sys-color-outline-variant);">
+                <md-icon style="font-size: 32px; margin-bottom: 8px; color: var(--md-sys-color-primary);">waving_hand</md-icon>
+                <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 4px;">
+                  Convite de {inviterPreview.value.name?.trim() || 'Anônimo'}
+                </div>
+                <div style="font-size: 0.85rem; opacity: 0.9;">
+                  Preencha seus dados abaixo para criar sua identidade descentralizada e iniciar a conversa com segurança.
+                </div>
+              </div>
+            )}
+
+            {!isIdentityComplete && !inviterPreview.value && !isLoadingInviter.value && (
+               <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; text-align: center;">
+                 Este nome será visível para os contatos que você convidar.
+               </p>
+            )}
+
+            <md-outlined-text-field
+              label="Seu Nome"
+              placeholder="Ex: João da Silva"
+              value={profileName.value}
+              onInput={(e: Event) => profileName.value = (e.target as HTMLInputElement).value}
+              disabled={isProcessing.value}
+            ></md-outlined-text-field>
+            
+            <md-outlined-text-field
+              label="Seu E-mail (Opcional)"
+              placeholder="Ex: joao@email.com"
+              value={profileEmail.value}
+              onInput={(e: Event) => profileEmail.value = (e.target as HTMLInputElement).value}
+              disabled={isProcessing.value}
+            ></md-outlined-text-field>
+
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <md-filled-button 
+                onClick={handleGerarOuCorrigir} 
+                style="flex: 1;"
+                disabled={!profileName.value.trim() || isProcessing.value ? true : undefined}
+              >
+                {isProcessing.value ? "⏳ Processando..." : (!isIdentityComplete ? "🚀 Iniciar Perfil" : "💾 Salvar")}
+              </md-filled-button>
+              
+              {isIdentityComplete && (
+                <md-outlined-button 
+                  onClick={handleCancelarEdicao} 
+                  style="flex: 1;"
+                  disabled={isProcessing.value ? true : undefined}
+                >
+                  Cancelar
+                </md-outlined-button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 style="justify-content: center; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              {p?.name?.trim() || "Anônimo"}
+            </h2>
+            <p style="color: var(--md-sys-color-on-surface-variant); font-size: 0.9rem; margin-bottom: 24px;">{p?.email || 'Sem e-mail'}</p>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <md-outlined-button onClick={handleCompartilhar} style="width: 100%;">
+                <md-icon slot="icon">share</md-icon>
+                Compartilhar Link de Convite
+              </md-outlined-button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {qrCodeDataUrl.value && isIdentityComplete && !isEditing.value && (
+        <div class="container" style="background: #ffffff; color: #111111; max-width: 480px; width: 100%; border-left-color: var(--md-sys-color-primary); text-align: center;">
+          <h3 style="font-size: 1rem; color: #111111; margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <md-icon style="font-size: 1.2rem; color: #111111;">qr_code_2</md-icon>
+            Seu QR Code
+          </h3>
+          <p style="font-size: 0.8rem; color: #555555; margin-bottom: 16px;">
+            Mostre isso para um amigo escanear pelo App Loco.
+          </p>
+          <img src={qrCodeDataUrl.value} alt="QR Code" style="max-width: 220px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #eeeeee; margin: 0 auto;" />
+        </div>
+      )}
+
+    </div>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/constants/config.ts`
 
 ```ts
@@ -2506,7 +2531,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.177-mswm909i";
+export const APP_VERSION = "0.2.178-msxsid27";
 
 ```
 
@@ -2695,259 +2720,6 @@ export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
 
 ---
 
-## Arquivo: `src/stores/contatosStore.ts`
-
-```ts
-// src/stores/contatosStore.ts
-import { signal, computed } from "@preact/signals";
-import {
-  listarContatos,
-  salvarContato,
-  removerContato,
-  serializarPublicKeyVapid,
-  buscarProfile,
-  removerContatoPorHash,
-  listarHandshakes,
-  removerHandshake
-} from "../utils/db-helpers.ts";
-import type { Contato } from "../constants/db.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
-
-import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
-import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
-import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
-
-export type { Contato };
-
-// 🔥 ARQUITETURA: Signal para o loading durante a carga de contatos
-export const isCarregandoContatos = signal<boolean>(false);
-export const contatosRaw = signal<Contato[]>([]);
-
-export const contatosComHash = computed(() => {
-  return contatosRaw.value.map((contato) => ({
-    contato,
-    hash: contato.id,
-  }));
-});
-
-export const contatosMap = computed(() => {
-  const map = new Map<string, Contato>();
-  for (const c of contatosRaw.value) {
-    map.set(c.id, c);
-  }
-  return map;
-});
-
-export async function carregarContatos(): Promise<void> {
-  isCarregandoContatos.value = true;
-  try {
-    const lista = await listarContatos();
-    
-    const profile = await buscarProfile();
-    if (profile) {
-      const contatoProprio = await gerarContatoProprio(profile);
-      if (contatoProprio) {
-        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
-        if (indexExistente >= 0) {
-          lista[indexExistente] = contatoProprio;
-        } else {
-          lista.push(contatoProprio);
-        }
-      }
-    }
-    
-    contatosRaw.value = lista;
-    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
-  } finally {
-    isCarregandoContatos.value = false;
-  }
-}
-
-let isContatosListenerInitialized = false;
-
-export async function initContatosStore(): Promise<void> {
-  await carregarContatos();
-
-  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
-    isContatosListenerInitialized = true;
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data?.type === 'CONTATO_ATUALIZADO') {
-        carregarContatos();
-      }
-    });
-  }
-}
-
-export async function adicionarContato(contato: Contato): Promise<void> {
-  try {
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === contato.id);
-    if (index >= 0) {
-      const novaLista = [...atual];
-      novaLista[index] = contato;
-      contatosRaw.value = novaLista;
-    } else {
-      contatosRaw.value = [...atual, contato];
-    }
-
-    await salvarContato(contato);
-    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
-    throw err;
-  }
-}
-
-export function adicionarOuAtualizarContato(contato: Contato): void {
-  adicionarContato(contato).catch((err) => {
-    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
-  });
-}
-
-export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    await removerContatoCompletamente(hash);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
-  }
-}
-
-export async function removerContatoCompletamente(hash: string): Promise<void> {
-  try {
-    addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
-
-    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
-    
-    await ExpurgarMensagens(hash);
-    await ExpurgarHandshakesContato(hash);
-    await ExpurgarHandshakesProfile(hash);
-    
-    const handshakes = await listarHandshakes();
-    for (const h of handshakes) {
-      if (h.aud === hash) await removerHandshake(h.id);
-    }
-
-    await removerContatoPorHash(hash);
-    
-    addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
-    throw err;
-  }
-}
-
-export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === hash);
-    
-    if (index >= 0 && atual[index]) {
-      const contatoAtual = atual[index];
-      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
-      const novaLista = [...atual];
-      novaLista[index] = contatoModificado;
-      contatosRaw.value = novaLista;
-      
-      await salvarContato(contatoModificado);
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
-    } else {
-      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
-    }
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
-  }
-}
-
-export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
-  const atual = contatosRaw.value;
-  const index = atual.findIndex(c => c.id === id);
-  if (index >= 0 && atual[index]) {
-    const contatoAtual = atual[index];
-    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
-    const novaLista = [...atual];
-    novaLista[index] = contatoModificado;
-    contatosRaw.value = novaLista;
-    
-    salvarContato(contatoModificado).catch(err => {
-        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
-    });
-  } else {
-    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
-  }
-}
-```
-
----
-
-## Arquivo: `src/stores/profileStore.ts`
-
-```ts
-// src/stores/profileStore.ts
-import { signal, batch } from '@preact/signals';
-import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
-
-// Signal dedicado EXCLUSIVAMENTE para indicar operações de I/O no banco
-export const isSavingProfile = signal<boolean>(false);
-export const profile = signal<ProfileConfig | null>(null);
-
-export async function carregarProfile() {
-  try {
-    const p = await buscarProfile();
-    
-    batch(() => {
-      profile.value = p || null;
-      if (p) {
-        profileName.value = p.name;
-        profileEmail.value = p.email;
-      }
-    });
-  } catch (error) {
-    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
-  }
-}
-
-/**
- * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
- */
-export async function atualizarProfile(p: ProfileConfig) {
-  // Trava de segurança apenas para evitar gravações simultâneas cruzadas no IndexedDB
-  if (isSavingProfile.value) {
-      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
-      return; 
-  }
-
-  // 1. Atualização Otimista na Memória agrupada (Isso garante que a UI reaja instantaneamente)
-  batch(() => {
-    profile.value = { ...p };
-    profileName.value = p.name;
-    profileEmail.value = p.email;
-  });
-
-  // 2. Persistência Isolada com trava reativa
-  isSavingProfile.value = true;
-  try {
-    await salvarProfile(p);
-  } catch (error) {
-    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
-  } finally {
-    isSavingProfile.value = false;
-  }
-}
-
-export async function initProfileStore() {
-  await carregarProfile();
-}
-```
-
----
-
 ## Arquivo: `src/stores/mensagensStore.ts`
 
 ```ts
@@ -3089,6 +2861,313 @@ export async function limparTodoHistorico(contatoHash: string) {
 }
 
 export async function initMensagensStore() {}
+```
+
+---
+
+## Arquivo: `src/stores/profileStore.ts`
+
+```ts
+// src/stores/profileStore.ts
+import { signal, batch } from '@preact/signals';
+import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
+
+// Signal dedicado EXCLUSIVAMENTE para indicar operações de I/O no banco
+export const isSavingProfile = signal<boolean>(false);
+export const profile = signal<ProfileConfig | null>(null);
+
+export async function carregarProfile() {
+  try {
+    const p = await buscarProfile();
+    
+    batch(() => {
+      profile.value = p || null;
+      if (p) {
+        profileName.value = p.name;
+        profileEmail.value = p.email;
+      }
+    });
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
+  }
+}
+
+/**
+ * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
+ */
+export async function atualizarProfile(p: ProfileConfig) {
+  // Trava de segurança apenas para evitar gravações simultâneas cruzadas no IndexedDB
+  if (isSavingProfile.value) {
+      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
+      return; 
+  }
+
+  // 🔥 ARQUITETURA [AUTO-DOWNGRADE]: Deep Check para identificar mudanças críticas na identidade
+  let requiresDowngrade = false;
+  const oldP = profile.value;
+  
+  if (oldP) {
+    if (
+      oldP.vapidPrivateKeyEnvelope !== p.vapidPrivateKeyEnvelope ||
+      oldP.subscription?.endpoint !== p.subscription?.endpoint ||
+      oldP.subscription?.proxyserver !== p.subscription?.proxyserver ||
+      JSON.stringify(oldP.e2ePublicKey) !== JSON.stringify(p.e2ePublicKey) ||
+      JSON.stringify(oldP.vapidPublicKey) !== JSON.stringify(p.vapidPublicKey)
+    ) {
+      requiresDowngrade = true;
+    }
+  }
+
+  // 1. Atualização Otimista na Memória agrupada (Isso garante que a UI reaja instantaneamente)
+  batch(() => {
+    profile.value = { ...p };
+    profileName.value = p.name;
+    profileEmail.value = p.email;
+  });
+
+  // 2. Persistência Isolada com trava reativa
+  isSavingProfile.value = true;
+  try {
+    await salvarProfile(p);
+    
+    // Se a identidade ou rota mudou, notifica a agenda de contatos em background 
+    // Utilizamos o import dinâmico para evitar dependência circular entre stores!
+    if (requiresDowngrade) {
+       addDebugLog("info", "STORE:PROFILE", "Mudança estrutural detectada na identidade. Disparando rebaixamento de confiança...");
+       const { rebaixarConfiancaContatos } = await import('./contatosStore.ts');
+       await rebaixarConfiancaContatos();
+    }
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
+  } finally {
+    isSavingProfile.value = false;
+  }
+}
+
+export async function initProfileStore() {
+  await carregarProfile();
+}
+```
+
+---
+
+## Arquivo: `src/stores/contatosStore.ts`
+
+```ts
+// src/stores/contatosStore.ts
+import { signal, computed } from "@preact/signals";
+import {
+  listarContatos,
+  salvarContato,
+  serializarPublicKeyVapid,
+  buscarProfile,
+  removerContatoPorHash,
+  listarHandshakes,
+  removerHandshake
+} from "../utils/db-helpers.ts";
+import type { Contato } from "../constants/db.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
+
+import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
+import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
+import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
+
+export type { Contato };
+
+// 🔥 ARQUITETURA: Signal para o loading durante a carga de contatos
+export const isCarregandoContatos = signal<boolean>(false);
+export const contatosRaw = signal<Contato[]>([]);
+
+export const contatosComHash = computed(() => {
+  return contatosRaw.value.map((contato) => ({
+    contato,
+    hash: contato.id,
+  }));
+});
+
+export const contatosMap = computed(() => {
+  const map = new Map<string, Contato>();
+  for (const c of contatosRaw.value) {
+    map.set(c.id, c);
+  }
+  return map;
+});
+
+export async function carregarContatos(): Promise<void> {
+  isCarregandoContatos.value = true;
+  try {
+    const lista = await listarContatos();
+    
+    const profile = await buscarProfile();
+    if (profile) {
+      const contatoProprio = await gerarContatoProprio(profile);
+      if (contatoProprio) {
+        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
+        if (indexExistente >= 0) {
+          lista[indexExistente] = contatoProprio;
+        } else {
+          lista.push(contatoProprio);
+        }
+      }
+    }
+    
+    contatosRaw.value = lista;
+    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
+  } finally {
+    isCarregandoContatos.value = false;
+  }
+}
+
+let isContatosListenerInitialized = false;
+
+export async function initContatosStore(): Promise<void> {
+  await carregarContatos();
+
+  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
+    isContatosListenerInitialized = true;
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'CONTATO_ATUALIZADO') {
+        carregarContatos();
+      }
+    });
+  }
+}
+
+export async function adicionarContato(contato: Contato): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === contato.id);
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = contato;
+      contatosRaw.value = novaLista;
+    } else {
+      contatosRaw.value = [...atual, contato];
+    }
+
+    await salvarContato(contato);
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
+    throw err;
+  }
+}
+
+export function adicionarOuAtualizarContato(contato: Contato): void {
+  adicionarContato(contato).catch((err) => {
+    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
+  });
+}
+
+// 🔥 ARQUITETURA [AUTO-DOWNGRADE]: Quando nossas próprias chaves/rotas mudam, 
+// rebaixamos a confiança dos nossos contatos para forçar a Injeção de Carona (Piggybacking)
+export async function rebaixarConfiancaContatos(): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    if (atual.length === 0) return;
+
+    let mudouAlgum = false;
+    const novaLista = atual.map(c => {
+      if (c.me === 'trusted' || c.me === 'saved') {
+        mudouAlgum = true;
+        return { ...c, me: 'none' as const, updatedAt: Date.now() };
+      }
+      return c;
+    });
+    
+    if (!mudouAlgum) return; // Otimização para não salvar no IDB à toa
+
+    contatosRaw.value = novaLista;
+    
+    // Salva silenciosamente em background
+    Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
+      addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
+    });
+    
+    addDebugLog("info", "STORE:CONTATO", `Status 'me' rebaixado para 'none' em contatos salvos para forçar o Piggybacking.`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro crítico ao rebaixar confiança dos contatos", err);
+  }
+}
+
+export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    await removerContatoCompletamente(hash);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
+  }
+}
+
+export async function removerContatoCompletamente(hash: string): Promise<void> {
+  try {
+    addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
+
+    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
+    
+    await ExpurgarMensagens(hash);
+    await ExpurgarHandshakesContato(hash);
+    await ExpurgarHandshakesProfile(hash);
+    
+    const handshakes = await listarHandshakes();
+    for (const h of handshakes) {
+      if (h.aud === hash) await removerHandshake(h.id);
+    }
+
+    await removerContatoPorHash(hash);
+    
+    addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
+    throw err;
+  }
+}
+
+export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === hash);
+    
+    if (index >= 0 && atual[index]) {
+      const contatoAtual = atual[index];
+      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
+      const novaLista = [...atual];
+      novaLista[index] = contatoModificado;
+      contatosRaw.value = novaLista;
+      
+      await salvarContato(contatoModificado);
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
+    } else {
+      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
+    }
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
+  }
+}
+
+export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
+  const atual = contatosRaw.value;
+  const index = atual.findIndex(c => c.id === id);
+  if (index >= 0 && atual[index]) {
+    const contatoAtual = atual[index];
+    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
+    const novaLista = [...atual];
+    novaLista[index] = contatoModificado;
+    contatosRaw.value = novaLista;
+    
+    salvarContato(contatoModificado).catch(err => {
+        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
+    });
+  } else {
+    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
+  }
+}
 ```
 
 ---
@@ -3251,6 +3330,89 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
 
 ---
 
+## Arquivo: `src/sw/cache.ts`
+
+```ts
+// src/sw/cache.ts
+
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+declare const __GENERATED_ASSETS__: string[];
+
+const CACHE_VERSION = "VERSION_HASH";
+const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
+
+const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
+
+self.addEventListener("install", (event) => {
+  console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      console.log("[SW-CACHE] 📦 Armazenando assets essenciais no cache local...");
+      return Promise.all(
+        ASSETS_TO_CACHE.map((url) => {
+          return cache.add(url).catch((err) => {
+            console.error(`[SW-CACHE] ❌ Falha ao cachear recurso: ${url}`, err);
+          });
+        })
+      );
+    }).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            console.log(`[SW-CACHE] 🗑️ Removendo cache obsoleto: ${cache}`);
+            return caches.delete(cache);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (event: any) => {
+  // 🔥 ARQUITETURA [Method Guard]: A Cache API nativa suporta estritamente requisições GET.
+  // Ignoramos requisições POST, PUT e DELETE para evitar o TypeError: 'POST' is unsupported.
+  if (event.request.method !== "GET") {
+    return;
+  }
+
+  // Ignora requisições de outros domínios ou rotas dinâmicas de API
+  if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
+    return;
+  }
+  
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
+        return response;
+      })
+      .catch(() => {
+        console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          return new Response("Você está offline e este recurso não foi mapeado no cache.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" }
+          });
+        });
+      })
+  );
+});
+```
+
+---
+
 ## Arquivo: `src/sw/sw-handshakes.ts`
 
 ```ts
@@ -3277,6 +3439,7 @@ import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/pu
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 import { getServerPublicKey } from '../utils/profile-utils.ts';
+import { gerarId } from "../utils/id-utils.ts";
 
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
@@ -3497,26 +3660,74 @@ export async function processarFilaHandshake(): Promise<void> {
           
           // RESILIÊNCIA & SHADOW SYNC EM RE-TENTATIVAS
           const ehReTentativa = h.out!.tentativas > 1;
-          const precisaDePerfilInjetado = (contato.me === 'none' || contato.me === 'wrong') || (ehReTentativa && !h.out!.rotas.contato?.sync);
+          
+          // 🛡️ SANITY CHECK: Valida se o perfil está completo para compartilhamento
+          const isProfilePiggybackReady = !!(
+            profile.vapidPublicKey && 
+            profile.e2ePublicKey && 
+            profile.subscription?.endpoint && 
+            profile.subscription?.proxyserver // <- Exigência da Rota de Retorno (Proxy)
+          );
+
+          const precisaDePerfilInjetado = isProfilePiggybackReady && ((contato.me === 'none' || contato.me === 'wrong') || (ehReTentativa && !h.out!.rotas.contato?.sync));
+
+          let injetouPIGNestaRodada = false;
 
           if (!isSyncHandshake && !isPullHandshake && precisaDePerfilInjetado) {
             addDebugLog(`[SW-ROUTER] 💉 Injetando dados de perfil no handshake ${h.id} (Motivo: ${ehReTentativa ? 'Re-tentativa/Resiliência' : 'Contato Desatualizado'}).`);
             h.out!.rotas.contato = h.out!.rotas.contato || {};
             h.out!.rotas.contato.sync = await extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
+            injetouPIGNestaRodada = true;
           }
 
           const proxyserverDestino = contato.subscription.proxyserver || "";
 
-          const envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
-          const payloadJwt = { 
+          let envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
+          let payloadJwt: any = { 
             sub: "hand", 
             aud: contato.id, 
             jti: h.id, 
             ct: JSON.stringify(envelope),
             proxyserver: proxyserverDestino
           };
-          const jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+          let jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
           
+          // ✂️ SPLITTER DINÂMICO: Fragmenta o pacote se o PIG estourou o limite de MTU (4KB)
+          if (jwt.length > 4000 && injetouPIGNestaRodada) {
+            addDebugLog(`[SW-ROUTER] ✂️ MTU Excedido (${jwt.length} bytes). Fragmentando o PIG para um Handshake independente...`);
+            
+            // 1. Extrai o PIG recém injetado
+            const pigSyncData = h.out!.rotas.contato!.sync;
+            
+            // 2. Desfaz a injeção na rota atual
+            delete h.out!.rotas.contato!.sync;
+            if (Object.keys(h.out!.rotas.contato!).length === 0) {
+              delete h.out!.rotas.contato;
+            }
+
+            // 3. Recalcula a criptografia e o JWT para a mensagem original (agora mais leve)
+            envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
+            payloadJwt.ct = JSON.stringify(envelope);
+            jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
+
+            // 4. Cria e enfileira um NOVO handshake exclusivo para o PIG
+            const handshakePIG: Handshake = {
+              id: gerarId(),
+              aud: contato.id,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              out: {
+                status: 'pendente',
+                tentativas: 0,
+                rotas: {
+                  contato: { sync: pigSyncData }
+                }
+              }
+            };
+            // Salva o novo handshake na fila (será processado automaticamente na próxima rodada do loop ou sync)
+            await salvarHandshakeTransacional(handshakePIG, `[SW-ROUTER] ✅ Handshake de PIG fragmentado (${handshakePIG.id}) salvo na fila.`);
+          }
+
           if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
 
           await enviarParaProxy(
@@ -3566,89 +3777,6 @@ self.addEventListener('online', function (event: Event) {
   } else {
     processarFilaHandshake();
   }
-});
-```
-
----
-
-## Arquivo: `src/sw/cache.ts`
-
-```ts
-// src/sw/cache.ts
-
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-declare const __GENERATED_ASSETS__: string[];
-
-const CACHE_VERSION = "VERSION_HASH";
-const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
-
-const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
-
-self.addEventListener("install", (event) => {
-  console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log("[SW-CACHE] 📦 Armazenando assets essenciais no cache local...");
-      return Promise.all(
-        ASSETS_TO_CACHE.map((url) => {
-          return cache.add(url).catch((err) => {
-            console.error(`[SW-CACHE] ❌ Falha ao cachear recurso: ${url}`, err);
-          });
-        })
-      );
-    }).then(() => self.skipWaiting())
-  );
-});
-
-self.addEventListener("activate", (event) => {
-  console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log(`[SW-CACHE] 🗑️ Removendo cache obsoleto: ${cache}`);
-            return caches.delete(cache);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener("fetch", (event: any) => {
-  // 🔥 ARQUITETURA [Method Guard]: A Cache API nativa suporta estritamente requisições GET.
-  // Ignoramos requisições POST, PUT e DELETE para evitar o TypeError: 'POST' is unsupported.
-  if (event.request.method !== "GET") {
-    return;
-  }
-
-  // Ignora requisições de outros domínios ou rotas dinâmicas de API
-  if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
-    return;
-  }
-  
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-        }
-        return response;
-      })
-      .catch(() => {
-        console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) return cachedResponse;
-          return new Response("Você está offline e este recurso não foi mapeado no cache.", {
-            status: 503,
-            headers: { "Content-Type": "text/plain; charset=utf-8" }
-          });
-        });
-      })
-  );
 });
 ```
 
@@ -4348,214 +4476,6 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
     };
   } catch (err: any) {
     throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/profile-utils.ts`
-
-```ts
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from './db-helpers.ts';
-import { cifrarChaveVapid } from './push-utils.ts';
-import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts';
-import { fetchLocoProxy } from '../constants/config.ts';
-import { getConfigValue, saveConfig } from '../stores/config-store.ts';
-
-export async function getServerPublicKey() {
-  try {
-    const cachedKey = await getConfigValue('SERVER_PUBLIC_KEY');
-    if (cachedKey) {
-      addDebugLog("info", "CRYPTO", "Chave do servidor carregada instantaneamente do cache local.");
-      return expandRsaPublic(JSON.parse(cachedKey));
-    }
-  } catch (e) {
-    addDebugLog("warn", "CRYPTO", "Falha ao ler cache da chave do servidor. Recarregando da rede...");
-  }
-
-  addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
-  
-  // 🔥 ARQUITETURA: Subsitui o fetch solto pelo Wrapper Central
-  const response = await fetchLocoProxy('/publickey');
-  
-  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  
-  const keyData = await response.json();
-  
-  await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
-  
-  return expandRsaPublic(keyData);
-}
-
-export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
-  if ('storage' in navigator && 'persist' in navigator.storage) {
-    try {
-      const concedido = await navigator.storage.persist();
-      if (concedido) {
-        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
-      } else {
-        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
-      }
-      return concedido;
-    } catch (err: any) {
-      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
-      return false;
-    }
-  }
-  return false;
-}
-
-export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
-  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
-  if (!nome || nome.trim() === "") {
-    throw new Error("Preencha pelo menos o seu Nome.");
-  }
-
-  try {
-    addDebugLog("Step 1: Verificando permissão de notificação...");
-    try {
-      if (Notification.permission === "denied") {
-        addDebugLog("⚠️ Permissão de notificação negada. Continuando offline...");
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          addDebugLog("⚠️ Permissão de notificação não concedida.");
-        }
-      }
-    } catch (notifErr: any) {
-      addDebugLog("⚠️ Erro ao verificar notificações: " + notifErr?.message);
-    }
-
-    addDebugLog("Step 2: Registrando Service Worker...");
-    const registration = await registrarServiceWorker();
-
-    addDebugLog("Step 3: Buscando chave pública do servidor...");
-    const serverPublicKeyJwk = await getServerPublicKey();
-    addDebugLog("Step 3.5: Chave do servidor garantida");
-
-    let vapidKeyPair: CryptoKeyPair | undefined = undefined;
-    let publicKeyJwk: JsonWebKey | undefined = undefined;
-    let privateKeyJwk: JsonWebKey | undefined = undefined;
-
-    let existingProfile = await buscarProfile();
-    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
-      addDebugLog("📂 Chaves VAPID encontradas no perfil.");
-      publicKeyJwk = existingProfile.vapidPublicKey;
-      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
-      try {
-        vapidKeyPair = {
-          publicKey: await window.crypto.subtle.importKey("jwk" as any, publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]),
-          privateKey: await window.crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
-        } as CryptoKeyPair;
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chaves VAPID existentes. Gerando novas...");
-        existingProfile = undefined;
-      }
-    }
-    if (!existingProfile || !vapidKeyPair || !publicKeyJwk || !privateKeyJwk) {
-      addDebugLog("🔑 Gerando novas chaves VAPID...");
-      vapidKeyPair = await generateVAPIDKeys();
-      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
-      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
-    }
-
-    addDebugLog("Step 4: Obtendo subscription...");
-    if (!registration) throw new Error("Service Worker registration é null/undefined");
-    if (!registration.pushManager) throw new Error("Web Push API (pushManager) não disponível.");
-    
-    let existingSubscription = await registration.pushManager.getSubscription();
-    let subscriptionValida = false;
-
-    if (existingSubscription) {
-      const profileSub = existingProfile?.subscription;
-      if (profileSub && profileSub.endpoint === existingSubscription.endpoint) {
-        subscriptionValida = true;
-      } else {
-        await existingSubscription.unsubscribe();
-        if (existingProfile) {
-           delete (existingProfile as any).subscription;
-           await salvarProfile(existingProfile);
-        }
-        existingSubscription = null;
-      }
-    }
-    
-    if (!existingSubscription || !subscriptionValida) {
-      addDebugLog("📝 Criando nova subscription...");
-      const rawPublicKey = await window.crypto.subtle.exportKey("raw", vapidKeyPair.publicKey);
-      existingSubscription = await registration.pushManager.subscribe({
-        applicationServerKey: new Uint8Array(rawPublicKey),
-        userVisibleOnly: true
-      });
-    }
-
-    const p256dhBuffer = existingSubscription.getKey('p256dh');
-    const authBuffer = existingSubscription.getKey('auth');
-    if (!p256dhBuffer || !authBuffer) {
-      throw new Error("Falha ao obter chaves da subscription (p256dh/auth).");
-    }
-    
-    // Deixa que a URL do proxy seja puramente "/" no storage interno. O wrapper resolverá dinamicamente depois.
-    const subscription = {
-      endpoint: existingSubscription.endpoint,
-      keys: {
-        p256dh: rawBufferToBase64Url(p256dhBuffer),
-        auth: rawBufferToBase64Url(authBuffer)
-      },
-      proxyserver: '/'
-    };
-
-    let e2ePublicKey: JsonWebKey;
-    let e2ePrivateKeyJwk: JsonWebKey;
-
-    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
-      addDebugLog("📂 Chaves E2E encontradas no perfil.");
-      e2ePublicKey = existingProfile.e2ePublicKey;
-      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
-      try {
-        await window.crypto.subtle.importKey("jwk" as any, e2ePrivateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-      } catch {
-        addDebugLog("⚠️ Erro ao importar chave E2E existente. Gerando novas...");
-        const newKeys = await generateE2EEKeys();
-        e2ePublicKey = newKeys.publicEncrypt;
-        e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-      }
-    } else {
-      addDebugLog("🔑 Gerando novas chaves E2E...");
-      const newKeys = await generateE2EEKeys();
-      e2ePublicKey = newKeys.publicEncrypt;
-      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
-    }
-
-    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
-    const profile: ProfileConfig = {
-      name: nome.trim(), 
-      email: email.trim(), 
-      vapidPublicKey: publicKeyJwk, 
-      vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
-      e2ePublicKey: e2ePublicKey, 
-      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: subscription, 
-      createdAt: existingProfile?.createdAt || Date.now(), 
-      updatedAt: Date.now()
-    };
-
-    await salvarProfile(profile);
-    await solicitarArmazenamentoPersistente();
-
-    addDebugLog("✅ Perfil salvo com sucesso.");
-    return profile;
-  } catch (err) {
-    addDebugLog("❌ Erro ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
-    throw err;
   }
 }
 ```
@@ -5290,6 +5210,246 @@ export async function listarHandshakes(): Promise<Handshake[]> {
 
 export async function removerHandshake(id: string): Promise<void> {
   await removerChave(storeHandshakes, id);
+}
+```
+
+---
+
+## Arquivo: `src/utils/profile-utils.ts`
+
+```ts
+// src/utils/profile-utils.ts
+import { salvarProfile, buscarProfile } from './db-helpers.ts';
+import { cifrarChaveVapid } from './push-utils.ts';
+import { registrarServiceWorker } from "../sw/sw-utils.ts";
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
+import type { ProfileConfig } from '../constants/db.ts';
+import { addDebugLog } from './debug-utils.ts';
+import { fetchLocoProxy } from '../constants/config.ts';
+import { getConfigValue, saveConfig } from '../stores/config-store.ts';
+
+export async function getServerPublicKey() {
+  try {
+    const cachedKey = await getConfigValue('SERVER_PUBLIC_KEY');
+    if (cachedKey) {
+      addDebugLog("info", "CRYPTO", "Chave do servidor carregada instantaneamente do cache local.");
+      return expandRsaPublic(JSON.parse(cachedKey));
+    }
+  } catch (e) {
+    addDebugLog("warn", "CRYPTO", "Falha ao ler cache da chave do servidor. Recarregando da rede...");
+  }
+
+  addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
+  
+  const response = await fetchLocoProxy('/publickey');
+  
+  if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
+  
+  const keyData = await response.json();
+  
+  await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
+  
+  return expandRsaPublic(keyData);
+}
+
+export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const concedido = await navigator.storage.persist();
+      if (concedido) {
+        addDebugLog("✅ Armazenamento Persistente concedido pelo navegador.");
+      } else {
+        addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
+      }
+      return concedido;
+    } catch (err: any) {
+      addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+// 🔥 ARQUITETURA: Nova função de auto-healing disparada pelo Painel Avançado
+export async function repararSubscricaoPush(): Promise<boolean> {
+  addDebugLog("info", "PROFILE", "Iniciando rotina de reparo da Subscrição Push...");
+  try {
+    if (Notification.permission !== "granted") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("Permissão de notificação negada pelo usuário.");
+    }
+
+    const registration = await registrarServiceWorker();
+    if (!registration.pushManager) throw new Error("Push API não suportada pelo navegador.");
+
+    const p = await buscarProfile();
+    if (!p) throw new Error("Perfil local não encontrado. Crie um perfil primeiro.");
+
+    let sub = await registration.pushManager.getSubscription();
+    if (sub) {
+      await sub.unsubscribe(); // Força a renovação para garantir chaves frescas
+    }
+
+    const rawPublicKey = await window.crypto.subtle.exportKey("raw", await window.crypto.subtle.importKey("jwk", p.vapidPublicKey, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
+    sub = await registration.pushManager.subscribe({
+      applicationServerKey: new Uint8Array(rawPublicKey),
+      userVisibleOnly: true
+    });
+
+    const p256dhBuffer = sub.getKey('p256dh');
+    const authBuffer = sub.getKey('auth');
+    if (!p256dhBuffer || !authBuffer) throw new Error("Falha ao extrair chaves da subscrição gerada.");
+
+    p.subscription = {
+      endpoint: sub.endpoint,
+      keys: {
+        p256dh: rawBufferToBase64Url(p256dhBuffer),
+        auth: rawBufferToBase64Url(authBuffer)
+      },
+      proxyserver: p.subscription?.proxyserver || '/'
+    };
+    p.updatedAt = Date.now();
+
+    // Import dinâmico para evitar dependência circular
+    const { atualizarProfile } = await import('../stores/profileStore.ts');
+    await atualizarProfile(p);
+    
+    addDebugLog("success", "PROFILE", "Subscrição Push reparada com sucesso!");
+    return true;
+  } catch (err: any) {
+    addDebugLog("error", "PROFILE", `Falha ao reparar Push: ${err.message}`);
+    return false;
+  }
+}
+
+export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
+  addDebugLog("📦 Gerando/Atualizando perfil unificado...");
+
+  if (!nome || nome.trim() === "") {
+    throw new Error("Preencha pelo menos o seu Nome.");
+  }
+
+  let vapidKeyPair: CryptoKeyPair | undefined = undefined;
+  let publicKeyJwk: JsonWebKey | undefined = undefined;
+  let privateKeyJwk: JsonWebKey | undefined = undefined;
+  let e2ePublicKey: JsonWebKey | undefined = undefined;
+  let e2ePrivateKeyJwk: JsonWebKey | undefined = undefined;
+  
+  const existingProfile = await buscarProfile();
+  
+  // 🔥 CORREÇÃO (TS2322): Define estritamente o tipo da subscription inicializando com um fallback seguro.
+  // Isso impede que o TypeScript avalie finalSubscription como "undefined".
+  let finalSubscription: ProfileConfig['subscription'] = existingProfile?.subscription || {
+    endpoint: '',
+    keys: { p256dh: '', auth: '' },
+    proxyserver: '/'
+  };
+
+  try {
+    addDebugLog("Step 1: Registrando Service Worker...");
+    const registration = await registrarServiceWorker();
+
+    addDebugLog("Step 2: Buscando chave pública do servidor...");
+    const serverPublicKeyJwk = await getServerPublicKey();
+
+    // Reutiliza ou gera chaves VAPID
+    if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
+      publicKeyJwk = existingProfile.vapidPublicKey;
+      privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
+    } else {
+      addDebugLog("🔑 Gerando novas chaves VAPID...");
+      vapidKeyPair = await generateVAPIDKeys();
+      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+    }
+
+    // Reutiliza ou gera chaves E2E
+    if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
+      e2ePublicKey = existingProfile.e2ePublicKey;
+      e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
+    } else {
+      addDebugLog("🔑 Gerando novas chaves E2E...");
+      const newKeys = await generateE2EEKeys();
+      e2ePublicKey = newKeys.publicEncrypt;
+      e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
+    }
+
+    addDebugLog("Step 3: Tentando obter subscription Push...");
+    try {
+      if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+
+      if (Notification.permission === 'granted' && registration.pushManager) {
+        let existingSubscription = await registration.pushManager.getSubscription();
+        let subscriptionValida = false;
+
+        // Se já havia subscrição, valida se o endpoint bate com o que temos guardado
+        if (existingSubscription) {
+          if (existingProfile?.subscription && existingProfile.subscription.endpoint === existingSubscription.endpoint) {
+            subscriptionValida = true;
+          } else {
+            await existingSubscription.unsubscribe();
+            existingSubscription = null;
+          }
+        }
+        
+        if (!existingSubscription || !subscriptionValida) {
+          if (!publicKeyJwk) throw new Error("Chave VAPID pública ausente.");
+          const rawPublicKey = await window.crypto.subtle.exportKey("raw", await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
+          existingSubscription = await registration.pushManager.subscribe({
+            applicationServerKey: new Uint8Array(rawPublicKey),
+            userVisibleOnly: true
+          });
+        }
+
+        const p256dhBuffer = existingSubscription.getKey('p256dh');
+        const authBuffer = existingSubscription.getKey('auth');
+        
+        if (p256dhBuffer && authBuffer) {
+          finalSubscription = {
+            endpoint: existingSubscription.endpoint,
+            keys: { p256dh: rawBufferToBase64Url(p256dhBuffer), auth: rawBufferToBase64Url(authBuffer) },
+            proxyserver: existingProfile?.subscription?.proxyserver || '/'
+          };
+        }
+      } else {
+        throw new Error("Permissão de Push negada ou API indisponível no navegador.");
+      }
+    } catch (subErr: any) {
+      // 🔥 ONBOARDING SUAVE: Se o Push falhar, deixamos o 'finalSubscription' com o fallback default (sem travar o TS).
+      addDebugLog("warn", "PROFILE", "Falha na subscrição Push. Salvando perfil offline-only.", subErr);
+    }
+
+    // Type Guard de proteção para o TypeScript aceitar a montagem do objeto sem avisos de undefined
+    if (!privateKeyJwk || !publicKeyJwk || !e2ePrivateKeyJwk || !e2ePublicKey) {
+      throw new Error("Falha interna: Chaves criptográficas corrompidas ou não geradas.");
+    }
+
+    const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
+
+    const profile: ProfileConfig = {
+      name: nome.trim(), 
+      email: email.trim(), 
+      vapidPublicKey: publicKeyJwk, 
+      vapidPrivateKeyJwk: privateKeyJwk,
+      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
+      e2ePublicKey: e2ePublicKey, 
+      e2ePrivateKeyJwk: e2ePrivateKeyJwk,
+      subscription: finalSubscription, // Agora o TS entende que é ProfileConfig['subscription'] estrito
+      createdAt: existingProfile?.createdAt || Date.now(), 
+      updatedAt: Date.now()
+    };
+
+    await salvarProfile(profile);
+    await solicitarArmazenamentoPersistente();
+
+    addDebugLog("✅ Perfil gerado/atualizado e persistido com sucesso.");
+    return profile;
+  } catch (err) {
+    addDebugLog("error", "PROFILE", "Erro fatal ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
 }
 ```
 
@@ -6477,7 +6637,7 @@ import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 // Roteador Reativo
 import { activeView, navigate } from './utils/router.ts';
 
-import "@material/web/all.js";
+import "@material/web";
 import './styles.css';
 
 effect(() => {
@@ -6499,6 +6659,33 @@ const HomePlaceholder = () => (
     </div>
   </div>
 );
+
+// 🔥 ARQUITETURA: Banner não-bloqueante para falhas de rede/push
+const PushAlertBanner = () => {
+  const p = profile.value;
+  const currentView = activeView.value; // 🔥 Truque reativo: Força a re-avaliação do componente ao mudar de tela
+  
+  // Se o perfil não existe ou não tem nome, não exibe
+  if (!p || !p.name) return null;
+
+  const hasEndpoint = !!(p.subscription && p.subscription.endpoint);
+  const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+
+  // Se a permissão foi revogada no navegador OU se não tem endpoint salvo, o banner deve aparecer
+  if (hasEndpoint && hasPermission) return null;
+
+  return (
+    <div style="background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.85rem; z-index: 50; flex-shrink: 0; border-bottom: 1px solid var(--md-sys-color-error);">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <md-icon style="color: var(--md-sys-color-error);">notifications_off</md-icon>
+        <span><strong>Rede Incompleta:</strong> Você não pode receber notificações ou mensagens diretas.</span>
+      </div>
+      <md-outlined-button onClick={() => navigate('#advanced')} style="flex-shrink: 0; --md-sys-color-outline: var(--md-sys-color-on-error-container); color: var(--md-sys-color-on-error-container);">
+        Corrigir
+      </md-outlined-button>
+    </div>
+  );
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ViewMap: Record<string, ComponentType<any>> = {
@@ -6527,7 +6714,11 @@ function App() {
 
       await initProfileStore();
       
-      if ((!profile.value || !profile.value.e2ePrivateKeyJwk) && activeView.value !== 'profile') {
+      // 🔥 RECLASSIFICAÇÃO DE IDENTIDADE: Para navegar, basta ter as Chaves VAPID/E2E e o Nome.
+      const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
+      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'settings', 'logout'].includes(activeView.value);
+      
+      if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
         navigate('#profile');
       }
 
@@ -6542,8 +6733,6 @@ function App() {
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
   const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
 
-  // 🔥 ARQUITETURA: Route Guard (Proteção contra Rotas Órfãs)
-  // Previne que o usuário consiga acessar um chat de um contato que ele acabou de excluir.
   useEffect(() => {
     if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
        const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
@@ -6605,8 +6794,11 @@ function App() {
     headerIcon = "account_circle";
   }
 
-  const viewToRender = (!profile.value && activeView.value !== 'profile') ? 'profile' : activeView.value;
-  // Fallback seguro caso o route guard demore 1 ciclo para chutar a tela orfã
+  // Permite navegação se a identidade existir, ignorando a falta do endpoint
+  const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
+  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'settings', 'logout'].includes(activeView.value);
+  const viewToRender = (!isIdentityValid && !isRouteAllowedWithoutProfile) ? 'profile' : activeView.value;
+  
   const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
   const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
 
@@ -6652,7 +6844,7 @@ function App() {
         
         <div class="sidebar-content" style="padding: 0;">
           <div style="padding: 12px; animation: fadeIn 0.3s ease;">
-            {profile.value ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
+            {isIdentityValid ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
           </div>
         </div>
       </aside>
@@ -6681,6 +6873,9 @@ function App() {
             </div>
           </div>
         </header>
+
+        {/* Banner Global Adicionado Logo Abaixo do Header Principal */}
+        <PushAlertBanner />
 
         <RouteComponent/>
 
@@ -6864,79 +7059,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # 🔥 Comando 100% limpo: o Wrangler Actions lerá o wrangler.toml nativamente!
           command: pages deploy
-```
-
----
-
-## Arquivo: `deno.jsonc`
-
-```json
-{
-  // ============================================================================
-  // 🚀 LOCO PWA - Manifesto do Deno
-  // Mensageiro PWA Descentralizado, Offline-First & E2EE
-  // ============================================================================
-
-  // 📋 Metadados do Projeto
-  "name": "@vanaware/loco",
-  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.177-mswm909i",
-  "exports": "./main.ts",
-  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
-  "author": "Vanaware",
-  "license": "MIT",
-  
-  "workspace": [
-    "proto/_template",
-    "proto/01-push-messaging"
-  ],
-
-  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-
-  // 📦 Gerenciamento de Dependências
-  "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
-    "@std/fs": "jsr:@std/fs@^1",
-    "@std/http": "jsr:@std/http@^1",
-    "@std/path": "jsr:@std/path@^1",
-    "@std/http/file-server": "jsr:@std/http@^1/file-server",
-    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
-    "preact": "https://esm.sh/preact@10.29.7",
-    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
-    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
-    "fflate": "https://esm.sh/fflate@0.8.2",
-    "@material/web/all.js": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
-    "wrangler": "npm:wrangler@^4.123.0"
-  },
-
-  // 🛠️ Scripts de Automação
-  "tasks": {
-    "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx server/**/*.ts",
-    "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./server/main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./server/main.ts",
-    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
-    "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write export.ts",
-    "deploy": "./deploy.sh"
-  },
-  "exclude": ["build/", "public/"],
-  "nodeModulesDir": "auto"
-}
 ```
 
 ---
@@ -7384,12 +7506,12 @@ elif [ "$AT" = "cloudflare" ]; then
 
   # Como removemos a "Var" conflitante, o Wrangler sobrescreve o "Secret" de forma limpa
   echo "   Registrando chave no cofre da Cloudflare..."
-  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A npm:wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
+  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
   echo "✅ SERVER_PRIVATE_KEY atualizado com segurança."
 
   echo ""
   echo "⚡ 2/3 - Realizando deploy do Backend (Cloudflare Worker)..."
-  deno run -A npm:wrangler deploy -c wrangler-worker.toml 
+  deno run -A wrangler deploy -c wrangler-worker.toml 
 
   echo ""
   echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
@@ -7398,7 +7520,7 @@ elif [ "$AT" = "cloudflare" ]; then
   cp wrangler-pages.toml wrangler.toml
   mv build/dist/functions ./
   
-  deno run -A npm:wrangler pages deploy --commit-dirty=true
+  deno run -A wrangler pages deploy --commit-dirty=true
   
   # Limpamos o rastro para o repositório continuar limpo e organizado
   rm wrangler.toml
@@ -7849,6 +7971,80 @@ export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SE
   const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
 
   return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
+}
+```
+
+---
+
+## Arquivo: `deno.jsonc`
+
+```json
+{
+  // ============================================================================
+  // 🚀 LOCO PWA - Manifesto do Deno
+  // Mensageiro PWA Descentralizado, Offline-First & E2EE
+  // ============================================================================
+
+  // 📋 Metadados do Projeto
+  "name": "@vanaware/loco",
+  // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
+  "version": "0.2.178-msxsid27",
+  "exports": "./main.ts",
+  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
+  "author": "Vanaware",
+  "license": "MIT",
+  
+  "workspace": [
+    "proto/_template",
+    "proto/01-push-messaging"
+  ],
+
+  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["./src/types/material-web.d.ts"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+
+  // 📦 Gerenciamento de Dependências
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/http": "jsr:@std/http@^1",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/http/file-server": "jsr:@std/http@^1/file-server",
+    "webtorrent": "https://esm.sh/webtorrent@2.5.1?bundle",
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2",
+    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
+    "fflate": "https://esm.sh/fflate@0.8.2",
+    "@material/web": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
+    "wrangler": "npm:wrangler@^4.123.0",
+    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle"
+  },
+
+  // 🛠️ Scripts de Automação
+  "tasks": {
+    "test": "deno test --allow-env --allow-net tests/",
+    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx server/**/*.ts",
+    "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./server/main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./server/main.ts",
+    "clean": "deno clean && rm -rf build && mkdir -p build/dist",
+    "tests": "deno task check && deno task test",
+    "export": "deno run --allow-read --allow-write exports/export.ts",
+    "deploy": "./deploy.sh"
+  },
+  "exclude": ["build/", "public/"],
+  "nodeModulesDir": "auto"
 }
 ```
 

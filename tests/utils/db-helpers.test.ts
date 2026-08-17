@@ -1,11 +1,10 @@
 // tests/utils/db-helpers.test.ts
 /// <reference lib="deno.ns" />
 
-// 🔥 A MÁGICA ACONTECE AQUI (CORRIGIDO PARA DENO 2.X): 
-// Usando o prefixo 'npm:' nativo do Deno em vez do 'esm.sh'.
+// 🔥 A MÁGICA ACONTECE AQUI: 
 // Ele cria um banco de dados real na RAM e injeta o 'indexedDB' no escopo global (globalThis),
 // enganando a biblioteca 'idb-keyval' perfeitamente.
-import "npm:fake-indexeddb@6.0.0/auto";
+import "fake-indexeddb";
 
 import { assertEquals, assertExists } from "@std/assert";
 import {

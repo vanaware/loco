@@ -3,7 +3,6 @@ import { signal, computed } from "@preact/signals";
 import {
   listarContatos,
   salvarContato,
-  removerContato,
   serializarPublicKeyVapid,
   buscarProfile,
   removerContatoPorHash,
@@ -105,6 +104,37 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   adicionarContato(contato).catch((err) => {
     addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
   });
+}
+
+// 🔥 ARQUITETURA [AUTO-DOWNGRADE]: Quando nossas próprias chaves/rotas mudam, 
+// rebaixamos a confiança dos nossos contatos para forçar a Injeção de Carona (Piggybacking)
+export async function rebaixarConfiancaContatos(): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    if (atual.length === 0) return;
+
+    let mudouAlgum = false;
+    const novaLista = atual.map(c => {
+      if (c.me === 'trusted' || c.me === 'saved') {
+        mudouAlgum = true;
+        return { ...c, me: 'none' as const, updatedAt: Date.now() };
+      }
+      return c;
+    });
+    
+    if (!mudouAlgum) return; // Otimização para não salvar no IDB à toa
+
+    contatosRaw.value = novaLista;
+    
+    // Salva silenciosamente em background
+    Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
+      addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
+    });
+    
+    addDebugLog("info", "STORE:CONTATO", `Status 'me' rebaixado para 'none' em contatos salvos para forçar o Piggybacking.`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro crítico ao rebaixar confiança dos contatos", err);
+  }
 }
 
 export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {

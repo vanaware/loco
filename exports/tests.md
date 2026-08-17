@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.177-mswm909i** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.178-msxsid27** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.177-mswm909i] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.2.178-msxsid27] - Modo: TESTS
 
-Gerado automaticamente em: 8/16/2026, 11:30:27 PM
+Gerado automaticamente em: 8/17/2026, 7:20:55 PM
 
 ---
 
@@ -1430,17 +1430,56 @@ Deno.test("Config Utils - buildProxyUrl monta a URI do endpoint corretamente", a
 
 ---
 
+## Arquivo: `tests/utils/push-utils.test.ts`
+
+```ts
+// tests/utils/push-utils.test.ts
+/// <reference lib="deno.ns" />
+import { assert, assertEquals } from "@std/assert";
+import { cifrarChaveVapid } from "../../src/utils/push-utils.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+
+Deno.test("Push Utils - Blindagem do Servidor (cifrarChaveVapid)", async () => {
+  // 1. Cenário: O Cliente PWA acabou de gerar sua chave VAPID privada
+  const clientKeys = await generateVAPIDKeys();
+  const clientVapidPrivateJwk = await exportKeyToJWK(clientKeys.privateKey);
+
+  // 2. Cenário: O Servidor (Loco Proxy) disponibilizou sua chave Pública RSA
+  const serverKeys = await generateE2EEKeys();
+  const serverPublicJwk = serverKeys.publicEncrypt;
+
+  // 3. AÇÃO: O Cliente blinda sua chave VAPID privada para enviar ao proxy
+  const envelopeBase64 = await cifrarChaveVapid(clientVapidPrivateJwk, serverPublicJwk);
+  
+  // 4. VERIFICAÇÃO ESTRUTURAL
+  assert(typeof envelopeBase64 === "string", "O envelope gerado deve ser uma string Base64");
+  assert(envelopeBase64.length > 50, "O envelope não pode ser vazio");
+
+  // Decodifica o base64 para verificar o JSON interno (sem quebrar a criptografia AES/RSA)
+  const envelopeJsonStr = atob(envelopeBase64);
+  const envelopeObj = JSON.parse(envelopeJsonStr);
+
+  assert(envelopeObj.iv !== undefined, "O envelope deve conter um Vetor de Inicialização (iv)");
+  assert(envelopeObj.dadosCifrados !== undefined, "O envelope deve conter os dados cifrados em AES (dadosCifrados)");
+  assert(envelopeObj.chaveAesCifrada !== undefined, "O envelope deve conter a chave AES trancada pela chave RSA do servidor (chaveAesCifrada)");
+  
+  // O AES-GCM IV sempre terá 24 caracteres hexadecimais (12 bytes)
+  assertEquals(envelopeObj.iv.length, 24, "O IV em hexadecimal deve ter exatamente 24 caracteres");
+});
+```
+
+---
+
 ## Arquivo: `tests/utils/db-helpers.test.ts`
 
 ```ts
 // tests/utils/db-helpers.test.ts
 /// <reference lib="deno.ns" />
 
-// 🔥 A MÁGICA ACONTECE AQUI (CORRIGIDO PARA DENO 2.X): 
-// Usando o prefixo 'npm:' nativo do Deno em vez do 'esm.sh'.
+// 🔥 A MÁGICA ACONTECE AQUI: 
 // Ele cria um banco de dados real na RAM e injeta o 'indexedDB' no escopo global (globalThis),
 // enganando a biblioteca 'idb-keyval' perfeitamente.
-import "npm:fake-indexeddb@6.0.0/auto";
+import "fake-indexeddb";
 
 import { assertEquals, assertExists } from "@std/assert";
 import {
@@ -1535,46 +1574,6 @@ Deno.test("DB Helpers - Chat: Deve salvar mensagens e retornar paginado corretam
   await removerTodoHistoricoChat(contatoHash);
   const paginaPosExclusao = await listarChatPaginado(contatoHash, 30, 0);
   assertEquals(paginaPosExclusao.length, 0, "O histórico de chat deve estar zerado após o expurgo");
-});
-```
-
----
-
-## Arquivo: `tests/utils/push-utils.test.ts`
-
-```ts
-// tests/utils/push-utils.test.ts
-/// <reference lib="deno.ns" />
-import { assert, assertEquals } from "@std/assert";
-import { cifrarChaveVapid } from "../../src/utils/push-utils.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
-
-Deno.test("Push Utils - Blindagem do Servidor (cifrarChaveVapid)", async () => {
-  // 1. Cenário: O Cliente PWA acabou de gerar sua chave VAPID privada
-  const clientKeys = await generateVAPIDKeys();
-  const clientVapidPrivateJwk = await exportKeyToJWK(clientKeys.privateKey);
-
-  // 2. Cenário: O Servidor (Loco Proxy) disponibilizou sua chave Pública RSA
-  const serverKeys = await generateE2EEKeys();
-  const serverPublicJwk = serverKeys.publicEncrypt;
-
-  // 3. AÇÃO: O Cliente blinda sua chave VAPID privada para enviar ao proxy
-  const envelopeBase64 = await cifrarChaveVapid(clientVapidPrivateJwk, serverPublicJwk);
-  
-  // 4. VERIFICAÇÃO ESTRUTURAL
-  assert(typeof envelopeBase64 === "string", "O envelope gerado deve ser uma string Base64");
-  assert(envelopeBase64.length > 50, "O envelope não pode ser vazio");
-
-  // Decodifica o base64 para verificar o JSON interno (sem quebrar a criptografia AES/RSA)
-  const envelopeJsonStr = atob(envelopeBase64);
-  const envelopeObj = JSON.parse(envelopeJsonStr);
-
-  assert(envelopeObj.iv !== undefined, "O envelope deve conter um Vetor de Inicialização (iv)");
-  assert(envelopeObj.dadosCifrados !== undefined, "O envelope deve conter os dados cifrados em AES (dadosCifrados)");
-  assert(envelopeObj.chaveAesCifrada !== undefined, "O envelope deve conter a chave AES trancada pela chave RSA do servidor (chaveAesCifrada)");
-  
-  // O AES-GCM IV sempre terá 24 caracteres hexadecimais (12 bytes)
-  assertEquals(envelopeObj.iv.length, 24, "O IV em hexadecimal deve ter exatamente 24 caracteres");
 });
 ```
 
@@ -1912,7 +1911,7 @@ Deno.test("HAND-MENSAGEM SELF: Contato próprio deve ser identificado corretamen
 /// <reference lib="deno.ns" />
 
 // Injeta o Fake IndexedDB para simular o banco de dados do navegador no ambiente de testes do Deno
-import "npm:fake-indexeddb@6.0.0/auto";
+import "fake-indexeddb";
 
 import { assertEquals, assert, assertExists } from "@std/assert";
 import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
@@ -2048,7 +2047,7 @@ Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao rec
 /// <reference lib="deno.ns" />
 
 // Injeta o Fake IndexedDB para simular o banco de dados do navegador no Deno
-import "npm:fake-indexeddb@6.0.0/auto";
+import "fake-indexeddb";
 
 import { assertEquals, assertExists, assert } from "@std/assert";
 import { 
@@ -2169,7 +2168,7 @@ Deno.test("RETRY RESILIENCE: Re-tentativas de mensagem devem anexar dados de con
 /// <reference lib="deno.ns" />
 
 // Injeta o Fake IndexedDB para simular o banco de dados do navegador no Deno
-import "npm:fake-indexeddb@6.0.0/auto";
+import "fake-indexeddb";
 
 import { assertEquals, assertExists, assert } from "@std/assert";
 import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
@@ -2329,7 +2328,7 @@ Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamen
 /// <reference lib="deno.ns" />
 
 // 🔥 Injetamos o Fake IndexedDB para que o store consiga persistir os dados na RAM
-import "npm:fake-indexeddb@6.0.0/auto";
+import "fake-indexeddb";
 
 import { assertEquals, assert } from "@std/assert";
 import { 
