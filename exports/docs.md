@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.178-msxsid27** (DOCUMENTAÇÃO) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.1-msxtm7mu** (DOCUMENTAÇÃO) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.178-msxsid27] - Modo: DOCS
+# Contexto Exportado do Projeto Loco [v0.3.1-msxtm7mu] - Modo: DOCS
 
-Gerado automaticamente em: 8/17/2026, 7:20:50 PM
+Gerado automaticamente em: 8/17/2026, 7:44:35 PM
 
 ---
 

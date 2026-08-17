@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.178-msxsid27** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.1-msxtm7mu** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.178-msxsid27] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.3.1-msxtm7mu] - Modo: MAIN
 
-Gerado automaticamente em: 8/17/2026, 7:29:03 PM
+Gerado automaticamente em: 8/17/2026, 7:44:31 PM
 
 ---
 
@@ -2531,7 +2531,7 @@ export interface EnvelopeCifrado {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.2.178-msxsid27";
+export const APP_VERSION = "0.3.1-msxtm7mu";
 
 ```
 
@@ -6803,86 +6803,91 @@ function App() {
   const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
 
   return (
-    <div id="app-root" class={`view-mode-${currentMobileView.value}`}>
+    // NOVO WRAPPER: Controla a tela inteira em formato de coluna
+    <div style="display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; overflow: hidden;">
       
-      <aside class="app-sidebar">
-        <header class="sidebar-header">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="position: relative;">
-              <md-icon-button id="btn-menu" onClick={() => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const menu: any = document.getElementById('main-menu');
-                if(menu) menu.open = !menu.open;
-              }}>
-                <md-icon>menu</md-icon>
-              </md-icon-button>
-              
-              <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
-                <md-menu-item onClick={() => { navigate('#settings'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                  <div slot="headline">Configurações</div>
-                  <md-icon slot="start">settings</md-icon>
-                </md-menu-item>
-                <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                  <div slot="headline">Avançado</div>
-                  <md-icon slot="start">settings_suggest</md-icon>
-                </md-menu-item>
-                <md-menu-item onClick={() => { navigate('#logout'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                  <div slot="headline">Sair do App (Logout)</div>
-                  <md-icon slot="start">logout</md-icon>
-                </md-menu-item>
-              </md-menu>
-            </div>
-            <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
-          </div>
-          
-          <div style="display: flex; gap: 4px;">
-            <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
-              <md-icon>account_circle</md-icon>
-            </md-icon-button>
-          </div>
-        </header>
+      {/* 🔥 BANNER GLOBAL NO TOPO ABSOLUTO (Ocupa 100% da largura da tela) */}
+      <PushAlertBanner />
+
+      <div id="app-root" class={`view-mode-${currentMobileView.value}`} style="flex-grow: 1; display: flex; position: relative; min-height: 0;">
         
-        <div class="sidebar-content" style="padding: 0;">
-          <div style="padding: 12px; animation: fadeIn 0.3s ease;">
-            {isIdentityValid ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
-          </div>
-        </div>
-      </aside>
-
-      <main class="app-main">
-        <header class="chat-header">
-          <md-icon-button class="back-button" onClick={fecharAreaPrincipal}>
-            <md-icon>arrow_back</md-icon>
-          </md-icon-button>
-          
-          <div 
-            onClick={() => { if (activeView.value === 'chat' && contatoSelecionado.value) navigate(`#detail=${contatoSelecionado.value}`); }}
-            style={`display: flex; align-items: center; gap: 12px; ${activeView.value === 'chat' && contatoAtivo ? 'cursor: pointer;' : ''}`}
-          >
-            <md-icon style="font-size: 2rem; color: var(--md-sys-color-on-surface-variant);">{headerIcon}</md-icon>
-            <div>
-              <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
-                {headerTitle}
+        <aside class="app-sidebar">
+          <header class="sidebar-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="position: relative;">
+                <md-icon-button id="btn-menu" onClick={() => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const menu: any = document.getElementById('main-menu');
+                  if(menu) menu.open = !menu.open;
+                }}>
+                  <md-icon>menu</md-icon>
+                </md-icon-button>
                 
-                {((activeView.value === 'detail' && contatoDetalhesAtivo?.trusted) || 
-                  (activeView.value === 'chat' && contatoAtivo?.trusted)) && (
-                  <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
-                )}
-              </h2>
-              {headerSubtitle && <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">{headerSubtitle}</span>}
+                <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
+                  <md-menu-item onClick={() => { navigate('#settings'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                    <div slot="headline">Configurações</div>
+                    <md-icon slot="start">settings</md-icon>
+                  </md-menu-item>
+                  <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                    <div slot="headline">Avançado</div>
+                    <md-icon slot="start">settings_suggest</md-icon>
+                  </md-menu-item>
+                  <md-menu-item onClick={() => { navigate('#logout'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                    <div slot="headline">Sair do App (Logout)</div>
+                    <md-icon slot="start">logout</md-icon>
+                  </md-menu-item>
+                </md-menu>
+              </div>
+              <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
+            </div>
+            
+            <div style="display: flex; gap: 4px;">
+              <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
+                <md-icon>account_circle</md-icon>
+              </md-icon-button>
+            </div>
+          </header>
+          
+          <div class="sidebar-content" style="padding: 0;">
+            <div style="padding: 12px; animation: fadeIn 0.3s ease;">
+              {isIdentityValid ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
             </div>
           </div>
-        </header>
+        </aside>
 
-        {/* Banner Global Adicionado Logo Abaixo do Header Principal */}
-        <PushAlertBanner />
+        <main class="app-main">
+          <header class="chat-header">
+            <md-icon-button class="back-button" onClick={fecharAreaPrincipal}>
+              <md-icon>arrow_back</md-icon>
+            </md-icon-button>
+            
+            <div 
+              onClick={() => { if (activeView.value === 'chat' && contatoSelecionado.value) navigate(`#detail=${contatoSelecionado.value}`); }}
+              style={`display: flex; align-items: center; gap: 12px; ${activeView.value === 'chat' && contatoAtivo ? 'cursor: pointer;' : ''}`}
+            >
+              <md-icon style="font-size: 2rem; color: var(--md-sys-color-on-surface-variant);">{headerIcon}</md-icon>
+              <div>
+                <h2 style="margin: 0; font-size: 1.1rem; line-height: 1.2; display: flex; align-items: center; gap: 6px;">
+                  {headerTitle}
+                  
+                  {((activeView.value === 'detail' && contatoDetalhesAtivo?.trusted) || 
+                    (activeView.value === 'chat' && contatoAtivo?.trusted)) && (
+                    <md-icon title="Contato Confiável" style="color: var(--md-sys-color-primary); font-size: 1.1rem;">verified</md-icon>
+                  )}
+                </h2>
+                {headerSubtitle && <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">{headerSubtitle}</span>}
+              </div>
+            </div>
+          </header>
 
-        <RouteComponent/>
+          <RouteComponent/>
 
-      </main>
-      <ToastSnackbar/>
+        </main>
+        <ToastSnackbar/>
+      </div>
     </div>
   );
+
 }
 
 const root = document.getElementById('app');
@@ -7988,7 +7993,7 @@ export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SE
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.2.178-msxsid27",
+  "version": "0.3.1-msxtm7mu",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",

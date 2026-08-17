@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.2.178-msxsid27** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.1-msxtm7mu** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.2.178-msxsid27] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.3.1-msxtm7mu] - Modo: TESTS
 
-Gerado automaticamente em: 8/17/2026, 7:20:55 PM
+Gerado automaticamente em: 8/17/2026, 7:44:27 PM
 
 ---
 
