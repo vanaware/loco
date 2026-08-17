@@ -1,6 +1,6 @@
 // testes/federation_routing_test.ts
 
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "@std/assert";
 import { handlePing } from "../server/functions/ping.ts";
 import { handlePush } from "../server/functions/push.ts";
 

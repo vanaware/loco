@@ -7,7 +7,7 @@
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.3.1-msxtm7mu",
+  "version": "0.3.3-msxvu2g1",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -53,7 +53,7 @@
   // 🛠️ Scripts de Automação
   "tasks": {
     "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check main.ts worker.ts build.ts export.ts src/**/*.ts src/**/*.tsx server/**/*.ts",
+    "check": "deno check build.ts minify-keys.ts exports/export.ts src/**/*.ts src/**/*.tsx server/**/*.ts",
     "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
     "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./server/main.ts",
     "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./server/main.ts",
