@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.7-msy3gsxf** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.8-msywbxj2** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.3.7-msy3gsxf] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.3.8-msywbxj2] - Modo: TESTS
 
-Gerado automaticamente em: 8/18/2026, 1:47:43 PM
+Gerado automaticamente em: 8/18/2026, 2:04:03 PM
 
 ---
 

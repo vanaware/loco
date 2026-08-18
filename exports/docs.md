@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.1-msxtm7mu** (DOCUMENTAÇÃO) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.8-msywbxj2** (DOCUMENTAÇÃO) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.3.1-msxtm7mu] - Modo: DOCS
+# Contexto Exportado do Projeto Loco [v0.3.8-msywbxj2] - Modo: DOCS
 
-Gerado automaticamente em: 8/17/2026, 8:37:22 PM
+Gerado automaticamente em: 8/18/2026, 2:04:07 PM
 
 ---
 
@@ -3154,6 +3154,365 @@ O servidor do Loco opera como um **Proxy Cego Federado**. Ele tenta descriptogra
    * **Sucesso:** O envelope é destinado a este nó. Envia a notificação diretamente via WebPush/FCM.
    * **Falha (Descriptografia):** O envelope pertence a outro nó federado.
 4. **Relé de Federação (Proxying):** Compara o `hostname` de destino com o nó local. Se for um nó remoto, realiza um `POST /push` transparente com um timeout de 10 segundos.
+```
+
+---
+
+## Arquivo: `docs/arquitetura-webrtc-signaling.md`
+
+````md
+# Arquitetura Avançada: Sinalização WebRTC, P2P Offline-First e Roteamento Dinâmico
+
+Este documento estabelece as diretrizes arquiteturais do **Loco** para o estabelecimento de conexões Peer-to-Peer (P2P) seguras entre navegadores (PWAs). O Loco dispensa totalmente o uso de Servidores de Sinalização (WebSockets/Trackers) em tempo real, adotando um modelo híbrido de **Sinalização Assíncrona via Web Push, IndexedDB e Roteamento Oportunista**.
+
+---
+
+## 1. O Problema Fundamental do P2P no Navegador
+
+Diferente de aplicações nativas, os navegadores não podem abrir *raw sockets* (TCP/UDP) arbitrários por razões de segurança. A única ponte direta entre dois navegadores é a API **WebRTC** (que trafega áudio, vídeo e dados arbitrários via `RTCDataChannel`).
+
+### 1.1 O Paradoxo da Descoberta (Signaling)
+O WebRTC transfere dados com excelência, mas **não sabe como encontrar o outro dispositivo**. Antes de uma conexão P2P existir, o Dispositivo A precisa enviar para o Dispositivo B um "aperto de mão":
+1. **SDP (Session Description Protocol):** Parâmetros de criptografia suportada, codecs e portas.
+2. **ICE Candidates:** Uma lista de IPs públicos e locais (descobertos via STUN/TURN) para furar NATs/Firewalls.
+
+Tradicionalmente, os apps resolvem isso mantendo uma conexão WebSocket aberta 24/7 com um servidor central. No Loco (Offline-First), isso é inaceitável, pois drena bateria, expõe metadados de conectividade (presença) e centraliza a infraestrutura.
+
+---
+
+## 2. A Solução Loco: Sinalização Vanilla ICE via Web Push
+
+O Loco utiliza a infraestrutura nativa do dispositivo (Firebase Cloud Messaging - FCM / Apple Push Notification service - APNs) para trafegar os pacotes de sinalização como se fossem mensagens criptografadas.
+
+### 2.1 A Estratégia "Vanilla ICE" (Half-Trickle)
+O WebRTC padrão usa *Trickle ICE* (descobre um IP e envia a mensagem, gerando dezenas de envios por segundo). Em uma rede baseada em Push, disparar 20 notificações seguidas faria o navegador bloquear o Loco por spam.
+
+No Loco, usamos **Vanilla ICE**:
+1. A Main Thread aciona o WebRTC.
+2. O WebRTC coleta *todos* os ICE Candidates possíveis.
+3. Empacotamos o SDP e os Candidates em um **único payload**.
+4. Criptografamos o pacote com AES-GCM (Chave Simétrica derivada do Handshake E2EE do contato).
+5. Enviamos **uma única notificação Push** com a Oferta.
+6. O destinatário responde com **uma única notificação Push** contendo a Resposta.
+
+---
+
+## 3. A Arquitetura de 3 Camadas (Isolamento de Threads e Mídia)
+
+As APIs modernas de HTML5 possuem barreiras rígidas. O WebRTC não funciona em Workers, e processos pesados de disco congelam a interface. Além disso, o motor de áudio/vídeo é engessado na thread principal por segurança. 
+
+O Loco divide a carga de trabalho em 3 atores distintos:
+
+### Camada 1: O Carteiro (Service Worker)
+* **Onde roda:** Background Thread, ciclo de vida efêmero.
+* **Missão:** Receber o Push, gerenciar notificações e alimentar o IndexedDB.
+* **Limitações:** Sem acesso ao DOM, não pode instanciar WebRTC.
+* **Ação:** Descriptografa o cabeçalho (para ler a `Intent`), salva o payload bruto no IndexedDB e decide se exibe notificação (`showNotification`) ou se acorda a Main Thread.
+
+### Camada 2: O Negociador e Roteador (Main Thread / Window)
+* **Onde roda:** Interface Visual (Preact / Signals).
+* **Missão:** Orquestrar a Máquina de Estados, acessar o hardware (Câmera/Microfone) e gerenciar as rotas de transporte.
+* **Privilégio Exclusivo:** *Único* local que pode instanciar o `RTCPeerConnection` e invocar o `getUserMedia`.
+* **Ação em Chamadas (Áudio/Vídeo):** Acopla as faixas de mídia ao WebRTC nativamente (Criptografia DTLS/SRTP nativa pelo motor C++ do browser).
+* **Ação em Dados:** Transfere o `RTCDataChannel` para o Web Worker Dedicado via *Transferable Objects*.
+
+### Camada 3: O Operário Pesado (Web Worker Dedicado)
+* **Onde roda:** Background Thread contínua enquanto o App estiver aberto.
+* **Missão:** Processar volumes massivos de bytes (WebTorrent, encriptação E2EE AES-GCM).
+* **Armazenamento:** Grava/lê arquivos no disco usando a API **OPFS (Origin Private File System)** de forma **síncrona**, garantindo velocidade sem engasgar a interface do usuário.
+
+---
+
+## 4. Gerenciamento de Intenções e Limitações de SO
+
+O comportamento do navegador varia agressivamente dependendo da visibilidade do app. Para evitar o esgotamento do *Push Budget* (cota diária de Push) e punições da Apple/Google, classificamos os Handshakes em cenários:
+
+### Cenário A: Mensagem de Texto Simples (Intent: `chat_message`)
+Mensagens curtas (< 4KB) viajam no próprio payload criptografado do Push. Não abrimos WebRTC.
+* **Se Aberto:** Repassa para a UI (insere no DOM).
+* **Se Fechado:** Service Worker descriptografa, salva no banco e dispara notificação do SO: *"Contato: Oi!"*.
+
+### Cenário B: Alta Intenção (Intent: `file_transfer` | `call`)
+Transferências ou chamadas que exigem o túnel P2P imediato.
+* **Se Aberto:** Processo silencioso e conexão P2P imediata.
+* **Se Fechado:** Service Worker salva a Oferta no IndexedDB e exibe notificação: *"Maria quer te enviar um arquivo"*. Ao tocar, o PWA abre e consome a Oferta WebRTC pendente.
+
+### Cenário C: Sincronização Silenciosa (Intent: `receipt` | `typing`)
+Metadados de UX. Risco alto de bloqueio se abusado no background.
+* **A Regra Loco:** O Service Worker sempre verifica `clients.matchAll()`.
+    * **App Visível:** Atualiza UI (mostra tiques azuis). Sem gasto de *Push Budget*.
+    * **App Fechado:** **Abortar rede.** Ignorar notificação. Salvar como "Sync Pendente" no IndexedDB. Será processado quando o usuário abrir o app voluntariamente.
+
+---
+
+## 5. Roteamento de Transporte Dinâmico (WebRTC vs Push)
+
+O Loco trata o meio de transporte (Push ou P2P) como descartável. O verdadeiro dado é o **Envelope do Handshake**. 
+
+Sempre que a Máquina de Estados precisa enviar um Handshake, o **Transport Router** (Camada 2) toma a seguinte decisão:
+1. Existe um túnel WebRTC (`RTCDataChannel`) ativo com o contato?
+   * **Sim:** Envia o Envelope por dentro do P2P. Custo zero, instantâneo, sem cota de Push.
+   * **Não:** Faz o *Fallback* disparando pelo proxy do FCM (Web Push).
+
+### 5.1 O "Upgrade Oportunista" (Esvaziando filas do Cenário C)
+Quando o usuário abre o app após muito tempo offline, haverá dezenas de Handshakes de metadados ("Syncs pendentes") acumulados no IndexedDB. Mandar isso via Push esgotaria a cota em segundos.
+
+**A Solução de Multiplexação:**
+1. O app detecta a fila grande e envia um único Web Push do tipo `sync_upgrade` (Uma oferta SDP silenciada).
+2. Se o contato destino estiver online, ele responde silenciosamente e o túnel P2P se abre.
+3. A fila inteira de 50 recibos é "despejada" via WebRTC instantaneamente e de forma gratuita.
+
+Para isso, o `RTCDataChannel` é **multiplexado**, suportando a distinção de tipos de dados trafegados no túnel.
+
+---
+
+## 6. Estruturas de Dados Tipadas (TypeScript)
+
+O modelo mental das intenções e transporte:
+
+```typescript
+// Intenções determinam o impacto no SO e no Service Worker
+export type SdpIntent = 
+  | "chat_message"   // Texto puro. Push Budget normal.
+  | "file_transfer"  // Abre WebRTC P2P (Worker DataChannel).
+  | "call"           // Abre WebRTC P2P (Main Thread Mídia).
+  | "sync_receipt"   // Sincronização. Aborta se app fechado.
+  | "sync_upgrade";  // Tentativa oportunista de trocar Push por WebRTC.
+
+// Metadados para o Service Worker desenhar notificações sem abrir o DOM
+export interface IntentMetadata {
+  fallbackMessage: string;
+  fileName?: string;
+  fileSize?: number;
+  callType?: "audio" | "video";
+}
+
+// O Payload WebRTC (Empacota Oferta + ICE)
+export interface SdpPayload {
+  type: "offer" | "answer";
+  sdp: string; 
+}
+
+// O Envelope Universal (Pode trafegar via Web Push FCM ou via WebRTC aberto)
+export interface HandshakeEnvelope {
+  id: string;              
+  senderId: string;        
+  intent: SdpIntent;
+  metadata: IntentMetadata;
+  sdpData?: SdpPayload;    
+  inlineData?: string;     
+  timestamp: number;
+}
+
+// Multiplexador do DataChannel (Worker Dedicado)
+export type DataChannelPayload = 
+  | { type: "torrent_piece", data: Uint8Array } // Fatias de arquivos brutos
+  | { type: "handshake_envelope", data: HandshakeEnvelope }; // O mesmo envelope do Push
+
+```
+
+## 7. Resiliência e Retomada
+
+Se a conexão WebRTC for rompida (evento `disconnected`), a Main Thread destrói a sessão e avisa o Web Worker.
+Qualquer download P2P em andamento interrompe as requisições de fragmentos e preserva o estado atual na memória **OPFS**. A Máquina de Estados assume o controle, enfileira um novo envio e, assim que o contato estiver alcançável (via Push), o fluxo é retomado a partir do byte pausado.
+
+````
+
+---
+
+## Arquivo: `docs/arquitetura-arquivos-opfs-torrent.md`
+
+````md
+# Arquitetura de Arquivos P2P (OPFS + WebTorrent) - Criptografia em Streaming
+
+Este documento detalha o subsistema de armazenamento e compartilhamento de mídia do **Loco**, transformando o PWA em um nó de uma rede de arquivos distribuída (Swarm), garantindo criptografia E2EE sem estourar a memória RAM e mantendo o funcionamento Offline-First.
+
+---
+
+## 1. A Topologia de Armazenamento Duplo
+
+Os navegadores possuem limites estritos para o uso de IndexedDB (lento para arquivos grandes e aloca em RAM). Para garantir performance sem travar a interface do PWA, o Loco divide as responsabilidades:
+
+### 1.1 OPFS (Origin Private File System) - "O Cofre de Binários"
+* **Acesso:** Exclusivo pelo Web Worker Dedicado através de acesso síncrono (`FileSystemSyncAccessHandle`).
+* **Função:** Armazena os blocos binários crus (`Uint8Array`) dos arquivos que o usuário está baixando (leeching) ou compartilhando (seeding).
+* **Segurança:** Isolado por origem pelo navegador. Gravação de arquivos por blocos (*chunks*) sem alocação massiva de RAM.
+
+### 1.2 IndexedDB (IDB) Auxiliar - "O Tabelionato e Indexador"
+* **Acesso:** Main Thread e Web Worker.
+* **Função:** Armazena metadados, permissões, estado do torrent e histórico de transferências.
+* **Schema dos Metadados do Arquivo:**
+  ```typescript
+  export interface LocoFileMetadata {
+    fileId: string;             // UUID interno do Loco
+    infoHash: string;           // ID do BitTorrent (Magnet)
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    chunkSize: number;          // Tamanho de cada pedaço (ex: 524288 bytes / 512KB)
+    
+    // Níveis de Acesso
+    visibility: "private" | "shared" | "public";
+    sharedWith: string[];       // Array de IDs de contatos autorizados
+    
+    // Status
+    status: "downloading" | "seeding" | "paused";
+    completedChunks: number[]; // Lista de índices de blocos já baixados
+  }
+
+```
+
+---
+
+## 2. Criptografia Híbrida em Streaming (Chunk-Level E2EE)
+
+Para permitir a transferência de arquivos gigantes (ex: +1GB) em dispositivos com pouca memória RAM (Smartphones), **o arquivo NUNCA é criptografado por inteiro de uma só vez**.
+
+Reutilizamos as **chaves E2EE de contato já existentes** no Loco.
+
+```
+[Arquivo Original] -> Fatiado em Blocos (512KB) 
+                             ↓
+              [Criptografa Bloco N (AES-GCM)] (RAM < 10MB)
+                             ↓
+             [Envia via WebRTC / WebTorrent]
+                             ↓
+             [Descriptografa Bloco N no Destino]
+                             ↓
+             [Grava Bloco N no OPFS do Destinatário]
+
+```
+
+### 2.1 Processo de Envio e Criptografia
+
+1. A chave simétrica negociada com o contato (via ECDH/E2EE) é utilizada como Chave Mestra para a sessão de arquivo.
+2. Cada bloco de 512KB recebe um **IV (Vector de Inicialização) derivado do Índice do Bloco** (`iv = Hash(ChaveContato + ChunkIndex)`). Isso garante que o mesmo pedaço repetido não gere o mesmo ciphertext (prevenindo ataques de padrão), sem precisar transmitir IVs adicionais.
+3. O Web Worker lê do OPFS apenas os 512KB do bloco requisitado pelo peer, criptografa o bloco na memória (ocupando insignificantes ~1MB de RAM) e despacha via `RTCDataChannel`.
+
+### 2.2 Processo de Recebimento
+
+1. O destinatário recebe o pacote do bloco de 512KB.
+2. Utiliza a sua chave local do contato + o índice do bloco para descriptografar os 512KB em memória.
+3. Grava o bloco descriptografado de 512KB na posição exata do seu arquivo no OPFS (`accessHandle.write(buffer, { at: chunkIndex * chunkSize })`).
+4. **Streaming Instantâneo:** Assim que os primeiros blocos sequenciais são gravados, a interface do Preact já pode renderizar uma tag `<video>` ou `<audio>` consumindo o arquivo direto do OPFS enquanto o resto é baixado!
+
+---
+
+## 3. Matriz de Permissões e Compartilhamento
+
+| Visibilidade | Criptografia por Bloco | Acesso ao InfoHash | Como o Destinatário Descobre |
+| --- | --- | --- | --- |
+| **Privado** | Criptografado com Chave Própria | Apenas o próprio usuário | Salvo localmente, não anunciado no P2P. |
+| **Compartilhado** | Criptografado com Chave do Contato | Apenas contatos em `sharedWith` | Recebe mensagem de chat contendo o `infoHash`. |
+| **Público** | Sem Criptografia (Texto Claro) | Qualquer nó da rede | Requisitado via `directory_request` no chat. |
+
+---
+
+## 4. Benefícios Arquiteturais da Solução
+
+1. **Uso de Memória RAM Constante:** Suporta arquivos de qualquer tamanho (10MB ou 100GB) com pegada de RAM < 10MB.
+2. **Sem Redundância de Chaves:** Zera a necessidade de criar ou trocar novas chaves de criptografia; reutiliza o ecossistema E2EE de contatos já estabelecido.
+3. **Resiliência e Interrupção:** Se a conexão cair no bloco 450, ao reconectar, o download é retomado exatamente a partir do bloco 450.
+
+````
+
+---
+
+## Arquivo: `docs/ux-arquivos-e-presenca.md`
+
+```md
+# Experiência do Usuário (UX): P2P, Presença e Cofre de Arquivos
+
+Este documento descreve como a complexa engenharia de rede P2P (WebRTC + WebTorrent) e armazenamento (OPFS) do **Loco** é traduzida em uma interface de usuário simples, fluída e baseada no Material Design 3.
+
+---
+
+## 1. Indicadores de Presença e Conexão (WebRTC)
+
+Diferente de mensageiros centralizados, o Loco não possui um servidor para dizer se alguém está "Online". O status de presença indica a **existência física de um túnel P2P direto (RTCDataChannel) ativo** entre os dois dispositivos.
+
+### 1.1 Lista de Contatos (Aura de Conexão)
+Na tela principal de contatos ou conversas recentes:
+* **Conexão Inativa:** O avatar do contato aparece normalmente. (O contato pode estar com internet, mas o Loco não está ativamente roteando dados via WebRTC com ele agora; a comunicação seria via fila/Push).
+* **Conexão P2P Ativa:** O avatar do contato recebe um **círculo (anel) azul vibrante** ao redor da foto.
+  * *UX:* Isso sinaliza ao usuário: *"Você e esta pessoa estão conectados diretamente agora. Mensagens e arquivos fluirão na velocidade da luz."*
+
+### 1.2 Tela de Detalhes do Contato
+Ao abrir o perfil/detalhes de um contato específico, além da foto e chaves públicas, teremos um selo de status técnico:
+* **🟢 Conexão P2P Ativa** (Aparece apenas quando o `RTCPeerConnection.connectionState === 'connected'`).
+* **📡 Conectando...** (Durante a negociação silenciosa de Handshake/ICE).
+* **🌙 Standby / Fila** (Quando não há túnel, e as mensagens dependem do Push).
+
+---
+
+## 2. A Experiência de Arquivos no Chat
+
+A UI de envio de arquivos no chat deve imitar a simplicidade do WhatsApp/Telegram, escondendo a complexidade da criptografia e fatiamento em blocos.
+
+### 2.1 Enviando um Arquivo (Ação do Remetente)
+1. O usuário toca no ícone de "Anexo" e seleciona um arquivo da galeria/sistema.
+2. Um balão de mensagem aparece imediatamente no chat.
+3. **Status Visual:**
+   * 🔒 *Criptografando...* (Rápido, enquanto o arquivo desce pro OPFS).
+   * 📡 *Semeando (0%)* (Aguardando o contato ficar online/aceitar).
+   * ⬆️ *Enviando (45%)* (O WebRTC abriu e o contato está puxando os dados).
+   * ✅ *Concluído* (O contato possui 100% do arquivo).
+
+### 2.2 Recebendo um Arquivo (Ação do Destinatário)
+1. O usuário recebe a notificação/mensagem do arquivo.
+2. O balão no chat mostra o nome, tamanho do arquivo e uma miniatura borrada (se for imagem).
+3. **Status Visual:**
+   * O usuário toca no botão **"Baixar"** (ícone de seta para baixo).
+   * ⬇️ *Baixando (20%)* (Motor Torrent puxando blocos do emissor).
+   * 🔓 *Pronto* (Disponível para play instantâneo).
+   * *Nota:* Como usamos streaming por blocos, se for um vídeo, o botão muda para "Play" logo nos primeiros 5% do download, permitindo assistir enquanto o resto baixa no fundo.
+
+---
+
+## 3. O Cofre Local (Gerenciador OPFS)
+
+Como o usuário é o próprio "servidor", precisamos de uma tela dedicada onde ele gerencie o que está ocupando espaço no celular dele e quem tem acesso.
+
+### 3.1 Tela "Meu Cofre" ou "Arquivos Salvos"
+Acessível pelo menu principal. Esta tela lista tudo o que está fisicamente no **OPFS** do usuário.
+
+**Abas/Filtros da Interface:**
+* **Privados:** Arquivos guardados apenas para si mesmo. Ninguém mais sabe que existem.
+* **Compartilhados:** Arquivos que foram enviados em chats (semeando para contatos específicos). Mostra a lista de avatares de quem tem permissão para puxar o arquivo.
+* **Públicos:** Arquivos marcados no diretório aberto do usuário.
+
+**Ações por Arquivo:**
+* **Mudar Permissão:** Um menu dropdown (*"Tornar Público"*, *"Remover acesso de Bob"*).
+* **Apagar do Dispositivo:** Remove os blocos binários do OPFS (liberando espaço). Se apagado, o arquivo no chat ficará indisponível para os amigos baixarem, a menos que outro amigo do grupo já tenha o arquivo completo para assumir como "Seeder".
+
+---
+
+## 4. Controle Global (Tela de Configurações)
+
+O protocolo P2P consome processamento e bateria. O usuário precisa do controle supremo sobre o esforço do aparelho.
+
+### 4.1 Sessão "Uso de Dados e Rede" (Configurações)
+* **Toggle: "Ativar Motor P2P / WebTorrent"** (Chave Mestra)
+  * *Ligado:* Comportamento padrão.
+  * *Desligado:* Coloca **todos os torrents em Standby**. O Web Worker é pausado. O aplicativo ainda envia e recebe textos curtos via Push/Fila, mas transferências de arquivo e chamadas são negadas instantaneamente.
+* **Toggle: "Apenas via Wi-Fi"**
+  * Pausa a semeadura/leeching automaticamente se o celular for para o 4G/5G.
+
+---
+
+## 5. Tela de Diagnóstico (Para Desenvolvedores/Power Users)
+
+Como somos descentralizados, debugar problemas de rede no P2P é vital.
+
+### 5.1 Dashboard "Saúde da Rede" (Em Configurações Avançadas)
+Uma tela puramente informativa, atualizada em tempo real (via Preact Signals conectados ao Worker):
+* **Status do Worker:** 🟢 Operante / 🔴 Pausado
+* **Conexões WebRTC Abertas:** `3` (Lista os IDs dos peers conectados).
+* **Arquivos Ativos (Torrents):** `2 baixando, 5 semeando`.
+* **Tráfego Atual:** `↓ 1.2 MB/s | ↑ 500 KB/s`
+* **Espaço Usado no OPFS:** `1.5 GB` (Calculado a partir dos metadados do IDB).
+
+Isso nos dará visibilidade total de que a "fábrica" está rodando por baixo dos panos.
 ```
 
 ---
