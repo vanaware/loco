@@ -6,7 +6,7 @@ Este documento estabelece as diretrizes arquiteturais do **Loco** para o estabel
 
 ## 1. O Problema Fundamental do P2P no Navegador
 
-Diferente de aplicações nativas, os navegadores não podem abrir *raw sockets* (TCP/UDP) arbitrários por razões de segurança. A única ponte direta entre dois navegadores é a API **WebRTC** (especificamente o `RTCDataChannel`).
+Diferente de aplicações nativas, os navegadores não podem abrir *raw sockets* (TCP/UDP) arbitrários por razões de segurança. A única ponte direta entre dois navegadores é a API **WebRTC** (para áudio, vídeo e dados arbitrários via `RTCDataChannel`).
 
 ### 1.1 O Paradoxo da Descoberta (Signaling)
 O WebRTC transfere dados com excelência, mas **não sabe como encontrar o outro dispositivo**. Antes de uma conexão P2P existir, o Dispositivo A precisa enviar para o Dispositivo B:
@@ -34,9 +34,11 @@ No Loco, usamos **Vanilla ICE**:
 
 ---
 
-## 3. A Arquitetura de 3 Camadas (Isolamento de Threads)
+## 3. A Arquitetura de 3 Camadas (Isolamento de Threads e Mídia)
 
-As APIs modernas de HTML5 possuem barreiras rígidas de onde podem ser executadas. O WebRTC não funciona em Workers, e processos pesados de disco congelam a interface. Para manter a UI do Preact a 60fps, o Loco divide a carga em 3 atores:
+As APIs modernas de HTML5 possuem barreiras rígidas de onde podem ser executadas. O WebRTC não funciona em Workers, e processos pesados de disco congelam a interface. Além disso, o motor de áudio/vídeo é engessado na thread principal por segurança. 
+
+Para manter a UI do Preact a 60fps e garantir a criptografia E2EE em todos os cenários, o Loco divide a carga em 3 atores:
 
 ### Camada 1: O Carteiro (Service Worker)
 * **Onde roda:** Background Thread, ciclo de vida efêmero (acorda e morre).
@@ -44,17 +46,18 @@ As APIs modernas de HTML5 possuem barreiras rígidas de onde podem ser executada
 * **Limitações:** Não tem acesso ao DOM, não pode instanciar `RTCPeerConnection`, limite de execução de poucos segundos.
 * **Ação:** Descriptografa o cabeçalho da mensagem (para ler a `Intent`), salva o payload bruto no IndexedDB e decide se exibe notificação (`showNotification`) ou se acorda a Main Thread via `postMessage`.
 
-### Camada 2: O Negociador (Main Thread / Preact)
-* **Onde roda:** Window (Interface Visual).
-* **Missão:** Gerenciar a Máquina de Estados (Signals) e as conexões de rede P2P.
-* **Privilégio Exclusivo:** É o *único* local que pode instanciar o `RTCPeerConnection`.
-* **Ação:** Lê a Oferta do IndexedDB, negocia o canal WebRTC e, crucialmente, **transfere o DataChannel** para o Worker via *Transferable Objects* (`worker.postMessage({ channel }, [channel])`). Isso tira o peso da rede da interface gráfica.
+### Camada 2: O Negociador e UI (Main Thread / Window)
+* **Onde roda:** Interface Visual (Preact / Signals).
+* **Missão:** Gerenciar a Máquina de Estados e orquestrar as interfaces de rede e hardware (Câmera/Microfone).
+* **Privilégio Exclusivo:** É o *único* local que pode instanciar o `RTCPeerConnection` e invocar `navigator.mediaDevices.getUserMedia()`.
+* **Ação em Chamadas (Áudio/Vídeo):** Acopla as faixas de mídia (`MediaStreamTracks`) diretamente ao WebRTC. Toda a criptografia da chamada (DTLS/SRTP) é feita **nativamente pelo motor C++ do navegador**, sem passar pelos nossos Workers.
+* **Ação em Dados (Arquivos/Texto):** Negocia o túnel e **transfere o `RTCDataChannel`** para o Worker Dedicado via *Transferable Objects* (`worker.postMessage({ channel }, [channel])`).
 
 ### Camada 3: O Operário Pesado (Web Worker Dedicado)
 * **Onde roda:** Background Thread viva enquanto o App estiver aberto.
-* **Missão:** Esmagar bytes.
-* **Ação:** Recebe o `RTCDataChannel` pronto. Implementa o protocolo WebTorrent (checa hashes, pede pedaços). Criptografa/descriptografa blocos de arquivos de 1MB com AES-GCM em tempo real.
-* **Armazenamento:** Grava os arquivos em disco usando a **OPFS (Origin Private File System)** nativa. O Worker usa o método **síncrono** do OPFS (que só é permitido dentro de Workers) para gravar gigabytes em frações de segundo sem travar a interface.
+* **Missão:** Esmagar bytes de dados (Arquivos massivos, WebTorrent, Mensageria de Texto).
+* **Ação:** Recebe o `RTCDataChannel` pronto. Implementa o protocolo WebTorrent (checa hashes, pede pedaços). Criptografa/descriptografa blocos de arquivos de 1MB com AES-GCM (nossa criptografia manual) em tempo real.
+* **Armazenamento:** Grava os arquivos em disco usando a **OPFS (Origin Private File System)** nativa de forma **síncrona**, o que só é permitido em Workers e garante velocidade absurda sem engasgar a tela.
 
 ---
 
@@ -62,47 +65,46 @@ As APIs modernas de HTML5 possuem barreiras rígidas de onde podem ser executada
 
 O comportamento do navegador (Chromium/WebKit) varia agressivamente com base no fato do app estar aberto ou fechado. Para evitar punições (como o bloqueio de Push), o sistema classifica os Handshakes em 3 Cenários (Intents).
 
-### Cenário A: Mensagem de Texto (Intent: `chat_message`)
-Mensagens pequenas não justificam o custo energético de abrir um WebRTC.
-* **Tamanho:** < 4KB (Limite do FCM/APNs).
-* **Fluxo:** O texto completo é criptografado e embutido no Push.
-* **Se Aberto:** O Service Worker repassa para a UI (via BroadcastChannel/postMessage). A UI insere no DOM.
-* **Se Fechado:** O Service Worker descriptografa via IndexedDB WebCrypto, salva a mensagem no banco e dispara `showNotification("Contato: Oi!")`.
+### Cenário A: Mensagem de Texto Simples (Intent: `chat_message`)
+Mensagens curtas não justificam o custo energético de abrir um túnel WebRTC se o usuário estiver offline.
+* **Fluxo:** O texto completo é criptografado e embutido no payload do Push (< 4KB).
+* **Se Aberto:** O Service Worker repassa para a UI, que insere no DOM imediatamente.
+* **Se Fechado:** O Service Worker descriptografa via WebCrypto nativo, salva no IndexedDB e dispara a notificação do SO: *"Contato: Oi!"*.
 
 ### Cenário B: Conexão de Alta Intenção (Intent: `file_transfer` | `call`)
-Transferências que exigem o estabelecimento imediato do túnel P2P.
-* **Fluxo:** O Push carrega o pacote SDP (Oferta).
-* **Se Aberto:** O processo ocorre 100% invisível. A Main Thread recebe o SDP, gera a Answer, envia de volta e a transferência do arquivo começa. A UI mostra uma barra de progresso.
-* **Se Fechado (A Armadilha):** O WebRTC *não pode* ser aberto no background do iOS, e o Android matará o processo logo em seguida. Além disso, se não exibirmos notificação, sofremos punição.
-* **Ação do Loco:** O Service Worker exibe uma notificação amigável traduzindo o log técnico: *"Maria quer te enviar um arquivo (Vídeo.mp4 - 200MB)"*. Quando o usuário clica na notificação, a Main Thread desperta, consome o SDP pendente no IndexedDB e abre a conexão WebRTC.
+Transferências que exigem o estabelecimento imediato do túnel P2P (WebRTC obrigatório).
+* **Fluxo:** O Push carrega o pacote SDP (Oferta) e metadados.
+* **Se Aberto:** Processo silencioso. A Main Thread recebe o SDP, gera a Answer, envia de volta e a transferência/chamada inicia.
+* **Se Fechado:** O sistema operacional bloqueia acesso a câmera e rede P2P em background sem interação do usuário. Além disso, Push exige notificação sob pena de bloqueio.
+* **Ação Loco:** O Service Worker exibe uma notificação traduzida: *"Maria está te ligando"* ou *"Maria quer te enviar um arquivo (200MB)"*. Ao tocar, o PWA abre (Main Thread desperta), consome o SDP do IndexedDB e abre a conexão WebRTC.
 
 ### Cenário C: Sincronização Silenciosa (Intent: `receipt` | `typing` | `profile_sync`)
-O "Calcanhar de Aquiles" das PWAs. Metadados que não devem perturbar o usuário.
-* **A Ameaça do "Push Budget":** Navegadores Chrome debitam uma "cota" a cada Push recebido que não gera notificação. Se a cota zerar, o Loco sofre "Shadowban" do navegador.
-* **A Ameaça da Apple:** O iOS frequentemente ignora ou atrasa indefinidamente "Silent Pushes" para economizar bateria.
-* **Ação do Loco (A Regra de Ouro):**
-  1. O Service Worker recebe o Push Silencioso.
-  2. Ele executa `clients.matchAll({ type: 'window' })` para ver se a aba está visível.
-  3. **Se Visível:** Repassa o dado para a UI (ex: mostra que Maria visualizou a mensagem). Não consome o Push Budget.
-  4. **Se Fechado:** O Service Worker **ABORTA** imediatamente o processamento de rede e **NÃO** exibe notificação. Ele apenas atualiza o `IndexedDB` com o status de "Sync Pendente" e finaliza sua execução. Quando o usuário abrir o app organicamente amanhã, o gerenciador de estado sincroniza as pendências.
+Metadados que não devem perturbar o usuário (o "Calcanhar de Aquiles" das PWAs).
+* **Ameaça do "Push Budget":** Navegadores debitam uma "cota" a cada Push recebido que não gera notificação. Cota zerada = Loco sofre "Shadowban".
+* **Ameaça do iOS:** O WebKit frequentemente ignora "Silent Pushes" para economizar bateria.
+* **Ação Loco (A Regra de Ouro):**
+  1. O Service Worker recebe o Push.
+  2. Executa `clients.matchAll({ type: 'window' })` para checar visibilidade da aba.
+  3. **Se Visível (Foreground):** Repassa para a UI (ex: tiques azuis de leitura aparecem). Zero impacto no "Push Budget".
+  4. **Se Fechado (Background):** O Service Worker **ABORTA** processo de rede e **NÃO** exibe notificação. Atualiza o `IndexedDB` com status "Sync Pendente" e finaliza. Quando o app for aberto organicamente, a fila silenciosa é processada.
 
 ---
 
 ## 5. Estruturas de Dados do Signaling (TypeScript)
 
-Para orquestrar esse fluxo de forma tipada e segura no IndexedDB e nos canais de comunicação, o Loco utiliza o seguinte contrato de dados para o envelope SDP, que será criptografado via E2EE antes do tráfego:
+Para orquestrar esse fluxo de forma tipada e segura, o Loco utiliza o seguinte contrato de dados para o envelope SDP (que é criptografado via E2EE antes do tráfego):
 
 ```typescript
 // Níveis de Intenção (Definem a urgência e a UX do Service Worker)
 export type SdpIntent = 
-  | "chat_message"   // Cenário A: Não abre WebRTC.
-  | "file_transfer"  // Cenário B: Abre WebRTC, notifica se fechado.
-  | "call"           // Cenário B: Abre WebRTC, toca notificação persistente.
+  | "chat_message"   // Cenário A: Não abre WebRTC offline.
+  | "file_transfer"  // Cenário B: Abre WebRTC (Worker lida com dados via DataChannel).
+  | "call"           // Cenário B: Abre WebRTC (Main Thread lida com Áudio/Vídeo nativo).
   | "sync_receipt";  // Cenário C: Sincronização silenciosa, processada apenas se aberto.
 
 // Metadados visuais usados pelo ServiceWorker para montar a notificação
 export interface IntentMetadata {
-  fallbackMessage: string; // Ex: "Recebeu um arquivo"
+  fallbackMessage: string; // Ex: "Recebeu um arquivo" ou "Chamada de vídeo"
   fileName?: string;
   fileSize?: number;
   callType?: "audio" | "video";
@@ -114,7 +116,7 @@ export interface SdpPayload {
   sdp: string; // Já engloba os Vanilla ICE Candidates
 }
 
-// O Envelope Criptografado (O que viaja pelo FCM/Fila)
+// O Envelope Criptografado (O que viaja pelo FCM/Proxy)
 export interface HandshakeEnvelope {
   id: string;              // UUID da transação
   senderId: string;        // ID público de quem enviou
@@ -129,5 +131,6 @@ export interface HandshakeEnvelope {
 
 ## 6. Fluxo de Retomada de Sessão (Resilience)
 
-Caso a conexão caia (ex: troca de Wi-Fi para 4G ou celular bloqueado), o WebRTC emitirá o evento `oniceconnectionstatechange` como `disconnected` ou `failed`.
-Neste caso, a interface destrói a instância `RTCPeerConnection`, pausa o Worker dedicado do Torrent (que salva o progresso na OPFS) e enfileira um novo processo de "Oferta SDP" no sistema de Handshakes para ser despachado quando a rede retornar, recomeçando a transferência a partir do exato byte pausado.
+Se a conexão WebRTC cair (troca de Wi-Fi para 4G, suspensão do SO), o `RTCPeerConnection` emitirá o evento `oniceconnectionstatechange` como `disconnected`.
+Neste cenário, a Main Thread destrói a instância, e caso haja uma transferência de arquivo via Worker (WebTorrent), ela é pausada e o progresso gravado na OPFS. Um novo Handshake SDP é enfileirado no IndexedDB para recriar o túnel e retomar do byte exato quando o destinatário estiver acessível.
+
