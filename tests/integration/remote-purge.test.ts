@@ -14,30 +14,27 @@ import {
   salvarContato, 
   buscarContatoPorChave, 
   salvarHandshake, 
-  buscarHandshake, 
   listarHandshakes,
-  removerHandshake 
+  removerHandshake,
+  serializarPublicKeyVapid
 } from "../../src/utils/db-helpers.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
 
-import type { Chat, Contato, Handshake } from "../../src/constants/db.ts";
+import type { Contato, Handshake } from "../../src/constants/db.ts";
 
 Deno.test("INTEGRAÇÃO (Expurgo Remoto 1): Limpar histórico cria Handshake Único e Apaga no Remoto", async () => {
   const contatoHash = "hash-bob-purge";
 
-  // 1. Salva mensagens no remetente
   await salvarChat({ id: "m1", contatoHash, conteudo: "1", tipo: "out", createdAt: Date.now(), handshake: "h1" });
   await salvarChat({ id: "m2", contatoHash, conteudo: "2", tipo: "in", createdAt: Date.now(), handshake: "h2" });
 
-  // 2. Dispara a limpeza total de histórico
   await limparTodoHistorico(contatoHash);
 
-  // 3. Verifica se gerou o Handshake com a rota { mensagem: { limparHistorico: true } }
   const handshakes = await listarHandshakes();
   const handPurge = handshakes.find(h => h.aud === contatoHash && h.out?.rotas.mensagem?.limparHistorico === true);
   
   assertExists(handPurge, "O Handshake único de expurgo de histórico não foi gerado!");
 
-  // 4. Simula o recebimento desse Handshake no lado do Bob
   const handIn: Handshake = {
     id: "hand-in-purge",
     aud: contatoHash,
@@ -47,10 +44,8 @@ Deno.test("INTEGRAÇÃO (Expurgo Remoto 1): Limpar histórico cria Handshake Ún
   };
   await salvarHandshake(handIn);
 
-  // Bob processa a entrada
   await ProcessarMensagem({ in: "hand-in-purge" });
 
-  // 5. Verifica se as mensagens de Bob foram apagadas
   assertEquals(await buscarChat("m1"), undefined);
   assertEquals(await buscarChat("m2"), undefined);
 
@@ -58,27 +53,38 @@ Deno.test("INTEGRAÇÃO (Expurgo Remoto 1): Limpar histórico cria Handshake Ún
 });
 
 Deno.test("INTEGRAÇÃO (Expurgo Remoto 2): Excluir Contato cria Handshake Único de Remoção de Perfil no Remoto", async () => {
-  const contatoHash = "hash-alice-delete";
+  
+  // 🔥 CORREÇÃO: Usar chaves reais para o hash criptográfico funcionar!
+  const vapidKeys = await generateVAPIDKeys();
+  const pubVapid = await exportKeyToJWK(vapidKeys.publicKey);
+  const contatoHash = await serializarPublicKeyVapid(pubVapid);
 
-  // 1. Salva o contato
+  // 1. Salva o contato com as chaves válidas
   const contato: Contato = {
-    id: contatoHash, name: "Alice", email: "a@a.com",
-    vapidPublicKey: {} as any, e2ePublicKey: {} as any,
+    id: contatoHash, 
+    name: "Alice", 
+    email: "a@a.com",
+    vapidPublicKey: pubVapid, 
+    e2ePublicKey: {} as any, // E2E não interfere no Hash ID
     subscription: { endpoint: "e", keys: { p256dh: "p", auth: "a" }, proxyserver: "ps" },
-    vapidPrivateKeyEnvelope: "e", trusted: true, me: "saved", createdAt: Date.now(), updatedAt: Date.now()
+    vapidPrivateKeyEnvelope: "e", 
+    trusted: true, 
+    me: "saved", 
+    createdAt: Date.now(), 
+    updatedAt: Date.now()
   };
   await salvarContato(contato);
 
-  // 2. Exclui o contato no lado local
+  // 2. Exclui o contato
   await removerContatoCompletamente(contatoHash, true);
 
-  // 3. Verifica se gerou o Handshake com rota { contato: { removerContato: true } }
+  // 3. Verifica se gerou o Handshake de remoção remota
   const handshakes = await listarHandshakes();
   const handDelete = handshakes.find(h => h.aud === contatoHash && h.out?.rotas.contato?.removerContato === true);
 
   assertExists(handDelete, "O Handshake único de exclusão de contato não foi gerado!");
 
-  // 4. Simula a chegada da exclusão remota no celular da Alice
+  // 4. Simula a chegada da exclusão remota no celular do outro usuário
   const handIn: Handshake = {
     id: "hand-in-del-contact",
     aud: contatoHash,
@@ -90,7 +96,7 @@ Deno.test("INTEGRAÇÃO (Expurgo Remoto 2): Excluir Contato cria Handshake Únic
 
   await ProcessarContato({ in: "hand-in-del-contact" });
 
-  // 5. Verifica se o perfil e dados do contato no celular da Alice foram apagados
+  // 5. Verifica se o perfil no outro celular foi apagado fisicamente
   assertEquals(await buscarContatoPorChave(contatoHash), undefined);
 
   for (const h of await listarHandshakes()) await removerHandshake(h.id);

@@ -7,7 +7,7 @@
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.3.6-msy2zhhn",
+  "version": "0.3.7-msy3gsxf",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",

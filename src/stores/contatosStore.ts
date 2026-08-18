@@ -8,7 +8,8 @@ import {
   removerContatoPorHash,
   listarHandshakes,
   removerHandshake,
-  salvarHandshake
+  salvarHandshake,
+  buscarContatoPorChave
 } from "../utils/db-helpers.ts";
 import type { Contato, Handshake } from "../constants/db.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
@@ -21,7 +22,6 @@ import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
 
 export type { Contato };
 
-// Signal para o loading durante a carga de contatos
 export const isCarregandoContatos = signal<boolean>(false);
 export const contatosRaw = signal<Contato[]>([]);
 
@@ -43,7 +43,9 @@ export const contatosMap = computed(() => {
 export async function carregarContatos(): Promise<void> {
   isCarregandoContatos.value = true;
   try {
-    const lista = await listarContatos();
+    // 🔥 TOMBSTONE: Filtra os contatos deletados (Lápides) para não exibi-los na UI
+    const listaCompleta = await listarContatos();
+    const lista = listaCompleta.filter(c => c.me !== 'deleted');
     
     const profile = await buscarProfile();
     if (profile) {
@@ -108,7 +110,6 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   });
 }
 
-// Quando nossas próprias chaves/rotas mudam, rebaixamos a confiança dos contatos para forçar a Injeção de Carona (Piggybacking)
 export async function rebaixarConfiancaContatos(): Promise<void> {
   try {
     const atual = contatosRaw.value;
@@ -150,10 +151,10 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
 
-    // 1. Remove do estado reativo
+    // 1. Remove do estado reativo imediatamente
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
-    // 2. Apaga histórico local sem disparar handshakes de exclusão individual por mensagem
+    // 2. Apaga histórico local sem disparar handshakes de exclusão individual
     await ExpurgarMensagens(hash, false);
     await ExpurgarHandshakesContato(hash);
     await ExpurgarHandshakesProfile(hash);
@@ -163,11 +164,14 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
       if (h.aud === hash) await removerHandshake(h.id);
     }
 
-    // 3. Remove o contato do IndexedDB local
-    await removerContatoPorHash(hash);
+    // 3. Verifica se o contato existe e decide entre exclusão física ou Tombstone
+    const contatoExistente = await buscarContatoPorChave(hash);
 
-    // 4. 🔥 Dispara um ÚNICO Handshake instruindo o contato remoto a se auto-deletar
-    if (notificarRemoto) {
+    if (notificarRemoto && contatoExistente) {
+      // 🔥 TOMBSTONE: Mantém os dados de roteamento no DB, mas marca como 'deleted'
+      contatoExistente.me = 'deleted';
+      await salvarContato(contatoExistente);
+      
       const handshakeDelecao: Handshake = {
         id: gerarId(),
         aud: hash,
@@ -176,23 +180,22 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
         out: {
           status: 'pendente',
           tentativas: 0,
-          rotas: {
-            contato: { removerContato: true }
-          }
+          rotas: { contato: { removerContato: true } }
         }
       };
       await salvarHandshake(handshakeDelecao);
       
       if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.ready;
-        if (reg.active) {
-          reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
-        }
+        if (reg.active) reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
       }
-      addDebugLog("info", "STORE:CONTATO", `🚀 Handshake de exclusão remota de contato enviado para a fila (aud: ${hash}).`);
+      addDebugLog("info", "STORE:CONTATO", `🚀 Handshake de exclusão remota de contato enviado para a fila (aud: ${hash}). Lápide criada.`);
+    } else {
+      // Exclusão física direta se não houver necessidade de notificar a rede
+      await removerContatoPorHash(hash);
+      addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
     }
 
-    addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
     throw err;

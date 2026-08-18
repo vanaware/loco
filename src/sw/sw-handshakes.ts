@@ -15,7 +15,8 @@ import {
   buscarChaveDecript,
   salvarProfile,
   serializarPublicKeyVapid,
-  normalizarChaveContato
+  normalizarChaveContato,
+  removerContatoPorHash // 🔥 NOVO: Importação para apagar a Lápide
 } from "../utils/db-helpers.ts";
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
@@ -160,12 +161,10 @@ export async function processarHandshakeRecebido(payload: any, header: any, _jwt
   }
 }
 
-// 🔥 ARQUITETURA: Mutex baseado em Promise resolve condições de corrida e "Dangling Timeouts"
 let processingPromise: Promise<void> | null = null;
 
 export async function processarFilaHandshake(): Promise<void> {
   if (processingPromise) {
-    // Se a fila já está rodando, quem chamou aguarda o término da execução atual
     return processingPromise;
   }
   
@@ -206,7 +205,6 @@ export async function processarFilaHandshake(): Promise<void> {
         }
       }
 
-      // 🔥 ARQUITETURA: Verificação Segura Cross-Environment (Protege contra erros no Deno CLI)
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
         return;
@@ -240,15 +238,13 @@ export async function processarFilaHandshake(): Promise<void> {
           const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
           const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
           
-          // RESILIÊNCIA & SHADOW SYNC EM RE-TENTATIVAS
           const ehReTentativa = h.out!.tentativas > 1;
           
-          // 🛡️ SANITY CHECK: Valida se o perfil está completo para compartilhamento
           const isProfilePiggybackReady = !!(
             profile.vapidPublicKey && 
             profile.e2ePublicKey && 
             profile.subscription?.endpoint && 
-            profile.subscription?.proxyserver // <- Exigência da Rota de Retorno (Proxy)
+            profile.subscription?.proxyserver 
           );
 
           const precisaDePerfilInjetado = isProfilePiggybackReady && ((contato.me === 'none' || contato.me === 'wrong') || (ehReTentativa && !h.out!.rotas.contato?.sync));
@@ -262,9 +258,6 @@ export async function processarFilaHandshake(): Promise<void> {
             injetouPIGNestaRodada = true;
           }
 
-          const proxyserverDestino = contato.subscription.proxyserver || "";
-
-          // 🔥 AGORA MAIS LIMPO: O JWT não precisa carregar o proxyserver dentro dele!
           let envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
           let payloadJwt: any = { 
             sub: "hand", 
@@ -274,25 +267,20 @@ export async function processarFilaHandshake(): Promise<void> {
           };
           let jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
           
-          // ✂️ SPLITTER DINÂMICO: Fragmenta o pacote se o PIG estourou o limite de MTU (4KB)
           if (jwt.length > 4000 && injetouPIGNestaRodada) {
             addDebugLog(`[SW-ROUTER] ✂️ MTU Excedido (${jwt.length} bytes). Fragmentando o PIG para um Handshake independente...`);
             
-            // 1. Extrai o PIG recém injetado
             const pigSyncData = h.out!.rotas.contato!.sync;
             
-            // 2. Desfaz a injeção na rota atual
             delete h.out!.rotas.contato!.sync;
             if (Object.keys(h.out!.rotas.contato!).length === 0) {
               delete h.out!.rotas.contato;
             }
 
-            // 3. Recalcula a criptografia e o JWT para a mensagem original (agora mais leve)
             envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
             payloadJwt.ct = JSON.stringify(envelope);
             jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
 
-            // 4. Cria e enfileira um NOVO handshake exclusivo para o PIG
             const handshakePIG: Handshake = {
               id: gerarId(),
               aud: contato.id,
@@ -306,7 +294,6 @@ export async function processarFilaHandshake(): Promise<void> {
                 }
               }
             };
-            // Salva o novo handshake na fila (será processado automaticamente na próxima rodada do loop ou sync)
             await salvarHandshakeTransacional(handshakePIG, `[SW-ROUTER] ✅ Handshake de PIG fragmentado (${handshakePIG.id}) salvo na fila.`);
           }
 
@@ -322,6 +309,12 @@ export async function processarFilaHandshake(): Promise<void> {
           await salvarHandshakeTransacional(h);
           addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
 
+          // 🔥 TOMBSTONE PURGE: Se o pacote era para excluir o contato, como foi enviado com sucesso, apagamos fisicamente!
+          if (h.out!.rotas?.contato?.removerContato) {
+            await removerContatoPorHash(h.aud);
+            addDebugLog(`[SW-ROUTER] 🪦 Lápide do contato ${h.aud} removida fisicamente após confirmação de envio da exclusão.`);
+          }
+
         } catch (err: any) {
           addDebugLog(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}: ${err.message}`);
           if (h && h.out) {
@@ -329,6 +322,12 @@ export async function processarFilaHandshake(): Promise<void> {
             h.out.erro = err.message;
             h.updatedAt = Date.now();
             await salvarHandshakeTransacional(h);
+
+            // 🔥 TOMBSTONE PURGE (FALHA DEFINITIVA): Se falhou 3 vezes, desistimos e apagamos o contato.
+            if (h.out.status === 'falha' && h.out.rotas?.contato?.removerContato) {
+              await removerContatoPorHash(h.aud);
+              addDebugLog(`[SW-ROUTER] 🪦 Lápide do contato ${h.aud} removida devido a falha definitiva de comunicação.`);
+            }
           }
         }
       }
@@ -343,7 +342,7 @@ export async function processarFilaHandshake(): Promise<void> {
   try {
     await processingPromise;
   } finally {
-    processingPromise = null; // Libera o Mutex para as próximas chamadas
+    processingPromise = null;
   }
 }
 

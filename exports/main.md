@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.5-msy1t3jp** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.7-msy3gsxf** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.3.5-msy1t3jp] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.3.7-msy3gsxf] - Modo: MAIN
 
-Gerado automaticamente em: 8/18/2026, 12:06:02 AM
+Gerado automaticamente em: 8/18/2026, 12:19:58 AM
 
 ---
 
@@ -2527,7 +2527,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.3.5-msy1t3jp";
+export const APP_VERSION = "0.3.7-msy3gsxf";
 
 ```
 
@@ -2540,7 +2540,7 @@ export const APP_VERSION = "0.3.5-msy1t3jp";
 
 export const DB_NAMES = {
   CONFIG: "AppConfig_DB",
-  CHAT: "Chat_DB", // 🔥 Unificou MensagensEnviadas e MensagensRecebidas
+  CHAT: "Chat_DB", 
   CONTATOS: "BrowserB_Contatos_DB",
   HANDSHAKES: "Handshake_DB",
 } as const;
@@ -2552,7 +2552,7 @@ export const STORE_NAMES = {
 export const KEY_NAMES = {
   PROFILE: "profile",
   CONTATO: "contato_",
-  CHAT_INDEX: "chat_index_", // 🔥 Novo prefixo para guardar os arrays de paginação
+  CHAT_INDEX: "chat_index_", 
 } as const;
 
 export const MAX_TENTATIVAS = 3;
@@ -2578,7 +2578,6 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
-// 🔥 Estrutura Unificada e Baseada em Timestamps
 export interface Chat {
   id: string;
   contatoHash: string;
@@ -2594,7 +2593,8 @@ export interface Chat {
   handshake: string;
 }
 
-export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
+// 🔥 ARQUITETURA: Adicionado o estado 'deleted' para o padrão Tombstone
+export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved' | 'deleted';
 
 export interface Contato {
   id: string; 
@@ -2625,14 +2625,14 @@ export interface MensagemRouteData {
   enviada?: string;
   conteudo?: string;
   excluida?: string;
-  limparHistorico?: boolean; // 🔥 Comando de expurgo em lote do histórico remoto
+  limparHistorico?: boolean; 
   campos?: string[];
   data?: Record<string, unknown>;
 }
 
 export interface ContatoRouteData {
   id?: string;
-  removerContato?: boolean; // 🔥 Comando de remoção remota de contato
+  removerContato?: boolean; 
   campos?: string[];
   data?: Record<string, unknown>;
   sync?: Record<string, unknown>;
@@ -2962,254 +2962,6 @@ export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
 
 ---
 
-## Arquivo: `src/stores/contatosStore.ts`
-
-```ts
-// src/stores/contatosStore.ts
-import { signal, computed } from "@preact/signals";
-import {
-  listarContatos,
-  salvarContato,
-  serializarPublicKeyVapid,
-  buscarProfile,
-  removerContatoPorHash,
-  listarHandshakes,
-  removerHandshake,
-  salvarHandshake
-} from "../utils/db-helpers.ts";
-import type { Contato, Handshake } from "../constants/db.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
-import { gerarId } from "../utils/id-utils.ts";
-
-import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
-import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
-import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
-
-export type { Contato };
-
-// Signal para o loading durante a carga de contatos
-export const isCarregandoContatos = signal<boolean>(false);
-export const contatosRaw = signal<Contato[]>([]);
-
-export const contatosComHash = computed(() => {
-  return contatosRaw.value.map((contato) => ({
-    contato,
-    hash: contato.id,
-  }));
-});
-
-export const contatosMap = computed(() => {
-  const map = new Map<string, Contato>();
-  for (const c of contatosRaw.value) {
-    map.set(c.id, c);
-  }
-  return map;
-});
-
-export async function carregarContatos(): Promise<void> {
-  isCarregandoContatos.value = true;
-  try {
-    const lista = await listarContatos();
-    
-    const profile = await buscarProfile();
-    if (profile) {
-      const contatoProprio = await gerarContatoProprio(profile);
-      if (contatoProprio) {
-        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
-        if (indexExistente >= 0) {
-          lista[indexExistente] = contatoProprio;
-        } else {
-          lista.push(contatoProprio);
-        }
-      }
-    }
-    
-    contatosRaw.value = lista;
-    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
-  } finally {
-    isCarregandoContatos.value = false;
-  }
-}
-
-let isContatosListenerInitialized = false;
-
-export async function initContatosStore(): Promise<void> {
-  await carregarContatos();
-
-  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
-    isContatosListenerInitialized = true;
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data?.type === 'CONTATO_ATUALIZADO') {
-        carregarContatos();
-      }
-    });
-  }
-}
-
-export async function adicionarContato(contato: Contato): Promise<void> {
-  try {
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === contato.id);
-    if (index >= 0) {
-      const novaLista = [...atual];
-      novaLista[index] = contato;
-      contatosRaw.value = novaLista;
-    } else {
-      contatosRaw.value = [...atual, contato];
-    }
-
-    await salvarContato(contato);
-    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
-    throw err;
-  }
-}
-
-export function adicionarOuAtualizarContato(contato: Contato): void {
-  adicionarContato(contato).catch((err) => {
-    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
-  });
-}
-
-// Quando nossas próprias chaves/rotas mudam, rebaixamos a confiança dos contatos para forçar a Injeção de Carona (Piggybacking)
-export async function rebaixarConfiancaContatos(): Promise<void> {
-  try {
-    const atual = contatosRaw.value;
-    if (atual.length === 0) return;
-
-    let mudouAlgum = false;
-    const novaLista = atual.map(c => {
-      if (c.me === 'trusted' || c.me === 'saved') {
-        mudouAlgum = true;
-        return { ...c, me: 'none' as const, updatedAt: Date.now() };
-      }
-      return c;
-    });
-    
-    if (!mudouAlgum) return;
-
-    contatosRaw.value = novaLista;
-    
-    Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
-      addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
-    });
-    
-    addDebugLog("info", "STORE:CONTATO", `Status 'me' rebaixado para 'none' em contatos salvos para forçar o Piggybacking.`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro crítico ao rebaixar confiança dos contatos", err);
-  }
-}
-
-export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    await removerContatoCompletamente(hash);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
-  }
-}
-
-export async function removerContatoCompletamente(hash: string, notificarRemoto = true): Promise<void> {
-  try {
-    addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
-
-    // 1. Remove do estado reativo
-    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
-    
-    // 2. Apaga histórico local sem disparar handshakes de exclusão individual por mensagem
-    await ExpurgarMensagens(hash, false);
-    await ExpurgarHandshakesContato(hash);
-    await ExpurgarHandshakesProfile(hash);
-    
-    const handshakes = await listarHandshakes();
-    for (const h of handshakes) {
-      if (h.aud === hash) await removerHandshake(h.id);
-    }
-
-    // 3. Remove o contato do IndexedDB local
-    await removerContatoPorHash(hash);
-
-    // 4. 🔥 Dispara um ÚNICO Handshake instruindo o contato remoto a se auto-deletar
-    if (notificarRemoto) {
-      const handshakeDelecao: Handshake = {
-        id: gerarId(),
-        aud: hash,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        out: {
-          status: 'pendente',
-          tentativas: 0,
-          rotas: {
-            contato: { removerContato: true }
-          }
-        }
-      };
-      await salvarHandshake(handshakeDelecao);
-      
-      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.ready;
-        if (reg.active) {
-          reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
-        }
-      }
-      addDebugLog("info", "STORE:CONTATO", `🚀 Handshake de exclusão remota de contato enviado para a fila (aud: ${hash}).`);
-    }
-
-    addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
-    throw err;
-  }
-}
-
-export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === hash);
-    
-    if (index >= 0 && atual[index]) {
-      const contatoAtual = atual[index];
-      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
-      const novaLista = [...atual];
-      novaLista[index] = contatoModificado;
-      contatosRaw.value = novaLista;
-      
-      await salvarContato(contatoModificado);
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
-    } else {
-      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
-    }
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
-  }
-}
-
-export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
-  const atual = contatosRaw.value;
-  const index = atual.findIndex(c => c.id === id);
-  if (index >= 0 && atual[index]) {
-    const contatoAtual = atual[index];
-    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
-    const novaLista = [...atual];
-    novaLista[index] = contatoModificado;
-    contatosRaw.value = novaLista;
-    
-    salvarContato(contatoModificado).catch(err => {
-        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
-    });
-  } else {
-    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
-  }
-}
-```
-
----
-
 ## Arquivo: `src/stores/mensagensStore.ts`
 
 ```ts
@@ -3349,6 +3101,257 @@ export async function limparTodoHistorico(contatoHash: string) {
 }
 
 export async function initMensagensStore() {}
+```
+
+---
+
+## Arquivo: `src/stores/contatosStore.ts`
+
+```ts
+// src/stores/contatosStore.ts
+import { signal, computed } from "@preact/signals";
+import {
+  listarContatos,
+  salvarContato,
+  serializarPublicKeyVapid,
+  buscarProfile,
+  removerContatoPorHash,
+  listarHandshakes,
+  removerHandshake,
+  salvarHandshake,
+  buscarContatoPorChave
+} from "../utils/db-helpers.ts";
+import type { Contato, Handshake } from "../constants/db.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
+import { gerarId } from "../utils/id-utils.ts";
+
+import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
+import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
+import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
+
+export type { Contato };
+
+export const isCarregandoContatos = signal<boolean>(false);
+export const contatosRaw = signal<Contato[]>([]);
+
+export const contatosComHash = computed(() => {
+  return contatosRaw.value.map((contato) => ({
+    contato,
+    hash: contato.id,
+  }));
+});
+
+export const contatosMap = computed(() => {
+  const map = new Map<string, Contato>();
+  for (const c of contatosRaw.value) {
+    map.set(c.id, c);
+  }
+  return map;
+});
+
+export async function carregarContatos(): Promise<void> {
+  isCarregandoContatos.value = true;
+  try {
+    // 🔥 TOMBSTONE: Filtra os contatos deletados (Lápides) para não exibi-los na UI
+    const listaCompleta = await listarContatos();
+    const lista = listaCompleta.filter(c => c.me !== 'deleted');
+    
+    const profile = await buscarProfile();
+    if (profile) {
+      const contatoProprio = await gerarContatoProprio(profile);
+      if (contatoProprio) {
+        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
+        if (indexExistente >= 0) {
+          lista[indexExistente] = contatoProprio;
+        } else {
+          lista.push(contatoProprio);
+        }
+      }
+    }
+    
+    contatosRaw.value = lista;
+    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
+  } finally {
+    isCarregandoContatos.value = false;
+  }
+}
+
+let isContatosListenerInitialized = false;
+
+export async function initContatosStore(): Promise<void> {
+  await carregarContatos();
+
+  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
+    isContatosListenerInitialized = true;
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'CONTATO_ATUALIZADO') {
+        carregarContatos();
+      }
+    });
+  }
+}
+
+export async function adicionarContato(contato: Contato): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === contato.id);
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = contato;
+      contatosRaw.value = novaLista;
+    } else {
+      contatosRaw.value = [...atual, contato];
+    }
+
+    await salvarContato(contato);
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
+    throw err;
+  }
+}
+
+export function adicionarOuAtualizarContato(contato: Contato): void {
+  adicionarContato(contato).catch((err) => {
+    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
+  });
+}
+
+export async function rebaixarConfiancaContatos(): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    if (atual.length === 0) return;
+
+    let mudouAlgum = false;
+    const novaLista = atual.map(c => {
+      if (c.me === 'trusted' || c.me === 'saved') {
+        mudouAlgum = true;
+        return { ...c, me: 'none' as const, updatedAt: Date.now() };
+      }
+      return c;
+    });
+    
+    if (!mudouAlgum) return;
+
+    contatosRaw.value = novaLista;
+    
+    Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
+      addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
+    });
+    
+    addDebugLog("info", "STORE:CONTATO", `Status 'me' rebaixado para 'none' em contatos salvos para forçar o Piggybacking.`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro crítico ao rebaixar confiança dos contatos", err);
+  }
+}
+
+export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    await removerContatoCompletamente(hash);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
+  }
+}
+
+export async function removerContatoCompletamente(hash: string, notificarRemoto = true): Promise<void> {
+  try {
+    addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
+
+    // 1. Remove do estado reativo imediatamente
+    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
+    
+    // 2. Apaga histórico local sem disparar handshakes de exclusão individual
+    await ExpurgarMensagens(hash, false);
+    await ExpurgarHandshakesContato(hash);
+    await ExpurgarHandshakesProfile(hash);
+    
+    const handshakes = await listarHandshakes();
+    for (const h of handshakes) {
+      if (h.aud === hash) await removerHandshake(h.id);
+    }
+
+    // 3. Verifica se o contato existe e decide entre exclusão física ou Tombstone
+    const contatoExistente = await buscarContatoPorChave(hash);
+
+    if (notificarRemoto && contatoExistente) {
+      // 🔥 TOMBSTONE: Mantém os dados de roteamento no DB, mas marca como 'deleted'
+      contatoExistente.me = 'deleted';
+      await salvarContato(contatoExistente);
+      
+      const handshakeDelecao: Handshake = {
+        id: gerarId(),
+        aud: hash,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        out: {
+          status: 'pendente',
+          tentativas: 0,
+          rotas: { contato: { removerContato: true } }
+        }
+      };
+      await salvarHandshake(handshakeDelecao);
+      
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+      }
+      addDebugLog("info", "STORE:CONTATO", `🚀 Handshake de exclusão remota de contato enviado para a fila (aud: ${hash}). Lápide criada.`);
+    } else {
+      // Exclusão física direta se não houver necessidade de notificar a rede
+      await removerContatoPorHash(hash);
+      addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
+    }
+
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
+    throw err;
+  }
+}
+
+export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === hash);
+    
+    if (index >= 0 && atual[index]) {
+      const contatoAtual = atual[index];
+      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
+      const novaLista = [...atual];
+      novaLista[index] = contatoModificado;
+      contatosRaw.value = novaLista;
+      
+      await salvarContato(contatoModificado);
+      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
+    } else {
+      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
+    }
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
+  }
+}
+
+export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
+  const atual = contatosRaw.value;
+  const index = atual.findIndex(c => c.id === id);
+  if (index >= 0 && atual[index]) {
+    const contatoAtual = atual[index];
+    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
+    const novaLista = [...atual];
+    novaLista[index] = contatoModificado;
+    contatosRaw.value = novaLista;
+    
+    salvarContato(contatoModificado).catch(err => {
+        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
+    });
+  } else {
+    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
+  }
+}
 ```
 
 ---
@@ -3614,7 +3617,8 @@ import {
   buscarChaveDecript,
   salvarProfile,
   serializarPublicKeyVapid,
-  normalizarChaveContato
+  normalizarChaveContato,
+  removerContatoPorHash // 🔥 NOVO: Importação para apagar a Lápide
 } from "../utils/db-helpers.ts";
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
@@ -3759,12 +3763,10 @@ export async function processarHandshakeRecebido(payload: any, header: any, _jwt
   }
 }
 
-// 🔥 ARQUITETURA: Mutex baseado em Promise resolve condições de corrida e "Dangling Timeouts"
 let processingPromise: Promise<void> | null = null;
 
 export async function processarFilaHandshake(): Promise<void> {
   if (processingPromise) {
-    // Se a fila já está rodando, quem chamou aguarda o término da execução atual
     return processingPromise;
   }
   
@@ -3805,7 +3807,6 @@ export async function processarFilaHandshake(): Promise<void> {
         }
       }
 
-      // 🔥 ARQUITETURA: Verificação Segura Cross-Environment (Protege contra erros no Deno CLI)
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
         return;
@@ -3839,15 +3840,13 @@ export async function processarFilaHandshake(): Promise<void> {
           const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
           const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
           
-          // RESILIÊNCIA & SHADOW SYNC EM RE-TENTATIVAS
           const ehReTentativa = h.out!.tentativas > 1;
           
-          // 🛡️ SANITY CHECK: Valida se o perfil está completo para compartilhamento
           const isProfilePiggybackReady = !!(
             profile.vapidPublicKey && 
             profile.e2ePublicKey && 
             profile.subscription?.endpoint && 
-            profile.subscription?.proxyserver // <- Exigência da Rota de Retorno (Proxy)
+            profile.subscription?.proxyserver 
           );
 
           const precisaDePerfilInjetado = isProfilePiggybackReady && ((contato.me === 'none' || contato.me === 'wrong') || (ehReTentativa && !h.out!.rotas.contato?.sync));
@@ -3861,9 +3860,6 @@ export async function processarFilaHandshake(): Promise<void> {
             injetouPIGNestaRodada = true;
           }
 
-          const proxyserverDestino = contato.subscription.proxyserver || "";
-
-          // 🔥 AGORA MAIS LIMPO: O JWT não precisa carregar o proxyserver dentro dele!
           let envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
           let payloadJwt: any = { 
             sub: "hand", 
@@ -3873,25 +3869,20 @@ export async function processarFilaHandshake(): Promise<void> {
           };
           let jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
           
-          // ✂️ SPLITTER DINÂMICO: Fragmenta o pacote se o PIG estourou o limite de MTU (4KB)
           if (jwt.length > 4000 && injetouPIGNestaRodada) {
             addDebugLog(`[SW-ROUTER] ✂️ MTU Excedido (${jwt.length} bytes). Fragmentando o PIG para um Handshake independente...`);
             
-            // 1. Extrai o PIG recém injetado
             const pigSyncData = h.out!.rotas.contato!.sync;
             
-            // 2. Desfaz a injeção na rota atual
             delete h.out!.rotas.contato!.sync;
             if (Object.keys(h.out!.rotas.contato!).length === 0) {
               delete h.out!.rotas.contato;
             }
 
-            // 3. Recalcula a criptografia e o JWT para a mensagem original (agora mais leve)
             envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
             payloadJwt.ct = JSON.stringify(envelope);
             jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
 
-            // 4. Cria e enfileira um NOVO handshake exclusivo para o PIG
             const handshakePIG: Handshake = {
               id: gerarId(),
               aud: contato.id,
@@ -3905,7 +3896,6 @@ export async function processarFilaHandshake(): Promise<void> {
                 }
               }
             };
-            // Salva o novo handshake na fila (será processado automaticamente na próxima rodada do loop ou sync)
             await salvarHandshakeTransacional(handshakePIG, `[SW-ROUTER] ✅ Handshake de PIG fragmentado (${handshakePIG.id}) salvo na fila.`);
           }
 
@@ -3921,6 +3911,12 @@ export async function processarFilaHandshake(): Promise<void> {
           await salvarHandshakeTransacional(h);
           addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
 
+          // 🔥 TOMBSTONE PURGE: Se o pacote era para excluir o contato, como foi enviado com sucesso, apagamos fisicamente!
+          if (h.out!.rotas?.contato?.removerContato) {
+            await removerContatoPorHash(h.aud);
+            addDebugLog(`[SW-ROUTER] 🪦 Lápide do contato ${h.aud} removida fisicamente após confirmação de envio da exclusão.`);
+          }
+
         } catch (err: any) {
           addDebugLog(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}: ${err.message}`);
           if (h && h.out) {
@@ -3928,6 +3924,12 @@ export async function processarFilaHandshake(): Promise<void> {
             h.out.erro = err.message;
             h.updatedAt = Date.now();
             await salvarHandshakeTransacional(h);
+
+            // 🔥 TOMBSTONE PURGE (FALHA DEFINITIVA): Se falhou 3 vezes, desistimos e apagamos o contato.
+            if (h.out.status === 'falha' && h.out.rotas?.contato?.removerContato) {
+              await removerContatoPorHash(h.aud);
+              addDebugLog(`[SW-ROUTER] 🪦 Lápide do contato ${h.aud} removida devido a falha definitiva de comunicação.`);
+            }
           }
         }
       }
@@ -3942,7 +3944,7 @@ export async function processarFilaHandshake(): Promise<void> {
   try {
     await processingPromise;
   } finally {
-    processingPromise = null; // Libera o Mutex para as próximas chamadas
+    processingPromise = null;
   }
 }
 
@@ -7991,7 +7993,7 @@ export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SE
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.3.5-msy1t3jp",
+  "version": "0.3.7-msy3gsxf",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",

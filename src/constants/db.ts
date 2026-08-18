@@ -2,7 +2,7 @@
 
 export const DB_NAMES = {
   CONFIG: "AppConfig_DB",
-  CHAT: "Chat_DB", // 🔥 Unificou MensagensEnviadas e MensagensRecebidas
+  CHAT: "Chat_DB", 
   CONTATOS: "BrowserB_Contatos_DB",
   HANDSHAKES: "Handshake_DB",
 } as const;
@@ -14,7 +14,7 @@ export const STORE_NAMES = {
 export const KEY_NAMES = {
   PROFILE: "profile",
   CONTATO: "contato_",
-  CHAT_INDEX: "chat_index_", // 🔥 Novo prefixo para guardar os arrays de paginação
+  CHAT_INDEX: "chat_index_", 
 } as const;
 
 export const MAX_TENTATIVAS = 3;
@@ -40,7 +40,6 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
-// 🔥 Estrutura Unificada e Baseada em Timestamps
 export interface Chat {
   id: string;
   contatoHash: string;
@@ -56,7 +55,8 @@ export interface Chat {
   handshake: string;
 }
 
-export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved';
+// 🔥 ARQUITETURA: Adicionado o estado 'deleted' para o padrão Tombstone
+export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved' | 'deleted';
 
 export interface Contato {
   id: string; 
@@ -87,14 +87,14 @@ export interface MensagemRouteData {
   enviada?: string;
   conteudo?: string;
   excluida?: string;
-  limparHistorico?: boolean; // 🔥 Comando de expurgo em lote do histórico remoto
+  limparHistorico?: boolean; 
   campos?: string[];
   data?: Record<string, unknown>;
 }
 
 export interface ContatoRouteData {
   id?: string;
-  removerContato?: boolean; // 🔥 Comando de remoção remota de contato
+  removerContato?: boolean; 
   campos?: string[];
   data?: Record<string, unknown>;
   sync?: Record<string, unknown>;
