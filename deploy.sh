@@ -85,8 +85,6 @@ elif [ "$AT" = "cloudflare" ]; then
   # ----------------------------------------------------------------------------
   # FLUXO: CLOUDFLARE DIRETO (Sem Commit, Sem Push, Apenas Infraestrutura)
   # ----------------------------------------------------------------------------
-  echo ""
-  echo "🔐 1/3 - Sincronizando Segredos (Secrets) no Cloudflare Worker..."
   
   EXTRACTED_PRIVATE_KEY=$(deno run -A --env-file minify-keys.ts SERVER_PRIVATE_KEY)
   
@@ -95,30 +93,40 @@ elif [ "$AT" = "cloudflare" ]; then
     exit 1
   fi
 
-  # Como removemos a "Var" conflitante, o Wrangler sobrescreve o "Secret" de forma limpa
-  echo "   Registrando chave no cofre da Cloudflare..."
+  echo ""
+  echo "🔐 1/4 - Injetando Segredos (Secrets) no Cloudflare Worker..."
   echo "$EXTRACTED_PRIVATE_KEY" | deno run -A wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
-  echo "✅ SERVER_PRIVATE_KEY atualizado com segurança."
+  echo "✅ SERVER_PRIVATE_KEY atualizado com segurança no Worker."
 
   echo ""
-  echo "⚡ 2/3 - Realizando deploy do Backend (Cloudflare Worker)..."
+  echo "⚡ 2/4 - Realizando deploy do Backend (Cloudflare Worker)..."
   deno run -A wrangler deploy -c wrangler-worker.toml 
 
   echo ""
-  echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
-  # O Pages lê tudo nativamente do wrangler.toml
-  # Criamos uma cópia temporária do wrangler-pages.toml para satisfazer a CLI da Cloudflare
+  echo "📦 Preparando ambiente local para o deploy do Frontend..."
+  # O Pages lê tudo nativamente do wrangler.toml. 
+  # Criamos uma cópia temporária e expomos a pasta de funções.
   cp wrangler-pages.toml wrangler.toml
   mv build/functions ./
-  
+
+  echo ""
+  echo "🔐 3/4 - Injetando Segredos (Secrets) no Cloudflare Pages..."
+  # Injeção do segredo explicitamente para o projeto Cloudflare Pages chamado "loco"
+  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A wrangler pages secret put SERVER_PRIVATE_KEY --project-name loco
+  echo "✅ SERVER_PRIVATE_KEY atualizado com segurança no Pages."
+
+  echo ""
+  echo "⚡ 4/4 - Realizando deploy do Frontend (Cloudflare Pages)..."
   deno run -A wrangler pages deploy --commit-dirty=true
   
+  echo ""
+  echo "🧹 Limpando ambiente e restaurando arquivos..."
   # Limpamos o rastro para o repositório continuar limpo e organizado
   rm wrangler.toml
   mv ./functions build/
 
   echo ""
-  echo "✅ DEPLOY DIRETO NA CLOUDFLARE CONCLUÍDO COM SUCESSO!"
+  echo "✅ DEPLOY DIRETO NO CLOUDFLARE CONCLUÍDO COM SUCESSO!"
   
 else
   echo ""

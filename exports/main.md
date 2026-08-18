@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.3-msxvu2g1** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.5-msy1t3jp** (CÓDIGO FONTE) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.3.3-msxvu2g1] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.3.5-msy1t3jp] - Modo: MAIN
 
-Gerado automaticamente em: 8/17/2026, 10:26:05 PM
+Gerado automaticamente em: 8/18/2026, 12:06:02 AM
 
 ---
 
@@ -2523,6 +2523,16 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 
 ---
 
+## Arquivo: `src/constants/version.ts`
+
+```ts
+// Arquivo gerado automaticamente pelo build.ts
+export const APP_VERSION = "0.3.5-msy1t3jp";
+
+```
+
+---
+
 ## Arquivo: `src/constants/db.ts`
 
 ```ts
@@ -2568,7 +2578,7 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
-// 🔥 Nova Estrutura Unificada e Baseada em Timestamps
+// 🔥 Estrutura Unificada e Baseada em Timestamps
 export interface Chat {
   id: string;
   contatoHash: string;
@@ -2614,13 +2624,15 @@ export interface MensagemRouteData {
   recebida?: string;
   enviada?: string;
   conteudo?: string;
-  excluida?: string; // 🔥 ARQUITETURA: Nova rota para exclusão remota bidirecional
+  excluida?: string;
+  limparHistorico?: boolean; // 🔥 Comando de expurgo em lote do histórico remoto
   campos?: string[];
   data?: Record<string, unknown>;
 }
 
 export interface ContatoRouteData {
   id?: string;
+  removerContato?: boolean; // 🔥 Comando de remoção remota de contato
   campos?: string[];
   data?: Record<string, unknown>;
   sync?: Record<string, unknown>;
@@ -2664,16 +2676,6 @@ export interface EnvelopeCifrado {
   d: string;
   k: string;
 }
-```
-
----
-
-## Arquivo: `src/constants/version.ts`
-
-```ts
-// Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.3.3-msxvu2g1";
-
 ```
 
 ---
@@ -2754,254 +2756,6 @@ export function clearDebugLogs(): void {}
 export * from './contatosStore.ts';
 export * from './mensagensStore.ts';
 export * from './profileStore.ts';
-```
-
----
-
-## Arquivo: `src/stores/config-store.ts`
-
-```ts
-// src/stores/config-store.ts
-import { get, set, del, createStore } from "idb-keyval";
-import { DB_NAMES } from "../constants/db.ts";
-import { setProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../constants/config.ts";
-
-const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
-const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
-
-export const CONFIG_KEYS = {
-  PROXY_PATH: "ProxyPath",
-  SERVER_PUBLIC_KEY: "ServerPublicKey", 
-  APP_THEME: "AppTheme", // 🔥 ARQUITETURA: Nova chave para Tema
-} as const;
-
-export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
-  try {
-    const configKey = CONFIG_KEYS[key];
-    
-    if (key === 'PROXY_PATH' && typeof value === 'string') {
-      await setProxyPath(value, true);
-      await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
-      console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
-    } else {
-      await set(configKey, value, configStore);
-    }
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
-    throw error;
-  }
-}
-
-export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
-  try {
-    const configKey = CONFIG_KEYS[key];
-    const value = await get<string>(configKey, configStore);
-    return value !== undefined && value !== null ? value : undefined;
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao carregar configuração:", error);
-    return undefined;
-  }
-}
-
-export async function resetConfig(): Promise<void> {
-  try {
-    await del(CONFIG_KEYS.PROXY_PATH, configStore);
-    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); 
-    await del(CONFIG_KEYS.APP_THEME, configStore); // Reseta o tema também
-    await setProxyPath(DefaultProxyPath, false); 
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
-    throw error;
-  }
-}
-
-/**
- * Carrega as configurações. 
- * Executa o Auto-Discovery de Rede apenas se for a primeira inicialização.
- */
-export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
-  const proxy_path = await getConfigValue('PROXY_PATH');
-  
-  if (proxy_path !== undefined) {
-    await setProxyPath(proxy_path, false);
-    return { proxy_path };
-  }
-
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    console.warn(`[AUTO-DISCOVERY] 🔌 Offline no primeiro acesso. Assumindo Cloudflare Worker nativo.`);
-    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-    return { proxy_path: FallbackAbsoluteProxy };
-  }
-
-  console.log(`[AUTO-DISCOVERY] Primeira inicialização detectada. Avaliando ambiente...`);
-  
-  const isLocalAlive = await pingProxy(DefaultProxyPath);
-
-  if (isLocalAlive) {
-    console.log(`[AUTO-DISCOVERY] ✅ Servidor nativo da hospedagem respondeu! Mantendo rota relativa.`);
-    await saveConfig('PROXY_PATH', DefaultProxyPath);
-    return { proxy_path: DefaultProxyPath };
-  }
-
-  console.log(`[AUTO-DISCOVERY] ⚠️ Servidor nativo indisponível ou estático (Ex: GitHub Pages). Iniciando Fallback...`);
-
-  const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
-  
-  if (isFallbackAlive) {
-    console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Conectado ao nó Edge!`);
-    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-    return { proxy_path: FallbackAbsoluteProxy };
-  }
-
-  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
-  await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-  return { proxy_path: FallbackAbsoluteProxy };
-}
-```
-
----
-
-## Arquivo: `src/stores/mensagensStore.ts`
-
-```ts
-// src/stores/mensagensStore.ts
-import { signal, batch } from '@preact/signals';
-import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '../utils/db-helpers.ts';
-import { ExpurgarMensagens } from '../handshakes/hand-mensagem.ts';
-import type { Chat } from '../constants/db.ts';
-import { contatoSelecionado } from '../signals/state.ts';
-
-export const mensagensAtivas = signal<Chat[]>([]);
-export const hasMoreMessages = signal<boolean>(true);
-export const isFetchingMensagens = signal<boolean>(false);
-
-const PAGE_SIZE = 30;
-let currentOffset = 0;
-
-export function limparMemoriaChat() {
-  batch(() => {
-    mensagensAtivas.value = [];
-    hasMoreMessages.value = true;
-    isFetchingMensagens.value = false;
-    currentOffset = 0;
-  });
-}
-
-export async function inicializarChat(contatoHash: string) {
-  limparMemoriaChat();
-  await carregarMaisMensagens(contatoHash);
-}
-
-export async function carregarMaisMensagens(contatoHash: string) {
-  if (isFetchingMensagens.value || !hasMoreMessages.value) return;
-  
-  isFetchingMensagens.value = true;
-
-  try {
-    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
-    
-    if (contatoHash !== contatoSelecionado.value) {
-      return; 
-    }
-    
-    batch(() => {
-      if (novas.length < PAGE_SIZE) {
-        hasMoreMessages.value = false;
-      }
-
-      if (novas.length > 0) {
-        currentOffset += novas.length;
-        const unificadas = [...novas, ...mensagensAtivas.value];
-        mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
-      }
-    });
-  } finally {
-    isFetchingMensagens.value = false;
-  }
-}
-
-export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
-  if (chat.contatoHash === contatoSelecionado.value) {
-    const atual = mensagensAtivas.value;
-    const index = atual.findIndex(m => m.id === chat.id);
-    
-    if (index !== -1) {
-      const nova = [...atual];
-      nova[index] = chat;
-      mensagensAtivas.value = nova;
-    } else {
-      mensagensAtivas.value = [...atual, chat];
-      currentOffset += 1;
-    }
-  }
-
-  await salvarChat(chat);
-}
-
-export async function processarAtualizacaoDeStatusDB(chatId: string) {
-  const chatAtualizado = await buscarChat(chatId);
-  if (chatAtualizado) {
-    await atualizarOuAdicionarChatAtivo(chatAtualizado);
-  } else {
-    // 🔥 ARQUITETURA: Se a mensagem não está mais no DB, foi excluída remotamente
-    const atual = mensagensAtivas.value;
-    const existe = atual.some(m => m.id === chatId);
-    if (existe) {
-      batch(() => {
-        mensagensAtivas.value = atual.filter(m => m.id !== chatId);
-        currentOffset = Math.max(0, currentOffset - 1);
-      });
-    }
-  }
-}
-
-export async function excluirMensagem(msgId: string, contatoHash: string) {
-  // 1. Otimista (limpa da tela imediatamente)
-  if (contatoSelecionado.value === contatoHash) {
-    batch(() => {
-      mensagensAtivas.value = mensagensAtivas.value.filter(m => m.id !== msgId);
-      currentOffset = Math.max(0, currentOffset - 1);
-    });
-  }
-
-  // 2. Busca a mensagem no banco antes de apagar
-  const msgLocal = await buscarChat(msgId);
-  
-  // 🔥 ARQUITETURA [Exclusão Bidirecional]:
-  // Agora não importa mais se a mensagem é 'out' (enviada) ou 'in' (recebida).
-  // Sempre avisaremos o remoto para apagá-la também (se não for uma mensagem auto-enviada).
-  const deveAvisarRemoto = msgLocal && msgLocal.handshake !== 'self';
-
-  // 3. Apaga do IndexedDB
-  await removerChat(msgId, contatoHash);
-
-  // 4. Delega para o Service Worker enviar a notificação de exclusão remota
-  if (deveAvisarRemoto && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (reg.active) {
-        reg.active.postMessage({
-          type: 'CRIAR_HANDSHAKE_OUT',
-          payload: {
-            rotasModulo: 'mensagem',
-            params: { function: 'excluirMensagem', contato: contatoHash, msgId: msgId }
-          }
-        });
-      }
-    } catch (e) {
-      console.warn("Falha ao enviar handshake de exclusão remota", e);
-    }
-  }
-}
-
-export async function limparTodoHistorico(contatoHash: string) {
-  if (contatoSelecionado.value === contatoHash) {
-    limparMemoriaChat();
-  }
-  await ExpurgarMensagens(contatoHash);
-}
-
-export async function initMensagensStore() {}
 ```
 
 ---
@@ -3094,6 +2848,120 @@ export async function initProfileStore() {
 
 ---
 
+## Arquivo: `src/stores/config-store.ts`
+
+```ts
+// src/stores/config-store.ts
+import { get, set, del, createStore } from "idb-keyval";
+import { DB_NAMES } from "../constants/db.ts";
+import { setProxyPath, getProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../constants/config.ts";
+
+const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
+const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
+
+export const CONFIG_KEYS = {
+  PROXY_PATH: "ProxyPath",
+  SERVER_PUBLIC_KEY: "ServerPublicKey", 
+  APP_THEME: "AppTheme",
+} as const;
+
+export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
+  try {
+    const configKey = CONFIG_KEYS[key];
+    
+    if (key === 'PROXY_PATH' && typeof value === 'string') {
+      await setProxyPath(value, true);
+      await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
+      console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
+    } else {
+      await set(configKey, value, configStore);
+    }
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
+    throw error;
+  }
+}
+
+export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
+  try {
+    if (key === 'PROXY_PATH') {
+      // 🔥 UNIFICAÇÃO: Delegamos a leitura do ProxyPath para a fonte primária de verdade em config.ts
+      const path = await getProxyPath();
+      return path;
+    }
+    const configKey = CONFIG_KEYS[key];
+    const value = await get<string>(configKey, configStore);
+    return value !== undefined && value !== null ? value : undefined;
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao carregar configuração:", error);
+    return undefined;
+  }
+}
+
+export async function resetConfig(): Promise<void> {
+  try {
+    await del(CONFIG_KEYS.PROXY_PATH, configStore);
+    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); 
+    await del(CONFIG_KEYS.APP_THEME, configStore);
+    await setProxyPath(DefaultProxyPath, true); // Persiste o reset no IndexedDB como DefaultProxyPath ("/")
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
+    throw error;
+  }
+}
+
+/**
+ * Carrega as configurações. 
+ * Executa o Auto-Discovery de Rede apenas se for a primeira inicialização.
+ */
+export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
+  const proxy_path = await getConfigValue('PROXY_PATH');
+  
+  // Se o caminho já existe e é diferente do default não-inicializado, mantém o que está no banco
+  // Nota: No resetConfig, nós removemos a chave fisicamente via `del` para que o Auto-Discovery possa rodar
+  const rawDbValue = await get<string>(CONFIG_KEYS.PROXY_PATH, configStore);
+  
+  if (rawDbValue !== undefined && rawDbValue !== null) {
+    await setProxyPath(rawDbValue, false);
+    return { proxy_path: rawDbValue };
+  }
+
+  console.log(`[AUTO-DISCOVERY] Primeira inicialização detectada. Avaliando ambiente...`);
+  
+  // Testamos a conectividade com o servidor nativo/local PRIMEIRO.
+  const isLocalAlive = await pingProxy(DefaultProxyPath);
+
+  if (isLocalAlive) {
+    console.log(`[AUTO-DISCOVERY] ✅ Servidor nativo da hospedagem respondeu! Mantendo rota relativa.`);
+    await saveConfig('PROXY_PATH', DefaultProxyPath);
+    return { proxy_path: DefaultProxyPath };
+  }
+
+  // Se o ping local falhar e o navegador reportar offline
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    console.warn(`[AUTO-DISCOVERY] 🔌 Offline no primeiro acesso e servidor local não respondeu. Assumindo Fallback.`);
+    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+    return { proxy_path: FallbackAbsoluteProxy };
+  }
+
+  console.log(`[AUTO-DISCOVERY] ⚠️ Servidor nativo indisponível ou estático (Ex: GitHub Pages). Iniciando Fallback...`);
+
+  const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
+  
+  if (isFallbackAlive) {
+    console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Conectado ao nó Edge!`);
+    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+    return { proxy_path: FallbackAbsoluteProxy };
+  }
+
+  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
+  await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+  return { proxy_path: FallbackAbsoluteProxy };
+}
+```
+
+---
+
 ## Arquivo: `src/stores/contatosStore.ts`
 
 ```ts
@@ -3106,11 +2974,13 @@ import {
   buscarProfile,
   removerContatoPorHash,
   listarHandshakes,
-  removerHandshake
+  removerHandshake,
+  salvarHandshake
 } from "../utils/db-helpers.ts";
-import type { Contato } from "../constants/db.ts";
+import type { Contato, Handshake } from "../constants/db.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
+import { gerarId } from "../utils/id-utils.ts";
 
 import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
 import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
@@ -3118,7 +2988,7 @@ import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
 
 export type { Contato };
 
-// 🔥 ARQUITETURA: Signal para o loading durante a carga de contatos
+// Signal para o loading durante a carga de contatos
 export const isCarregandoContatos = signal<boolean>(false);
 export const contatosRaw = signal<Contato[]>([]);
 
@@ -3205,8 +3075,7 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   });
 }
 
-// 🔥 ARQUITETURA [AUTO-DOWNGRADE]: Quando nossas próprias chaves/rotas mudam, 
-// rebaixamos a confiança dos nossos contatos para forçar a Injeção de Carona (Piggybacking)
+// Quando nossas próprias chaves/rotas mudam, rebaixamos a confiança dos contatos para forçar a Injeção de Carona (Piggybacking)
 export async function rebaixarConfiancaContatos(): Promise<void> {
   try {
     const atual = contatosRaw.value;
@@ -3221,11 +3090,10 @@ export async function rebaixarConfiancaContatos(): Promise<void> {
       return c;
     });
     
-    if (!mudouAlgum) return; // Otimização para não salvar no IDB à toa
+    if (!mudouAlgum) return;
 
     contatosRaw.value = novaLista;
     
-    // Salva silenciosamente em background
     Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
       addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
     });
@@ -3245,13 +3113,15 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
   }
 }
 
-export async function removerContatoCompletamente(hash: string): Promise<void> {
+export async function removerContatoCompletamente(hash: string, notificarRemoto = true): Promise<void> {
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
 
+    // 1. Remove do estado reativo
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
-    await ExpurgarMensagens(hash);
+    // 2. Apaga histórico local sem disparar handshakes de exclusão individual por mensagem
+    await ExpurgarMensagens(hash, false);
     await ExpurgarHandshakesContato(hash);
     await ExpurgarHandshakesProfile(hash);
     
@@ -3260,8 +3130,35 @@ export async function removerContatoCompletamente(hash: string): Promise<void> {
       if (h.aud === hash) await removerHandshake(h.id);
     }
 
+    // 3. Remove o contato do IndexedDB local
     await removerContatoPorHash(hash);
-    
+
+    // 4. 🔥 Dispara um ÚNICO Handshake instruindo o contato remoto a se auto-deletar
+    if (notificarRemoto) {
+      const handshakeDelecao: Handshake = {
+        id: gerarId(),
+        aud: hash,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        out: {
+          status: 'pendente',
+          tentativas: 0,
+          rotas: {
+            contato: { removerContato: true }
+          }
+        }
+      };
+      await salvarHandshake(handshakeDelecao);
+      
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) {
+          reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+        }
+      }
+      addDebugLog("info", "STORE:CONTATO", `🚀 Handshake de exclusão remota de contato enviado para a fila (aud: ${hash}).`);
+    }
+
     addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
@@ -3309,6 +3206,149 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
     addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
 }
+```
+
+---
+
+## Arquivo: `src/stores/mensagensStore.ts`
+
+```ts
+// src/stores/mensagensStore.ts
+import { signal, batch } from '@preact/signals';
+import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '../utils/db-helpers.ts';
+import { ExpurgarMensagens } from '../handshakes/hand-mensagem.ts';
+import type { Chat } from '../constants/db.ts';
+import { contatoSelecionado } from '../signals/state.ts';
+
+export const mensagensAtivas = signal<Chat[]>([]);
+export const hasMoreMessages = signal<boolean>(true);
+export const isFetchingMensagens = signal<boolean>(false);
+
+const PAGE_SIZE = 30;
+let currentOffset = 0;
+
+export function limparMemoriaChat() {
+  batch(() => {
+    mensagensAtivas.value = [];
+    hasMoreMessages.value = true;
+    isFetchingMensagens.value = false;
+    currentOffset = 0;
+  });
+}
+
+export async function inicializarChat(contatoHash: string) {
+  limparMemoriaChat();
+  await carregarMaisMensagens(contatoHash);
+}
+
+export async function carregarMaisMensagens(contatoHash: string) {
+  if (isFetchingMensagens.value || !hasMoreMessages.value) return;
+  
+  isFetchingMensagens.value = true;
+
+  try {
+    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
+    
+    if (contatoHash !== contatoSelecionado.value) {
+      return; 
+    }
+    
+    batch(() => {
+      if (novas.length < PAGE_SIZE) {
+        hasMoreMessages.value = false;
+      }
+
+      if (novas.length > 0) {
+        currentOffset += novas.length;
+        const unificadas = [...novas, ...mensagensAtivas.value];
+        mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
+      }
+    });
+  } finally {
+    isFetchingMensagens.value = false;
+  }
+}
+
+export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
+  if (chat.contatoHash === contatoSelecionado.value) {
+    const atual = mensagensAtivas.value;
+    const index = atual.findIndex(m => m.id === chat.id);
+    
+    if (index !== -1) {
+      const nova = [...atual];
+      nova[index] = chat;
+      mensagensAtivas.value = nova;
+    } else {
+      mensagensAtivas.value = [...atual, chat];
+      currentOffset += 1;
+    }
+  }
+
+  await salvarChat(chat);
+}
+
+export async function processarAtualizacaoDeStatusDB(chatId: string) {
+  const chatAtualizado = await buscarChat(chatId);
+  if (chatAtualizado) {
+    await atualizarOuAdicionarChatAtivo(chatAtualizado);
+  } else {
+    // Se a mensagem não está mais no DB ou o histórico foi limpo
+    const atual = mensagensAtivas.value;
+    const existe = atual.some(m => m.id === chatId || chatId === 'ALL_PURGED');
+    if (existe) {
+      batch(() => {
+        mensagensAtivas.value = chatId === 'ALL_PURGED' ? [] : atual.filter(m => m.id !== chatId);
+        currentOffset = chatId === 'ALL_PURGED' ? 0 : Math.max(0, currentOffset - 1);
+      });
+    }
+  }
+}
+
+export async function excluirMensagem(msgId: string, contatoHash: string) {
+  // 1. Otimista (limpa da tela imediatamente)
+  if (contatoSelecionado.value === contatoHash) {
+    batch(() => {
+      mensagensAtivas.value = mensagensAtivas.value.filter(m => m.id !== msgId);
+      currentOffset = Math.max(0, currentOffset - 1);
+    });
+  }
+
+  // 2. Busca a mensagem no banco antes de apagar
+  const msgLocal = await buscarChat(msgId);
+  
+  const deveAvisarRemoto = msgLocal && msgLocal.handshake !== 'self';
+
+  // 3. Apaga do IndexedDB
+  await removerChat(msgId, contatoHash);
+
+  // 4. Delega para o Service Worker enviar a notificação de exclusão remota
+  if (deveAvisarRemoto && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'CRIAR_HANDSHAKE_OUT',
+          payload: {
+            rotasModulo: 'mensagem',
+            params: { function: 'excluirMensagem', contato: contatoHash, msgId: msgId }
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Falha ao enviar handshake de exclusão remota", e);
+    }
+  }
+}
+
+export async function limparTodoHistorico(contatoHash: string) {
+  if (contatoSelecionado.value === contatoHash) {
+    limparMemoriaChat();
+  }
+  // 🔥 Envia 'true' no segundo parâmetro para disparar o Handshake Único de expurgo do histórico no dispositivo remoto
+  await ExpurgarMensagens(contatoHash, true);
+}
+
+export async function initMensagensStore() {}
 ```
 
 ---
@@ -3823,13 +3863,13 @@ export async function processarFilaHandshake(): Promise<void> {
 
           const proxyserverDestino = contato.subscription.proxyserver || "";
 
+          // 🔥 AGORA MAIS LIMPO: O JWT não precisa carregar o proxyserver dentro dele!
           let envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
           let payloadJwt: any = { 
             sub: "hand", 
             aud: contato.id, 
             jti: h.id, 
-            ct: JSON.stringify(envelope),
-            proxyserver: proxyserverDestino
+            ct: JSON.stringify(envelope)
           };
           let jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
           
@@ -5435,7 +5475,12 @@ export async function importJWKToKey(
 // src/utils/push-utils.ts
 import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
-import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
+import { 
+  minifyVapidPrivate, 
+  minifyVapidPublic, 
+  expandVapidPublic, 
+  expandVapidPrivate 
+} from "./crypto-utils.ts";
 import { fetchLocoProxy } from "../constants/config.ts";
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -5506,7 +5551,7 @@ export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey
 }
 
 export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string }; proxyserver?: string },
   payloadText: string,
   vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
 ): Promise<void> {
@@ -5590,7 +5635,6 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
   }
 }
 
-// 🔥 ARQUITETURA UNIFICADA: Função "Gêmea" para uso no Servidor (ou Testes)
 export async function decifrarChaveVapid(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
   try {
     let binaryString: string;
@@ -5632,6 +5676,30 @@ export async function decifrarChaveVapid(base64Envelope: string, serverPrivateKe
   } catch (err: any) {
     addDebugLog("error", "CRYPTO:VAPID", `Falha no deciframento do envelope: ${err.message}`);
     throw err;
+  }
+}
+
+/**
+ * Decifra a chave privada VAPID contida no envelope via chave RSA do Servidor e
+ * reidrata/expande ambos os JWKs (Público e Privado) para o formato padrão do WebCrypto.
+ */
+export async function extrairEExpandirChavesVapid(
+  serverPrivateKey: CryptoKey,
+  publicKeyRaw: any,
+  privateKeyEnvelopeBase64: string
+): Promise<{ publicKey: JsonWebKey; privateKey: JsonWebKey }> {
+  try {
+    const privateKeyUnwrapped = await decifrarChaveVapid(privateKeyEnvelopeBase64, serverPrivateKey);
+    
+    const pub = typeof publicKeyRaw === "string" ? JSON.parse(publicKeyRaw) : publicKeyRaw;
+    const priv = typeof privateKeyUnwrapped === "string" ? JSON.parse(privateKeyUnwrapped) : privateKeyUnwrapped;
+
+    const expandedPub = expandVapidPublic(pub);
+    const expandedPriv = expandVapidPrivate(priv, expandedPub);
+
+    return { publicKey: expandedPub, privateKey: expandedPriv };
+  } catch (err: any) {
+    throw new Error(`JWK/Envelope VAPID inválido: ${err.message}`);
   }
 }
 ```
@@ -5716,219 +5784,6 @@ declare global {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
     static getSupportedFormats(): Promise<string[]>;
-  }
-}
-```
-
----
-
-## Arquivo: `src/handshakes/hand-contato.ts`
-
-```ts
-// src/handshakes/hand-contato.ts
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-
-import { Handshake, Contato } from "../constants/db.ts";
-import { gerarId } from "../utils/id-utils.ts";
-import {
-  buscarHandshake,
-  salvarHandshake,
-  buscarProfile,
-  buscarContatoPorChave,
-  salvarContato,
-  serializarPublicKeyVapid,
-  listarHandshakes,
-  removerHandshake
-} from "../utils/db-helpers.ts";
-import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-
-interface ContatoOutParams {
-  function: string;
-  contato: string;
-  campos?: string[];
-  responder?: boolean;
-}
-
-export async function ExpurgarHandshakesContato(contatoHash: string) {
-  addDebugLog("warn", "HAND-CONTATO", `🗑️ Expurgando handshakes de conexão do contato ${contatoHash}`);
-  
-  const todos = await listarHandshakes();
-  for (const h of todos) {
-    if (h.aud === contatoHash && (h.in?.rotas.contato || h.out?.rotas.contato)) {
-      await removerHandshake(h.id);
-    }
-  }
-}
-
-export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
-  
-  if (handshakeId) {
-    const handshake = await buscarHandshake(handshakeId);
-    if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
-    const contatoReq = handshake.in.rotas.contato;
-
-    if (Array.isArray(contatoReq.campos) && contatoReq.id) {
-      addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const rotasContatoData: Record<string, unknown> = { id: handshake.aud };
-
-      if (contato) {
-        const camposSet = new Set(contatoReq.campos);
-        const cp = await extrairDadosCompactos(contato);
-        
-        if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
-        if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
-        if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
-        if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
-        if (camposSet.has('email')) rotasContatoData.em = cp.em;
-        if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
-        if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
-      } else {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Contato não localizado no banco local para aud: ${handshake.aud}`);
-      }
-
-      handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
-      handshake.updatedAt = Date.now();
-      await salvarHandshake(handshake);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    else if (contatoReq.data) {
-      addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
-      const contato = await buscarContatoPorChave(handshake.aud);
-      const profile = await buscarProfile();
-
-      if (!contato) {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local.`);
-        return;
-      }
-
-      if (!profile) {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Perfil local não encontrado.`);
-        return;
-      }
-
-      const d = contatoReq.data as Record<string, unknown>;
-      const mp = await extrairDadosCompactos(profile);
-      let novoMeStatus = contato.me;
-
-      if (!d.se) {
-        novoMeStatus = 'none'; 
-      } else {
-        if (d.tr === true) novoMeStatus = 'trusted';
-        else novoMeStatus = 'saved';
-
-        const d_vp = d.vp as any || { x: d.vx, y: d.vy };
-        const d_ep = d.ep as any || { n: d.en };
-
-        if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
-            d_vp.x !== mp.vp.x || d_vp.y !== mp.vp.y || d_ep.n !== mp.ep.n || d.ve !== mp.ve) {
-          novoMeStatus = 'wrong';
-        }
-      }
-
-      if (contato.me !== novoMeStatus) {
-        const statusAnterior = contato.me;
-        contato.me = novoMeStatus;
-        contato.updatedAt = Date.now();
-        await salvarContato(contato);
-        addDebugLog(`[HAND-CONTATO] ✅ Status alterado de '${statusAnterior}' para: '${novoMeStatus}'`);
-        
-        // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
-        if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
-          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-          clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-        }
-      } else {
-        addDebugLog(`[HAND-CONTATO] ✅ Consistência avaliada. Status mantido em: '${novoMeStatus}'`);
-      }
-    }
-
-    else if (contatoReq.sync) {
-      addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
-      
-      const syncData = contatoReq.sync as unknown as CompactContact;
-      
-      if ((syncData as any).vx && !syncData.vp) {
-        syncData.vp = { x: (syncData as any).vx, y: (syncData as any).vy };
-        syncData.ep = { n: (syncData as any).en };
-      }
-
-      const expanded = expandirDadosCompactos(syncData);
-      const contatoAntigo = await buscarContatoPorChave(handshake.aud);
-      
-      const eleConfiaEmMim = syncData.tr === true; 
-      const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
-
-      const novoContato: Contato = {
-        id: handshake.aud,
-        vapidPublicKey: expanded.vapidPublicKey!,
-        e2ePublicKey: expanded.e2ePublicKey!,
-        email: expanded.email || '',
-        name: expanded.name || '',
-        subscription: expanded.subscription!,
-        vapidPrivateKeyEnvelope: expanded.vapidPrivateKeyEnvelope!,
-        trusted: contatoAntigo ? contatoAntigo.trusted : false, 
-        me: novoMeStatus, 
-        createdAt: contatoAntigo ? contatoAntigo.createdAt : Date.now(),
-        updatedAt: Date.now()
-      };
-
-      await salvarContato(novoContato);
-      addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
-
-      // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
-      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-      }
-
-      if (syncData.req) {
-        addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
-        await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
-      }
-    }
-  }
-
-  if (outParams) {
-    if (outParams.function === 'confirmarSubscription') {
-      const profile = await buscarProfile();
-      if (!profile) {
-        addDebugLog(`[HAND-CONTATO] ❌ Erro ao criar Pull: Perfil local ausente.`);
-        return;
-      }
-      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
-
-      const novoHandshake: Handshake = {
-        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
-      };
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-CONTATO] ✅ Handshake de confirmação de inscrição (Pull) criado.`);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
-
-    if (outParams.function === 'enviarSubscription') {
-      const profile = await buscarProfile();
-      if (!profile) throw new Error("Perfil não encontrado.");
-
-      const contatoAlvo = await buscarContatoPorChave(outParams.contato);
-      const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
-
-      const compactSyncData = await extrairDadosCompactos(profile, !outParams.responder, euConfio);
-
-      const novoHandshake: Handshake = {
-        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
-        out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData as unknown as Record<string, unknown> } } }
-      };
-
-      await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-CONTATO] ✅ Handshake de sync de contato (Push) criado.`);
-      setTimeout(() => processarFilaHandshake(), 100);
-    }
   }
 }
 ```
@@ -6136,8 +5991,9 @@ async function notificarUI(chatId: string) {
   }
 }
 
-export async function ExpurgarMensagens(contatoHash: string) {
-  addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens e handshakes do contato ${contatoHash}`);
+// 🔥 EXPURGO ATUALIZADO: Apaga localmente e (opcionalmente) envia Handshake Único ao Contato
+export async function ExpurgarMensagens(contatoHash: string, notificarRemoto = false) {
+  addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens do contato ${contatoHash} (Notificar Remoto: ${notificarRemoto})`);
   
   await removerTodoHistoricoChat(contatoHash);
 
@@ -6146,6 +6002,24 @@ export async function ExpurgarMensagens(contatoHash: string) {
     if (h.aud === contatoHash && (h.in?.rotas.mensagem || h.out?.rotas.mensagem)) {
       await removerHandshake(h.id);
     }
+  }
+
+  // Se a limpeza foi iniciada pelo usuário local, envia UM ÚNICO handshake avisando o remoto
+  if (notificarRemoto) {
+    const novoHandshake: Handshake = {
+      id: gerarId(),
+      aud: contatoHash,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      out: {
+        status: 'pendente',
+        tentativas: 0,
+        rotas: { mensagem: { limparHistorico: true } }
+      }
+    };
+    await salvarHandshake(novoHandshake);
+    addDebugLog("info", "HAND-MENSAGEM", `🚀 Handshake de limpeza total de histórico enviado para a fila (aud: ${contatoHash}).`);
+    setTimeout(() => processarFilaHandshake(), 100);
   }
 }
 
@@ -6157,6 +6031,15 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
     const msgReq = handshake.in.rotas.mensagem;
+
+    // 🔥 NOVO: Recebimento da instrução "Limpar Histórico Completo Remoto"
+    if (msgReq.limparHistorico === true) {
+      addDebugLog("warn", "HAND-MENSAGEM", `📩 Solicitação de expurgo TOTAL de histórico recebida do contato ${handshake.aud}`);
+      await removerTodoHistoricoChat(handshake.aud);
+      await notificarUI("ALL_PURGED");
+      addDebugLog("success", "HAND-MENSAGEM", `🗑️ Todo o histórico do contato ${handshake.aud} foi apagado com sucesso.`);
+      return;
+    }
 
     if (msgReq.recebida && Array.isArray(msgReq.campos)) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
@@ -6189,19 +6072,14 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
     }
 
-    // 🔥 ARQUITETURA [Exclusão Bidirecional]: Recebimento do comando "Apagar para Todos"
     else if (msgReq.excluida && typeof msgReq.excluida === 'string') {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação de exclusão remota da mensagem ${msgReq.excluida}`);
       const msgLocal = await buscarChat(msgReq.excluida);
       
-      // SEGURANÇA: Só permitimos que a pessoa apague se a mensagem estiver vinculada ao Hash dela
-      // Removida a trava de 'msgLocal.tipo === in', permitindo exclusão bidirecional.
       if (msgLocal && msgLocal.contatoHash === handshake.aud) {
         await removerChat(msgReq.excluida, handshake.aud);
-        await notificarUI(msgReq.excluida); // UI atualizará a tela se o chat estiver aberto
+        await notificarUI(msgReq.excluida);
         addDebugLog(`[HAND-MENSAGEM] 🗑️ Mensagem ${msgReq.excluida} apagada remotamente com sucesso.`);
-      } else {
-        addDebugLog(`[HAND-MENSAGEM] ⚠️ Ignorando exclusão. Mensagem inexistente ou violação de autoridade.`);
       }
     }
 
@@ -6246,8 +6124,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           icon: '/icon-192.png',
           tag: novaMsgRecebida.id
         });
-      } else {
-        addDebugLog(`[HAND-MENSAGEM] 👁️ O app está aberto ou ambiente sem UI/Notificação. Notificação nativa suprimida.`);
       }
 
       await notificarUI(novaMsgRecebida.id);
@@ -6266,7 +6142,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // 🔥 ARQUITETURA: Cria o pacote para exclusão remota ("Apagar para todos")
     else if (outParams.function === 'excluirMensagem') {
       const { contato: contatoId, msgId } = outParams;
       if (!msgId) throw new Error("ID da mensagem não fornecido para exclusão.");
@@ -6288,8 +6163,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
       
       if (ehParaSiMesmo) {
-        addDebugLog(`[HAND-MENSAGEM] 🔄 Detectado envio para si mesmo. Salvando localmente sem handshake.`);
-        
         const idReal = msgId || gerarId();
         const agora = Date.now();
         
@@ -6301,7 +6174,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         
         await salvarChat(chatAuto);
         await notificarUI(idReal);
-        addDebugLog(`[HAND-MENSAGEM] ✅ Auto-mensagem ${idReal} salva com fluxo completo simulado.`);
         return;
       }
 
@@ -6324,6 +6196,212 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
       await salvarHandshake(novoHandshake);
       addDebugLog(`[HAND-MENSAGEM] ✅ Mensagem ${idReal} posta na fila de saída do SW.`);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+  }
+}
+```
+
+---
+
+## Arquivo: `src/handshakes/hand-contato.ts`
+
+```ts
+// src/handshakes/hand-contato.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { Handshake, Contato } from "../constants/db.ts";
+import { gerarId } from "../utils/id-utils.ts";
+import {
+  buscarHandshake,
+  salvarHandshake,
+  buscarProfile,
+  buscarContatoPorChave,
+  salvarContato,
+  serializarPublicKeyVapid,
+  listarHandshakes,
+  removerHandshake,
+  removerContatoPorHash,
+  removerTodoHistoricoChat
+} from "../utils/db-helpers.ts";
+import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
+import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { addDebugLog } from "../utils/debug-utils.ts";
+
+interface ContatoOutParams {
+  function: string;
+  contato: string;
+  campos?: string[];
+  responder?: boolean;
+}
+
+export async function ExpurgarHandshakesContato(contatoHash: string) {
+  addDebugLog("warn", "HAND-CONTATO", `🗑️ Expurgando handshakes de conexão do contato ${contatoHash}`);
+  
+  const todos = await listarHandshakes();
+  for (const h of todos) {
+    if (h.aud === contatoHash && (h.in?.rotas.contato || h.out?.rotas.contato)) {
+      await removerHandshake(h.id);
+    }
+  }
+}
+
+export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
+  
+  if (handshakeId) {
+    const handshake = await buscarHandshake(handshakeId);
+    if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
+    const contatoReq = handshake.in.rotas.contato;
+
+    // 🔥 NOVO: Tratamento de Exclusão Remota de Contato recebida
+    if (contatoReq.removerContato === true) {
+      addDebugLog("warn", "HAND-CONTATO", `📩 Comando de EXCLUSÃO DE CONTATO recebido do remoto (aud: ${handshake.aud})`);
+      
+      // Apaga mensagens e o contato silenciosamente
+      await removerTodoHistoricoChat(handshake.aud);
+      await removerContatoPorHash(handshake.aud);
+      
+      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      }
+      
+      addDebugLog("success", "HAND-CONTATO", `🗑️ Contato ${handshake.aud} e seu histórico foram expurgados remotamente por solicitação do remetente.`);
+      return;
+    }
+
+    if (Array.isArray(contatoReq.campos) && contatoReq.id) {
+      addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
+      const contato = await buscarContatoPorChave(handshake.aud);
+      const rotasContatoData: Record<string, unknown> = { id: handshake.aud };
+
+      if (contato) {
+        const camposSet = new Set(contatoReq.campos);
+        const cp = await extrairDadosCompactos(contato);
+        
+        if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
+        if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
+        if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
+        if (camposSet.has('vapidPrivateKeyEnvelope')) rotasContatoData.ve = cp.ve;
+        if (camposSet.has('email')) rotasContatoData.em = cp.em;
+        if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
+        if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
+      }
+
+      handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
+      handshake.updatedAt = Date.now();
+      await salvarHandshake(handshake);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    else if (contatoReq.data) {
+      const contato = await buscarContatoPorChave(handshake.aud);
+      const profile = await buscarProfile();
+
+      if (!contato || !profile) return;
+
+      const d = contatoReq.data as Record<string, unknown>;
+      const mp = await extrairDadosCompactos(profile);
+      let novoMeStatus = contato.me;
+
+      if (!d.se) {
+        novoMeStatus = 'none'; 
+      } else {
+        if (d.tr === true) novoMeStatus = 'trusted';
+        else novoMeStatus = 'saved';
+
+        const d_vp = d.vp as any || { x: d.vx, y: d.vy };
+        const d_ep = d.ep as any || { n: d.en };
+
+        if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
+            d_vp.x !== mp.vp.x || d_vp.y !== mp.vp.y || d_ep.n !== mp.ep.n || d.ve !== mp.ve) {
+          novoMeStatus = 'wrong';
+        }
+      }
+
+      if (contato.me !== novoMeStatus) {
+        contato.me = novoMeStatus;
+        contato.updatedAt = Date.now();
+        await salvarContato(contato);
+        
+        if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+        }
+      }
+    }
+
+    else if (contatoReq.sync) {
+      const syncData = contatoReq.sync as unknown as CompactContact;
+      
+      if ((syncData as any).vx && !syncData.vp) {
+        syncData.vp = { x: (syncData as any).vx, y: (syncData as any).vy };
+        syncData.ep = { n: (syncData as any).en };
+      }
+
+      const expanded = expandirDadosCompactos(syncData);
+      const contatoAntigo = await buscarContatoPorChave(handshake.aud);
+      
+      const eleConfiaEmMim = syncData.tr === true; 
+      const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
+
+      const novoContato: Contato = {
+        id: handshake.aud,
+        vapidPublicKey: expanded.vapidPublicKey!,
+        e2ePublicKey: expanded.e2ePublicKey!,
+        email: expanded.email || '',
+        name: expanded.name || '',
+        subscription: expanded.subscription!,
+        vapidPrivateKeyEnvelope: expanded.vapidPrivateKeyEnvelope!,
+        trusted: contatoAntigo ? contatoAntigo.trusted : false, 
+        me: novoMeStatus, 
+        createdAt: contatoAntigo ? contatoAntigo.createdAt : Date.now(),
+        updatedAt: Date.now()
+      };
+
+      await salvarContato(novoContato);
+
+      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      }
+
+      if (syncData.req) {
+        await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
+      }
+    }
+  }
+
+  if (outParams) {
+    if (outParams.function === 'confirmarSubscription') {
+      const profile = await buscarProfile();
+      if (!profile) return;
+      const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
+      };
+      await salvarHandshake(novoHandshake);
+      setTimeout(() => processarFilaHandshake(), 100);
+    }
+
+    if (outParams.function === 'enviarSubscription') {
+      const profile = await buscarProfile();
+      if (!profile) throw new Error("Perfil não encontrado.");
+
+      const contatoAlvo = await buscarContatoPorChave(outParams.contato);
+      const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
+
+      const compactSyncData = await extrairDadosCompactos(profile, !outParams.responder, euConfio);
+
+      const novoHandshake: Handshake = {
+        id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
+        out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData as unknown as Record<string, unknown> } } }
+      };
+
+      await salvarHandshake(novoHandshake);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
@@ -7486,142 +7564,6 @@ head_sampling_rate = 1
 
 ---
 
-## Arquivo: `deploy.sh`
-
-```bash
-#!/bin/bash
-
-# Aborta o script se ocorrer algum erro crítico nas operações normais
-set -e
-
-# ==============================================================================
-# 0. CONFIGURAÇÕES DE AMBIENTE (NON-INTERACTIVE)
-# ==============================================================================
-# O CI=true força o Wrangler a não fazer perguntas interativas.
-export CI=true
-export WRANGLER_SEND_METRICS=false
-
-# ==============================================================================
-# 1. PARSING DE ARGUMENTOS (--at=... --m=...)
-# ==============================================================================
-
-# AT="github"
-MESSAGE=""
-
-for i in "$@"; do
-  case $i in
-    --at=*)
-      AT="${i#*=}"
-      shift
-      ;;
-    --m=*)
-      MESSAGE="${i#*=}"
-      shift
-      ;;
-    *)
-      ;;
-  esac
-done
-
-# ==============================================================================
-# 2. EXTRAÇÃO DINÂMICA DA VERSÃO E CONFIGURAÇÃO
-# ==============================================================================
-
-FULL_VERSION=$(grep '"version"' deno.jsonc | awk -F'"' '{print $4}')
-MAJOR_MINOR=$(echo $FULL_VERSION | awk -F'.' '{print $1"."$2}')
-TAG_NAME="v${MAJOR_MINOR}"
-
-if [ -z "$MESSAGE" ]; then
-  MESSAGE="Versão $TAG_NAME"
-fi
-
-echo "============================================================"
-echo "🚀 INICIANDO DEPLOY LOCO"
-echo "============================================================"
-echo "📌 Versão completa: $FULL_VERSION"
-echo "🏷️  Tag alvo: $TAG_NAME"
-echo "📝 Mensagem de commit: $MESSAGE"
-echo "🎯 Alvo do Deploy: $AT"
-echo "============================================================"
-
-# ==============================================================================
-# 3. ROTEAMENTO DO DEPLOY
-# ==============================================================================
-
-if [ "$AT" = "github" ]; then
-  # ----------------------------------------------------------------------------
-  # FLUXO: GITHUB ACTIONS (Com Commit e Push)
-  # ----------------------------------------------------------------------------
-  echo ""
-  echo "📦 1/3 - Empacotando e enviando código fonte para o repositório..."
-  git add .
-  git commit -m "$MESSAGE" || true
-  git push
-
-  echo ""
-  echo "🧹 2/3 - Limpando tags antigas ($TAG_NAME)..."
-  git push origin --delete $TAG_NAME 2>/dev/null || true
-  git tag -d $TAG_NAME 2>/dev/null || true
-
-  echo ""
-  echo "🏷️  3/3 - Publicando nova tag (Isso disparará o Github Actions)..."
-  git tag -a $TAG_NAME -m "Versão $TAG_NAME"
-  git push origin $TAG_NAME --force
-
-  echo ""
-  echo "✅ DEPLOY VIA GITHUB ACIONADO COM SUCESSO!"
-  echo "Acompanhe o andamento na aba Actions do seu repositório."
-
-elif [ "$AT" = "cloudflare" ]; then
-  # ----------------------------------------------------------------------------
-  # FLUXO: CLOUDFLARE DIRETO (Sem Commit, Sem Push, Apenas Infraestrutura)
-  # ----------------------------------------------------------------------------
-  echo ""
-  echo "🔐 1/3 - Sincronizando Segredos (Secrets) no Cloudflare Worker..."
-  
-  EXTRACTED_PRIVATE_KEY=$(deno run -A --env-file minify-keys.ts SERVER_PRIVATE_KEY)
-  
-  if [ -z "$EXTRACTED_PRIVATE_KEY" ]; then
-    echo "❌ ERRO: A extração da chave retornou vazia! O deploy foi abortado."
-    exit 1
-  fi
-
-  # Como removemos a "Var" conflitante, o Wrangler sobrescreve o "Secret" de forma limpa
-  echo "   Registrando chave no cofre da Cloudflare..."
-  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
-  echo "✅ SERVER_PRIVATE_KEY atualizado com segurança."
-
-  echo ""
-  echo "⚡ 2/3 - Realizando deploy do Backend (Cloudflare Worker)..."
-  deno run -A wrangler deploy -c wrangler-worker.toml 
-
-  echo ""
-  echo "⚡ 3/3 - Realizando deploy do Frontend (Cloudflare Pages)..."
-  # O Pages lê tudo nativamente do wrangler.toml
-  # Criamos uma cópia temporária do wrangler-pages.toml para satisfazer a CLI da Cloudflare
-  cp wrangler-pages.toml wrangler.toml
-  mv build/functions ./
-  
-  deno run -A wrangler pages deploy --commit-dirty=true
-  
-  # Limpamos o rastro para o repositório continuar limpo e organizado
-  rm wrangler.toml
-  mv ./functions build/
-
-  echo ""
-  echo "✅ DEPLOY DIRETO NA CLOUDFLARE CONCLUÍDO COM SUCESSO!"
-  
-else
-  echo ""
-  echo "❌ ERRO: Alvo de deploy desconhecido ('$AT'). Use '--at=github' ou '--at=cloudflare'."
-  exit 1
-fi
-
-echo "============================================================"
-```
-
----
-
 ## Arquivo: `wrangler-pages.toml`
 
 ```toml
@@ -7690,48 +7632,25 @@ export const onRequestOptions = async (context: any) => {
 ## Arquivo: `server/functions/push.ts`
 
 ```ts
-
-
-import { sendResponse, handlePreflight, decryptWithServerKey } from "../shared.ts";
+// server/functions/push.ts
+import { sendResponse, handlePreflight, getOrInitServerKeys } from "../shared.ts";
+import { extrairEExpandirChavesVapid } from "../../src/utils/push-utils.ts";
 import * as webpush from "@negrel/webpush";
-
-function lerMetadadosJJWT(jwtString: string) {
-  try {
-    const parts = jwtString.split(".");
-    if (parts.length !== 3) return null;
-    
-    const payloadPart = parts[1];
-    if (!payloadPart) return null;
-    
-    let base64Url = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-    return JSON.parse(new TextDecoder().decode(new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))));
-  } catch {
-    return null;
-  }
-}
-
-async function parseVapidKeysToJwk(env: any, publicKey: any, privateKey: any) {
-  try {
-    const privateKeyFinal = await decryptWithServerKey(env, privateKey);
-    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
-    const priv = typeof privateKeyFinal === "string" ? JSON.parse(privateKeyFinal) : privateKeyFinal;
-    const expandedPub = pub.kty ? pub : { kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"] };
-    const expandedPriv = priv.kty ? priv : { kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"] };
-    return { publicKey: expandedPub, privateKey: expandedPriv };
-  } catch (err) {
-    throw new Error(`JWK inválido: ${err}`);
-  }
-}
 
 async function sendPush(jwkKeys: any, subscription: any, payloadText: string, vapid: any) {
   const vapidKeys = await webpush.importVapidKeys(jwkKeys);
-  const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+  
+  const rawSubject = vapid?.subject || "mailto:admin@loco.pwa";
+  const contact = rawSubject.startsWith("mailto:") ? rawSubject : `mailto:${rawSubject}`;
+  
   const appServer = await webpush.ApplicationServer.new({
     contactInformation: contact,
     vapidKeys: vapidKeys,
   });
-  const subscriber = appServer.subscribe(subscription);
+
+  const { proxyserver: _ignored, ...cleanSubscription } = subscription;
+
+  const subscriber = appServer.subscribe(cleanSubscription);
   try {
     await subscriber.pushTextMessage(payloadText, {});
   } catch (pushErr: any) {
@@ -7793,34 +7712,46 @@ export async function handlePush(request: Request, env?: any): Promise<Response>
   }
 
   const { subscription, payloadText, vapid } = body;
-  if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
-    return sendResponse(request, { success: false, error: "Estrutura P2P Inválida." }, 400);
+
+  const isSubscriptionValid = !!(
+    subscription &&
+    subscription.endpoint &&
+    subscription.proxyserver &&
+    subscription.keys?.p256dh &&
+    subscription.keys?.auth
+  );
+
+  const isVapidValid = !!(
+    vapid &&
+    vapid.publicKey &&
+    vapid.privateKey
+  );
+
+  if (!isSubscriptionValid || !isVapidValid || !payloadText) {
+    return sendResponse(request, { success: false, error: "Estrutura P2P Inválida. Parâmetros em falta em subscription, vapid ou payloadText." }, 400);
   }
 
-  const jwtClaims = lerMetadadosJJWT(payloadText);
-  if (!jwtClaims || !jwtClaims.sub || !["hand", "contact"].includes(jwtClaims.sub)) {
-    return sendResponse(request, { success: false, error: "Protocolo JWT Inválido." }, 400);
-  }
-
-  const proxyserverDestino = jwtClaims.proxyserver;
-
-  // Prova de Posse (Proof of Ownership): Tentamos abrir o envelope com a nossa chave privada
+  // 1. Prova de Posse (Proof of Ownership): Abre o envelope e expande as chaves VAPID usando a utilitário unificada
   try {
-    const jwkKeys = await parseVapidKeysToJwk(env, vapid.publicKey, vapid.privateKey);
+    const { serverPrivateKey } = await getOrInitServerKeys(env);
+    const jwkKeys = await extrairEExpandirChavesVapid(serverPrivateKey, vapid.publicKey, vapid.privateKey);
+    
     await sendPush(jwkKeys, subscription, payloadText, vapid);
     return sendResponse(request, { success: true });
   } catch (_decryptErr) {
     // O envelope pertence a outro nó na rede de federação
   }
 
-  // Se o envelope não é nosso, avaliamos o roteamento de federação via DNS
-  if (proxyserverDestino) {
+  // 2. Roteamento de Federação
+  const proxyserver = subscription.proxyserver;
+
+  if (proxyserver) {
     try {
-      const urlFormatada = proxyserverDestino.startsWith("http") ? proxyserverDestino : `https://${proxyserverDestino}`;
+      const urlFormatada = proxyserver.startsWith("http") ? proxyserver : `https://${proxyserver}`;
       const destinoUrlObj = new URL(urlFormatada);
       
       if (url.hostname !== destinoUrlObj.hostname) {
-        return await routePush(proxyserverDestino, rawText, request);
+        return await routePush(proxyserver, rawText, request);
       }
     } catch (_e) {
       return sendResponse(request, { success: false, error: "URL de proxy do destino malformada." }, 400);
@@ -7835,7 +7766,7 @@ export const onRequestPost = async (context: any) => {
 };
 
 export const onRequestOptions = async (context: any) => {
-  return handlePreflight(context.request);;
+  return handlePreflight(context.request);
 };
 ```
 
@@ -8060,7 +7991,7 @@ export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SE
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   // A versão do projeto deve ser alterada aqui, pois o build.ts usa esta informação para gerar o arquivo dist/manifest.json
-  "version": "0.3.3-msxvu2g1",
+  "version": "0.3.5-msy1t3jp",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
@@ -8118,6 +8049,150 @@ export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SE
   "exclude": ["build/", "public/"],
   "nodeModulesDir": "auto"
 }
+```
+
+---
+
+## Arquivo: `deploy.sh`
+
+```bash
+#!/bin/bash
+
+# Aborta o script se ocorrer algum erro crítico nas operações normais
+set -e
+
+# ==============================================================================
+# 0. CONFIGURAÇÕES DE AMBIENTE (NON-INTERACTIVE)
+# ==============================================================================
+# O CI=true força o Wrangler a não fazer perguntas interativas.
+export CI=true
+export WRANGLER_SEND_METRICS=false
+
+# ==============================================================================
+# 1. PARSING DE ARGUMENTOS (--at=... --m=...)
+# ==============================================================================
+
+# AT="github"
+MESSAGE=""
+
+for i in "$@"; do
+  case $i in
+    --at=*)
+      AT="${i#*=}"
+      shift
+      ;;
+    --m=*)
+      MESSAGE="${i#*=}"
+      shift
+      ;;
+    *)
+      ;;
+  esac
+done
+
+# ==============================================================================
+# 2. EXTRAÇÃO DINÂMICA DA VERSÃO E CONFIGURAÇÃO
+# ==============================================================================
+
+FULL_VERSION=$(grep '"version"' deno.jsonc | awk -F'"' '{print $4}')
+MAJOR_MINOR=$(echo $FULL_VERSION | awk -F'.' '{print $1"."$2}')
+TAG_NAME="v${MAJOR_MINOR}"
+
+if [ -z "$MESSAGE" ]; then
+  MESSAGE="Versão $TAG_NAME"
+fi
+
+echo "============================================================"
+echo "🚀 INICIANDO DEPLOY LOCO"
+echo "============================================================"
+echo "📌 Versão completa: $FULL_VERSION"
+echo "🏷️  Tag alvo: $TAG_NAME"
+echo "📝 Mensagem de commit: $MESSAGE"
+echo "🎯 Alvo do Deploy: $AT"
+echo "============================================================"
+
+# ==============================================================================
+# 3. ROTEAMENTO DO DEPLOY
+# ==============================================================================
+
+if [ "$AT" = "github" ]; then
+  # ----------------------------------------------------------------------------
+  # FLUXO: GITHUB ACTIONS (Com Commit e Push)
+  # ----------------------------------------------------------------------------
+  echo ""
+  echo "📦 1/3 - Empacotando e enviando código fonte para o repositório..."
+  git add .
+  git commit -m "$MESSAGE" || true
+  git push
+
+  echo ""
+  echo "🧹 2/3 - Limpando tags antigas ($TAG_NAME)..."
+  git push origin --delete $TAG_NAME 2>/dev/null || true
+  git tag -d $TAG_NAME 2>/dev/null || true
+
+  echo ""
+  echo "🏷️  3/3 - Publicando nova tag (Isso disparará o Github Actions)..."
+  git tag -a $TAG_NAME -m "Versão $TAG_NAME"
+  git push origin $TAG_NAME --force
+
+  echo ""
+  echo "✅ DEPLOY VIA GITHUB ACIONADO COM SUCESSO!"
+  echo "Acompanhe o andamento na aba Actions do seu repositório."
+
+elif [ "$AT" = "cloudflare" ]; then
+  # ----------------------------------------------------------------------------
+  # FLUXO: CLOUDFLARE DIRETO (Sem Commit, Sem Push, Apenas Infraestrutura)
+  # ----------------------------------------------------------------------------
+  
+  EXTRACTED_PRIVATE_KEY=$(deno run -A --env-file minify-keys.ts SERVER_PRIVATE_KEY)
+  
+  if [ -z "$EXTRACTED_PRIVATE_KEY" ]; then
+    echo "❌ ERRO: A extração da chave retornou vazia! O deploy foi abortado."
+    exit 1
+  fi
+
+  echo ""
+  echo "🔐 1/4 - Injetando Segredos (Secrets) no Cloudflare Worker..."
+  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A wrangler secret put SERVER_PRIVATE_KEY -c wrangler-worker.toml
+  echo "✅ SERVER_PRIVATE_KEY atualizado com segurança no Worker."
+
+  echo ""
+  echo "⚡ 2/4 - Realizando deploy do Backend (Cloudflare Worker)..."
+  deno run -A wrangler deploy -c wrangler-worker.toml 
+
+  echo ""
+  echo "📦 Preparando ambiente local para o deploy do Frontend..."
+  # O Pages lê tudo nativamente do wrangler.toml. 
+  # Criamos uma cópia temporária e expomos a pasta de funções.
+  cp wrangler-pages.toml wrangler.toml
+  mv build/functions ./
+
+  echo ""
+  echo "🔐 3/4 - Injetando Segredos (Secrets) no Cloudflare Pages..."
+  # Injeção do segredo explicitamente para o projeto Cloudflare Pages chamado "loco"
+  echo "$EXTRACTED_PRIVATE_KEY" | deno run -A wrangler pages secret put SERVER_PRIVATE_KEY --project-name loco
+  echo "✅ SERVER_PRIVATE_KEY atualizado com segurança no Pages."
+
+  echo ""
+  echo "⚡ 4/4 - Realizando deploy do Frontend (Cloudflare Pages)..."
+  deno run -A wrangler pages deploy --commit-dirty=true
+  
+  echo ""
+  echo "🧹 Limpando ambiente e restaurando arquivos..."
+  # Limpamos o rastro para o repositório continuar limpo e organizado
+  rm wrangler.toml
+  mv ./functions build/
+
+  echo ""
+  echo "✅ DEPLOY DIRETO NO CLOUDFLARE CONCLUÍDO COM SUCESSO!"
+  
+else
+  echo ""
+  echo "❌ ERRO: Alvo de deploy desconhecido ('$AT'). Use '--at=github' ou '--at=cloudflare'."
+  exit 1
+fi
+
+echo "============================================================"
 ```
 
 ---

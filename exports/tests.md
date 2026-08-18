@@ -1,13 +1,13 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.1-msxtm7mu** (TESTES) estruturados em blocos. 
+> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.5-msy1t3jp** (TESTES) estruturados em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.3.1-msxtm7mu] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [v0.3.5-msy1t3jp] - Modo: TESTS
 
-Gerado automaticamente em: 8/17/2026, 8:37:34 PM
+Gerado automaticamente em: 8/18/2026, 12:06:08 AM
 
 ---
 
@@ -2597,6 +2597,1032 @@ Deno.test("Server - Handler /push deve rejeitar payload vazio com HTTP 400", asy
   assertEquals(res.status, 400);
   const data = await res.json();
   assertEquals(data.error, "Corpo não é JSON válido.");
+});
+```
+
+---
+
+## Arquivo: `tests/integration/server-crypto.test.ts`
+
+```ts
+// tests/integration/server-crypto.test.ts
+/// <reference lib="deno.ns" />
+
+import { assert, assertEquals } from "@std/assert";
+import { 
+  generateVAPIDKeys, 
+  generateRSAKeys, 
+  exportKeyToJWK, 
+  minifyRsaPublic, 
+  minifyRsaPrivate,
+  expandRsaPublic // <-- Importação adicionada para reconstruir a chave minificada!
+} from "../../src/utils/crypto-utils.ts";
+import { cifrarChaveVapid } from "../../src/utils/push-utils.ts";
+import { decryptWithServerKey } from "../../server/shared.ts";
+
+Deno.test("INTEGRAÇÃO: Pipeline Criptográfica Completa (Cliente -> PWA -> Servidor)", async () => {
+  // 1. Gera chaves RSA brutas para simular um servidor novo
+  const rawServerKeys = await generateRSAKeys();
+  const rawPublicKeyJwk = await exportKeyToJWK(rawServerKeys.publicKey);
+  const rawPrivateKeyJwk = await exportKeyToJWK(rawServerKeys.privateKey);
+
+  // 2. Simula o processo do deploy.sh minificando as chaves e setando as ENV vars
+  const envMock = {
+    SERVER_PUBLIC_KEY: JSON.stringify(minifyRsaPublic(rawPublicKeyJwk)),
+    SERVER_PRIVATE_KEY: JSON.stringify(minifyRsaPrivate(rawPrivateKeyJwk))
+  };
+
+  // 3. O Cliente arranca e gera a sua chave VAPID
+  const clientVapidKeys = await generateVAPIDKeys();
+  const clientVapidPrivateKeyJwk = await exportKeyToJWK(clientVapidKeys.privateKey);
+
+  // 🔥 SOLUÇÃO: O Cliente (PWA) recebe a chave minificada do Proxy e TEM de a expandir (injetar KTY, ALG, E)
+  const expandedServerPublicKey = expandRsaPublic(JSON.parse(envMock.SERVER_PUBLIC_KEY));
+
+  // Agora sim, a chave expandida é passada para o motor WebCrypto sem dar erro de "KTY missing"
+  const envelopeBase64 = await cifrarChaveVapid(clientVapidPrivateKeyJwk, expandedServerPublicKey);
+
+  assert(typeof envelopeBase64 === "string", "O envelope gerado deve ser uma string Base64");
+  
+  // 4. O Servidor recebe o envelope e tenta decifrá-lo consumindo as ENV vars minificadas
+  const decryptedJwk = await decryptWithServerKey(envMock, envelopeBase64);
+
+  // 5. Verifica se os dados se mantiveram perfeitos durante toda a transação
+  assertEquals(
+    decryptedJwk.d, 
+    clientVapidPrivateKeyJwk.d, 
+    "FALHA FATAL: A chave extraída pelo servidor não corresponde à original!"
+  );
+
+  console.log("✅ Pipeline Criptográfico Uniformizado operando com perfeição!");
+});
+
+Deno.test("INTEGRAÇÃO: Servidor deve rejeitar (Nó Incorreto/OperationError) com Chaves Dessincronizadas", async () => {
+  const keysOntem = await generateRSAKeys();
+  const keysHoje = await generateRSAKeys();
+
+  const envMockHoje = {
+    SERVER_PUBLIC_KEY: JSON.stringify(minifyRsaPublic(await exportKeyToJWK(keysHoje.publicKey))),
+    SERVER_PRIVATE_KEY: JSON.stringify(minifyRsaPrivate(await exportKeyToJWK(keysHoje.privateKey)))
+  };
+
+  const clientVapidKeys = await generateVAPIDKeys();
+  
+  // 🔥 SOLUÇÃO: Expandir a chave minificada de "ontem" antes de o cliente a utilizar
+  const chaveVelhaExpandida = expandRsaPublic(minifyRsaPublic(await exportKeyToJWK(keysOntem.publicKey)));
+
+  // Cliente cifra usando a chave pública expandida de "ontem"
+  const envelopeComChaveVelha = await cifrarChaveVapid(
+    await exportKeyToJWK(clientVapidKeys.privateKey), 
+    chaveVelhaExpandida
+  );
+
+  let deuErro = false;
+  try {
+    // Servidor tenta abrir usando as chaves de "hoje"
+    await decryptWithServerKey(envMockHoje, envelopeComChaveVelha);
+  } catch (error: any) {
+    deuErro = true;
+    assert(
+      error.message.includes("OperationError") || error.message.includes("Nó incorreto") || error.name === "OperationError", 
+      "O erro deveria ser de operação RSA (Nó Incorreto)"
+    );
+  }
+
+  assert(deuErro, "Falha Crítica de Segurança: O Servidor conseguiu abrir um cofre trancado com outra chave!");
+});
+```
+
+---
+
+## Arquivo: `tests/integration/e2e-payload-pipeline.test.ts`
+
+```ts
+// tests/integration/e2e-payload-pipeline.test.ts
+/// <reference lib="deno.ns" />
+
+import { assert, assertEquals } from "@std/assert";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK, base64UrlToBuffer } from "../../src/utils/crypto-utils.ts";
+import { cifrarPayloadObj } from "../../src/utils/push-utils.ts";
+import { criarJWT, verificarJWT } from "../../src/utils/jwt-helpers.ts";
+import { gunzipSync } from "fflate";
+
+Deno.test("INTEGRAÇÃO E2E: Nó A (Compacta, Cifra, Assina) -> Servidor (Cego) -> Nó B (Verifica, Decifra, Descompacta)", async () => {
+  
+  // =========================================================================
+  // 1. SETUP DOS NÓS (Geração das identidades criptográficas)
+  // =========================================================================
+  
+  // Nó A (Remetente / Alice)
+  const aliceVapid = await generateVAPIDKeys();
+  const aliceVapidPubJwk = await exportKeyToJWK(aliceVapid.publicKey);
+  const aliceVapidPrivJwk = await exportKeyToJWK(aliceVapid.privateKey);
+
+  // Nó B (Destinatário / Bob)
+  const bobE2E = await generateE2EEKeys();
+  
+  // O payload original (Usamos uma string repetida para provar que o GZIP/fflate atua reduzindo o tamanho)
+  const payloadOriginal = {
+    mensagem: { conteudo: "Mensagem Ultra Secreta! ".repeat(50) },
+    contato: { sync: { nome: "Alice_PWA" } }
+  };
+
+
+  // =========================================================================
+  // 2. NÓ A (ALICE) PREPARA O PACOTE (Simulando sw-handshakes.ts -> Fluxo OUT)
+  // =========================================================================
+  
+  // A) Compacta com GZIP e Cifra com AES/RSA (Usando a chave pública E2E do Bob)
+  const envelopeCifrado = await cifrarPayloadObj(payloadOriginal, bobE2E.publicEncrypt);
+  
+  assert(envelopeCifrado.i && envelopeCifrado.d && envelopeCifrado.k, "O Envelope deve conter IV, Dados e Chave AES cifrada.");
+
+  // B) Assina o pacote num JWT (Usando a chave privada VAPID da Alice)
+  const jwtPayload = { 
+    sub: "hand", 
+    aud: "hash-do-bob", 
+    jti: "handshake-123", 
+    ct: JSON.stringify(envelopeCifrado) 
+  };
+  
+  const jwtString = await criarJWT(jwtPayload, aliceVapidPrivJwk, { kid: aliceVapidPubJwk });
+
+
+  // =========================================================================
+  // 3. O SERVIDOR PROXY (O "Carteiro Cego")
+  // =========================================================================
+  
+  // O Servidor recebe a string JWT. Ele não tem a chave E2E privada do Bob.
+  // Se o servidor tentar ler o conteúdo dentro de 'ct', ele só verá lixo binário.
+  const tamanhoTransferencia = new Blob([jwtString]).size;
+  console.log(`\n📦 Tamanho do pacote trafegado na rede: ${tamanhoTransferencia} bytes`);
+  assert(tamanhoTransferencia < 4096, "O pacote JWT final deve ser menor que o MTU do Web Push (4KB)");
+
+
+  // =========================================================================
+  // 4. NÓ B (BOB) RECEBE E ABRE O PACOTE (Simulando sw-handshakes.ts -> Fluxo IN)
+  // =========================================================================
+  
+  // A) Verifica a Assinatura (Garante que foi a Alice quem enviou e que ninguém alterou o pacote no meio do caminho)
+  const jwtDecodificado = await verificarJWT(jwtString);
+  assertEquals(jwtDecodificado.header.alg, "ES256", "O JWT deve ter sido assinado com a curva P-256 (ECDSA)");
+  assertEquals(jwtDecodificado.payload.aud, "hash-do-bob", "O pacote deve ser destinado ao Bob");
+
+  // B) Extrai o cofre
+  const ctRecebido = JSON.parse(jwtDecodificado.payload.ct);
+
+  // C) Decifra RSA (Bob usa a sua própria chave E2E privada para abrir a chave AES que a Alice gerou)
+  const bobPrivateDecryptKey = await crypto.subtle.importKey(
+    "jwk", 
+    bobE2E.privateDecryptJwk, 
+    { name: "RSA-OAEP", hash: "SHA-256" }, 
+    true, 
+    ["decrypt"]
+  );
+
+  const ivBytes = new Uint8Array(base64UrlToBuffer(ctRecebido.i));
+  const dadosBytes = new Uint8Array(base64UrlToBuffer(ctRecebido.d));
+  const chaveAesCifradaBytes = new Uint8Array(base64UrlToBuffer(ctRecebido.k));
+
+  const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+    { name: "RSA-OAEP" }, 
+    bobPrivateDecryptKey, 
+    chaveAesCifradaBytes
+  );
+  
+  const chaveSimetricaAes = await crypto.subtle.importKey(
+    "raw", 
+    aesChaveCruaBuffer, 
+    { name: "AES-GCM", length: 256 }, 
+    false, 
+    ["decrypt"]
+  );
+
+  // D) Decifra AES (Abre a mensagem propriamente dita)
+  const textoDecifradoBuffer = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: ivBytes }, 
+    chaveSimetricaAes, 
+    dadosBytes
+  );
+
+  // E) Descompacta GZIP (fflate) e faz o Parse JSON
+  const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
+  const rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
+
+
+  // =========================================================================
+  // 5. PROVA MATEMÁTICA FINAL
+  // =========================================================================
+  
+  assertEquals(
+    rotasObj.mensagem.conteudo, 
+    payloadOriginal.mensagem.conteudo, 
+    "FALHA FATAL: A mensagem foi corrompida ou alterada durante o trajeto!"
+  );
+  
+  assertEquals(
+    rotasObj.contato.sync.nome, 
+    "Alice_PWA", 
+    "FALHA FATAL: O Piggybacking (Sincronização de contato embutida) falhou!"
+  );
+
+  console.log("✅ Pipeline de Dados E2E (Compactação -> AES -> RSA -> JWT -> Rede) operando perfeitamente!");
+});
+```
+
+---
+
+## Arquivo: `tests/integration/proxy-payload.test.ts`
+
+```ts
+// tests/integration/proxy-payload.test.ts
+/// <reference lib="deno.ns" />
+
+import "fake-indexeddb";
+import { assert, assertEquals, assertExists } from "@std/assert";
+
+import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { 
+  salvarProfile, 
+  salvarContato, 
+  salvarHandshake, 
+  serializarPublicKeyVapid, 
+  removerHandshake,
+  listarHandshakes
+} from "../../src/utils/db-helpers.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+
+const originalFetch = globalThis.fetch;
+
+Deno.test("INTEGRAÇÃO REAL (Router -> Proxy): O Roteador envia o proxyserver padronizado dentro de subscription", async () => {
+  
+  const aliceVapid = await generateVAPIDKeys();
+  const aliceE2E = await generateE2EEKeys();
+  const alicePubVapid = await exportKeyToJWK(aliceVapid.publicKey);
+
+  const bobVapid = await generateVAPIDKeys();
+  const bobE2E = await generateE2EEKeys();
+  const bobPubVapid = await exportKeyToJWK(bobVapid.publicKey);
+  const bobHash = await serializarPublicKeyVapid(bobPubVapid);
+
+  const myProfile: ProfileConfig = {
+    name: "Alice",
+    email: "alice@loco.pwa",
+    vapidPublicKey: alicePubVapid,
+    vapidPrivateKeyJwk: await exportKeyToJWK(aliceVapid.privateKey),
+    vapidPrivateKeyEnvelope: "envelope-cifrado-da-alice",
+    e2ePublicKey: aliceE2E.publicEncrypt,
+    e2ePrivateKeyJwk: aliceE2E.privateDecryptJwk,
+    subscription: {
+      endpoint: "https://push.alice.com",
+      keys: { p256dh: "alice-p256dh", auth: "alice-auth" },
+      proxyserver: "https://proxy.loco.com"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(myProfile);
+
+  const contatoBob: Contato = {
+    id: bobHash,
+    name: "Bob",
+    email: "bob@loco.pwa",
+    vapidPublicKey: bobPubVapid,
+    e2ePublicKey: bobE2E.publicEncrypt,
+    subscription: {
+      endpoint: "https://fcm.googleapis.com/fcm/send/bob-token-secreto",
+      keys: { p256dh: "bob-p256dh", auth: "bob-auth" },
+      proxyserver: "https://proxy.loco.com"
+    },
+    vapidPrivateKeyEnvelope: "envelope-cifrado-do-bob",
+    trusted: true,
+    me: 'none', 
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(contatoBob);
+
+  const handshakeId = "handshake-teste-payload";
+  const handshakeOut: Handshake = {
+    id: handshakeId,
+    aud: bobHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    out: {
+      status: 'pendente',
+      tentativas: 0,
+      rotas: {
+        mensagem: {
+          enviada: "msg-123",
+          conteudo: "Olá Bob! Testando o proxyserver padronizado no subscription!"
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeOut);
+
+  let requestInterceptada: any = null;
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    if (init && init.body) {
+      requestInterceptada = JSON.parse(init.body as string);
+    }
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  };
+
+  try {
+    await processarFilaHandshake();
+
+    assertExists(requestInterceptada, "O Roteador não realizou a chamada de rede (fetch)!");
+
+    // A) O Subscription padronizado com endpoint, keys e proxyserver
+    assertExists(requestInterceptada.subscription);
+    assertEquals(requestInterceptada.subscription.endpoint, contatoBob.subscription.endpoint);
+    
+    // 🔥 PROVA MATEMÁTICA: O proxyserver está perfeitamente padronizado dentro de subscription!
+    assertEquals(requestInterceptada.subscription.proxyserver, contatoBob.subscription.proxyserver, "O proxyserver DEVE estar dentro de subscription");
+
+    // B) Credenciais VAPID do destinatário
+    assertExists(requestInterceptada.vapid);
+    assertEquals(requestInterceptada.vapid.publicKey.x, bobPubVapid.x);
+    assertEquals(requestInterceptada.vapid.privateKey, contatoBob.vapidPrivateKeyEnvelope);
+
+    // C) JWT Payload
+    assertExists(requestInterceptada.payloadText);
+
+  } finally {
+    globalThis.fetch = originalFetch;
+    
+    const fila = await listarHandshakes();
+    for (const h of fila) {
+      await removerHandshake(h.id);
+    }
+  }
+});
+```
+
+---
+
+## Arquivo: `tests/integration/proxy-validation.test.ts`
+
+```ts
+// tests/integration/proxy-validation.test.ts
+/// <reference lib="deno.ns" />
+
+import { assertEquals } from "@std/assert";
+import { handlePush } from "../../server/functions/push.ts";
+
+// Objeto base 100% válido para usar de modelo nos testes
+const createValidPayload = () => ({
+  subscription: {
+    endpoint: "https://fcm.googleapis.com/fcm/send/token-teste",
+    keys: {
+      p256dh: "p256dh-valido-base64",
+      auth: "auth-valida-base64",
+    },
+    proxyserver: "https://proxy.loco.com",
+  },
+  vapid: {
+    publicKey: { x: "coordenada-x", y: "coordenada-y" },
+    privateKey: "envelope-cifrado-valido",
+  },
+  payloadText: "header.payload.signature",
+});
+
+// Auxiliar para simular a requisição HTTP POST recebida pelo Worker
+function createMockRequest(bodyObj: any): Request {
+  return new Request("https://proxy.loco.com/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bodyObj),
+  });
+}
+
+Deno.test("VALIDAÇÃO NEGATIVA: Servidor deve ACEITAR a estrutura completa preliminarmente", async () => {
+  const payloadValido = createValidPayload();
+  const req = createMockRequest(payloadValido);
+
+  // Executa o handler real do servidor
+  const res = await handlePush(req, {});
+  const data = await res.json();
+
+  // Esperamos que ele passe da trava inicial de validação estrita (HTTP 400).
+  // Ele só falhará depois no RSA/WebPush porque o token/envelope no mock são fictícios, mas NÃO na estrutura de entrada!
+  assertEquals(data.error !== "Estrutura P2P Inválida. Parâmetros em falta em subscription, vapid ou payloadText.", true);
+});
+
+// =========================================================================
+// BATERIA DE TESTES DE REJEIÇÃO DA ESTRUTURA (HTTP 400)
+// =========================================================================
+
+Deno.test("REJEIÇÃO: Deve falhar se 'subscription' estiver ausente", async () => {
+  const payload = createValidPayload();
+  delete (payload as any).subscription;
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+
+Deno.test("REJEIÇÃO: Deve falhar se 'subscription.endpoint' estiver ausente/vazio", async () => {
+  const payload = createValidPayload();
+  payload.subscription.endpoint = "";
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+
+Deno.test("REJEIÇÃO: Deve falhar se 'subscription.proxyserver' estiver ausente/vazio", async () => {
+  const payload = createValidPayload();
+  payload.subscription.proxyserver = "";
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+
+Deno.test("REJEIÇÃO: Deve falhar se 'subscription.keys.p256dh' estiver ausente", async () => {
+  const payload = createValidPayload();
+  delete (payload.subscription.keys as any).p256dh;
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+
+Deno.test("REJEIÇÃO: Deve falhar se 'subscription.keys.auth' estiver ausente", async () => {
+  const payload = createValidPayload();
+  delete (payload.subscription.keys as any).auth;
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+
+Deno.test("REJEIÇÃO: Deve falhar se 'vapid' estiver ausente", async () => {
+  const payload = createValidPayload();
+  delete (payload as any).vapid;
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+
+Deno.test("REJEIÇÃO: Deve falhar se 'vapid.publicKey' estiver ausente", async () => {
+  const payload = createValidPayload();
+  delete (payload.vapid as any).publicKey;
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+
+Deno.test("REJEIÇÃO: Deve falhar se 'vapid.privateKey' (envelope) estiver ausente", async () => {
+  const payload = createValidPayload();
+  delete (payload.vapid as any).privateKey;
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+
+Deno.test("REJEIÇÃO: Deve falhar se 'payloadText' estiver ausente/vazio", async () => {
+  const payload = createValidPayload();
+  payload.payloadText = "";
+
+  const res = await handlePush(createMockRequest(payload), {});
+  assertEquals(res.status, 400);
+  const data = await res.json();
+  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
+});
+```
+
+---
+
+## Arquivo: `tests/integration/contact-purge.test.ts`
+
+```ts
+// tests/integration/contact-purge.test.ts
+/// <reference lib="deno.ns" />
+
+import "fake-indexeddb";
+import { assertEquals, assertExists } from "@std/assert";
+
+import { 
+  removerContatoCompletamente, 
+  contatosRaw 
+} from "../../src/stores/contatosStore.ts";
+
+import { 
+  salvarContato, 
+  salvarChat, 
+  salvarHandshake, 
+  buscarContatoPorChave, 
+  buscarChat, 
+  buscarHandshake, 
+  serializarPublicKeyVapid, 
+  listarChatPaginado 
+} from "../../src/utils/db-helpers.ts";
+
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+import type { Contato, Chat, Handshake } from "../../src/constants/db.ts";
+
+Deno.test("INTEGRAÇÃO E EXPURGO: Excluir contato deve apagar mensagens e handshakes vinculados em cascata", async () => {
+
+  // =========================================================================
+  // 1. SETUP DE DADOS PARA O CONTATO (ALVO DO EXPURGO)
+  // =========================================================================
+  const vapidKeys = await generateVAPIDKeys();
+  const e2eKeys = await generateE2EEKeys();
+  const pubVapidJwk = await exportKeyToJWK(vapidKeys.publicKey);
+  const contatoHash = await serializarPublicKeyVapid(pubVapidJwk);
+
+  const novoContato: Contato = {
+    id: contatoHash,
+    name: "Contato Para Exclusão",
+    email: "expurgo@loco.pwa",
+    vapidPublicKey: pubVapidJwk,
+    e2ePublicKey: e2eKeys.publicEncrypt,
+    subscription: {
+      endpoint: "https://fcm.googleapis.com/fcm/send/token-expurgo",
+      keys: { p256dh: "p256dh", auth: "auth" },
+      proxyserver: "https://proxy.loco.com"
+    },
+    vapidPrivateKeyEnvelope: "envelope-cifrado",
+    trusted: true,
+    me: "saved",
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+
+  // Salva o contato no IndexedDB e atualiza a memória reativa
+  await salvarContato(novoContato);
+  contatosRaw.value = [novoContato];
+
+  // =========================================================================
+  // 2. SETUP DE MENSAGENS VINCULADAS
+  // =========================================================================
+  const msg1: Chat = {
+    id: "msg-expurgo-1",
+    contatoHash: contatoHash,
+    conteudo: "Mensagem enviada 1",
+    tipo: "out",
+    createdAt: Date.now(),
+    handshake: "handshake-msg-1"
+  };
+
+  const msg2: Chat = {
+    id: "msg-expurgo-2",
+    contatoHash: contatoHash,
+    conteudo: "Mensagem recebida 2",
+    tipo: "in",
+    createdAt: Date.now() + 100,
+    handshake: "handshake-msg-2"
+  };
+
+  await salvarChat(msg1);
+  await salvarChat(msg2);
+
+  // =========================================================================
+  // 3. SETUP DE HANDSHAKES VINCULADOS
+  // =========================================================================
+  const handContato: Handshake = {
+    id: "handshake-contato-id",
+    aud: contatoHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    out: { status: "enviado", tentativas: 1, rotas: { contato: { id: contatoHash } } }
+  };
+
+  const handProfile: Handshake = {
+    id: "handshake-profile-id",
+    aud: contatoHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    out: { status: "enviado", tentativas: 1, rotas: { profile: { campos: ["name"] } } }
+  };
+
+  const handMensagem: Handshake = {
+    id: "handshake-msg-1",
+    aud: contatoHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    out: { status: "enviado", tentativas: 1, rotas: { mensagem: { enviada: "msg-expurgo-1" } } }
+  };
+
+  await salvarHandshake(handContato);
+  await salvarHandshake(handProfile);
+  await salvarHandshake(handMensagem);
+
+  // =========================================================================
+  // 4. SANITY CHECK: GARANTIR QUE OS DADOS REALMENTE EXISTEM ANTES DE EXCLUIR
+  // =========================================================================
+  assertExists(await buscarContatoPorChave(contatoHash), "O contato deveria existir antes do expurgo.");
+  assertExists(await buscarChat("msg-expurgo-1"), "A mensagem 1 deveria existir antes do expurgo.");
+  assertExists(await buscarChat("msg-expurgo-2"), "A mensagem 2 deveria existir antes do expurgo.");
+  assertExists(await buscarHandshake("handshake-contato-id"), "O handshake de contato deveria existir.");
+  assertExists(await buscarHandshake("handshake-profile-id"), "O handshake de perfil deveria existir.");
+  assertExists(await buscarHandshake("handshake-msg-1"), "O handshake de mensagem deveria existir.");
+
+  // =========================================================================
+  // 5. EXECUÇÃO DO EXPURGO COMPLETO
+  // =========================================================================
+  await removerContatoCompletamente(contatoHash);
+
+  // =========================================================================
+  // 6. VALIDAÇÃO DAS DELETACÕES EM CASCATA
+  // =========================================================================
+
+  // A) O Contato foi removido do banco e do Signal?
+  const contatoNoDb = await buscarContatoPorChave(contatoHash);
+  assertEquals(contatoNoDb, undefined, "O contato não foi removido do IndexedDB.");
+  assertEquals(contatosRaw.value.some(c => c.id === contatoHash), false, "O contato continuou em memória no Signal contatosRaw.");
+
+  // B) As Mensagens foram totalmente removidas (inclusive do Índice paginado)?
+  const msg1NoDb = await buscarChat("msg-expurgo-1");
+  const msg2NoDb = await buscarChat("msg-expurgo-2");
+  const mensagensPaginadas = await listarChatPaginado(contatoHash, 30, 0);
+
+  assertEquals(msg1NoDb, undefined, "A mensagem 1 não foi apagada.");
+  assertEquals(msg2NoDb, undefined, "A mensagem 2 não foi apagada.");
+  assertEquals(mensagensPaginadas.length, 0, "O índice do histórico de mensagens não foi limpo.");
+
+  // C) Todos os Handshakes da fila pertencentes a esse contato foram expurgados?
+  const handContatoNoDb = await buscarHandshake("handshake-contato-id");
+  const handProfileNoDb = await buscarHandshake("handshake-profile-id");
+  const handMensagemNoDb = await buscarHandshake("handshake-msg-1");
+
+  assertEquals(handContatoNoDb, undefined, "Handshake de contato não foi removido.");
+  assertEquals(handProfileNoDb, undefined, "Handshake de perfil não foi removido.");
+  assertEquals(handMensagemNoDb, undefined, "Handshake de mensagem não foi removido.");
+
+  console.log("✅ Expurgo em cascata validado: Contato, Mensagens, Índices e Handshakes limpos do banco!");
+});
+```
+
+---
+
+## Arquivo: `tests/integration/auto-discovery.test.ts`
+
+```ts
+// tests/integration/auto-discovery.test.ts
+/// <reference lib="deno.ns" />
+
+import "fake-indexeddb";
+import { assertEquals } from "@std/assert";
+import { loadAllConfigs, resetConfig, getConfigValue, saveConfig } from "../../src/stores/config-store.ts";
+import { DefaultProxyPath, FallbackAbsoluteProxy } from "../../src/constants/config.ts";
+
+const originalFetch = globalThis.fetch;
+
+Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve selecionar Rota Relativa quando o servidor nativo responde ao /ping", async () => {
+  await resetConfig(); // Garante banco limpo e reseta a chave
+
+  // Simula que o servidor local/nativo (DefaultProxyPath) está ONLINE e é um loco-proxy válido
+  globalThis.fetch = async (input: string | URL | Request): Promise<Response> => {
+    const urlStr = input.toString();
+    if (urlStr.includes("/ping")) {
+      return new Response(JSON.stringify({ success: true, service: "loco-proxy", timestamp: Date.now() }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response("Not Found", { status: 404 });
+  };
+
+  try {
+    const config = await loadAllConfigs();
+    
+    // Deve ter preferido o servidor relativo nativo ("/")
+    assertEquals(config.proxy_path, DefaultProxyPath);
+    
+    // Verifica se salvou e retornou a decisão no IndexedDB
+    const savedInDb = await getConfigValue("PROXY_PATH");
+    assertEquals(savedInDb, DefaultProxyPath);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve fazer Fallback quando o servidor nativo falha mas o Fallback responde", async () => {
+  await resetConfig();
+
+  // Simula que o servidor local falha/dá 500, mas o Fallback responde com sucesso
+  globalThis.fetch = async (input: string | URL | Request): Promise<Response> => {
+    const urlStr = input.toString();
+    
+    // Se a chamada for para o Fallback remoto
+    if (urlStr.includes(FallbackAbsoluteProxy) && urlStr.includes("/ping")) {
+      return new Response(JSON.stringify({ success: true, service: "loco-proxy", timestamp: Date.now() }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Se for o local/relativo, falha
+    return new Response("Internal Server Error", { status: 500 });
+  };
+
+  try {
+    const config = await loadAllConfigs();
+    
+    // Deve ter ativado o Fallback remoto
+    assertEquals(config.proxy_path, FallbackAbsoluteProxy);
+    
+    // E ter salvo no IndexedDB
+    const savedInDb = await getConfigValue("PROXY_PATH");
+    assertEquals(savedInDb, FallbackAbsoluteProxy);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve reutilizar o ProxyPath salvo no IndexedDB sem re-testar se já configurado", async () => {
+  await resetConfig();
+
+  // 1. Força a gravação prévia de um proxy customizado no banco
+  const customProxy = "https://meu-proxy-customizado.com";
+  await saveConfig("PROXY_PATH", customProxy);
+
+  let fetchChamado = false;
+  globalThis.fetch = async (): Promise<Response> => {
+    fetchChamado = true;
+    return new Response("OK", { status: 200 });
+  };
+
+  try {
+    const config = await loadAllConfigs();
+    
+    // Retorna a configuração já existente
+    assertEquals(config.proxy_path, customProxy);
+    
+    // NÃO deve ter feito chamadas de ping de rede para auto-discovery
+    assertEquals(fetchChamado, false, "Auto-Discovery não deveria disparar requisições de rede se a rota já está salva no banco.");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+```
+
+---
+
+## Arquivo: `tests/integration/message-delete-handshake.test.ts`
+
+```ts
+// tests/integration/message-delete-handshake.test.ts
+/// <reference lib="deno.ns" />
+
+import "fake-indexeddb";
+import { assertEquals, assertExists } from "@std/assert";
+
+import { excluirMensagem } from "../../src/stores/mensagensStore.ts";
+import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
+import { 
+  salvarChat, 
+  buscarChat, 
+  salvarHandshake, 
+  buscarHandshake, 
+  listarHandshakes,
+  salvarContato,
+  removerHandshake
+} from "../../src/utils/db-helpers.ts";
+
+import type { Chat, Handshake, Contato } from "../../src/constants/db.ts";
+
+Deno.test("INTEGRAÇÃO (Exclusão - Parte 1): Apagar mensagem local deve gerar Handshake de exclusão remota OUT", async () => {
+  const contatoHash = "hash-contato-bob-123";
+  const msgId = "msg-para-deletar-456";
+
+  // 1. Salva uma mensagem no banco local
+  const msg: Chat = {
+    id: msgId,
+    contatoHash: contatoHash,
+    conteudo: "Mensagem que será apagada bidirecionalmente",
+    tipo: "out",
+    createdAt: Date.now(),
+    handshake: "handshake-original-envio"
+  };
+  await salvarChat(msg);
+
+  // Garante que existia antes
+  assertExists(await buscarChat(msgId), "A mensagem deveria existir no banco antes de ser excluída.");
+
+  // Mock básico do Service Worker para capturar a mensagem postada da UI
+  let mensagemSWCapturada: any = null;
+  if (typeof navigator !== "undefined") {
+    (navigator as any).serviceWorker = {
+      ready: Promise.resolve({
+        active: {
+          postMessage: (data: any) => {
+            mensagemSWCapturada = data;
+          }
+        }
+      })
+    };
+  }
+
+  // 2. Executa a exclusão da mensagem
+  await excluirMensagem(msgId, contatoHash);
+
+  // 3. Valida se a mensagem foi apagada do banco local
+  const msgNoDb = await buscarChat(msgId);
+  assertEquals(msgNoDb, undefined, "A mensagem deveria ter sido removida do IndexedDB local.");
+
+  // 4. PROVA: Valida se a UI notificou o Service Worker para criar a rota de exclusão remota
+  assertExists(mensagemSWCapturada, "O comando de exclusão não foi enviado ao Service Worker!");
+  assertEquals(mensagemSWCapturada.type, "CRIAR_HANDSHAKE_OUT");
+  assertEquals(mensagemSWCapturada.payload.rotasModulo, "mensagem");
+  assertEquals(mensagemSWCapturada.payload.params.function, "excluirMensagem");
+  assertEquals(mensagemSWCapturada.payload.params.msgId, msgId);
+
+  // 5. Simula a ação que o SW faz ao receber esse evento 'CRIAR_HANDSHAKE_OUT'
+  await ProcessarMensagem({ out: mensagemSWCapturada.payload.params });
+
+  // 6. PROVA FINAL: Verifica se o Handshake OUT com rota { mensagem: { excluida: msgId } } foi gravado no banco
+  const handshakes = await listarHandshakes();
+  const handshakeExclusao = handshakes.find(h => h.aud === contatoHash && h.out?.rotas.mensagem?.excluida === msgId);
+
+  assertExists(handshakeExclusao, "O Handshake de saída com a instrução 'excluida' não foi encontrado na fila!");
+  assertEquals(handshakeExclusao.out?.status, "pendente");
+
+  // Limpeza
+  for (const h of handshakes) await removerHandshake(h.id);
+});
+
+Deno.test("INTEGRAÇÃO (Exclusão - Parte 2): Receber Handshake de exclusão remota IN deve apagar a mensagem do IndexedDB", async () => {
+  const contatoHash = "hash-contato-alice-789";
+  const msgIdRecebida = "msg-recebida-alice-101";
+  const handshakeInId = "handshake-in-exclusao-999";
+
+  // 1. Salva o contato para autoridade de exclusão
+  const contato: Contato = {
+    id: contatoHash,
+    name: "Alice",
+    email: "alice@loco.pwa",
+    vapidPublicKey: {} as any,
+    e2ePublicKey: {} as any,
+    subscription: { endpoint: "ep", keys: { p256dh: "p", auth: "a" }, proxyserver: "ps" },
+    vapidPrivateKeyEnvelope: "env",
+    trusted: true,
+    me: "saved",
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(contato);
+
+  // 2. Salva uma mensagem recebida anteriormente de Alice
+  const msgRecebida: Chat = {
+    id: msgIdRecebida,
+    contatoHash: contatoHash,
+    conteudo: "Mensagem que a Alice decidiu apagar remotamente",
+    tipo: "in",
+    createdAt: Date.now(),
+    handshake: "handshake-original-recebimento"
+  };
+  await salvarChat(msgRecebida);
+
+  assertExists(await buscarChat(msgIdRecebida), "A mensagem recebida deveria existir no banco.");
+
+  // 3. Simula a chegada de um Handshake IN de exclusão processado pelo Roteador SW
+  const handshakeIn: Handshake = {
+    id: handshakeInId,
+    aud: contatoHash, // Veio da Alice
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: {
+      status: "recebido",
+      tentativas: 0,
+      rotas: {
+        mensagem: {
+          excluida: msgIdRecebida // Instrução remota de exclusão
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeIn);
+
+  // 4. Executa o processador oficial do módulo 'hand-mensagem.ts'
+  await ProcessarMensagem({ in: handshakeInId });
+
+  // 5. PROVA MATEMÁTICA: A mensagem recebida da Alice foi permanentemente apagada do IndexedDB?
+  const msgAposProcessar = await buscarChat(msgIdRecebida);
+  assertEquals(msgAposProcessar, undefined, "FALHA: O processador de Handshake IN não apagou a mensagem do IndexedDB!");
+
+  // Limpeza
+  await removerHandshake(handshakeInId);
+});
+```
+
+---
+
+## Arquivo: `tests/integration/remote-purge.test.ts`
+
+```ts
+// tests/integration/remote-purge.test.ts
+/// <reference lib="deno.ns" />
+
+import "fake-indexeddb";
+import { assertEquals, assertExists } from "@std/assert";
+
+import { limparTodoHistorico } from "../../src/stores/mensagensStore.ts";
+import { removerContatoCompletamente } from "../../src/stores/contatosStore.ts";
+import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
+import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
+import { 
+  salvarChat, 
+  buscarChat, 
+  salvarContato, 
+  buscarContatoPorChave, 
+  salvarHandshake, 
+  buscarHandshake, 
+  listarHandshakes,
+  removerHandshake 
+} from "../../src/utils/db-helpers.ts";
+
+import type { Chat, Contato, Handshake } from "../../src/constants/db.ts";
+
+Deno.test("INTEGRAÇÃO (Expurgo Remoto 1): Limpar histórico cria Handshake Único e Apaga no Remoto", async () => {
+  const contatoHash = "hash-bob-purge";
+
+  // 1. Salva mensagens no remetente
+  await salvarChat({ id: "m1", contatoHash, conteudo: "1", tipo: "out", createdAt: Date.now(), handshake: "h1" });
+  await salvarChat({ id: "m2", contatoHash, conteudo: "2", tipo: "in", createdAt: Date.now(), handshake: "h2" });
+
+  // 2. Dispara a limpeza total de histórico
+  await limparTodoHistorico(contatoHash);
+
+  // 3. Verifica se gerou o Handshake com a rota { mensagem: { limparHistorico: true } }
+  const handshakes = await listarHandshakes();
+  const handPurge = handshakes.find(h => h.aud === contatoHash && h.out?.rotas.mensagem?.limparHistorico === true);
+  
+  assertExists(handPurge, "O Handshake único de expurgo de histórico não foi gerado!");
+
+  // 4. Simula o recebimento desse Handshake no lado do Bob
+  const handIn: Handshake = {
+    id: "hand-in-purge",
+    aud: contatoHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: { status: "recebido", tentativas: 0, rotas: { mensagem: { limparHistorico: true } } }
+  };
+  await salvarHandshake(handIn);
+
+  // Bob processa a entrada
+  await ProcessarMensagem({ in: "hand-in-purge" });
+
+  // 5. Verifica se as mensagens de Bob foram apagadas
+  assertEquals(await buscarChat("m1"), undefined);
+  assertEquals(await buscarChat("m2"), undefined);
+
+  for (const h of await listarHandshakes()) await removerHandshake(h.id);
+});
+
+Deno.test("INTEGRAÇÃO (Expurgo Remoto 2): Excluir Contato cria Handshake Único de Remoção de Perfil no Remoto", async () => {
+  const contatoHash = "hash-alice-delete";
+
+  // 1. Salva o contato
+  const contato: Contato = {
+    id: contatoHash, name: "Alice", email: "a@a.com",
+    vapidPublicKey: {} as any, e2ePublicKey: {} as any,
+    subscription: { endpoint: "e", keys: { p256dh: "p", auth: "a" }, proxyserver: "ps" },
+    vapidPrivateKeyEnvelope: "e", trusted: true, me: "saved", createdAt: Date.now(), updatedAt: Date.now()
+  };
+  await salvarContato(contato);
+
+  // 2. Exclui o contato no lado local
+  await removerContatoCompletamente(contatoHash, true);
+
+  // 3. Verifica se gerou o Handshake com rota { contato: { removerContato: true } }
+  const handshakes = await listarHandshakes();
+  const handDelete = handshakes.find(h => h.aud === contatoHash && h.out?.rotas.contato?.removerContato === true);
+
+  assertExists(handDelete, "O Handshake único de exclusão de contato não foi gerado!");
+
+  // 4. Simula a chegada da exclusão remota no celular da Alice
+  const handIn: Handshake = {
+    id: "hand-in-del-contact",
+    aud: contatoHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: { status: "recebido", tentativas: 0, rotas: { contato: { removerContato: true } } }
+  };
+  await salvarHandshake(handIn);
+
+  await ProcessarContato({ in: "hand-in-del-contact" });
+
+  // 5. Verifica se o perfil e dados do contato no celular da Alice foram apagados
+  assertEquals(await buscarContatoPorChave(contatoHash), undefined);
+
+  for (const h of await listarHandshakes()) await removerHandshake(h.id);
 });
 ```
 
