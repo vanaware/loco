@@ -264,13 +264,13 @@ export async function processarFilaHandshake(): Promise<void> {
 
           const proxyserverDestino = contato.subscription.proxyserver || "";
 
+          // 🔥 AGORA MAIS LIMPO: O JWT não precisa carregar o proxyserver dentro dele!
           let envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
           let payloadJwt: any = { 
             sub: "hand", 
             aud: contato.id, 
             jti: h.id, 
-            ct: JSON.stringify(envelope),
-            proxyserver: proxyserverDestino
+            ct: JSON.stringify(envelope)
           };
           let jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
           

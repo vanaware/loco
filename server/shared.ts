@@ -1,3 +1,12 @@
+// server/shared.ts
+import { 
+  expandRsaPublic, 
+  expandRsaPrivate, 
+  minifyRsaPublic,
+  importJWKToKey
+} from "../src/utils/crypto-utils.ts";
+import { decifrarChaveVapid } from "../src/utils/push-utils.ts"; // A Nova Função
+
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
 let serverPublicKeyMinifiedCache: any | null = null; 
@@ -49,30 +58,26 @@ export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SER
   const publicKeyStr = env?.SERVER_PUBLIC_KEY;
   const privateKeyStr = env?.SERVER_PRIVATE_KEY;
 
-  if (!publicKeyStr) {
-    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada!");
-  }
-  
-  if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada!");
+  if (!publicKeyStr || !privateKeyStr) {
+    throw new Error("❌ Chaves SERVER_PUBLIC_KEY ou SERVER_PRIVATE_KEY não encontradas no ambiente!");
   }
 
   try {
     const rawPublicKeyJwk = JSON.parse(publicKeyStr);
-    let publicKeyJwk = { ...rawPublicKeyJwk };
-    let privateKeyJwk = JSON.parse(privateKeyStr);
+    const rawPrivateKeyJwk = JSON.parse(privateKeyStr);
 
-    const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
+    // Expansão Oficial via PWA Utils
+    const publicKeyJwk = expandRsaPublic(rawPublicKeyJwk);
+    const privateKeyJwk = expandRsaPrivate(rawPrivateKeyJwk, publicKeyJwk);
+    const minifiedPublicKey = minifyRsaPublic(publicKeyJwk);
 
-    if (!publicKeyJwk.kty) {
-      publicKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", n: publicKeyJwk.n, e: "AQAB", ext: true, key_ops: ["encrypt"] };
-    }
-
-    if (!privateKeyJwk.kty) {
-      privateKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", e: publicKeyJwk.e, n: publicKeyJwk.n, ext: true, key_ops: ["decrypt"], d: privateKeyJwk.d, p: privateKeyJwk.p, q: privateKeyJwk.q, dp: privateKeyJwk.dp, dq: privateKeyJwk.dq, qi: privateKeyJwk.qi };
-    }
-
-    const serverPrivateKey = await crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+    // Importação Oficial via PWA Utils
+    const serverPrivateKey = await importJWKToKey(
+      privateKeyJwk, 
+      { name: "RSA-OAEP", hash: "SHA-256" }, 
+      true, 
+      ["decrypt"]
+    );
 
     serverPrivateKeyCache = serverPrivateKey;
     serverPublicKeyJwkCache = publicKeyJwk;
@@ -87,25 +92,6 @@ export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SER
 export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }, base64Envelope: string): Promise<any> {
   const { serverPrivateKey } = await getOrInitServerKeys(env);
   
-  // Tratamento seguro de Base64 e JSON parse
-  let binaryString: string;
-  try {
-    binaryString = atob(base64Envelope);
-  } catch (_e) {
-    const base64Standard = base64Envelope.replace(/-/g, "+").replace(/_/g, "/");
-    binaryString = atob(base64Standard);
-  }
-
-  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(binaryString);
-
-  const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-  const ivBytes = fromHex(iv);
-  const dadosBytes = fromHex(dadosCifrados);
-  const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
-
-  const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
-  const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-  const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
-
-  return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
+  // 🔥 LÓGICA HIPER-ENXUTA: O Servidor apenas chama a rotina idêntica do Cliente
+  return await decifrarChaveVapid(base64Envelope, serverPrivateKey);
 }

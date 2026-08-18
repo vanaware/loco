@@ -109,7 +109,7 @@ elif [ "$AT" = "cloudflare" ]; then
   # O Pages lê tudo nativamente do wrangler.toml
   # Criamos uma cópia temporária do wrangler-pages.toml para satisfazer a CLI da Cloudflare
   cp wrangler-pages.toml wrangler.toml
-  mv build/dist/functions ./
+  mv build/functions ./
   
   deno run -A wrangler pages deploy --commit-dirty=true
   

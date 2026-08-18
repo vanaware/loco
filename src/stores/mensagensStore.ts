@@ -77,13 +77,13 @@ export async function processarAtualizacaoDeStatusDB(chatId: string) {
   if (chatAtualizado) {
     await atualizarOuAdicionarChatAtivo(chatAtualizado);
   } else {
-    // 🔥 ARQUITETURA: Se a mensagem não está mais no DB, foi excluída remotamente
+    // Se a mensagem não está mais no DB ou o histórico foi limpo
     const atual = mensagensAtivas.value;
-    const existe = atual.some(m => m.id === chatId);
+    const existe = atual.some(m => m.id === chatId || chatId === 'ALL_PURGED');
     if (existe) {
       batch(() => {
-        mensagensAtivas.value = atual.filter(m => m.id !== chatId);
-        currentOffset = Math.max(0, currentOffset - 1);
+        mensagensAtivas.value = chatId === 'ALL_PURGED' ? [] : atual.filter(m => m.id !== chatId);
+        currentOffset = chatId === 'ALL_PURGED' ? 0 : Math.max(0, currentOffset - 1);
       });
     }
   }
@@ -101,9 +101,6 @@ export async function excluirMensagem(msgId: string, contatoHash: string) {
   // 2. Busca a mensagem no banco antes de apagar
   const msgLocal = await buscarChat(msgId);
   
-  // 🔥 ARQUITETURA [Exclusão Bidirecional]:
-  // Agora não importa mais se a mensagem é 'out' (enviada) ou 'in' (recebida).
-  // Sempre avisaremos o remoto para apagá-la também (se não for uma mensagem auto-enviada).
   const deveAvisarRemoto = msgLocal && msgLocal.handshake !== 'self';
 
   // 3. Apaga do IndexedDB
@@ -132,7 +129,8 @@ export async function limparTodoHistorico(contatoHash: string) {
   if (contatoSelecionado.value === contatoHash) {
     limparMemoriaChat();
   }
-  await ExpurgarMensagens(contatoHash);
+  // 🔥 Envia 'true' no segundo parâmetro para disparar o Handshake Único de expurgo do histórico no dispositivo remoto
+  await ExpurgarMensagens(contatoHash, true);
 }
 
 export async function initMensagensStore() {}

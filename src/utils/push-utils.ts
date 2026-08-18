@@ -1,7 +1,12 @@
 // src/utils/push-utils.ts
 import { gzipSync } from "fflate";
 import { addDebugLog } from "./debug-utils.ts";
-import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
+import { 
+  minifyVapidPrivate, 
+  minifyVapidPublic, 
+  expandVapidPublic, 
+  expandVapidPrivate 
+} from "./crypto-utils.ts";
 import { fetchLocoProxy } from "../constants/config.ts";
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -72,7 +77,7 @@ export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey
 }
 
 export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string }; proxyserver?: string },
   payloadText: string,
   vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
 ): Promise<void> {
@@ -83,7 +88,6 @@ export async function enviarParaProxy(
   }
 
   try {
-    // 🔥 ARQUITETURA [ROTEAMENTO EXPLÍCITO]: Chamamos estritamente /push
     const response = await fetchLocoProxy('/push', {
       body: {
         subscription,
@@ -154,5 +158,73 @@ export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKe
   } catch (err: any) {
     addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento: ${err.message}`);
     throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
+  }
+}
+
+export async function decifrarChaveVapid(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
+  try {
+    let binaryString: string;
+    try {
+      binaryString = atob(base64Envelope);
+    } catch (_e) {
+      const base64Standard = base64Envelope.replace(/-/g, "+").replace(/_/g, "/");
+      binaryString = atob(base64Standard);
+    }
+
+    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(binaryString);
+
+    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+    const ivBytes = fromHex(iv);
+    const dadosBytes = fromHex(dadosCifrados);
+    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+      { name: "RSA-OAEP" }, 
+      serverPrivateKey, 
+      chaveAesCifradaBytes
+    );
+    
+    const chaveSimetricaAes = await crypto.subtle.importKey(
+      "raw", 
+      aesChaveCruaBuffer, 
+      { name: "AES-GCM", length: 256 }, 
+      false, 
+      ["decrypt"]
+    );
+    
+    const vapidOriginalBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ivBytes }, 
+      chaveSimetricaAes, 
+      dadosBytes
+    );
+
+    return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no deciframento do envelope: ${err.message}`);
+    throw err;
+  }
+}
+
+/**
+ * Decifra a chave privada VAPID contida no envelope via chave RSA do Servidor e
+ * reidrata/expande ambos os JWKs (Público e Privado) para o formato padrão do WebCrypto.
+ */
+export async function extrairEExpandirChavesVapid(
+  serverPrivateKey: CryptoKey,
+  publicKeyRaw: any,
+  privateKeyEnvelopeBase64: string
+): Promise<{ publicKey: JsonWebKey; privateKey: JsonWebKey }> {
+  try {
+    const privateKeyUnwrapped = await decifrarChaveVapid(privateKeyEnvelopeBase64, serverPrivateKey);
+    
+    const pub = typeof publicKeyRaw === "string" ? JSON.parse(publicKeyRaw) : publicKeyRaw;
+    const priv = typeof privateKeyUnwrapped === "string" ? JSON.parse(privateKeyUnwrapped) : privateKeyUnwrapped;
+
+    const expandedPub = expandVapidPublic(pub);
+    const expandedPriv = expandVapidPrivate(priv, expandedPub);
+
+    return { publicKey: expandedPub, privateKey: expandedPriv };
+  } catch (err: any) {
+    throw new Error(`JWK/Envelope VAPID inválido: ${err.message}`);
   }
 }

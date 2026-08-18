@@ -1,45 +1,22 @@
-
-
-import { sendResponse, handlePreflight, decryptWithServerKey } from "../shared.ts";
+// server/functions/push.ts
+import { sendResponse, handlePreflight, getOrInitServerKeys } from "../shared.ts";
+import { extrairEExpandirChavesVapid } from "../../src/utils/push-utils.ts";
 import * as webpush from "@negrel/webpush";
-
-function lerMetadadosJJWT(jwtString: string) {
-  try {
-    const parts = jwtString.split(".");
-    if (parts.length !== 3) return null;
-    
-    const payloadPart = parts[1];
-    if (!payloadPart) return null;
-    
-    let base64Url = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64Url.length % 4) base64Url += "=";
-    return JSON.parse(new TextDecoder().decode(new Uint8Array([...atob(base64Url)].map(c => c.charCodeAt(0)))));
-  } catch {
-    return null;
-  }
-}
-
-async function parseVapidKeysToJwk(env: any, publicKey: any, privateKey: any) {
-  try {
-    const privateKeyFinal = await decryptWithServerKey(env, privateKey);
-    const pub = typeof publicKey === "string" ? JSON.parse(publicKey) : publicKey;
-    const priv = typeof privateKeyFinal === "string" ? JSON.parse(privateKeyFinal) : privateKeyFinal;
-    const expandedPub = pub.kty ? pub : { kty: "EC", crv: "P-256", x: pub.x, y: pub.y, ext: true, key_ops: ["verify"] };
-    const expandedPriv = priv.kty ? priv : { kty: "EC", crv: "P-256", x: expandedPub.x, y: expandedPub.y, d: priv.d, ext: true, key_ops: ["sign"] };
-    return { publicKey: expandedPub, privateKey: expandedPriv };
-  } catch (err) {
-    throw new Error(`JWK inválido: ${err}`);
-  }
-}
 
 async function sendPush(jwkKeys: any, subscription: any, payloadText: string, vapid: any) {
   const vapidKeys = await webpush.importVapidKeys(jwkKeys);
-  const contact = vapid.subject.startsWith("mailto:") ? vapid.subject : `mailto:${vapid.subject}`;
+  
+  const rawSubject = vapid?.subject || "mailto:admin@loco.pwa";
+  const contact = rawSubject.startsWith("mailto:") ? rawSubject : `mailto:${rawSubject}`;
+  
   const appServer = await webpush.ApplicationServer.new({
     contactInformation: contact,
     vapidKeys: vapidKeys,
   });
-  const subscriber = appServer.subscribe(subscription);
+
+  const { proxyserver: _ignored, ...cleanSubscription } = subscription;
+
+  const subscriber = appServer.subscribe(cleanSubscription);
   try {
     await subscriber.pushTextMessage(payloadText, {});
   } catch (pushErr: any) {
@@ -101,34 +78,46 @@ export async function handlePush(request: Request, env?: any): Promise<Response>
   }
 
   const { subscription, payloadText, vapid } = body;
-  if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !payloadText || !vapid || !vapid.privateKey) {
-    return sendResponse(request, { success: false, error: "Estrutura P2P Inválida." }, 400);
+
+  const isSubscriptionValid = !!(
+    subscription &&
+    subscription.endpoint &&
+    subscription.proxyserver &&
+    subscription.keys?.p256dh &&
+    subscription.keys?.auth
+  );
+
+  const isVapidValid = !!(
+    vapid &&
+    vapid.publicKey &&
+    vapid.privateKey
+  );
+
+  if (!isSubscriptionValid || !isVapidValid || !payloadText) {
+    return sendResponse(request, { success: false, error: "Estrutura P2P Inválida. Parâmetros em falta em subscription, vapid ou payloadText." }, 400);
   }
 
-  const jwtClaims = lerMetadadosJJWT(payloadText);
-  if (!jwtClaims || !jwtClaims.sub || !["hand", "contact"].includes(jwtClaims.sub)) {
-    return sendResponse(request, { success: false, error: "Protocolo JWT Inválido." }, 400);
-  }
-
-  const proxyserverDestino = jwtClaims.proxyserver;
-
-  // Prova de Posse (Proof of Ownership): Tentamos abrir o envelope com a nossa chave privada
+  // 1. Prova de Posse (Proof of Ownership): Abre o envelope e expande as chaves VAPID usando a utilitário unificada
   try {
-    const jwkKeys = await parseVapidKeysToJwk(env, vapid.publicKey, vapid.privateKey);
+    const { serverPrivateKey } = await getOrInitServerKeys(env);
+    const jwkKeys = await extrairEExpandirChavesVapid(serverPrivateKey, vapid.publicKey, vapid.privateKey);
+    
     await sendPush(jwkKeys, subscription, payloadText, vapid);
     return sendResponse(request, { success: true });
   } catch (_decryptErr) {
     // O envelope pertence a outro nó na rede de federação
   }
 
-  // Se o envelope não é nosso, avaliamos o roteamento de federação via DNS
-  if (proxyserverDestino) {
+  // 2. Roteamento de Federação
+  const proxyserver = subscription.proxyserver;
+
+  if (proxyserver) {
     try {
-      const urlFormatada = proxyserverDestino.startsWith("http") ? proxyserverDestino : `https://${proxyserverDestino}`;
+      const urlFormatada = proxyserver.startsWith("http") ? proxyserver : `https://${proxyserver}`;
       const destinoUrlObj = new URL(urlFormatada);
       
       if (url.hostname !== destinoUrlObj.hostname) {
-        return await routePush(proxyserverDestino, rawText, request);
+        return await routePush(proxyserver, rawText, request);
       }
     } catch (_e) {
       return sendResponse(request, { success: false, error: "URL de proxy do destino malformada." }, 400);
@@ -143,5 +132,5 @@ export const onRequestPost = async (context: any) => {
 };
 
 export const onRequestOptions = async (context: any) => {
-  return handlePreflight(context.request);;
+  return handlePreflight(context.request);
 };

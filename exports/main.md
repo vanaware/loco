@@ -7,7 +7,7 @@
 
 # Contexto Exportado do Projeto Loco [v0.3.3-msxvu2g1] - Modo: MAIN
 
-Gerado automaticamente em: 8/17/2026, 8:50:56 PM
+Gerado automaticamente em: 8/17/2026, 10:26:05 PM
 
 ---
 
@@ -4149,294 +4149,6 @@ export async function obterHashProprio(profile: ProfileConfig | null): Promise<s
 
 ---
 
-## Arquivo: `src/utils/crypto-utils.ts`
-
-```ts
-// src/utils/crypto-utils.ts
-import { addDebugLog } from "./debug-utils.ts";
-
-export function bufferToBase64Url(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO", "Falha crítica ao converter Buffer para Base64Url", err.message);
-    throw new Error(`Buffer conversion failed: ${err.message}`);
-  }
-}
-
-export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
-  return bufferToBase64Url(buffer);
-}
-
-export function base64UrlToBuffer(base64url: string): ArrayBuffer {
-  try {
-    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-    const padLength = (4 - (base64.length % 4)) % 4;
-    base64 += '='.repeat(padLength);
-    
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer as ArrayBuffer;
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO", "Tentativa de decodificar Base64Url malformado ou corrompido", err.message);
-    throw new Error("Formato Base64Url inválido.");
-  }
-}
-
-// ============================================================
-// 🔥 COMPRESSÃO POR ESQUEMA ESTÁTICO (Static Schema Compression)
-// ============================================================
-
-export function minifyVapidPublic(jwk: JsonWebKey): any {
-  if (!jwk || !jwk.kty) return jwk; 
-  return { x: jwk.x, y: jwk.y };
-}
-
-export function expandVapidPublic(minified: any): JsonWebKey {
-  // Defensive Programming: Previne falhas se recebermos string ou lixo da rede
-  if (typeof minified === "string") {
-    try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
-  }
-  if (!minified || typeof minified !== "object") return {} as JsonWebKey;
-  
-  // Se a chave já possui 'kty', ela não está minificada, devolve como está
-  if (minified.kty) return minified as JsonWebKey;
-  
-  // Reconstrói a chave injetando a 'gordura' estática da curva P-256
-  // Fallbacks (vx, vy) mantidos para garantir retrocompatibilidade com QR Codes antigos
-  return { 
-    kty: "EC", 
-    crv: "P-256", 
-    x: minified.x || minified.vx, 
-    y: minified.y || minified.vy, 
-    ext: true, 
-    key_ops: ["verify"] 
-  };
-}
-
-export function minifyVapidPrivate(jwk: JsonWebKey): any {
-  if (!jwk || !jwk.kty) return jwk;
-  // A chave privada de Curva Elíptica é apenas o escalar "d".
-  // "x" e "y" são removidos porque nós já temos eles na Chave Pública.
-  return { d: jwk.d }; 
-}
-
-export function expandVapidPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKey {
-  if (typeof minifiedPriv === "string") {
-    try { minifiedPriv = JSON.parse(minifiedPriv); } catch { return {} as JsonWebKey; }
-  }
-  if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
-  if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
-  
-  // Reconstrói a chave privada importando 'x' e 'y' da chave pública que sempre viaja junto
-  return { 
-    kty: "EC", 
-    crv: "P-256", 
-    x: minifiedPub.x || minifiedPub.vx, 
-    y: minifiedPub.y || minifiedPub.vy, 
-    d: minifiedPriv.d, 
-    ext: true, 
-    key_ops: ["sign"] 
-  };
-}
-
-export function minifyRsaPublic(jwk: JsonWebKey): any {
-  if (!jwk || !jwk.kty) return jwk;
-  // Para RSA com expoente público fixo (65537), apenas o Módulo "n" é a variável matemática
-  return { n: jwk.n };
-}
-
-export function expandRsaPublic(minified: any): JsonWebKey {
-  if (typeof minified === "string") {
-    try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
-  }
-  if (!minified || typeof minified !== "object") return {} as JsonWebKey;
-  if (minified.kty) return minified as JsonWebKey;
-  
-  // Injeta o esquema estático RSA-OAEP e o expoente 'AQAB'
-  return { 
-    kty: "RSA", 
-    alg: "RSA-OAEP-256", 
-    e: "AQAB", 
-    n: minified.n || minified.en, 
-    ext: true, 
-    key_ops: ["encrypt"] 
-  };
-}
-
-export function minifyRsaPrivate(jwk: JsonWebKey): any {
-  if (!jwk || !jwk.kty) return jwk;
-  // Extrai apenas os fatores primos estritamente secretos e o expoente 'd'
-  return { d: jwk.d, p: jwk.p, q: jwk.q, dp: jwk.dp, dq: jwk.dq, qi: jwk.qi };
-}
-
-export function expandRsaPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKey {
-  if (typeof minifiedPriv === "string") {
-    try { minifiedPriv = JSON.parse(minifiedPriv); } catch { return {} as JsonWebKey; }
-  }
-  if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
-  if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
-  
-  // Remonta a chave RSA Privada buscando o 'n' na Chave Pública correspondente
-  return { 
-    kty: "RSA", 
-    alg: "RSA-OAEP-256", 
-    e: "AQAB", 
-    n: minifiedPub.n || minifiedPub.en, 
-    d: minifiedPriv.d, 
-    p: minifiedPriv.p, 
-    q: minifiedPriv.q, 
-    dp: minifiedPriv.dp, 
-    dq: minifiedPriv.dq, 
-    qi: minifiedPriv.qi, 
-    ext: true, 
-    key_ops: ["decrypt"] 
-  };
-}
-
-// ============================================================
-// GERAÇÃO E OPERAÇÕES DA WEBCRYPTO API
-// ============================================================
-
-export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
-  try {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["sign", "verify"]
-    );
-    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
-    return keyPair;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha de Hardware/Browser ao gerar VAPID: ${error.message}`, error);
-    throw new Error("Este navegador não suporta geração de chaves ECDSA P-256 necessárias para o funcionamento offline.");
-  }
-}
-
-export async function generateE2EEKeys(): Promise<{
-  publicEncrypt: JsonWebKey;
-  privateDecryptJwk: JsonWebKey;
-}> {
-  try {
-    const keyPair = await crypto.subtle.generateKey(
-      {
-        name: "RSA-OAEP",
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]), // Corresponde a "AQAB" em Base64Url
-        hash: "SHA-256",
-      },
-      true,
-      ["encrypt", "decrypt"]
-    );
-
-    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-
-    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
-    return { publicEncrypt, privateDecryptJwk };
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA E2E: ${error.message}`, error);
-    throw new Error("Este dispositivo não suporta geração de chaves RSA-OAEP de 2048 bits.");
-  }
-}
-
-export async function encryptTextAES(
-  key: CryptoKey,
-  plainText: string
-): Promise<{ cipherTextBase64: string; ivBase64: string }> {
-  try {
-    const enc = new TextEncoder();
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encodedText = enc.encode(plainText);
-
-    const cipherBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      encodedText
-    );
-
-    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
-
-    return {
-      cipherTextBase64: bufferToBase64Url(cipherBuffer),
-      ivBase64: bufferToBase64Url(iv.buffer as ArrayBuffer),
-    };
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha interna no motor AES-GCM (Encrypt): ${error.message}`, error);
-    throw new Error("Não foi possível criptografar os dados.");
-  }
-}
-
-export async function decryptTextAES(
-  key: CryptoKey,
-  cipherTextBase64: string,
-  ivBase64: string
-): Promise<string> {
-  try {
-    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
-    const ivBuffer = base64UrlToBuffer(ivBase64);
-
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
-      key,
-      cipherBuffer
-    );
-
-    const dec = new TextDecoder();
-    return dec.decode(decryptedBuffer);
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha de decifragem AES-GCM (Chave incorreta ou corrompido): ${error.message}`, error);
-    throw new Error("A decodificação falhou. Dados corrompidos ou chave inválida.");
-  }
-}
-
-export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
-  try {
-    const jwk = await crypto.subtle.exportKey("jwk", key);
-    return jwk;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Erro ao extrair chave (não extraível?): ${error.message}`, error);
-    throw new Error("Falha ao exportar a chave para formato seguro.");
-  }
-}
-
-export async function importJWKToKey(
-  jwk: JsonWebKey,
-  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
-  extractable: boolean,
-  keyUsages: KeyUsage[]
-): Promise<CryptoKey> {
-  try {
-    // A função importJWKToKey espera sempre o formato completo, garantindo que
-    // as camadas superiores do App (db-helpers, etc) já tenham inflado a chave.
-    const key = await crypto.subtle.importKey(
-      "jwk" as any,
-      jwk,
-      algorithm,
-      extractable,
-      keyUsages
-    );
-    return key;
-  } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Erro estrutural ao importar chave JWK: ${error.message}`, error);
-    throw new Error("A chave de criptografia fornecida está corrompida ou é incompatível.");
-  }
-}
-```
-
----
-
 ## Arquivo: `src/utils/jwt-helpers.ts`
 
 ```ts
@@ -4617,171 +4329,6 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
     };
   } catch (err: any) {
     throw new Error(`Falha de decodificação forçada no JWT: ${err.message}`);
-  }
-}
-```
-
----
-
-## Arquivo: `src/utils/push-utils.ts`
-
-```ts
-// src/utils/push-utils.ts
-import { gzipSync } from "fflate";
-import { addDebugLog } from "./debug-utils.ts";
-import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
-import { fetchLocoProxy } from "../constants/config.ts";
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
-  }
-}
-
-export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
-  i: string;
-  d: string;
-  k: string;
-}> {
-  try {
-    const encoder = new TextEncoder();
-    const jsonString = JSON.stringify(payloadObj);
-    const bytes = encoder.encode(jsonString);
-    
-    const compressed = gzipSync(bytes);
-    
-    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
-    if (compressed.length > 3000) {
-       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
-    }
-
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      compressed as unknown as BufferSource
-    );
-
-    const cryptoKeyDestino = await crypto.subtle.importKey(
-      "jwk" as any,
-      publicKeyRSA,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyEncrypted = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      cryptoKeyDestino,
-      aesKeyRaw
-    );
-
-    return {
-      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
-      d: arrayBufferToBase64(encryptedBuffer),
-      k: arrayBufferToBase64(aesKeyEncrypted)
-    };
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
-    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
-  }
-}
-
-export async function enviarParaProxy(
-  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-  payloadText: string,
-  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
-): Promise<void> {
-  const payloadSize = new Blob([payloadText]).size;
-  if (payloadSize > 4096) {
-    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
-    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes.`);
-  }
-
-  try {
-    // 🔥 ARQUITETURA [ROTEAMENTO EXPLÍCITO]: Chamamos estritamente /push
-    const response = await fetchLocoProxy('/push', {
-      body: {
-        subscription,
-        payloadText,
-        vapid: {
-          subject: vapid.subject,
-          publicKey: minifyVapidPublic(vapid.publicKey),
-          privateKey: vapid.privateKey
-        }
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
-    }
-  } catch (err: any) {
-     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
-     throw err;
-  }
-}
-
-export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
-  try {
-    const serverKey = await crypto.subtle.importKey(
-      "jwk" as any,
-      serverPublicKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      true,
-      ["encrypt"]
-    );
-    
-    const aesKey = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt"]
-    );
-    
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoder = new TextEncoder();
-    
-    const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
-    const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
-    
-    const vapidCifrado = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      aesKey,
-      vapidBytes as unknown as BufferSource
-    );
-    
-    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
-    const aesKeyCifrado = await crypto.subtle.encrypt(
-      { name: "RSA-OAEP" },
-      serverKey,
-      aesKeyRaw
-    );
-
-    const toHex = (buf: ArrayBuffer) =>
-      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    const envelope = {
-      iv: toHex(iv.buffer as ArrayBuffer),
-      dadosCifrados: toHex(vapidCifrado),
-      chaveAesCifrada: toHex(aesKeyCifrado)
-    };
-    
-    return btoa(JSON.stringify(envelope));
-  } catch (err: any) {
-    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento: ${err.message}`);
-    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
   }
 }
 ```
@@ -5589,6 +5136,501 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
     return profile;
   } catch (err) {
     addDebugLog("error", "PROFILE", "Erro fatal ao gerar perfil: " + (err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/crypto-utils.ts`
+
+```ts
+// src/utils/crypto-utils.ts
+import { addDebugLog } from "./debug-utils.ts";
+
+export function bufferToBase64Url(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO", "Falha crítica ao converter Buffer para Base64Url", err.message);
+    throw new Error(`Buffer conversion failed: ${err.message}`);
+  }
+}
+
+export function rawBufferToBase64Url(buffer: ArrayBuffer): string {
+  return bufferToBase64Url(buffer);
+}
+
+export function base64UrlToBuffer(base64url: string): ArrayBuffer {
+  try {
+    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+    const padLength = (4 - (base64.length % 4)) % 4;
+    base64 += '='.repeat(padLength);
+    
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer as ArrayBuffer;
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO", "Tentativa de decodificar Base64Url malformado ou corrompido", err.message);
+    throw new Error("Formato Base64Url inválido.");
+  }
+}
+
+// ============================================================
+// 🔥 COMPRESSÃO POR ESQUEMA ESTÁTICO (Static Schema Compression)
+// ============================================================
+
+export function minifyVapidPublic(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk; 
+  return { x: jwk.x, y: jwk.y };
+}
+
+export function expandVapidPublic(minified: any): JsonWebKey {
+  if (typeof minified === "string") {
+    try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
+  }
+  if (!minified || typeof minified !== "object") return {} as JsonWebKey;
+  
+  if (minified.kty) return minified as JsonWebKey;
+  
+  return { 
+    kty: "EC", 
+    crv: "P-256", 
+    x: minified.x || minified.vx, 
+    y: minified.y || minified.vy, 
+    ext: true, 
+    key_ops: ["verify"] 
+  };
+}
+
+export function minifyVapidPrivate(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  return { d: jwk.d }; 
+}
+
+export function expandVapidPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKey {
+  if (typeof minifiedPriv === "string") {
+    try { minifiedPriv = JSON.parse(minifiedPriv); } catch { return {} as JsonWebKey; }
+  }
+  if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
+  if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
+  
+  return { 
+    kty: "EC", 
+    crv: "P-256", 
+    x: minifiedPub.x || minifiedPub.vx, 
+    y: minifiedPub.y || minifiedPub.vy, 
+    d: minifiedPriv.d, 
+    ext: true, 
+    key_ops: ["sign"] 
+  };
+}
+
+export function minifyRsaPublic(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  return { n: jwk.n };
+}
+
+export function expandRsaPublic(minified: any): JsonWebKey {
+  if (typeof minified === "string") {
+    try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
+  }
+  if (!minified || typeof minified !== "object") return {} as JsonWebKey;
+  if (minified.kty) return minified as JsonWebKey;
+  
+  return { 
+    kty: "RSA", 
+    alg: "RSA-OAEP-256", 
+    e: "AQAB", 
+    n: minified.n || minified.en, 
+    ext: true, 
+    key_ops: ["encrypt"] 
+  };
+}
+
+export function minifyRsaPrivate(jwk: JsonWebKey): any {
+  if (!jwk || !jwk.kty) return jwk;
+  return { d: jwk.d, p: jwk.p, q: jwk.q, dp: jwk.dp, dq: jwk.dq, qi: jwk.qi };
+}
+
+export function expandRsaPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKey {
+  if (typeof minifiedPriv === "string") {
+    try { minifiedPriv = JSON.parse(minifiedPriv); } catch { return {} as JsonWebKey; }
+  }
+  if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
+  if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
+  
+  return { 
+    kty: "RSA", 
+    alg: "RSA-OAEP-256", 
+    e: "AQAB", 
+    n: minifiedPub.n || minifiedPub.en, 
+    d: minifiedPriv.d, 
+    p: minifiedPriv.p, 
+    q: minifiedPriv.q, 
+    dp: minifiedPriv.dp, 
+    dq: minifiedPriv.dq, 
+    qi: minifiedPriv.qi, 
+    ext: true, 
+    key_ops: ["decrypt"] 
+  };
+}
+
+// ============================================================
+// GERAÇÃO E OPERAÇÕES DA WEBCRYPTO API
+// ============================================================
+
+export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    addDebugLog("info", "CRYPTO", "Par de chaves VAPID (ECDSA P-256) gerado com sucesso");
+    return keyPair;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha de Hardware/Browser ao gerar VAPID: ${error.message}`, error);
+    throw new Error("Este navegador não suporta geração de chaves ECDSA P-256 necessárias para o funcionamento offline.");
+  }
+}
+
+// 🔥 NOVA FUNÇÃO: Geração genérica de RSA para o Servidor e Testes
+export async function generateRSAKeys(): Promise<CryptoKeyPair> {
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      {
+        name: "RSA-OAEP",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["encrypt", "decrypt"]
+    );
+    addDebugLog("info", "CRYPTO", "Par de chaves RSA gerado com sucesso");
+    return keyPair;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA: ${error.message}`, error);
+    throw new Error("Este dispositivo/ambiente não suporta geração de chaves RSA-OAEP de 2048 bits.");
+  }
+}
+
+export async function generateE2EEKeys(): Promise<{
+  publicEncrypt: JsonWebKey;
+  privateDecryptJwk: JsonWebKey;
+}> {
+  try {
+    const keyPair = await generateRSAKeys(); // Reutiliza a nova função
+
+    const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+
+    return { publicEncrypt, privateDecryptJwk };
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha ao exportar chaves E2E: ${error.message}`, error);
+    throw new Error("Falha ao preparar as chaves E2E.");
+  }
+}
+
+export async function encryptTextAES(
+  key: CryptoKey,
+  plainText: string
+): Promise<{ cipherTextBase64: string; ivBase64: string }> {
+  try {
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encodedText = enc.encode(plainText);
+
+    const cipherBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encodedText
+    );
+
+    addDebugLog("info", "CRYPTO", "Texto criptografado via AES-GCM com sucesso");
+
+    return {
+      cipherTextBase64: bufferToBase64Url(cipherBuffer),
+      ivBase64: bufferToBase64Url(iv.buffer as ArrayBuffer),
+    };
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha interna no motor AES-GCM (Encrypt): ${error.message}`, error);
+    throw new Error("Não foi possível criptografar os dados.");
+  }
+}
+
+export async function decryptTextAES(
+  key: CryptoKey,
+  cipherTextBase64: string,
+  ivBase64: string
+): Promise<string> {
+  try {
+    const cipherBuffer = base64UrlToBuffer(cipherTextBase64);
+    const ivBuffer = base64UrlToBuffer(ivBase64);
+
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
+      key,
+      cipherBuffer
+    );
+
+    const dec = new TextDecoder();
+    return dec.decode(decryptedBuffer);
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha de decifragem AES-GCM (Chave incorreta ou corrompido): ${error.message}`, error);
+    throw new Error("A decodificação falhou. Dados corrompidos ou chave inválida.");
+  }
+}
+
+export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
+  try {
+    const jwk = await crypto.subtle.exportKey("jwk", key);
+    return jwk;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Erro ao extrair chave (não extraível?): ${error.message}`, error);
+    throw new Error("Falha ao exportar a chave para formato seguro.");
+  }
+}
+
+export async function importJWKToKey(
+  jwk: JsonWebKey,
+  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
+  extractable: boolean,
+  keyUsages: KeyUsage[]
+): Promise<CryptoKey> {
+  try {
+    const key = await crypto.subtle.importKey(
+      "jwk" as any,
+      jwk,
+      algorithm,
+      extractable,
+      keyUsages
+    );
+    return key;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Erro estrutural ao importar chave JWK: ${error.message}`, error);
+    throw new Error("A chave de criptografia fornecida está corrompida ou é incompatível.");
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/push-utils.ts`
+
+```ts
+// src/utils/push-utils.ts
+import { gzipSync } from "fflate";
+import { addDebugLog } from "./debug-utils.ts";
+import { minifyVapidPrivate, minifyVapidPublic } from "./crypto-utils.ts";
+import { fetchLocoProxy } from "../constants/config.ts";
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return btoa(binary);
+  } catch (e: any) {
+    throw new Error(`Erro ao encodar payload cifrado para Base64: ${e.message}`);
+  }
+}
+
+export async function cifrarPayloadObj(payloadObj: any, publicKeyRSA: JsonWebKey): Promise<{
+  i: string;
+  d: string;
+  k: string;
+}> {
+  try {
+    const encoder = new TextEncoder();
+    const jsonString = JSON.stringify(payloadObj);
+    const bytes = encoder.encode(jsonString);
+    
+    const compressed = gzipSync(bytes);
+    
+    addDebugLog("info", "CRYPTO:PUSH", `Comprimido: ${compressed.length} bytes (Original: ${bytes.length} bytes)`);
+    if (compressed.length > 3000) {
+       addDebugLog("warn", "CRYPTO:PUSH", `Atenção: O payload comprimido está em ${compressed.length} bytes. Risco de estourar o limite de 4KB após a assinatura JWT.`);
+    }
+
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      compressed as unknown as BufferSource
+    );
+
+    const cryptoKeyDestino = await crypto.subtle.importKey(
+      "jwk" as any,
+      publicKeyRSA,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyEncrypted = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      cryptoKeyDestino,
+      aesKeyRaw
+    );
+
+    return {
+      i: arrayBufferToBase64(iv.buffer as ArrayBuffer),
+      d: arrayBufferToBase64(encryptedBuffer),
+      k: arrayBufferToBase64(aesKeyEncrypted)
+    };
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:PUSH", `Erro severo na montagem do envelope E2EE: ${err.message}`);
+    throw new Error(`Falha de criptografia Híbrida: ${err.message}`);
+  }
+}
+
+export async function enviarParaProxy(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payloadText: string,
+  vapid: { subject: string; publicKey: JsonWebKey; privateKey: string }
+): Promise<void> {
+  const payloadSize = new Blob([payloadText]).size;
+  if (payloadSize > 4096) {
+    addDebugLog("error", "NETWORK:PUSH", `Rejeição preventiva: Payload de ${payloadSize} bytes ultrapassa o limite arquitetural de 4096 bytes do FCM.`);
+    throw new Error(`Limite de cota de rede excedido. O pacote final ficou com ${payloadSize} bytes.`);
+  }
+
+  try {
+    const response = await fetchLocoProxy('/push', {
+      body: {
+        subscription,
+        payloadText,
+        vapid: {
+          subject: vapid.subject,
+          publicKey: minifyVapidPublic(vapid.publicKey),
+          privateKey: vapid.privateKey
+        }
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`O servidor retransmissor rejeitou o pacote. HTTP ${response.status}: ${errorText}`);
+    }
+  } catch (err: any) {
+     addDebugLog("error", "NETWORK:PUSH", `Falha de conexão com o Proxy: ${err.message}`);
+     throw err;
+  }
+}
+
+export async function cifrarChaveVapid(privateKeyJwk: JsonWebKey, serverPublicKeyJwk: JsonWebKey): Promise<string> {
+  try {
+    const serverKey = await crypto.subtle.importKey(
+      "jwk" as any,
+      serverPublicKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      true,
+      ["encrypt"]
+    );
+    
+    const aesKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt"]
+    );
+    
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    
+    const minifiedPrivate = minifyVapidPrivate(privateKeyJwk);
+    const vapidBytes = encoder.encode(JSON.stringify(minifiedPrivate));
+    
+    const vapidCifrado = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      aesKey,
+      vapidBytes as unknown as BufferSource
+    );
+    
+    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+    const aesKeyCifrado = await crypto.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      serverKey,
+      aesKeyRaw
+    );
+
+    const toHex = (buf: ArrayBuffer) =>
+      Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    const envelope = {
+      iv: toHex(iv.buffer as ArrayBuffer),
+      dadosCifrados: toHex(vapidCifrado),
+      chaveAesCifrada: toHex(aesKeyCifrado)
+    };
+    
+    return btoa(JSON.stringify(envelope));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no envelopamento: ${err.message}`);
+    throw new Error(`Erro ao blindar perfil para a rede: ${err.message}`);
+  }
+}
+
+// 🔥 ARQUITETURA UNIFICADA: Função "Gêmea" para uso no Servidor (ou Testes)
+export async function decifrarChaveVapid(base64Envelope: string, serverPrivateKey: CryptoKey): Promise<any> {
+  try {
+    let binaryString: string;
+    try {
+      binaryString = atob(base64Envelope);
+    } catch (_e) {
+      const base64Standard = base64Envelope.replace(/-/g, "+").replace(/_/g, "/");
+      binaryString = atob(base64Standard);
+    }
+
+    const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(binaryString);
+
+    const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+    const ivBytes = fromHex(iv);
+    const dadosBytes = fromHex(dadosCifrados);
+    const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
+
+    const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+      { name: "RSA-OAEP" }, 
+      serverPrivateKey, 
+      chaveAesCifradaBytes
+    );
+    
+    const chaveSimetricaAes = await crypto.subtle.importKey(
+      "raw", 
+      aesChaveCruaBuffer, 
+      { name: "AES-GCM", length: 256 }, 
+      false, 
+      ["decrypt"]
+    );
+    
+    const vapidOriginalBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ivBytes }, 
+      chaveSimetricaAes, 
+      dadosBytes
+    );
+
+    return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
+  } catch (err: any) {
+    addDebugLog("error", "CRYPTO:VAPID", `Falha no deciframento do envelope: ${err.message}`);
     throw err;
   }
 }
@@ -7558,7 +7600,7 @@ elif [ "$AT" = "cloudflare" ]; then
   # O Pages lê tudo nativamente do wrangler.toml
   # Criamos uma cópia temporária do wrangler-pages.toml para satisfazer a CLI da Cloudflare
   cp wrangler-pages.toml wrangler.toml
-  mv build/dist/functions ./
+  mv build/functions ./
   
   deno run -A wrangler pages deploy --commit-dirty=true
   
@@ -7592,6 +7634,10 @@ compatibility_date = "2026-08-16"
 
 # Configuração nativa para o diretório estático do Pages
 pages_build_output_dir = "build/dist"
+
+[vars]
+SERVER_PUBLIC_KEY = '{"n":"mCUI2Ol5JwQsPMOT5DyMRJSy5WBT2rWX-w8_2tMJgk4GmCfmX9Di2MeUBa-S4Z3YuzBjGfsi2ZQ1PiET7tlbWDY0_2sztcvTJKiCWwMuGjnW3drzrytTdY6KiE8yxdLV8SjBPM6lpgBmIPXm0meOa5Ucn3lVwhO5md3gasR14MjtVWq4-SdYPJw7wP9OyAv4Q06izfS2aiFSQSbeXuj10HM9kyXArT3JhN4-LIIDh_jB5vE58FHzOdjzUalq9tEQolmxZ9rxEAaBtqMBNobn1Pgbe1NA1XyHHdHjo7Y3feraieBCl0B21OUxCPr80aC-SnxhW9pPf7IMP7fDryFgBQ"}'
+
 ```
 
 ---
@@ -7901,6 +7947,15 @@ export default workerHandler;
 ## Arquivo: `server/shared.ts`
 
 ```ts
+// server/shared.ts
+import { 
+  expandRsaPublic, 
+  expandRsaPrivate, 
+  minifyRsaPublic,
+  importJWKToKey
+} from "../src/utils/crypto-utils.ts";
+import { decifrarChaveVapid } from "../src/utils/push-utils.ts"; // A Nova Função
+
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
 let serverPublicKeyMinifiedCache: any | null = null; 
@@ -7952,30 +8007,26 @@ export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SER
   const publicKeyStr = env?.SERVER_PUBLIC_KEY;
   const privateKeyStr = env?.SERVER_PRIVATE_KEY;
 
-  if (!publicKeyStr) {
-    throw new Error("❌ Chave SERVER_PUBLIC_KEY não encontrada!");
-  }
-  
-  if (!privateKeyStr) {
-    throw new Error("❌ Chave SERVER_PRIVATE_KEY não encontrada!");
+  if (!publicKeyStr || !privateKeyStr) {
+    throw new Error("❌ Chaves SERVER_PUBLIC_KEY ou SERVER_PRIVATE_KEY não encontradas no ambiente!");
   }
 
   try {
     const rawPublicKeyJwk = JSON.parse(publicKeyStr);
-    let publicKeyJwk = { ...rawPublicKeyJwk };
-    let privateKeyJwk = JSON.parse(privateKeyStr);
+    const rawPrivateKeyJwk = JSON.parse(privateKeyStr);
 
-    const minifiedPublicKey = rawPublicKeyJwk.kty ? { n: rawPublicKeyJwk.n } : rawPublicKeyJwk;
+    // Expansão Oficial via PWA Utils
+    const publicKeyJwk = expandRsaPublic(rawPublicKeyJwk);
+    const privateKeyJwk = expandRsaPrivate(rawPrivateKeyJwk, publicKeyJwk);
+    const minifiedPublicKey = minifyRsaPublic(publicKeyJwk);
 
-    if (!publicKeyJwk.kty) {
-      publicKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", n: publicKeyJwk.n, e: "AQAB", ext: true, key_ops: ["encrypt"] };
-    }
-
-    if (!privateKeyJwk.kty) {
-      privateKeyJwk = { kty: "RSA", alg: "RSA-OAEP-256", e: publicKeyJwk.e, n: publicKeyJwk.n, ext: true, key_ops: ["decrypt"], d: privateKeyJwk.d, p: privateKeyJwk.p, q: privateKeyJwk.q, dp: privateKeyJwk.dp, dq: privateKeyJwk.dq, qi: privateKeyJwk.qi };
-    }
-
-    const serverPrivateKey = await crypto.subtle.importKey("jwk" as any, privateKeyJwk, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+    // Importação Oficial via PWA Utils
+    const serverPrivateKey = await importJWKToKey(
+      privateKeyJwk, 
+      { name: "RSA-OAEP", hash: "SHA-256" }, 
+      true, 
+      ["decrypt"]
+    );
 
     serverPrivateKeyCache = serverPrivateKey;
     serverPublicKeyJwkCache = publicKeyJwk;
@@ -7990,27 +8041,8 @@ export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SER
 export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SERVER_PRIVATE_KEY?: string }, base64Envelope: string): Promise<any> {
   const { serverPrivateKey } = await getOrInitServerKeys(env);
   
-  // Tratamento seguro de Base64 e JSON parse
-  let binaryString: string;
-  try {
-    binaryString = atob(base64Envelope);
-  } catch (_e) {
-    const base64Standard = base64Envelope.replace(/-/g, "+").replace(/_/g, "/");
-    binaryString = atob(base64Standard);
-  }
-
-  const { iv, dadosCifrados, chaveAesCifrada } = JSON.parse(binaryString);
-
-  const fromHex = (hex: string) => new Uint8Array(hex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-  const ivBytes = fromHex(iv);
-  const dadosBytes = fromHex(dadosCifrados);
-  const chaveAesCifradaBytes = fromHex(chaveAesCifrada);
-
-  const aesChaveCruaBuffer = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, serverPrivateKey, chaveAesCifradaBytes);
-  const chaveSimetricaAes = await crypto.subtle.importKey("raw", aesChaveCruaBuffer, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-  const vapidOriginalBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, chaveSimetricaAes, dadosBytes);
-
-  return JSON.parse(new TextDecoder().decode(vapidOriginalBuffer));
+  // 🔥 LÓGICA HIPER-ENXUTA: O Servidor apenas chama a rotina idêntica do Cliente
+  return await decifrarChaveVapid(base64Envelope, serverPrivateKey);
 }
 ```
 

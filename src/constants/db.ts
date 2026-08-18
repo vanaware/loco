@@ -40,7 +40,7 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
-// 🔥 Nova Estrutura Unificada e Baseada em Timestamps
+// 🔥 Estrutura Unificada e Baseada em Timestamps
 export interface Chat {
   id: string;
   contatoHash: string;
@@ -86,13 +86,15 @@ export interface MensagemRouteData {
   recebida?: string;
   enviada?: string;
   conteudo?: string;
-  excluida?: string; // 🔥 ARQUITETURA: Nova rota para exclusão remota bidirecional
+  excluida?: string;
+  limparHistorico?: boolean; // 🔥 Comando de expurgo em lote do histórico remoto
   campos?: string[];
   data?: Record<string, unknown>;
 }
 
 export interface ContatoRouteData {
   id?: string;
+  removerContato?: boolean; // 🔥 Comando de remoção remota de contato
   campos?: string[];
   data?: Record<string, unknown>;
   sync?: Record<string, unknown>;

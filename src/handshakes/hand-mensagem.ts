@@ -38,8 +38,9 @@ async function notificarUI(chatId: string) {
   }
 }
 
-export async function ExpurgarMensagens(contatoHash: string) {
-  addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens e handshakes do contato ${contatoHash}`);
+// 🔥 EXPURGO ATUALIZADO: Apaga localmente e (opcionalmente) envia Handshake Único ao Contato
+export async function ExpurgarMensagens(contatoHash: string, notificarRemoto = false) {
+  addDebugLog("warn", "HAND-MENSAGEM", `🗑️ Expurgando histórico de mensagens do contato ${contatoHash} (Notificar Remoto: ${notificarRemoto})`);
   
   await removerTodoHistoricoChat(contatoHash);
 
@@ -48,6 +49,24 @@ export async function ExpurgarMensagens(contatoHash: string) {
     if (h.aud === contatoHash && (h.in?.rotas.mensagem || h.out?.rotas.mensagem)) {
       await removerHandshake(h.id);
     }
+  }
+
+  // Se a limpeza foi iniciada pelo usuário local, envia UM ÚNICO handshake avisando o remoto
+  if (notificarRemoto) {
+    const novoHandshake: Handshake = {
+      id: gerarId(),
+      aud: contatoHash,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      out: {
+        status: 'pendente',
+        tentativas: 0,
+        rotas: { mensagem: { limparHistorico: true } }
+      }
+    };
+    await salvarHandshake(novoHandshake);
+    addDebugLog("info", "HAND-MENSAGEM", `🚀 Handshake de limpeza total de histórico enviado para a fila (aud: ${contatoHash}).`);
+    setTimeout(() => processarFilaHandshake(), 100);
   }
 }
 
@@ -59,6 +78,15 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
     const msgReq = handshake.in.rotas.mensagem;
+
+    // 🔥 NOVO: Recebimento da instrução "Limpar Histórico Completo Remoto"
+    if (msgReq.limparHistorico === true) {
+      addDebugLog("warn", "HAND-MENSAGEM", `📩 Solicitação de expurgo TOTAL de histórico recebida do contato ${handshake.aud}`);
+      await removerTodoHistoricoChat(handshake.aud);
+      await notificarUI("ALL_PURGED");
+      addDebugLog("success", "HAND-MENSAGEM", `🗑️ Todo o histórico do contato ${handshake.aud} foi apagado com sucesso.`);
+      return;
+    }
 
     if (msgReq.recebida && Array.isArray(msgReq.campos)) {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação PULL de status da mensagem ${msgReq.recebida}.`);
@@ -91,19 +119,14 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
     }
 
-    // 🔥 ARQUITETURA [Exclusão Bidirecional]: Recebimento do comando "Apagar para Todos"
     else if (msgReq.excluida && typeof msgReq.excluida === 'string') {
       addDebugLog(`[HAND-MENSAGEM] 📩 Solicitação de exclusão remota da mensagem ${msgReq.excluida}`);
       const msgLocal = await buscarChat(msgReq.excluida);
       
-      // SEGURANÇA: Só permitimos que a pessoa apague se a mensagem estiver vinculada ao Hash dela
-      // Removida a trava de 'msgLocal.tipo === in', permitindo exclusão bidirecional.
       if (msgLocal && msgLocal.contatoHash === handshake.aud) {
         await removerChat(msgReq.excluida, handshake.aud);
-        await notificarUI(msgReq.excluida); // UI atualizará a tela se o chat estiver aberto
+        await notificarUI(msgReq.excluida);
         addDebugLog(`[HAND-MENSAGEM] 🗑️ Mensagem ${msgReq.excluida} apagada remotamente com sucesso.`);
-      } else {
-        addDebugLog(`[HAND-MENSAGEM] ⚠️ Ignorando exclusão. Mensagem inexistente ou violação de autoridade.`);
       }
     }
 
@@ -148,8 +171,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           icon: '/icon-192.png',
           tag: novaMsgRecebida.id
         });
-      } else {
-        addDebugLog(`[HAND-MENSAGEM] 👁️ O app está aberto ou ambiente sem UI/Notificação. Notificação nativa suprimida.`);
       }
 
       await notificarUI(novaMsgRecebida.id);
@@ -168,7 +189,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
-    // 🔥 ARQUITETURA: Cria o pacote para exclusão remota ("Apagar para todos")
     else if (outParams.function === 'excluirMensagem') {
       const { contato: contatoId, msgId } = outParams;
       if (!msgId) throw new Error("ID da mensagem não fornecido para exclusão.");
@@ -190,8 +210,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
       
       if (ehParaSiMesmo) {
-        addDebugLog(`[HAND-MENSAGEM] 🔄 Detectado envio para si mesmo. Salvando localmente sem handshake.`);
-        
         const idReal = msgId || gerarId();
         const agora = Date.now();
         
@@ -203,7 +221,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         
         await salvarChat(chatAuto);
         await notificarUI(idReal);
-        addDebugLog(`[HAND-MENSAGEM] ✅ Auto-mensagem ${idReal} salva com fluxo completo simulado.`);
         return;
       }
 

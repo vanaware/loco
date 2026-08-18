@@ -50,17 +50,13 @@ export function minifyVapidPublic(jwk: JsonWebKey): any {
 }
 
 export function expandVapidPublic(minified: any): JsonWebKey {
-  // Defensive Programming: Previne falhas se recebermos string ou lixo da rede
   if (typeof minified === "string") {
     try { minified = JSON.parse(minified); } catch { return {} as JsonWebKey; }
   }
   if (!minified || typeof minified !== "object") return {} as JsonWebKey;
   
-  // Se a chave já possui 'kty', ela não está minificada, devolve como está
   if (minified.kty) return minified as JsonWebKey;
   
-  // Reconstrói a chave injetando a 'gordura' estática da curva P-256
-  // Fallbacks (vx, vy) mantidos para garantir retrocompatibilidade com QR Codes antigos
   return { 
     kty: "EC", 
     crv: "P-256", 
@@ -73,8 +69,6 @@ export function expandVapidPublic(minified: any): JsonWebKey {
 
 export function minifyVapidPrivate(jwk: JsonWebKey): any {
   if (!jwk || !jwk.kty) return jwk;
-  // A chave privada de Curva Elíptica é apenas o escalar "d".
-  // "x" e "y" são removidos porque nós já temos eles na Chave Pública.
   return { d: jwk.d }; 
 }
 
@@ -85,7 +79,6 @@ export function expandVapidPrivate(minifiedPriv: any, minifiedPub: any): JsonWeb
   if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
   if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
   
-  // Reconstrói a chave privada importando 'x' e 'y' da chave pública que sempre viaja junto
   return { 
     kty: "EC", 
     crv: "P-256", 
@@ -99,7 +92,6 @@ export function expandVapidPrivate(minifiedPriv: any, minifiedPub: any): JsonWeb
 
 export function minifyRsaPublic(jwk: JsonWebKey): any {
   if (!jwk || !jwk.kty) return jwk;
-  // Para RSA com expoente público fixo (65537), apenas o Módulo "n" é a variável matemática
   return { n: jwk.n };
 }
 
@@ -110,7 +102,6 @@ export function expandRsaPublic(minified: any): JsonWebKey {
   if (!minified || typeof minified !== "object") return {} as JsonWebKey;
   if (minified.kty) return minified as JsonWebKey;
   
-  // Injeta o esquema estático RSA-OAEP e o expoente 'AQAB'
   return { 
     kty: "RSA", 
     alg: "RSA-OAEP-256", 
@@ -123,7 +114,6 @@ export function expandRsaPublic(minified: any): JsonWebKey {
 
 export function minifyRsaPrivate(jwk: JsonWebKey): any {
   if (!jwk || !jwk.kty) return jwk;
-  // Extrai apenas os fatores primos estritamente secretos e o expoente 'd'
   return { d: jwk.d, p: jwk.p, q: jwk.q, dp: jwk.dp, dq: jwk.dq, qi: jwk.qi };
 }
 
@@ -134,7 +124,6 @@ export function expandRsaPrivate(minifiedPriv: any, minifiedPub: any): JsonWebKe
   if (!minifiedPriv || typeof minifiedPriv !== "object") return {} as JsonWebKey;
   if (minifiedPriv.kty) return minifiedPriv as JsonWebKey;
   
-  // Remonta a chave RSA Privada buscando o 'n' na Chave Pública correspondente
   return { 
     kty: "RSA", 
     alg: "RSA-OAEP-256", 
@@ -170,30 +159,41 @@ export async function generateVAPIDKeys(): Promise<CryptoKeyPair> {
   }
 }
 
-export async function generateE2EEKeys(): Promise<{
-  publicEncrypt: JsonWebKey;
-  privateDecryptJwk: JsonWebKey;
-}> {
+// 🔥 NOVA FUNÇÃO: Geração genérica de RSA para o Servidor e Testes
+export async function generateRSAKeys(): Promise<CryptoKeyPair> {
   try {
     const keyPair = await crypto.subtle.generateKey(
       {
         name: "RSA-OAEP",
         modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]), // Corresponde a "AQAB" em Base64Url
+        publicExponent: new Uint8Array([1, 0, 1]),
         hash: "SHA-256",
       },
       true,
       ["encrypt", "decrypt"]
     );
+    addDebugLog("info", "CRYPTO", "Par de chaves RSA gerado com sucesso");
+    return keyPair;
+  } catch (error: any) {
+    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA: ${error.message}`, error);
+    throw new Error("Este dispositivo/ambiente não suporta geração de chaves RSA-OAEP de 2048 bits.");
+  }
+}
+
+export async function generateE2EEKeys(): Promise<{
+  publicEncrypt: JsonWebKey;
+  privateDecryptJwk: JsonWebKey;
+}> {
+  try {
+    const keyPair = await generateRSAKeys(); // Reutiliza a nova função
 
     const publicEncrypt = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
     const privateDecryptJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
 
-    addDebugLog("info", "CRYPTO", "Par de chaves RSA-OAEP gerado com sucesso");
     return { publicEncrypt, privateDecryptJwk };
   } catch (error: any) {
-    addDebugLog("error", "CRYPTO", `Falha ao gerar chaves RSA E2E: ${error.message}`, error);
-    throw new Error("Este dispositivo não suporta geração de chaves RSA-OAEP de 2048 bits.");
+    addDebugLog("error", "CRYPTO", `Falha ao exportar chaves E2E: ${error.message}`, error);
+    throw new Error("Falha ao preparar as chaves E2E.");
   }
 }
 
@@ -264,8 +264,6 @@ export async function importJWKToKey(
   keyUsages: KeyUsage[]
 ): Promise<CryptoKey> {
   try {
-    // A função importJWKToKey espera sempre o formato completo, garantindo que
-    // as camadas superiores do App (db-helpers, etc) já tenham inflado a chave.
     const key = await crypto.subtle.importKey(
       "jwk" as any,
       jwk,

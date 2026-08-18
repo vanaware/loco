@@ -7,11 +7,13 @@ import {
   buscarProfile,
   removerContatoPorHash,
   listarHandshakes,
-  removerHandshake
+  removerHandshake,
+  salvarHandshake
 } from "../utils/db-helpers.ts";
-import type { Contato } from "../constants/db.ts";
+import type { Contato, Handshake } from "../constants/db.ts";
 import { addDebugLog } from "../utils/debug-utils.ts";
 import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
+import { gerarId } from "../utils/id-utils.ts";
 
 import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
 import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
@@ -19,7 +21,7 @@ import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
 
 export type { Contato };
 
-// 🔥 ARQUITETURA: Signal para o loading durante a carga de contatos
+// Signal para o loading durante a carga de contatos
 export const isCarregandoContatos = signal<boolean>(false);
 export const contatosRaw = signal<Contato[]>([]);
 
@@ -106,8 +108,7 @@ export function adicionarOuAtualizarContato(contato: Contato): void {
   });
 }
 
-// 🔥 ARQUITETURA [AUTO-DOWNGRADE]: Quando nossas próprias chaves/rotas mudam, 
-// rebaixamos a confiança dos nossos contatos para forçar a Injeção de Carona (Piggybacking)
+// Quando nossas próprias chaves/rotas mudam, rebaixamos a confiança dos contatos para forçar a Injeção de Carona (Piggybacking)
 export async function rebaixarConfiancaContatos(): Promise<void> {
   try {
     const atual = contatosRaw.value;
@@ -122,11 +123,10 @@ export async function rebaixarConfiancaContatos(): Promise<void> {
       return c;
     });
     
-    if (!mudouAlgum) return; // Otimização para não salvar no IDB à toa
+    if (!mudouAlgum) return;
 
     contatosRaw.value = novaLista;
     
-    // Salva silenciosamente em background
     Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
       addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
     });
@@ -146,13 +146,15 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
   }
 }
 
-export async function removerContatoCompletamente(hash: string): Promise<void> {
+export async function removerContatoCompletamente(hash: string, notificarRemoto = true): Promise<void> {
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
 
+    // 1. Remove do estado reativo
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
-    await ExpurgarMensagens(hash);
+    // 2. Apaga histórico local sem disparar handshakes de exclusão individual por mensagem
+    await ExpurgarMensagens(hash, false);
     await ExpurgarHandshakesContato(hash);
     await ExpurgarHandshakesProfile(hash);
     
@@ -161,8 +163,35 @@ export async function removerContatoCompletamente(hash: string): Promise<void> {
       if (h.aud === hash) await removerHandshake(h.id);
     }
 
+    // 3. Remove o contato do IndexedDB local
     await removerContatoPorHash(hash);
-    
+
+    // 4. 🔥 Dispara um ÚNICO Handshake instruindo o contato remoto a se auto-deletar
+    if (notificarRemoto) {
+      const handshakeDelecao: Handshake = {
+        id: gerarId(),
+        aud: hash,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        out: {
+          status: 'pendente',
+          tentativas: 0,
+          rotas: {
+            contato: { removerContato: true }
+          }
+        }
+      };
+      await salvarHandshake(handshakeDelecao);
+      
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) {
+          reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+        }
+      }
+      addDebugLog("info", "STORE:CONTATO", `🚀 Handshake de exclusão remota de contato enviado para a fila (aud: ${hash}).`);
+    }
+
     addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);

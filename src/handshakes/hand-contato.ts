@@ -12,7 +12,9 @@ import {
   salvarContato,
   serializarPublicKeyVapid,
   listarHandshakes,
-  removerHandshake
+  removerHandshake,
+  removerContatoPorHash,
+  removerTodoHistoricoChat
 } from "../utils/db-helpers.ts";
 import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
@@ -43,6 +45,23 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
     const contatoReq = handshake.in.rotas.contato;
 
+    // 🔥 NOVO: Tratamento de Exclusão Remota de Contato recebida
+    if (contatoReq.removerContato === true) {
+      addDebugLog("warn", "HAND-CONTATO", `📩 Comando de EXCLUSÃO DE CONTATO recebido do remoto (aud: ${handshake.aud})`);
+      
+      // Apaga mensagens e o contato silenciosamente
+      await removerTodoHistoricoChat(handshake.aud);
+      await removerContatoPorHash(handshake.aud);
+      
+      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
+      }
+      
+      addDebugLog("success", "HAND-CONTATO", `🗑️ Contato ${handshake.aud} e seu histórico foram expurgados remotamente por solicitação do remetente.`);
+      return;
+    }
+
     if (Array.isArray(contatoReq.campos) && contatoReq.id) {
       addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
       const contato = await buscarContatoPorChave(handshake.aud);
@@ -59,8 +78,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (camposSet.has('email')) rotasContatoData.em = cp.em;
         if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
         if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
-      } else {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Contato não localizado no banco local para aud: ${handshake.aud}`);
       }
 
       handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
@@ -70,19 +87,10 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     }
 
     else if (contatoReq.data) {
-      addDebugLog(`[HAND-CONTATO] 📩 Resposta de status recebida. Avaliando consistência...`);
       const contato = await buscarContatoPorChave(handshake.aud);
       const profile = await buscarProfile();
 
-      if (!contato) {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Contato não encontrado no banco local.`);
-        return;
-      }
-
-      if (!profile) {
-        addDebugLog(`[HAND-CONTATO] ⚠️ Falha na avaliação: Perfil local não encontrado.`);
-        return;
-      }
+      if (!contato || !profile) return;
 
       const d = contatoReq.data as Record<string, unknown>;
       const mp = await extrairDadosCompactos(profile);
@@ -104,25 +112,18 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       }
 
       if (contato.me !== novoMeStatus) {
-        const statusAnterior = contato.me;
         contato.me = novoMeStatus;
         contato.updatedAt = Date.now();
         await salvarContato(contato);
-        addDebugLog(`[HAND-CONTATO] ✅ Status alterado de '${statusAnterior}' para: '${novoMeStatus}'`);
         
-        // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
         if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
           const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
           clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
         }
-      } else {
-        addDebugLog(`[HAND-CONTATO] ✅ Consistência avaliada. Status mantido em: '${novoMeStatus}'`);
       }
     }
 
     else if (contatoReq.sync) {
-      addDebugLog(`[HAND-CONTATO] 📩 Pacote PUSH com perfil atualizado recebido.`);
-      
       const syncData = contatoReq.sync as unknown as CompactContact;
       
       if ((syncData as any).vx && !syncData.vp) {
@@ -151,16 +152,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
 
       await salvarContato(novoContato);
-      addDebugLog(`[HAND-CONTATO] ✅ Contato salvo. Status: ${novoMeStatus}`);
 
-      // 🔥 CORREÇÃO DE SEGURANÇA PARA AMBIENTES DE TESTE / CLI
       if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
         clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
       }
 
       if (syncData.req) {
-        addDebugLog(`[HAND-CONTATO] 🔄 Devolvendo meus dados em reciprocidade...`);
         await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
       }
     }
@@ -169,10 +167,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
   if (outParams) {
     if (outParams.function === 'confirmarSubscription') {
       const profile = await buscarProfile();
-      if (!profile) {
-        addDebugLog(`[HAND-CONTATO] ❌ Erro ao criar Pull: Perfil local ausente.`);
-        return;
-      }
+      if (!profile) return;
       const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
 
       const novoHandshake: Handshake = {
@@ -180,7 +175,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
       };
       await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-CONTATO] ✅ Handshake de confirmação de inscrição (Pull) criado.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
 
@@ -199,7 +193,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       };
 
       await salvarHandshake(novoHandshake);
-      addDebugLog(`[HAND-CONTATO] ✅ Handshake de sync de contato (Push) criado.`);
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
