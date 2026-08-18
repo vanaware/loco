@@ -43,7 +43,6 @@ export const contatosMap = computed(() => {
 export async function carregarContatos(): Promise<void> {
   isCarregandoContatos.value = true;
   try {
-    // 🔥 TOMBSTONE: Filtra os contatos deletados (Lápides) para não exibi-los na UI
     const listaCompleta = await listarContatos();
     const lista = listaCompleta.filter(c => c.me !== 'deleted');
     
@@ -61,7 +60,6 @@ export async function carregarContatos(): Promise<void> {
     }
     
     contatosRaw.value = lista;
-    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
   } finally {
@@ -102,6 +100,18 @@ export async function adicionarContato(contato: Contato): Promise<void> {
     addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
     throw err;
   }
+}
+
+// 🔥 UTILITÁRIO DE BLINDAGEM: Use essa função exclusivamente quando importar um QR Code!
+export async function importarNovoContato(dadosBasicos: Omit<Contato, 'me' | 'createdAt' | 'updatedAt'>): Promise<void> {
+  const novoContato: Contato = {
+    ...dadosBasicos,
+    me: 'none', // Garante que a primeira interação acionará o mecanismo de Piggybacking
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await adicionarContato(novoContato);
+  addDebugLog("info", "STORE:CONTATO", `Novo contato (${novoContato.name}) importado. Status de sincronia inicializado como 'none'.`);
 }
 
 export function adicionarOuAtualizarContato(contato: Contato): void {
@@ -151,10 +161,8 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
 
-    // 1. Remove do estado reativo imediatamente
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
-    // 2. Apaga histórico local sem disparar handshakes de exclusão individual
     await ExpurgarMensagens(hash, false);
     await ExpurgarHandshakesContato(hash);
     await ExpurgarHandshakesProfile(hash);
@@ -164,11 +172,9 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
       if (h.aud === hash) await removerHandshake(h.id);
     }
 
-    // 3. Verifica se o contato existe e decide entre exclusão física ou Tombstone
     const contatoExistente = await buscarContatoPorChave(hash);
 
     if (notificarRemoto && contatoExistente) {
-      // 🔥 TOMBSTONE: Mantém os dados de roteamento no DB, mas marca como 'deleted'
       contatoExistente.me = 'deleted';
       await salvarContato(contatoExistente);
       
@@ -189,11 +195,8 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
         const reg = await navigator.serviceWorker.ready;
         if (reg.active) reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
       }
-      addDebugLog("info", "STORE:CONTATO", `🚀 Handshake de exclusão remota de contato enviado para a fila (aud: ${hash}). Lápide criada.`);
     } else {
-      // Exclusão física direta se não houver necessidade de notificar a rede
       await removerContatoPorHash(hash);
-      addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
     }
 
   } catch (err) {
@@ -216,9 +219,6 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
       contatosRaw.value = novaLista;
       
       await salvarContato(contatoModificado);
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
-    } else {
-      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
     }
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
@@ -236,9 +236,7 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
     contatosRaw.value = novaLista;
     
     salvarContato(contatoModificado).catch(err => {
-        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
+        addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
     });
-  } else {
-    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
 }

@@ -7,7 +7,7 @@
 
 # Contexto Exportado do Projeto Loco [v0.3.7-msy3gsxf] - Modo: MAIN
 
-Gerado automaticamente em: 8/18/2026, 12:19:58 AM
+Gerado automaticamente em: 8/18/2026, 1:47:40 PM
 
 ---
 
@@ -3153,7 +3153,6 @@ export const contatosMap = computed(() => {
 export async function carregarContatos(): Promise<void> {
   isCarregandoContatos.value = true;
   try {
-    // 🔥 TOMBSTONE: Filtra os contatos deletados (Lápides) para não exibi-los na UI
     const listaCompleta = await listarContatos();
     const lista = listaCompleta.filter(c => c.me !== 'deleted');
     
@@ -3171,7 +3170,6 @@ export async function carregarContatos(): Promise<void> {
     }
     
     contatosRaw.value = lista;
-    addDebugLog("info", "STORE:CONTATO", `Carregados ${lista.length} contatos do banco local`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
   } finally {
@@ -3212,6 +3210,18 @@ export async function adicionarContato(contato: Contato): Promise<void> {
     addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
     throw err;
   }
+}
+
+// 🔥 UTILITÁRIO DE BLINDAGEM: Use essa função exclusivamente quando importar um QR Code!
+export async function importarNovoContato(dadosBasicos: Omit<Contato, 'me' | 'createdAt' | 'updatedAt'>): Promise<void> {
+  const novoContato: Contato = {
+    ...dadosBasicos,
+    me: 'none', // Garante que a primeira interação acionará o mecanismo de Piggybacking
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await adicionarContato(novoContato);
+  addDebugLog("info", "STORE:CONTATO", `Novo contato (${novoContato.name}) importado. Status de sincronia inicializado como 'none'.`);
 }
 
 export function adicionarOuAtualizarContato(contato: Contato): void {
@@ -3261,10 +3271,8 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
 
-    // 1. Remove do estado reativo imediatamente
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
-    // 2. Apaga histórico local sem disparar handshakes de exclusão individual
     await ExpurgarMensagens(hash, false);
     await ExpurgarHandshakesContato(hash);
     await ExpurgarHandshakesProfile(hash);
@@ -3274,11 +3282,9 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
       if (h.aud === hash) await removerHandshake(h.id);
     }
 
-    // 3. Verifica se o contato existe e decide entre exclusão física ou Tombstone
     const contatoExistente = await buscarContatoPorChave(hash);
 
     if (notificarRemoto && contatoExistente) {
-      // 🔥 TOMBSTONE: Mantém os dados de roteamento no DB, mas marca como 'deleted'
       contatoExistente.me = 'deleted';
       await salvarContato(contatoExistente);
       
@@ -3299,11 +3305,8 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
         const reg = await navigator.serviceWorker.ready;
         if (reg.active) reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
       }
-      addDebugLog("info", "STORE:CONTATO", `🚀 Handshake de exclusão remota de contato enviado para a fila (aud: ${hash}). Lápide criada.`);
     } else {
-      // Exclusão física direta se não houver necessidade de notificar a rede
       await removerContatoPorHash(hash);
-      addDebugLog("success", "STORE:CONTATO", `Contato ${hash} e DADOS VINCULADOS expurgados com sucesso.`);
     }
 
   } catch (err) {
@@ -3326,9 +3329,6 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
       contatosRaw.value = novaLista;
       
       await salvarContato(contatoModificado);
-      addDebugLog("success", "STORE:CONTATO", `Contato homologado como confiável: ${contatoModificado.name}`);
-    } else {
-      addDebugLog("warn", "STORE:CONTATO", "Contato não encontrado em memória para homologação");
     }
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
@@ -3346,10 +3346,8 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
     contatosRaw.value = novaLista;
     
     salvarContato(contatoModificado).catch(err => {
-        addDebugLog("error", "STORE:CONTATO", `Erro em background ao atualizar status do contato ${id}`, err);
+        addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
     });
-  } else {
-    addDebugLog("error", "STORE:CONTATO", `Contato ${id} não encontrado na memória para atualizar status`);
   }
 }
 ```
@@ -3618,7 +3616,7 @@ import {
   salvarProfile,
   serializarPublicKeyVapid,
   normalizarChaveContato,
-  removerContatoPorHash // 🔥 NOVO: Importação para apagar a Lápide
+  removerContatoPorHash
 } from "../utils/db-helpers.ts";
 import { cifrarPayloadObj, enviarParaProxy, cifrarChaveVapid } from "../utils/push-utils.ts";
 import { extrairDadosCompactos } from "../utils/share-utils.ts";
@@ -3634,17 +3632,14 @@ async function realizarGarbageCollection(emergencia = false) {
   try {
     const todos = await listarHandshakes();
     const agora = Date.now();
-    
     const LIMITE_MS = emergencia ? (60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000); 
 
     let removidos = 0;
     for (const h of todos) {
       const idade = agora - (h.updatedAt || h.createdAt);
-      
       if (idade > LIMITE_MS) {
         const inConcluido = !h.in || ['processado', 'falha'].includes(h.in.status);
         const outConcluido = !h.out || ['enviado', 'entregue', 'falha'].includes(h.out.status);
-
         const apagarForcado = emergencia && (idade > 3 * 24 * 60 * 60 * 1000);
 
         if ((inConcluido && outConcluido) || apagarForcado) {
@@ -3655,7 +3650,7 @@ async function realizarGarbageCollection(emergencia = false) {
     }
     
     if (removidos > 0) {
-      addDebugLog(`[SW-ROUTER] 🧹 Garbage Collection: ${removidos} handshakes antigos removidos (Emergência: ${emergencia}).`);
+      addDebugLog(`[SW-ROUTER] 🧹 Garbage Collection: ${removidos} handshakes antigos removidos.`);
     }
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro durante o Garbage Collection: ${err.message}`);
@@ -3668,18 +3663,14 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
     if (mensagemSucesso) addDebugLog(mensagemSucesso);
   } catch (e: any) {
     if (e.name === 'QuotaExceededError') {
-      addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota de armazenamento excedida. Disparando GC de emergência...");
+      addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota excedida. Disparando GC de emergência...");
       await realizarGarbageCollection(true);
-      
       try {
         await salvarHandshake(handshake);
-        addDebugLog("[SW-ROUTER] ✅ Espaço liberado. Handshake salvo com sucesso após emergência.");
       } catch (e2: any) {
-        addDebugLog(`[SW-ROUTER] ❌ Falha catastrófica: Disco permanentemente cheio. Erro: ${e2.message}`);
         throw e2;
       }
     } else {
-      addDebugLog(`[SW-ROUTER] ❌ Erro ao gravar handshake no IndexedDB: ${e.message}`);
       throw e;
     }
   }
@@ -3689,25 +3680,15 @@ export async function processarHandshakeRecebido(payload: any, header: any, _jwt
   addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
 
   try {
-    if (!payload?.jti) {
-      addDebugLog("[SW-ROUTER] ⚠️ Handshake rejeitado precocemente: Ausência de 'jti'");
-      return;
-    }
-    if (!payload?.ct) {
-      addDebugLog("[SW-ROUTER] ⚠️ Handshake rejeitado precocemente: Ausência de 'ct' (envelope cifrado)");
-      return;
-    }
+    if (!payload?.jti || !payload?.ct) return;
 
     const privateDecryptKey = await buscarChaveDecript();
-    if (!privateDecryptKey) {
-      throw new Error("Chave privada RSA não encontrada para decifrar handshake.");
-    }
+    if (!privateDecryptKey) throw new Error("Chave privada RSA não encontrada para decifrar handshake.");
 
     let envelope;
     try {
       envelope = JSON.parse(payload.ct);
     } catch (_e) {
-      addDebugLog("[SW-ROUTER] ⚠️ Falha ao fazer parse do envelope cifrado 'ct'. JSON malformado.");
       return;
     }
 
@@ -3715,10 +3696,7 @@ export async function processarHandshakeRecebido(payload: any, header: any, _jwt
     const dados = envelope.d || envelope.dadosCifrados;
     const chaveAesCifrada = envelope.k || envelope.chaveAesCifrada;
 
-    if (!iv || !dados || !chaveAesCifrada) {
-      addDebugLog("[SW-ROUTER] ⚠️ Envelope incompleto. Descarte antecipado.");
-      return;
-    }
+    if (!iv || !dados || !chaveAesCifrada) return;
 
     const ivBytes = new Uint8Array(base64UrlToArrayBuffer(iv));
     const dadosBytes = new Uint8Array(base64UrlToArrayBuffer(dados));
@@ -3734,7 +3712,6 @@ export async function processarHandshakeRecebido(payload: any, header: any, _jwt
       decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
       rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
     } catch (_e) {
-      addDebugLog("[SW-ROUTER] ⚠️ Falha ao descomprimir (fflate) ou fazer parse JSON do payload decifrado.");
       throw new Error("Falha na descompressão ou parse do payload interno.");
     }
 
@@ -3766,9 +3743,7 @@ export async function processarHandshakeRecebido(payload: any, header: any, _jwt
 let processingPromise: Promise<void> | null = null;
 
 export async function processarFilaHandshake(): Promise<void> {
-  if (processingPromise) {
-    return processingPromise;
-  }
+  if (processingPromise) return processingPromise;
   
   processingPromise = (async () => {
     addDebugLog("[SW-ROUTER] 🔄 Processando fila geral de handshakes...");
@@ -3776,6 +3751,7 @@ export async function processarFilaHandshake(): Promise<void> {
     try {
       const todos = await listarHandshakes();
 
+      // === 1. PROCESSAMENTO DE ENTRADA (IN) ===
       const pendentesIn = todos.filter(h => h.in && (h.in.status === 'recebido' || (h.in.status === 'processando' && (Date.now() - h.updatedAt) > 60000)) && h.in.tentativas < MAX_TENTATIVAS);
 
       for (const h of pendentesIn) {
@@ -3808,10 +3784,10 @@ export async function processarFilaHandshake(): Promise<void> {
       }
 
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        addDebugLog("[SW-ROUTER] 🌐 Dispositivo offline. Retendo fila de saída (Out).");
         return;
       }
 
+      // === 2. PROCESSAMENTO DE SAÍDA (OUT) ===
       const todosAposIn = await listarHandshakes();
       const pendentesOut = todosAposIn.filter(h => h.out && (h.out.status === 'pendente' || (h.out.status === 'enviando' && (Date.now() - h.updatedAt) > 60000)) && h.out.tentativas < MAX_TENTATIVAS);
 
@@ -3839,64 +3815,48 @@ export async function processarFilaHandshake(): Promise<void> {
 
           const isSyncHandshake = !!(h.out!.rotas?.contato?.sync);
           const isPullHandshake = Array.isArray(h.out!.rotas?.contato?.campos);
-          
           const ehReTentativa = h.out!.tentativas > 1;
           
           const isProfilePiggybackReady = !!(
-            profile.vapidPublicKey && 
-            profile.e2ePublicKey && 
-            profile.subscription?.endpoint && 
-            profile.subscription?.proxyserver 
+            profile.vapidPublicKey && profile.e2ePublicKey && profile.subscription?.endpoint && profile.subscription?.proxyserver 
           );
 
           const precisaDePerfilInjetado = isProfilePiggybackReady && ((contato.me === 'none' || contato.me === 'wrong') || (ehReTentativa && !h.out!.rotas.contato?.sync));
 
           let injetouPIGNestaRodada = false;
 
+          // 🔥 INJEÇÃO DO PIGGYBACK
           if (!isSyncHandshake && !isPullHandshake && precisaDePerfilInjetado) {
-            addDebugLog(`[SW-ROUTER] 💉 Injetando dados de perfil no handshake ${h.id} (Motivo: ${ehReTentativa ? 'Re-tentativa/Resiliência' : 'Contato Desatualizado'}).`);
+            addDebugLog(`[SW-ROUTER] 💉 Injetando dados de perfil no handshake ${h.id} (Motivo: Contato Desatualizado / Re-tentativa).`);
             h.out!.rotas.contato = h.out!.rotas.contato || {};
             h.out!.rotas.contato.sync = await extrairDadosCompactos(profile, true, contato.trusted === true) as unknown as Record<string, unknown>;
             injetouPIGNestaRodada = true;
           }
 
           let envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
-          let payloadJwt: any = { 
-            sub: "hand", 
-            aud: contato.id, 
-            jti: h.id, 
-            ct: JSON.stringify(envelope)
-          };
+          let payloadJwt: any = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
           let jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
           
+          // 🔥 FRAGMENTAÇÃO MTU
           if (jwt.length > 4000 && injetouPIGNestaRodada) {
             addDebugLog(`[SW-ROUTER] ✂️ MTU Excedido (${jwt.length} bytes). Fragmentando o PIG para um Handshake independente...`);
             
             const pigSyncData = h.out!.rotas.contato!.sync;
-            
             delete h.out!.rotas.contato!.sync;
-            if (Object.keys(h.out!.rotas.contato!).length === 0) {
-              delete h.out!.rotas.contato;
-            }
+            if (Object.keys(h.out!.rotas.contato!).length === 0) delete h.out!.rotas.contato;
 
             envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
             payloadJwt.ct = JSON.stringify(envelope);
             jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
 
             const handshakePIG: Handshake = {
-              id: gerarId(),
-              aud: contato.id,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              out: {
-                status: 'pendente',
-                tentativas: 0,
-                rotas: {
-                  contato: { sync: pigSyncData }
-                }
-              }
+              id: gerarId(), aud: contato.id, createdAt: Date.now(), updatedAt: Date.now(),
+              out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: pigSyncData } } }
             };
-            await salvarHandshakeTransacional(handshakePIG, `[SW-ROUTER] ✅ Handshake de PIG fragmentado (${handshakePIG.id}) salvo na fila.`);
+            await salvarHandshakeTransacional(handshakePIG, `[SW-ROUTER] ✅ Handshake de PIG fragmentado salvo na fila.`);
+            
+            // 🐛 CORREÇÃO DE BUG: Força o processamento imediato do PIG ejetado!
+            setTimeout(() => processarFilaHandshake(), 100);
           }
 
           if (jwt.length > 4096) throw new Error(`Payload excede limite da WebPush de 4KB (atual: ${jwt.length})`);
@@ -3909,26 +3869,20 @@ export async function processarFilaHandshake(): Promise<void> {
           h.out!.status = 'enviado';
           h.updatedAt = Date.now();
           await salvarHandshakeTransacional(h);
-          addDebugLog(`[SW-ROUTER] 📤 Sucesso! Pacote blindado de Handshake ${h.id} disparado para a rede.`);
-
-          // 🔥 TOMBSTONE PURGE: Se o pacote era para excluir o contato, como foi enviado com sucesso, apagamos fisicamente!
+          
           if (h.out!.rotas?.contato?.removerContato) {
             await removerContatoPorHash(h.aud);
-            addDebugLog(`[SW-ROUTER] 🪦 Lápide do contato ${h.aud} removida fisicamente após confirmação de envio da exclusão.`);
           }
 
         } catch (err: any) {
-          addDebugLog(`[SW-ROUTER] ❌ Erro ao enviar handshake OUT ${h.id}: ${err.message}`);
           if (h && h.out) {
             h.out.status = h.out.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
             h.out.erro = err.message;
             h.updatedAt = Date.now();
             await salvarHandshakeTransacional(h);
 
-            // 🔥 TOMBSTONE PURGE (FALHA DEFINITIVA): Se falhou 3 vezes, desistimos e apagamos o contato.
             if (h.out.status === 'falha' && h.out.rotas?.contato?.removerContato) {
               await removerContatoPorHash(h.aud);
-              addDebugLog(`[SW-ROUTER] 🪦 Lápide do contato ${h.aud} removida devido a falha definitiva de comunicação.`);
             }
           }
         }
