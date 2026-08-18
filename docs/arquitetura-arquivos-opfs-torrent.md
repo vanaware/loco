@@ -1,124 +1,90 @@
-### 1. A Mudança de Paradigma: De "Push" para "Pull"
+# Arquitetura de Arquivos P2P (OPFS + WebTorrent) - Criptografia em Streaming
 
-No envio de arquivos tradicional (como o WhatsApp), o cliente A "empurra" (Push) o arquivo para o servidor, e o servidor "empurra" para B.
-No WebTorrent, o fluxo é estritamente **Pull (Puxar)**.
-
-Quando a Alice escolhe um arquivo no chat para o Bob:
-
-1. Alice salva o arquivo no seu OPFS.
-2. O Web Worker da Alice gera o Torrent (fatia em pedaços e gera o `infohash` - a "impressão digital" do arquivo).
-3. Alice **não** envia o arquivo. Ela envia uma **Mensagem de Texto** (Cenário A ou B) criptografada E2EE contendo o `infohash` (Magnet Link) e a *Chave Simétrica* para descriptografar.
-4. O app do Bob recebe a mensagem. O Web Worker do Bob usa o WebRTC DataChannel para dizer à Alice: *"Ei, me mande o pedaço 1 do arquivo com este infohash"*.
-
-**Conclusão no Transporte:** O nosso Roteador Dinâmico continua igual. O que muda é que a *intenção* `file_transfer` agora carrega apenas metadados leves. O peso bruto sempre vai pelo `RTCDataChannel` (Web Worker).
-
-### 2. Criptografia no WebTorrent (O Desafio E2EE)
-
-O protocolo BitTorrent compartilha arquivos baseado no hash de seus pedaços originais.
-Se a Alice compartilha uma foto privada com o Bob (usando WebTorrent) e envia a foto em texto claro para a rede P2P, qualquer peer que descobrir o infohash pode baixar a foto.
-
-**Como o Loco resolve isso (A Arquitetura de Permissões):**
-
-* **Arquivos Privados / Compartilhados no Chat:** Antes do arquivo ir para a engine do WebTorrent no OPFS, ele é **criptografado simetricamente** (AES-GCM). O WebTorrent da Alice "semeia" (seeds) o arquivo em formato ininteligível. A chave AES nunca vai para o Tracker ou para a rede P2P, ela vai *apenas* por dentro da mensagem de chat E2EE da Alice para o Bob.
-* **Arquivos Públicos:** Podem ser semeados sem criptografia (ou com uma chave pública do diretório da Alice, se quisermos evitar censura/rastreio direto pelo hash comum).
-
-### 3. A Mágica da Sementeira Múltipla (Swarm P2P)
-
-A parte mais fantástica da sua ideia ("o usuário B salva no OPFS e marca como compartilhado") é que isso cria um **Swarm (Enxame)** real.
-
-Se a Alice manda um arquivo de 1GB no grupo para o Bob e o Carlos:
-
-1. Bob baixa os primeiros 100MB da Alice.
-2. Carlos entra online. Carlos não precisa baixar apenas da Alice. Ele vai baixar partes da Alice e partes do Bob simultaneamente!
-3. Se a Alice ficar offline (fechar o PWA), o Carlos continua baixando do Bob.
-
-Isso exige que nosso IndexedDB auxiliar rastreie o status de `seeding` (semeando) de cada arquivo no OPFS.
-
-### 4. A Funcionalidade de Diretório Público
-
-Para o cenário onde B pede para listar os arquivos públicos de A, precisaremos adicionar novas intenções (Intents) no nosso `HandshakeEnvelope`:
-
-* `directory_request`: B manda um push silenciado para A perguntando "Quais seus arquivos públicos?".
-* `directory_response`: A responde com um JSON contendo uma lista de `{ fileName, size, infohash, type }`.
-* *(Nota arquitetural)*: Essa requisição de diretório é o cenário perfeito para o nosso **Roteamento Dinâmico (Upgrade Oportunista)**. B tenta mandar a requisição pelo WebRTC ativo primeiro, listando instantaneamente se A estiver online.
+Este documento detalha o subsistema de armazenamento e compartilhamento de mídia do **Loco**, transformando o PWA em um nó de uma rede de arquivos distribuída (Swarm), garantindo criptografia E2EE sem estourar a memória RAM e mantendo o funcionamento Offline-First.
 
 ---
 
-### Documentação da Nova Camada de Arquivos
-
-Preparei um novo Canvas/Documento em Markdown focando exclusivamente no subsistema de armazenamento (OPFS + IDB) e na mecânica do WebTorrent dentro do Loco.
-
-Você pode salvar este arquivo como **`docs/arquitetura-arquivos-opfs-torrent.md`**:
-
-```markdown
-# Arquitetura de Arquivos P2P (OPFS + WebTorrent)
-
-Este documento detalha o subsistema de armazenamento e compartilhamento de mídia do **Loco**, transformando o PWA em um nó de uma rede de arquivos distribuída (Swarm), garantindo criptografia E2EE e funcionamento Offline-First.
-
 ## 1. A Topologia de Armazenamento Duplo
 
-Os navegadores possuem limites para o IndexedDB (lento para arquivos grandes e usa muita memória RAM) e restrições de persistência. Para contornar isso, o Loco divide as responsabilidades:
+Os navegadores possuem limites estritos para o uso de IndexedDB (lento para arquivos grandes e aloca em RAM). Para garantir performance sem travar a interface do PWA, o Loco divide as responsabilidades:
 
 ### 1.1 OPFS (Origin Private File System) - "O Cofre de Binários"
-* **Acesso:** Exclusivo pelo Web Worker Dedicado (via API síncrona `FileSystemSyncAccessHandle` para máxima performance).
+* **Acesso:** Exclusivo pelo Web Worker Dedicado através de acesso síncrono (`FileSystemSyncAccessHandle`).
 * **Função:** Armazena os blocos binários crus (`Uint8Array`) dos arquivos que o usuário está baixando (leeching) ou compartilhando (seeding).
-* **Segurança:** O próprio sistema de arquivos do sistema operacional não consegue ler os arquivos de forma fácil (são ofuscados pelo browser). Os arquivos privados/chats são gravados **já criptografados** com AES-GCM.
+* **Segurança:** Isolado por origem pelo navegador. Gravação de arquivos por blocos (*chunks*) sem alocação massiva de RAM.
 
 ### 1.2 IndexedDB (IDB) Auxiliar - "O Tabelionato e Indexador"
 * **Acesso:** Main Thread e Web Worker.
-* **Função:** Armazena apenas os metadados, permissões e status do Torrent. Relaciona a interface gráfica com os binários no OPFS.
-* **Tabela de Arquivos (Schema Conceitual):**
+* **Função:** Armazena metadados, permissões, estado do torrent e histórico de transferências.
+* **Schema dos Metadados do Arquivo:**
   ```typescript
-  interface LocoFileMetadata {
+  export interface LocoFileMetadata {
     fileId: string;             // UUID interno do Loco
     infoHash: string;           // ID do BitTorrent (Magnet)
     fileName: string;
     mimeType: string;
     sizeBytes: number;
-    encryptionKey?: string;     // Chave AES exportada (Nulo se público limpo)
+    chunkSize: number;          // Tamanho de cada pedaço (ex: 524288 bytes / 512KB)
     
     // Níveis de Acesso
     visibility: "private" | "shared" | "public";
-    sharedWith: string[];       // Array de IDs de contatos (se 'shared')
+    sharedWith: string[];       // Array de IDs de contatos autorizados
     
-    // Status do WebTorrent
+    // Status
     status: "downloading" | "seeding" | "paused";
-    progress: number;           // 0.0 a 1.0
+    completedChunks: number[]; // Lista de índices de blocos já baixados
   }
 
 ```
 
-## 2. Fluxos de Compartilhamento
+---
 
-O envio de arquivos no Loco baseia-se no modelo **Pull (Requisitar)** do BitTorrent, nunca no Push (Empurrar).
+## 2. Criptografia Híbrida em Streaming (Chunk-Level E2EE)
 
-### Fluxo A: Envio no Chat Privado (E2EE)
+Para permitir a transferência de arquivos gigantes (ex: +1GB) em dispositivos com pouca memória RAM (Smartphones), **o arquivo NUNCA é criptografado por inteiro de uma só vez**.
 
-1. Alice seleciona um vídeo no chat com Bob.
-2. O Worker da Alice **criptografa** o vídeo (AES-GCM com chave única).
-3. O vídeo criptografado é salvo no OPFS.
-4. O WebTorrent indexa o arquivo ofuscado e gera um `infoHash`.
-5. O Loco salva no IDB da Alice: `visibility: "shared", sharedWith: [Bob]`.
-6. **Sinalização (Chat):** Alice envia uma mensagem de texto E2EE para Bob contendo: `[infoHash + AES_Key]`.
-7. O chat de Alice mostra "Enviado".
-8. Bob recebe a mensagem. O PWA do Bob inicia o WebTorrent pedindo o `infoHash` para a Alice (via WebRTC DataChannel).
-9. Conforme Bob baixa as peças, o Worker dele descriptografa em RAM (usando a AES_Key recebida) para mostrar na tela, mas salva criptografado no seu OPFS.
+Reutilizamos as **chaves E2EE de contato já existentes** no Loco.
 
-### Fluxo B: Diretório Público (Descoberta P2P)
+```
+[Arquivo Original] -> Fatiado em Blocos (512KB) 
+                             ↓
+              [Criptografa Bloco N (AES-GCM)] (RAM < 10MB)
+                             ↓
+             [Envia via WebRTC / WebTorrent]
+                             ↓
+             [Descriptografa Bloco N no Destino]
+                             ↓
+             [Grava Bloco N no OPFS do Destinatário]
 
-Usuários podem marcar arquivos como "Públicos" (ex: músicas criadas por eles, manuais).
+```
 
-1. Bob acessa o perfil de Alice e clica em "Ver Arquivos Públicos".
-2. **Requisição:** O PWA do Bob envia um Handshake do tipo `directory_request` para Alice.
-* *Oportunismo:* Tenta via WebRTC; se falhar, manda via Push Silencioso.
+### 2.1 Processo de Envio e Criptografia
 
+1. A chave simétrica negociada com o contato (via ECDH/E2EE) é utilizada como Chave Mestra para a sessão de arquivo.
+2. Cada bloco de 512KB recebe um **IV (Vector de Inicialização) derivado do Índice do Bloco** (`iv = Hash(ChaveContato + ChunkIndex)`). Isso garante que o mesmo pedaço repetido não gere o mesmo ciphertext (prevenindo ataques de padrão), sem precisar transmitir IVs adicionais.
+3. O Web Worker lê do OPFS apenas os 512KB do bloco requisitado pelo peer, criptografa o bloco na memória (ocupando insignificantes ~1MB de RAM) e despacha via `RTCDataChannel`.
 
-3. O PWA da Alice responde com a lista do seu IDB onde `visibility === "public"`.
-4. Bob visualiza a lista (ainda não baixou nada, salvou as referências em seu IDB).
-5. Bob clica em baixar "Manual.pdf".
-6. O processo do WebTorrent inicia. Se Carlos também tem esse arquivo semeando, Bob pode baixar da Alice e do Carlos ao mesmo tempo!
+### 2.2 Processo de Recebimento
 
-## 3. Resiliência e Economia de Espaço
+1. O destinatário recebe o pacote do bloco de 512KB.
+2. Utiliza a sua chave local do contato + o índice do bloco para descriptografar os 512KB em memória.
+3. Grava o bloco descriptografado de 512KB na posição exata do seu arquivo no OPFS (`accessHandle.write(buffer, { at: chunkIndex * chunkSize })`).
+4. **Streaming Instantâneo:** Assim que os primeiros blocos sequenciais são gravados, a interface do Preact já pode renderizar uma tag `<video>` ou `<audio>` consumindo o arquivo direto do OPFS enquanto o resto é baixado!
 
-* **Pausas e Retomadas:** O WebTorrent divide o arquivo em `pieces` (ex: 256KB). Se a Alice fechar o app aos 50% de um vídeo de 1GB, o IDB salva o estado. Quando ela abrir, o download continua exatamente do pedaço 50%, sem corromper.
-* **Geração de Magnet Links Internos:** Ao invés de usar Trackers WebTorrent públicos (que exporiam metadados), o Loco passa os dados de roteamento (quem está semeando o quê) estritamente pelos túneis WebRTC autenticados entre os amigos.
+---
+
+## 3. Matriz de Permissões e Compartilhamento
+
+| Visibilidade | Criptografia por Bloco | Acesso ao InfoHash | Como o Destinatário Descobre |
+| --- | --- | --- | --- |
+| **Privado** | Criptografado com Chave Própria | Apenas o próprio usuário | Salvo localmente, não anunciado no P2P. |
+| **Compartilhado** | Criptografado com Chave do Contato | Apenas contatos em `sharedWith` | Recebe mensagem de chat contendo o `infoHash`. |
+| **Público** | Sem Criptografia (Texto Claro) | Qualquer nó da rede | Requisitado via `directory_request` no chat. |
+
+---
+
+## 4. Benefícios Arquiteturais da Solução
+
+1. **Uso de Memória RAM Constante:** Suporta arquivos de qualquer tamanho (10MB ou 100GB) com pegada de RAM < 10MB.
+2. **Sem Redundância de Chaves:** Zera a necessidade de criar ou trocar novas chaves de criptografia; reutiliza o ecossistema E2EE de contatos já estabelecido.
+3. **Resiliência e Interrupção:** Se a conexão cair no bloco 450, ao reconectar, o download é retomado exatamente a partir do bloco 450.
