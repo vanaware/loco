@@ -4,8 +4,10 @@
 declare const self: ServiceWorkerGlobalScope;
 declare const __GENERATED_ASSETS__: string[];
 
-const CACHE_VERSION = "VERSION_HASH";
-const CACHE_NAME = `loco-proto-cache-${CACHE_VERSION}`;
+// 🔥 ARQUITETURA: SSOT (Single Source of Truth) para versionamento de Cache
+import { APP_VERSION } from "../constants/version.ts";
+
+const CACHE_NAME = `loco-proto-cache-v${APP_VERSION}`;
 
 const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
 

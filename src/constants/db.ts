@@ -5,6 +5,8 @@ export const DB_NAMES = {
   CHAT: "Chat_DB", 
   CONTATOS: "BrowserB_Contatos_DB",
   HANDSHAKES: "Handshake_DB",
+  // 🔥 ARQUITETURA: Banco atualizado para mapear as Pastas (Coleções de Mídia/Torrents)
+  MIDIAS: "Midias_Metadata_DB" 
 } as const;
 
 export const STORE_NAMES = {
@@ -53,9 +55,10 @@ export interface Chat {
   updatedAt?: number;
   errorAt?: number;
   handshake: string;
+  // 🔥 ARQUITETURA: Ponteiro opcional para a Pasta/Coleção no OPFS
+  metadataId?: string; 
 }
 
-// 🔥 ARQUITETURA: Adicionado o estado 'deleted' para o padrão Tombstone
 export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved' | 'deleted';
 
 export interface Contato {
@@ -74,6 +77,29 @@ export interface Contato {
   me: MeStatus;
   createdAt: number;
   updatedAt: number;
+}
+
+// 🔥 ARQUITETURA: Nova Estrutura Baseada em Pastas/Manifestos P2P
+export interface FileMetadata {
+  name: string;      // Nome original (ex: foto.jpg). É o mesmo nome salvo no OPFS dentro da pasta.
+  size: number;      // Tamanho em bytes
+  type: string;      // MIME Type (ex: image/jpeg, video/mp4)
+  createdAt: number; 
+  modifiedAt: number;
+}
+
+export interface PastaMetadata {
+  id: string;                                    // ID único da pasta (gerado e espelhado pelo Manifesto JSON)
+  name: string;                                  // Nome da pasta
+  magnetURI?: string;                            // Magnet URI da coleção (opcional se a pasta for estritamente local por enquanto)
+  infoHash?: string;                             // Identificador único da rede BitTorrent (útil para resume e caching)
+  status: 'seeding' | 'downloading' | 'standby'; // Standby: o motor P2P ignora essa pasta ao ligar
+  complete: number;                              // 0 a 100 (% dos bytes baixados)
+  permission: 'public' | 'listed' | 'trusted';   // Controle de distribuição do Handshake do Magnet URI
+  contatos: string[];                            // Array de hashes de contatos com acesso explícito (usado se 'listed')
+  files: FileMetadata[];                         // Lista de arquivos contidos na pasta
+  createdAt: number;
+  modifiedAt: number;
 }
 
 export interface ProfileRouteData {

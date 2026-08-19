@@ -9,7 +9,10 @@ import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
 import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
 import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
 
-console.log("[SW] 🌌 Service Worker orquestrador carregado.");
+// 🔥 ARQUITETURA: O SW carrega sua própria versão compilada no momento do build
+import { APP_VERSION } from "./constants/version.ts";
+
+console.log(`[SW] 🌌 Service Worker orquestrador carregado (v${APP_VERSION}).`);
 
 self.addEventListener('activate', (event: any) => {
   console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
@@ -29,6 +32,15 @@ self.addEventListener('message', (event: any) => {
   if (!event.data) return;
 
   const { type, payload } = event.data;
+
+  // 🔥 RESPOSTA DE TELEMETRIA: UI quer saber a nossa versão
+  if (type === 'PING_SW_VERSION') {
+    // Se a UI enviou uma porta de comunicação dedicada, respondemos por ela
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ type: 'PONG_SW_VERSION', version: APP_VERSION });
+    }
+    return;
+  }
 
   if (type === 'PROCESSAR_FILA_HANDSHAKE') {
     processarFilaHandshake().catch(err => console.error(err));

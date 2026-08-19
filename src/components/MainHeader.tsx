@@ -1,15 +1,24 @@
-import { activeView, navigate } from '../utils/router.ts';
+import { activeView, navigate, pastaSelecionada } from '../utils/router.ts';
 import { contatoSelecionado, contatoCompartilharHash } from '../signals/state.ts';
 import { profile, contatosComHash } from '../stores/index.ts';
+import { pastasAtivas } from '../stores/torrentLabsStore.ts';
 
 export function MainHeader() {
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
   const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
+  const pastaAtiva = pastasAtivas.value.find(p => p.id === pastaSelecionada.value);
 
   const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
   const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
 
-  const fecharAreaPrincipal = () => navigate('');
+  // 🔥 ARQUITETURA: Lógica inteligente de botão Voltar
+  const fecharAreaPrincipal = () => {
+    if (activeView.value === 'labs' && pastaSelecionada.value) {
+      navigate('#labs'); // Volta pra lista de pastas
+    } else {
+      navigate(''); // Volta pra home
+    }
+  };
   
   let headerTitle = "Loco PWA";
   let headerSubtitle = "";
@@ -31,6 +40,11 @@ export function MainHeader() {
     headerTitle = "Avançado";
     headerSubtitle = "Diagnóstico e Logs";
     headerIcon = "settings_suggest";
+  } else if (activeView.value === 'labs') {
+    // 🔥 Atualização do Header baseada na Pasta
+    headerTitle = pastaAtiva ? pastaAtiva.name : "WebTorrent Labs";
+    headerSubtitle = pastaAtiva ? "Detalhes da Pasta" : "Gestão de Mídias P2P";
+    headerIcon = "folder_shared";
   } else if (activeView.value === 'settings') {
     headerTitle = "Configurações";
     headerSubtitle = "Ajustes de Rede e Interface";

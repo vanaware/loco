@@ -14,10 +14,11 @@ import { LogoutSection } from './components/LogoutSection.tsx';
 import { ShareSection } from './components/ShareSection.tsx';
 import { SettingsSection } from './components/SettingsSection.tsx';
 import { ToastSnackbar } from './components/ToastSnackbar.tsx';
+import { WebTorrentLabsSection } from './components/WebTorrentLabsSection.tsx'; 
 
 // Signals e Lógica de Negócio
 import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, appTheme, AppTheme } from './signals/state.ts';
-import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
+import { profile, initProfileStore, initContatosStore, initMensagensStore, initTorrentLabsStore, contatosComHash } from './stores/index.ts';
 import { isCarregandoContatos } from './stores/contatosStore.ts';
 import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 
@@ -47,10 +48,8 @@ const HomePlaceholder = () => (
   </div>
 );
 
-// 🔥 ARQUITETURA: Banner não-bloqueante para falhas de rede/push
 const PushAlertBanner = () => {
   const p = profile.value;
-  // Truque reativo para re-avaliação contínua
   const _view = activeView.value; 
   
   if (!p || !p.name) return null;
@@ -79,6 +78,7 @@ const ViewMap: Record<string, ComponentType<any>> = {
   'chat': ChatSection,
   'detail': ContactDetailSection,
   'advanced': AdvancedSection,
+  'labs': WebTorrentLabsSection, 
   'profile': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
   'logout': LogoutSection,
   'share': ShareSection,
@@ -99,7 +99,7 @@ function App() {
       await initProfileStore();
       
       const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
-      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'settings', 'logout'].includes(activeView.value);
+      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); 
       
       if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
         navigate('#profile');
@@ -107,12 +107,15 @@ function App() {
 
       await initContatosStore();
       await initMensagensStore();
+      
+      // 🔥 ARQUITETURA: Agora o Labs é inicializado globalmente no Boot!
+      await initTorrentLabsStore();
+      
       setIsLoading(false);
     };
     init();
   }, []);
 
-  // Route Guard: Proteção contra contatos inexistentes
   useEffect(() => {
     if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
        const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
@@ -136,7 +139,7 @@ function App() {
   }
 
   const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
-  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'settings', 'logout'].includes(activeView.value);
+  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); 
   const viewToRender = (!isIdentityValid && !isRouteAllowedWithoutProfile) ? 'profile' : activeView.value;
   
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
@@ -152,17 +155,11 @@ function App() {
 
       <div id="app-root" class={`view-mode-${currentMobileView.value}`} style="flex-grow: 1; display: flex; position: relative; min-height: 0;">
         
-        {/* Componente Modular: Barra Lateral */}
         <AppSidebar isIdentityValid={isIdentityValid} />
 
         <main class="app-main">
-          
-          {/* Componente Modular: Cabeçalho Dinâmico */}
           <MainHeader />
-
-          {/* Componente Modular: Rota Ativa */}
           <RouteComponent/>
-
         </main>
 
       </div>

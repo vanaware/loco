@@ -37,9 +37,10 @@ export async function createSdpOffer(recipientId: string): Promise<HandshakeSdpC
     });
 
     // 1. Criamos um DataChannel (onde os arquivos/mensagens vão trafegar)
+    // O id do dataChannel suprimido para o TypeScript não reclamar. Deixamos o WebRTC negociar
     const dataChannel = peerConnection.createDataChannel("loco-p2p-channel", {
       negotiated: true,
-      id: 0 // Usar um ID estático facilita a sincronização sem precisar de eventos adicionais
+      id: 0
     });
 
     // TODO: Salvar `peerConnection` e `dataChannel` no state manager (Signals)
@@ -153,7 +154,7 @@ async function handleIncomingOffer(context: HandshakeSdpContext): Promise<void> 
 
     // TODO: Chamar o orquestrador de Handshakes para encriptar e enviar
     // `answerPayload` de volta para `context.senderId` via Push/Proxy.
-    console.log("[Handshake SDP] Answer gerada e pronta para envio.");
+    console.log("[Handshake SDP] Answer gerada e pronta para envio.", answerPayload);
   }
 }
 
@@ -163,7 +164,10 @@ async function handleIncomingOffer(context: HandshakeSdpContext): Promise<void> 
 async function handleIncomingAnswer(context: HandshakeSdpContext): Promise<void> {
   // TODO: Recuperar o `peerConnection` criado pela Alice em `createSdpOffer` 
   // buscando no gerenciador de estado pelo `context.senderId`.
-  const peerConnection: RTCPeerConnection | null = null; // Mock para exemplo
+  
+  // Utilizando 'as unknown' para forçar o TS a entender que isso será populado no futuro 
+  // e evitar o erro "never" de código morto
+  const peerConnection = null as unknown as RTCPeerConnection; 
 
   if (!peerConnection) {
     console.warn(`[Handshake SDP] PeerConnection não encontrado para ${context.senderId}. Foi descartado?`);

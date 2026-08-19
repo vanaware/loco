@@ -1,5 +1,6 @@
 // src/sw/sw-utils.ts
 import { addDebugLog } from '../utils/debug-utils.ts';
+import { APP_VERSION } from '../constants/version.ts';
 
 export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   addDebugLog("📡 Verificando suporte ao Service Worker...");
@@ -20,13 +21,11 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
     basePath += '/';
   }
 
-  const cacheBuster = Date.now();
   addDebugLog(`⏳ Registrando Service Worker no escopo: ${basePath}`);
 
   try {
-    // Injetamos o basePath absoluto calculado na hora
     const registration = await navigator.serviceWorker.register(
-      `${basePath}service-worker.js?cacheBuster=${cacheBuster}`,
+      `${basePath}service-worker.js?v=${APP_VERSION}`,
       { scope: basePath }
     );
     
@@ -36,7 +35,28 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
     
     addDebugLog("✅ Service Worker registrado, aguardando ready...");
     const readyReg = await navigator.serviceWorker.ready;
-    addDebugLog("✅ Service Worker ativo e pronto.");
+    
+    // 🔥 ARQUITETURA: Checagem Introspectiva de Versão (App vs SW)
+    if (readyReg.active) {
+      // Criamos um túnel de comunicação seguro (MessageChannel)
+      const channel = new MessageChannel();
+      
+      // A UI fica escutando a porta 1
+      channel.port1.onmessage = (event) => {
+        if (event.data && event.data.type === 'PONG_SW_VERSION') {
+          const swVersion = event.data.version;
+          
+          if (swVersion !== APP_VERSION) {
+            addDebugLog("warn", "SYSTEM", `⚠️ Inconsistência de Versão! App está rodando v${APP_VERSION}, mas o Service Worker ativo em background é v${swVersion}. Um recarregamento forçado pode ser necessário.`);
+          } else {
+            addDebugLog("info", "SYSTEM", `🔒 Match de versão verificado: App e SW estão sincronizados na v${APP_VERSION}.`);
+          }
+        }
+      };
+      
+      // A UI manda o sinal de PING pela porta 2 direto para o Worker ativo
+      readyReg.active.postMessage({ type: 'PING_SW_VERSION' }, [channel.port2]);
+    }
     
     return readyReg;
   } catch (err: any) {

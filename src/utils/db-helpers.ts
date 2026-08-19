@@ -1,7 +1,7 @@
 // src/utils/db-helpers.ts
 import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
 import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type { ProfileConfig, Chat, Contato, Handshake } from "../constants/db.ts";
+import type { ProfileConfig, Chat, Contato, Handshake, PastaMetadata } from "../constants/db.ts";
 import { 
   minifyVapidPublic, expandVapidPublic, 
   minifyVapidPrivate, expandVapidPrivate, 
@@ -21,6 +21,8 @@ const storeConfig = criarStore(DB_NAMES.CONFIG);
 export const storeChat = criarStore(DB_NAMES.CHAT); 
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
 export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
+// 🔥 ARQUITETURA: Store para os metadados de Mídias/Pastas
+export const storeMidias = criarStore(DB_NAMES.MIDIAS);
 
 // ============================================================
 // Funções Genéricas
@@ -164,11 +166,9 @@ export async function listarChatPaginado(contatoHash: string, limit: number, off
   return records.filter(Boolean) as Chat[];
 }
 
-// 🔥 ARQUITETURA: Agora a remoção de mensagem localiza e destrói o Handshake fantasma associado!
 export async function removerChat(id: string, contatoHash: string): Promise<void> {
   const chat = await buscarChat(id);
   if (chat && chat.handshake && chat.handshake !== 'self') {
-    // Apaga a pendência de envio/recebimento silenciosamente se houver
     await removerHandshake(chat.handshake);
   }
 
@@ -183,12 +183,9 @@ export async function removerTodoHistoricoChat(contatoHash: string): Promise<voi
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
   const index = await buscarChave<string[]>(storeChat, indexKey) || [];
   
-  // Apaga as mensagens físicas
   for (const id of index) {
     await removerChave(storeChat, id);
   }
-  
-  // Apaga o índice associado
   await removerChave(storeChat, indexKey);
 }
 
@@ -272,4 +269,25 @@ export async function listarHandshakes(): Promise<Handshake[]> {
 
 export async function removerHandshake(id: string): Promise<void> {
   await removerChave(storeHandshakes, id);
+}
+
+// ============================================================
+// Metadados de Mídias e OPFS (Coleções/Pastas P2P)
+// ============================================================
+
+export async function salvarPastaMetadata(pasta: PastaMetadata): Promise<void> {
+  pasta.modifiedAt = Date.now();
+  await salvarChave(storeMidias, pasta.id, pasta);
+}
+
+export async function buscarPastaMetadata(id: string): Promise<PastaMetadata | undefined> {
+  return buscarChave<PastaMetadata>(storeMidias, id);
+}
+
+export async function listarTodasAsPastas(): Promise<PastaMetadata[]> {
+  return await listarValores<PastaMetadata>(storeMidias);
+}
+
+export async function removerPastaMetadata(id: string): Promise<void> {
+  await removerChave(storeMidias, id);
 }

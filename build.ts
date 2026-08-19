@@ -261,6 +261,17 @@ async function build() {
     write: true,
     sourcemap: "inline",
   }); 
+
+  console.log("📦 Compilando Web Worker Dedicado (P2P)...");
+  await runBundle("WebWorker", {
+    entrypoints: [join(SRC_DIR, "worker", "opfs.worker.ts")],
+    outputDir: join(BUILD_DIR, DIST_DIR),
+    platform: "browser",
+    format: "iife", // O formato IIFE clássico garante compatibilidade total com importScripts() em 100% dos navegadores
+    bundle: true,
+    minify: false,
+    write: true,
+  });
   
   console.log("📦 Compilando Service Worker em memória...");
   const swResult = await runBundle("ServiceWorker", {
@@ -279,7 +290,6 @@ async function build() {
   const versionHash = `v${appVersion}`;
 
   swCode = swCode
-    .replace(/VERSION_HASH/g, versionHash)
     .replace(/__GENERATED_ASSETS__/g, JSON.stringify(assets)); 
 
   await Deno.writeTextFile(join(BUILD_DIR, DIST_DIR, "service-worker.js"), swCode);

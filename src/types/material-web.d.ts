@@ -6,6 +6,7 @@ declare module "preact" {
     type MdElement = JSX.HTMLAttributes<HTMLElement> & {
       value?: string | number;
       checked?: boolean;
+      selected?: boolean; // 🔥 ARQUITETURA: Adicionado suporte para md-switch, md-tabs, etc.
       disabled?: boolean;
       label?: string;
       placeholder?: string;

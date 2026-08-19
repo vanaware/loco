@@ -22,6 +22,9 @@ export function navigate(hash: string) {
   }
 }
 
+// 🔥 ARQUITETURA: Signal dedicado para a Pasta Selecionada no roteamento
+export const pastaSelecionada = signal<string | null>(null);
+
 effect(() => {
   const hash = currentHash.value;
 
@@ -29,6 +32,7 @@ effect(() => {
   contatoSelecionado.value = '';
   contatoCompartilharHash.value = null;
   showAdvanced.value = false;
+  pastaSelecionada.value = null; // Reseta a pasta por padrão
 
   if (hash.startsWith('#chat=')) {
     contatoSelecionado.value = hash.substring(6);
@@ -42,22 +46,23 @@ effect(() => {
     showAdvanced.value = true;
     currentMobileView.value = 'chat';
     sharePayload.value = null;
+  } else if (hash.startsWith('#labs')) {
+    // 🔥 ARQUITETURA: Roteamento Master/Detail para o Labs
+    const id = hash.includes('=') ? hash.substring(6) : null;
+    pastaSelecionada.value = id;
+    currentMobileView.value = id ? 'chat' : 'list';
+    sharePayload.value = null;
   } else if (hash === '#profile') {
     currentMobileView.value = 'chat';
-    // 🔥 ARQUITETURA: Não limpamos o sharePayload aqui! 
-    // Ele precisa sobreviver ao redirecionamento automático do Route Guard
-    // para que o ProfileSection consiga ler e processar o convite do anfitrião.
   } else if (hash === '#logout' || hash === '#settings') {
     currentMobileView.value = 'chat';
     sharePayload.value = null;
   } else if (hash.startsWith('#share')) {
     currentMobileView.value = 'chat';
-    // Extrai o payload caso venha via URL
     if (hash.includes('=')) {
       sharePayload.value = hash.substring(hash.indexOf('=') + 1);
     }
   } else {
-    // Home / Lista de Contatos
     currentMobileView.value = 'list';
     sharePayload.value = null;
   }
@@ -68,6 +73,7 @@ export const activeView = computed(() => {
   if (hash.startsWith('#chat=')) return 'chat';
   if (hash.startsWith('#detail=')) return 'detail';
   if (hash === '#advanced') return 'advanced';
+  if (hash.startsWith('#labs')) return 'labs'; // Trata #labs e #labs=123 da mesma forma
   if (hash === '#profile') return 'profile';
   if (hash === '#logout') return 'logout';
   if (hash.startsWith('#share')) return 'share';
