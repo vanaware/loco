@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: PLAYGROUND
 
-Gerado automaticamente em: 8/20/2026, 1:38:00 AM
+Gerado automaticamente em: 8/20/2026, 1:45:22 AM
 
 ---
 
@@ -84,6 +84,175 @@ if (rootElement) {
 } else {
   // Log de erro claro para facilitar o processo de depuração
   console.error("❌ Loco PWA Erro Fatal: Elemento de montagem '#app' não encontrado no DOM. Verifique a estrutura do arquivo index.html.");
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/components/ChatMaster.tsx`
+
+```tsx
+import {
+  contactsSignal,
+  selectedChatId,
+  selectChat,
+  type Contact,
+} from "../store/chatStore.ts";
+
+export function ChatMaster() {
+  const contacts = contactsSignal.value;
+  const activeId = selectedChatId.value;
+
+  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)
+  const responsiveGridClass = activeId ? "col m4 l3 m l" : "col s12 m4 l3";
+
+  return (
+    <section
+      className={`${responsiveGridClass} surface border-right column max no-space`}
+    >
+      {/* CABEÇALHO DA LISTA */}
+      <header className="padding border-bottom surface">
+        <div className="row middle-align small-bottom-margin">
+          <h5 className="max bold margin-none">Conversas</h5>
+          <button
+            type="button"
+            className="circle transparent"
+            aria-label="Nova conversa"
+          >
+            <i>edit_square</i>
+          </button>
+        </div>
+
+        <div className="field prefix round fill small margin-none">
+          <i>search</i>
+          <input type="search" placeholder="Buscar conversas..." />
+        </div>
+      </header>
+
+      {/* PAINEL DE ROLAGEM ISOLADO */}
+      <div className="scroll max padding-small">
+        <div className="list">
+          {contacts.map((contact: Contact) => {
+            const isSelected = activeId === contact.id;
+
+            return (
+              <button
+                key={contact.id}
+                type="button"
+                className={`row wave padding round transparent left-align no-margin small-bottom-margin ${
+                  isSelected ? "active primary-container" : ""
+                }`}
+                onClick={() => selectChat(contact.id)}
+              >
+                <div className="pos-relative">
+                  <img
+                    src={contact.avatar}
+                    className="circle medium"
+                    alt={contact.name}
+                  />
+                  {contact.online && (
+                    <span className="badge dot green pos-bottom pos-right"></span>
+                  )}
+                </div>
+
+                <div className="max min margin-left-small">
+                  <div className="row middle-align no-space">
+                    <h6 className="small-text bold max truncate margin-none">
+                      {contact.name}
+                    </h6>
+                    <span className="small-text text-secondary">
+                      {contact.time}
+                    </span>
+                  </div>
+                  <p className="small-text text-secondary truncate margin-none">
+                    {contact.lastMessage}
+                  </p>
+                </div>
+
+                {contact.unreadCount > 0 && (
+                  <span className="badge circle primary small">
+                    {contact.unreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/components/NavItems.tsx`
+
+```tsx
+// src/components/NavItems.tsx
+import { activeRoute, navigateTo, ROUTES } from "../router.ts";
+
+interface NavItemsProps {
+  isSidebar?: boolean;
+}
+
+export function NavItems({ isSidebar = false }: NavItemsProps) {
+  return (
+    <>
+      {ROUTES.map((item) => {
+        const isActive = activeRoute.value === item.id;
+        const buttonClass = `transparent ${isSidebar ? "circle" : ""} ${
+          isActive ? "active" : ""
+        }`.trim();
+
+        return (
+          <button
+            key={item.id}
+            className={buttonClass}
+            onClick={() => navigateTo(item.id)}
+            aria-label={item.label}
+          >
+            <i>{item.icon}</i>
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/components/NavSidebar.tsx`
+
+```tsx
+// src/components/NavSidebar.tsx
+import { NavItems } from "./NavItems.tsx";
+
+export function NavSidebar() {
+  return (
+    <nav className="left m l border-right surface">
+      <NavItems isSidebar />
+    </nav>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/components/NavBottom.tsx`
+
+```tsx
+// src/components/NavBottom.tsx
+import { NavItems } from "./NavItems.tsx";
+
+export function NavBottom() {
+  return (
+    <nav className="bottom s surface border-top">
+      <NavItems />
+    </nav>
+  );
 }
 ```
 
@@ -215,6 +384,9 @@ export function SettingsView() {
           <button type="button" className="button border round">Limpar Cache</button>
         </div>
       </article>
+
+      {/* Respiro no final (Safe Area Bottom Mobile) para evitar overlap com NavBottom */}
+      <div className="large-space"></div>
     </div>
   );
 }
@@ -263,7 +435,7 @@ export function ContactsView() {
 
                 <div className="max margin-left-small">
                   <h6 className="small-text bold margin-none">{contact.name}</h6>
-                  <span className="small-text text-secondary display-block">
+                  <span className="small-text text-secondary display-block truncate">
                     {contact.publicFingerprint || "Chave não verificada"}
                   </span>
                 </div>
@@ -291,104 +463,10 @@ export function ContactsView() {
           </div>
         ))}
       </div>
+
+      {/* Respiro no final (Safe Area Bottom Mobile) */}
+      <div className="large-space"></div>
     </div>
-  );
-}
-```
-
----
-
-## Arquivo: `monorepo/playground/src/components/ChatMaster.tsx`
-
-```tsx
-import {
-  contactsSignal,
-  selectedChatId,
-  selectChat,
-  type Contact,
-} from "../store/chatStore.ts";
-
-export function ChatMaster() {
-  const contacts = contactsSignal.value;
-  const activeId = selectedChatId.value;
-
-  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)
-  const responsiveGridClass = activeId ? "col m4 l3 m l" : "col s12 m4 l3";
-
-  return (
-    <section
-      className={`${responsiveGridClass} surface border-right column max no-space`}
-    >
-      {/* CABEÇALHO DA LISTA */}
-      <header className="padding border-bottom surface">
-        <div className="row middle-align small-bottom-margin">
-          <h5 className="max bold margin-none">Conversas</h5>
-          <button
-            type="button"
-            className="circle transparent"
-            aria-label="Nova conversa"
-          >
-            <i>edit_square</i>
-          </button>
-        </div>
-
-        <div className="field prefix round fill small margin-none">
-          <i>search</i>
-          <input type="search" placeholder="Buscar conversas..." />
-        </div>
-      </header>
-
-      {/* PAINEL DE ROLAGEM ISOLADO */}
-      <div className="scroll max padding-small">
-        <div className="list">
-          {contacts.map((contact: Contact) => {
-            const isSelected = activeId === contact.id;
-
-            return (
-              <button
-                key={contact.id}
-                type="button"
-                className={`row wave padding round transparent left-align no-margin small-bottom-margin ${
-                  isSelected ? "active primary-container" : ""
-                }`}
-                onClick={() => selectChat(contact.id)}
-              >
-                <div className="pos-relative">
-                  <img
-                    src={contact.avatar}
-                    className="circle medium"
-                    alt={contact.name}
-                  />
-                  {contact.online && (
-                    <span className="badge dot green pos-bottom pos-right"></span>
-                  )}
-                </div>
-
-                <div className="max min margin-left-small">
-                  <div className="row middle-align no-space">
-                    <h6 className="small-text bold max truncate margin-none">
-                      {contact.name}
-                    </h6>
-                    <span className="small-text text-secondary">
-                      {contact.time}
-                    </span>
-                  </div>
-                  <p className="small-text text-secondary truncate margin-none">
-                    {contact.lastMessage}
-                  </p>
-                </div>
-
-                {contact.unreadCount > 0 && (
-                  <span className="badge circle primary small">
-                    {contact.unreadCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </section>
   );
 }
 ```
@@ -413,15 +491,15 @@ export function ChatDetail() {
   const messages = activeMessages.value;
   const activeId = selectedChatId.value;
 
-  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)
+  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)[cite: 4]
   const responsiveGridClass = activeId ? "col s12 m8 l9" : "col m8 l9 m l";
 
   return (
     <section className={`${responsiveGridClass} surface-container-lowest max column no-space`}>
       {contact ? (
         <div className="column max no-space">
-          {/* TOPO: CABEÇALHO FIXO */}
-          <header className="padding row middle-align surface border-bottom">
+          {/* TOPO: CABEÇALHO FIXO - Reforçado com restrições flex */}
+          <header className="padding row middle-align surface border-bottom" style={{ flexShrink: 0 }}>
             <button
               type="button"
               className="circle transparent s margin-right"
@@ -456,7 +534,7 @@ export function ChatDetail() {
           </header>
 
           {/* MEIO: ÁREA DE ROLAGEM ISOLADA */}
-          <div className="scroll max padding column">
+          <div className="scroll max padding column" style={{ flex: 1, overflowY: "auto" }}>
             {messages.map((msg: Message) => {
               const isMe = msg.senderId === "me";
               return (
@@ -486,20 +564,22 @@ export function ChatDetail() {
                 </div>
               );
             })}
+            {/* Respiro no final do scroll das mensagens */}
+            <div className="small-space"></div>
           </div>
 
           {/* BASE: RODAPÉ FIXO */}
-          <footer className="padding surface border-top">
+          <footer className="padding surface border-top" style={{ flexShrink: 0 }}>
             <form onSubmit={sendMessage} className="row middle-align no-space">
               <button
                 type="button"
-                className="circle transparent"
+                className="circle transparent margin-right-small"
                 aria-label="Anexar arquivo"
               >
                 <i>attach_file</i>
               </button>
 
-              <div className="field max round fill margin-horizontal">
+              <div className="field max round fill no-margin">
                 <input
                   type="text"
                   placeholder="Mensagem criptografada..."
@@ -512,7 +592,7 @@ export function ChatDetail() {
 
               <button
                 type="submit"
-                className="circle primary"
+                className="circle primary margin-left-small"
                 aria-label="Enviar mensagem"
               >
                 <i>send</i>
@@ -537,72 +617,27 @@ export function ChatDetail() {
 
 ---
 
-## Arquivo: `monorepo/playground/src/components/NavItems.tsx`
+## Arquivo: `monorepo/playground/src/pages/ChatsPage.tsx`
 
 ```tsx
-// src/components/NavItems.tsx
-import { activeRoute, navigateTo, ROUTES } from "../router.ts";
+import { ChatMaster } from "../components/ChatMaster.tsx";
+import { ChatDetail } from "../components/ChatDetail.tsx";
 
-interface NavItemsProps {
-  isSidebar?: boolean;
+interface ChatsPageProps {
+  active: boolean;
 }
 
-export function NavItems({ isSidebar = false }: NavItemsProps) {
+export function ChatsPage({ active }: ChatsPageProps) {
+  // Impede a renderização no DOM se a rota não estiver ativa
+  if (!active) return null;
+
   return (
-    <>
-      {ROUTES.map((item) => {
-        const isActive = activeRoute.value === item.id;
-        const buttonClass = `transparent ${isSidebar ? "circle" : ""} ${
-          isActive ? "active" : ""
-        }`.trim();
-
-        return (
-          <button
-            key={item.id}
-            className={buttonClass}
-            onClick={() => navigateTo(item.id)}
-            aria-label={item.label}
-          >
-            <i>{item.icon}</i>
-            <span>{item.label}</span>
-          </button>
-        );
-      })}
-    </>
-  );
-}
-```
-
----
-
-## Arquivo: `monorepo/playground/src/components/NavSidebar.tsx`
-
-```tsx
-// src/components/NavSidebar.tsx
-import { NavItems } from "./NavItems.tsx";
-
-export function NavSidebar() {
-  return (
-    <nav className="left m l border-right surface">
-      <NavItems isSidebar />
-    </nav>
-  );
-}
-```
-
----
-
-## Arquivo: `monorepo/playground/src/components/NavBottom.tsx`
-
-```tsx
-// src/components/NavBottom.tsx
-import { NavItems } from "./NavItems.tsx";
-
-export function NavBottom() {
-  return (
-    <nav className="bottom s surface border-top">
-      <NavItems />
-    </nav>
+    <page className="active max">
+      <div className="grid no-space max">
+        <ChatMaster />
+        <ChatDetail />
+      </div>
+    </page>
   );
 }
 ```
@@ -619,6 +654,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ active }: SettingsPageProps) {
+  // Impede a renderização no DOM se a rota não estiver ativa
   if (!active) return null;
 
   return (
@@ -631,50 +667,23 @@ export function SettingsPage({ active }: SettingsPageProps) {
 
 ---
 
-## Arquivo: `monorepo/playground/src/pages/ChatsPage.tsx`
-
-```tsx
-import { ChatMaster } from "../components/ChatMaster.tsx";
-import { ChatDetail } from "../components/ChatDetail.tsx";
-
-interface ChatsPageProps {
-  active: boolean;
-}
-
-export function ChatsPage({ active }: ChatsPageProps) {
-  if (!active) return null;
-
-  return (
-    <page className="active max">
-      <div className="grid no-space max">
-        <ChatMaster />
-        <ChatDetail />
-      </div>
-    </page>
-  );
-}
-```
-
----
-
 ## Arquivo: `monorepo/playground/src/pages/ContactsPage.tsx`
 
 ```tsx
-// src/pages/ChatsPage.tsx
-interface PageProps {
+import { ContactsView } from "../components/ContactsView.tsx";
+
+interface ContactsPageProps {
   active: boolean;
 }
 
-export function ChatsPage({ active }: PageProps) {
-  // A MÁGICA ACONTECE AQUI: Se não estiver ativa, não renderiza nada no DOM.
+export function ContactsPage({ active }: ContactsPageProps) {
+  // Impede a renderização no DOM se a rota não estiver ativa
   if (!active) return null;
 
   return (
-    <div className="page-container padding">
-      <h2>Conversas</h2>
-      <p>Lista de chats aparecerá aqui...</p>
-      {/* O ChatMaster e ChatDetail entrarão aqui depois */}
-    </div>
+    <page className="active scroll">
+      <ContactsView />
+    </page>
   );
 }
 ```

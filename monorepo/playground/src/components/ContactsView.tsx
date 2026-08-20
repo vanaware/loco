@@ -36,7 +36,7 @@ export function ContactsView() {
 
                 <div className="max margin-left-small">
                   <h6 className="small-text bold margin-none">{contact.name}</h6>
-                  <span className="small-text text-secondary display-block">
+                  <span className="small-text text-secondary display-block truncate">
                     {contact.publicFingerprint || "Chave não verificada"}
                   </span>
                 </div>
@@ -64,6 +64,9 @@ export function ContactsView() {
           </div>
         ))}
       </div>
+
+      {/* Respiro no final (Safe Area Bottom Mobile) */}
+      <div className="large-space"></div>
     </div>
   );
 }

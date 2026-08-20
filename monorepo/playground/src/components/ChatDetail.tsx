@@ -13,15 +13,15 @@ export function ChatDetail() {
   const messages = activeMessages.value;
   const activeId = selectedChatId.value;
 
-  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)
+  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)[cite: 4]
   const responsiveGridClass = activeId ? "col s12 m8 l9" : "col m8 l9 m l";
 
   return (
     <section className={`${responsiveGridClass} surface-container-lowest max column no-space`}>
       {contact ? (
         <div className="column max no-space">
-          {/* TOPO: CABEÇALHO FIXO */}
-          <header className="padding row middle-align surface border-bottom">
+          {/* TOPO: CABEÇALHO FIXO - Reforçado com restrições flex */}
+          <header className="padding row middle-align surface border-bottom" style={{ flexShrink: 0 }}>
             <button
               type="button"
               className="circle transparent s margin-right"
@@ -56,7 +56,7 @@ export function ChatDetail() {
           </header>
 
           {/* MEIO: ÁREA DE ROLAGEM ISOLADA */}
-          <div className="scroll max padding column">
+          <div className="scroll max padding column" style={{ flex: 1, overflowY: "auto" }}>
             {messages.map((msg: Message) => {
               const isMe = msg.senderId === "me";
               return (
@@ -86,20 +86,22 @@ export function ChatDetail() {
                 </div>
               );
             })}
+            {/* Respiro no final do scroll das mensagens */}
+            <div className="small-space"></div>
           </div>
 
           {/* BASE: RODAPÉ FIXO */}
-          <footer className="padding surface border-top">
+          <footer className="padding surface border-top" style={{ flexShrink: 0 }}>
             <form onSubmit={sendMessage} className="row middle-align no-space">
               <button
                 type="button"
-                className="circle transparent"
+                className="circle transparent margin-right-small"
                 aria-label="Anexar arquivo"
               >
                 <i>attach_file</i>
               </button>
 
-              <div className="field max round fill margin-horizontal">
+              <div className="field max round fill no-margin">
                 <input
                   type="text"
                   placeholder="Mensagem criptografada..."
@@ -112,7 +114,7 @@ export function ChatDetail() {
 
               <button
                 type="submit"
-                className="circle primary"
+                className="circle primary margin-left-small"
                 aria-label="Enviar mensagem"
               >
                 <i>send</i>

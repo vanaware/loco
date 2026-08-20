@@ -121,6 +121,9 @@ export function SettingsView() {
           <button type="button" className="button border round">Limpar Cache</button>
         </div>
       </article>
+
+      {/* Respiro no final (Safe Area Bottom Mobile) para evitar overlap com NavBottom */}
+      <div className="large-space"></div>
     </div>
   );
 }
