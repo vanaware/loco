@@ -1,95 +1,83 @@
-import { Signal, ReadonlySignal } from "@preact/signals";
-import { Contact } from "./ChatMaster.tsx";
-
-export interface Message {
-  id: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-  status: "sent" | "delivered" | "read";
-}
-
-interface ChatDetailProps {
-  activeContact: ReadonlySignal<Contact | null>;
-  activeMessages: ReadonlySignal<Message[]>;
-  selectedChatId: Signal<string | null>;
-  messageInput: Signal<string>;
-  onSendMessage: (e: Event) => void;
-}
-
-export function ChatDetail({
+import {
   activeContact,
   activeMessages,
   selectedChatId,
   messageInput,
-  onSendMessage,
-}: ChatDetailProps) {
+  sendMessage,
+  selectChat,
+  type Message,
+} from "../store/chatStore.ts";
+
+export function ChatDetail() {
+  const contact = activeContact.value;
+  const messages = activeMessages.value;
+  const activeId = selectedChatId.value;
+
+  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)
+  const responsiveGridClass = activeId ? "col s12 m8 l9" : "col m8 l9 m l";
+
   return (
-    <section
-      className={`col ${
-        selectedChatId.value ? "s12 m8 l9" : "m8 l9 m l"
-      } surface-container-lowest`}
-      style={{ height: "100%", overflow: "hidden" }}
-    >
-      {activeContact.value ? (
-        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-          
-          {/* CABEÇALHO DO CHAT */}
-          <header className="padding row middle-align surface border-bottom" style={{ flexShrink: 0 }}>
+    <section className={`${responsiveGridClass} surface-container-lowest max column no-space`}>
+      {contact ? (
+        <div className="column max no-space">
+          {/* TOPO: CABEÇALHO FIXO */}
+          <header className="padding row middle-align surface border-bottom">
             <button
-              className="circle transparent s"
-              style={{ marginRight: "0.5rem" }}
-              onClick={() => {
-                selectedChatId.value = null;
-              }}
-              aria-label="Voltar para a lista de conversas"
+              type="button"
+              className="circle transparent s margin-right"
+              onClick={() => selectChat(null)}
+              aria-label="Voltar para a lista"
             >
               <i>arrow_back</i>
             </button>
 
             <img
-              src={activeContact.value.avatar}
+              src={contact.avatar}
               className="circle medium"
-              alt={activeContact.value.name}
+              alt={contact.name}
             />
 
             <div className="max margin-left">
-              <h6 className="small-text bold">{activeContact.value.name}</h6>
-              <span className="small-text text-secondary">
-                {activeContact.value.online ? "Online (E2EE Ativo)" : "Offline"}
+              <h6 className="small-text bold margin-none truncate">
+                {contact.name}
+              </h6>
+              <span className="small-text text-secondary truncate">
+                {contact.online ? "Online (E2EE Ativo)" : "Offline"}
               </span>
             </div>
 
-            <button className="circle transparent" aria-label="Detalhes">
+            <button
+              type="button"
+              className="circle transparent"
+              aria-label="Detalhes"
+            >
               <i>info</i>
             </button>
           </header>
 
-          {/* ROLAGEM DE MENSAGENS */}
-          <div className="scroll padding" style={{ flex: 1, overflowY: "auto" }}>
-            {activeMessages.value.map((msg) => {
+          {/* MEIO: ÁREA DE ROLAGEM ISOLADA */}
+          <div className="scroll max padding column">
+            {messages.map((msg: Message) => {
               const isMe = msg.senderId === "me";
               return (
                 <div
                   key={msg.id}
-                  className={`row ${isMe ? "right-align" : "left-align"} margin-bottom`}
+                  className={`row ${
+                    isMe ? "right-align" : "left-align"
+                  } small-bottom-margin`}
                 >
                   <div
-                    className={`card padding round ${
+                    className={`padding round ${
                       isMe ? "primary-container" : "surface-container-high"
                     }`}
-                    style={{ maxWidth: "75%", display: "inline-block" }}
                   >
                     <p className="margin-none">{msg.text}</p>
-                    <div className="row right-align no-space margin-top-small">
-                      <span
-                        className="small-text text-secondary"
-                        style={{ fontSize: "0.75rem" }}
-                      >
+                    <div className="row right-align no-space small-top-margin">
+                      <span className="small-text text-secondary margin-right-small">
                         {msg.timestamp}
                       </span>
                       {isMe && (
-                        <i className="small margin-left-small text-primary">
+                        <i className="small text-primary">
                           {msg.status === "read" ? "done_all" : "done"}
                         </i>
                       )}
@@ -100,10 +88,14 @@ export function ChatDetail({
             })}
           </div>
 
-          {/* FORMULÁRIO DE ENVIO FIXO NO RODAPÉ */}
-          <footer className="padding surface border-top" style={{ flexShrink: 0 }}>
-            <form onSubmit={onSendMessage} className="row middle-align no-space">
-              <button type="button" className="circle transparent" aria-label="Anexar">
+          {/* BASE: RODAPÉ FIXO */}
+          <footer className="padding surface border-top">
+            <form onSubmit={sendMessage} className="row middle-align no-space">
+              <button
+                type="button"
+                className="circle transparent"
+                aria-label="Anexar arquivo"
+              >
                 <i>attach_file</i>
               </button>
 
@@ -118,20 +110,23 @@ export function ChatDetail({
                 />
               </div>
 
-              <button type="submit" className="circle primary" aria-label="Enviar">
+              <button
+                type="submit"
+                className="circle primary"
+                aria-label="Enviar mensagem"
+              >
                 <i>send</i>
               </button>
             </form>
           </footer>
-
         </div>
       ) : (
-        /* PLACEHOLDER DESKTOP / TABLET */
-        <div className="middle-align center-align max" style={{ height: "100%" }}>
+        /* ESTADO VAZIO (DESKTOP) */
+        <div className="column middle-align center-align max padding">
           <div className="center-align opacity-60">
             <i className="extra">lock</i>
-            <h5 className="margin-top">Loco PWA Messenger</h5>
-            <p>Selecione uma conversa ao lado para iniciar a comunicação E2EE.</p>
+            <h5 className="top-margin">Loco PWA Messenger</h5>
+            <p>Selecione uma conversa para iniciar a comunicação E2EE.</p>
           </div>
         </div>
       )}

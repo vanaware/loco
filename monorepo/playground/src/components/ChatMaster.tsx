@@ -1,74 +1,88 @@
-import { Signal } from "@preact/signals";
+import {
+  contactsSignal,
+  selectedChatId,
+  selectChat,
+  type Contact,
+} from "../store/chatStore.ts";
 
-export interface Contact {
-  id: string;
-  name: string;
-  avatar: string;
-  lastMessage: string;
-  time: string;
-  unreadCount: number;
-  online: boolean;
-}
+export function ChatMaster() {
+  const contacts = contactsSignal.value;
+  const activeId = selectedChatId.value;
 
-interface ChatMasterProps {
-  contacts: Contact[];
-  selectedChatId: Signal<string | null>;
-}
+  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)
+  const responsiveGridClass = activeId ? "col m4 l3 m l" : "col s12 m4 l3";
 
-export function ChatMaster({ contacts, selectedChatId }: ChatMasterProps) {
   return (
     <section
-      className={`col ${
-        selectedChatId.value ? "m4 l3 m l" : "s12 m4 l3"
-      } surface border-right`}
-      style={{ height: "100%", overflow: "hidden" }}
+      className={`${responsiveGridClass} surface border-right column max no-space`}
     >
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-        <header className="padding row middle-align" style={{ flexShrink: 0 }}>
-          <h5 className="max">Conversas</h5>
-          <button className="circle transparent" aria-label="Novo Chat">
-            <i>edit</i>
+      {/* CABEÇALHO DA LISTA */}
+      <header className="padding border-bottom surface">
+        <div className="row middle-align small-bottom-margin">
+          <h5 className="max bold margin-none">Conversas</h5>
+          <button
+            type="button"
+            className="circle transparent"
+            aria-label="Nova conversa"
+          >
+            <i>edit_square</i>
           </button>
-        </header>
-
-        <div className="padding no-top" style={{ flexShrink: 0 }}>
-          <div className="field prefix round fill max">
-            <i>search</i>
-            <input type="text" placeholder="Buscar conversas..." />
-          </div>
         </div>
 
-        <div className="scroll" style={{ flex: 1, overflowY: "auto" }}>
-          {contacts.map((contact) => (
-            <a
-              key={contact.id}
-              href={`/chats?id=${contact.id}`}
-              className={`row wave padding ${
-                selectedChatId.value === contact.id ? "active surface-container-high" : ""
-              }`}
-              onClick={(e) => {
-                e.preventDefault();
-                selectedChatId.value = contact.id;
-              }}
-            >
-              <div className="pos-relative">
-                <img src={contact.avatar} className="circle extra" alt={contact.name} />
-                {contact.online && (
-                  <span className="badge dot green pos-absolute bottom right" />
-                )}
-              </div>
-              <div className="max min">
-                <div className="row middle-align">
-                  <h6 className="max small-text bold">{contact.name}</h6>
-                  <span className="small-text text-secondary">{contact.time}</span>
+        <div className="field prefix round fill small margin-none">
+          <i>search</i>
+          <input type="search" placeholder="Buscar conversas..." />
+        </div>
+      </header>
+
+      {/* PAINEL DE ROLAGEM ISOLADO */}
+      <div className="scroll max padding-small">
+        <div className="list">
+          {contacts.map((contact: Contact) => {
+            const isSelected = activeId === contact.id;
+
+            return (
+              <button
+                key={contact.id}
+                type="button"
+                className={`row wave padding round transparent left-align no-margin small-bottom-margin ${
+                  isSelected ? "active primary-container" : ""
+                }`}
+                onClick={() => selectChat(contact.id)}
+              >
+                <div className="pos-relative">
+                  <img
+                    src={contact.avatar}
+                    className="circle medium"
+                    alt={contact.name}
+                  />
+                  {contact.online && (
+                    <span className="badge dot green pos-bottom pos-right"></span>
+                  )}
                 </div>
-                <p className="small-text line-clamp-1">{contact.lastMessage}</p>
-              </div>
-              {contact.unreadCount > 0 && (
-                <span className="badge circle primary">{contact.unreadCount}</span>
-              )}
-            </a>
-          ))}
+
+                <div className="max min margin-left-small">
+                  <div className="row middle-align no-space">
+                    <h6 className="small-text bold max truncate margin-none">
+                      {contact.name}
+                    </h6>
+                    <span className="small-text text-secondary">
+                      {contact.time}
+                    </span>
+                  </div>
+                  <p className="small-text text-secondary truncate margin-none">
+                    {contact.lastMessage}
+                  </p>
+                </div>
+
+                {contact.unreadCount > 0 && (
+                  <span className="badge circle primary small">
+                    {contact.unreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
     </section>

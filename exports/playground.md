@@ -8,97 +8,27 @@
 
 # Contexto Exportado do Projeto Loco - Modo: PLAYGROUND
 
-Gerado automaticamente em: 8/19/2026, 10:52:18 PM
+Gerado automaticamente em: 8/20/2026, 1:38:00 AM
 
 ---
 
 ## Arquivo: `monorepo/playground/src/types/jsx.d.ts`
 
 ```ts
-// Extensão de tipos JSX para Preact para reconhecer Custom Elements do BeerCSS v5
 import "preact";
+
+declare global {
+  interface Window {
+    ui?: (selector?: string, options?: unknown) => Promise<string> | void;
+  }
+}
 
 declare module "preact" {
   namespace JSX {
     interface IntrinsicElements {
-      "ui-button": any;
-      "ui-icon": any;
-      "ui-field": any;
-      "ui-badge": any;
-      "ui-list": any;
-      "ui-item": any;
-      "ui-nav": any;
+      page: HTMLAttributes<HTMLElement>;
     }
   }
-}
-```
-
----
-
-## Arquivo: `monorepo/playground/src/router.ts`
-
-```ts
-import { signal, computed } from "@preact/signals";
-
-/**
- * Normaliza o caminho de navegação.
- * Caso o usuário acesse a raiz ("/") ou um caminho inválido,
- * redireciona o estado padrão para "/chats".
- */
-export function normalizePath(path: string): string {
-  if (!path || path === "/" || path.trim() === "") {
-    return "/chats";
-  }
-  return path;
-}
-
-function getInitialPath(): string {
-  if (typeof globalThis.location !== "undefined") {
-    return normalizePath(globalThis.location.pathname);
-  }
-  return "/chats";
-}
-
-// Signal de estado reativo global para o caminho atual
-export const currentPath = signal<string>(getInitialPath());
-
-/**
- * Signal computado mantido no escopo do módulo.
- * Evita a destruição e recriação do sinal a cada renderização do Preact.
- */
-export const activeRoute = computed(() => {
-  const path = currentPath.value;
-  if (path.startsWith("/contacts")) return "contacts";
-  if (path.startsWith("/settings")) return "settings";
-  return "chats";
-});
-
-/**
- * Navega para uma nova rota atualizando a History API e impedindo o reload da página.
- */
-export function navigateTo(path: string, event?: Event): void {
-  if (event) {
-    event.preventDefault();
-  }
-  
-  const targetPath = normalizePath(path);
-  
-  if (
-    typeof globalThis.history !== "undefined" &&
-    globalThis.location.pathname !== targetPath
-  ) {
-    globalThis.history.pushState({}, "", targetPath);
-  }
-  
-  currentPath.value = targetPath;
-}
-
-// Escuta os botões "Voltar" e "Avançar" do navegador
-if (typeof globalThis.addEventListener === "function") {
-  globalThis.addEventListener("popstate", () => {
-    const path = globalThis.location ? globalThis.location.pathname : "/chats";
-    currentPath.value = normalizePath(path);
-  });
 }
 ```
 
@@ -159,80 +89,303 @@ if (rootElement) {
 
 ---
 
-## Arquivo: `monorepo/playground/src/components/ChatMaster.tsx`
+## Arquivo: `monorepo/playground/src/components/SettingsView.tsx`
 
 ```tsx
-import { Signal } from "@preact/signals";
+import {
+  themeModeSignal,
+  themeColorSignal,
+  setThemeMode,
+  setThemeColor,
+  PRESET_COLORS,
+} from "../store/themeStore.ts";
 
-export interface Contact {
-  id: string;
-  name: string;
-  avatar: string;
-  lastMessage: string;
-  time: string;
-  unreadCount: number;
-  online: boolean;
-}
+export function SettingsView() {
+  const currentTheme = themeModeSignal.value;
+  const currentColor = themeColorSignal.value;
 
-interface ChatMasterProps {
-  contacts: Contact[];
-  selectedChatId: Signal<string | null>;
-}
-
-export function ChatMaster({ contacts, selectedChatId }: ChatMasterProps) {
   return (
-    <section
-      className={`col ${
-        selectedChatId.value ? "m4 l3 m l" : "s12 m4 l3"
-      } surface border-right`}
-      style={{ height: "100%", overflow: "hidden" }}
-    >
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-        <header className="padding row middle-align" style={{ flexShrink: 0 }}>
-          <h5 className="max">Conversas</h5>
-          <button className="circle transparent" aria-label="Novo Chat">
-            <i>edit</i>
-          </button>
-        </header>
+    <div className="padding max-width-medium margin-horizontal-auto">
+      <header className="margin-bottom">
+        <h4 className="bold margin-none">Ajustes e Segurança</h4>
+        <p className="text-secondary">
+          Gerenciamento de tema, paleta dinamicamente injetada, par de chaves ECDH e armazenamento local.
+        </p>
+      </header>
 
-        <div className="padding no-top" style={{ flexShrink: 0 }}>
-          <div className="field prefix round fill max">
-            <i>search</i>
-            <input type="text" placeholder="Buscar conversas..." />
+      {/* MODO DE ILUMINAÇÃO */}
+      <article className="card surface-container-high padding margin-bottom">
+        <div className="row middle-align">
+          <i className="extra text-primary">contrast</i>
+          <div className="max margin-left">
+            <h6>Modo de Exibição</h6>
+            <p className="small-text text-secondary">
+              Controle a iluminação da interface ou sincronize com o sistema.
+            </p>
           </div>
         </div>
 
-        <div className="scroll" style={{ flex: 1, overflowY: "auto" }}>
-          {contacts.map((contact) => (
-            <a
-              key={contact.id}
-              href={`/chats?id=${contact.id}`}
-              className={`row wave padding ${
-                selectedChatId.value === contact.id ? "active surface-container-high" : ""
-              }`}
-              onClick={(e) => {
-                e.preventDefault();
-                selectedChatId.value = contact.id;
-              }}
-            >
-              <div className="pos-relative">
-                <img src={contact.avatar} className="circle extra" alt={contact.name} />
-                {contact.online && (
-                  <span className="badge dot green pos-absolute bottom right" />
-                )}
-              </div>
-              <div className="max min">
-                <div className="row middle-align">
-                  <h6 className="max small-text bold">{contact.name}</h6>
-                  <span className="small-text text-secondary">{contact.time}</span>
+        <nav className="segmented margin-top">
+          <button
+            type="button"
+            className={currentTheme === "light" ? "active" : ""}
+            onClick={() => setThemeMode("light")}
+          >
+            <i>light_mode</i>
+            <span>Claro</span>
+          </button>
+
+          <button
+            type="button"
+            className={currentTheme === "dark" ? "active" : ""}
+            onClick={() => setThemeMode("dark")}
+          >
+            <i>dark_mode</i>
+            <span>Escuro</span>
+          </button>
+
+          <button
+            type="button"
+            className={currentTheme === "system" ? "active" : ""}
+            onClick={() => setThemeMode("system")}
+          >
+            <i>settings_brightness</i>
+            <span>Sistema</span>
+          </button>
+        </nav>
+      </article>
+
+      {/* PALETA MATERIAL YOU */}
+      <article className="card surface-container-high padding margin-bottom">
+        <div className="row middle-align">
+          <i className="extra text-primary">palette</i>
+          <div className="max margin-left">
+            <h6>Cor de Destaque (Material You)</h6>
+            <p className="small-text text-secondary">
+              Gere toda a paleta tonal da interface dinamicamente via BeerCSS.
+            </p>
+          </div>
+        </div>
+
+        <div className="row margin-top wrap">
+          {PRESET_COLORS.map((preset) => {
+            const isSelected = currentColor === preset.hex;
+            return (
+              <button
+                key={preset.hex}
+                type="button"
+                className={`chip ${isSelected ? "fill" : "border"}`}
+                onClick={() => setThemeColor(preset.hex)}
+              >
+                <span
+                  className="circle tiny margin-right-small"
+                  style={{ backgroundColor: preset.hex }}
+                ></span>
+                <span>{preset.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </article>
+
+      {/* CRIPTOGRAFIA */}
+      <article className="card surface-container-high padding margin-bottom">
+        <div className="row middle-align">
+          <i className="extra text-primary">key</i>
+          <div className="max margin-left">
+            <h6>Par de Chaves E2EE</h6>
+            <p className="small-text text-secondary">
+              Algoritmo ECDH (P-256) gerado localmente via WebCrypto API.
+            </p>
+          </div>
+          <button type="button" className="button border round">Renovar Chaves</button>
+        </div>
+      </article>
+
+      {/* ARMAZENAMENTO LOCAL */}
+      <article className="card surface-container-high padding margin-bottom">
+        <div className="row middle-align">
+          <i className="extra text-primary">database</i>
+          <div className="max margin-left">
+            <h6>Armazenamento Local</h6>
+            <p className="small-text text-secondary">
+              Sincronização assíncrona via IndexedDB &amp; Service Worker.
+            </p>
+          </div>
+          <button type="button" className="button border round">Limpar Cache</button>
+        </div>
+      </article>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/components/ContactsView.tsx`
+
+```tsx
+import { contactsSignal, startChatWithContact, type Contact } from "../store/chatStore.ts";
+
+export function ContactsView() {
+  const contacts = contactsSignal.value;
+
+  return (
+    <div className="padding max-width-medium margin-horizontal-auto">
+      <header className="row middle-align margin-bottom">
+        <h4 className="max bold margin-none">Contatos P2P</h4>
+        <button type="button" className="button primary round">
+          <i>person_add</i>
+          <span>Adicionar</span>
+        </button>
+      </header>
+
+      <div className="field prefix round fill margin-bottom">
+        <i>search</i>
+        <input type="search" placeholder="Buscar por nome ou fingerprint E2EE..." />
+      </div>
+
+      <div className="grid">
+        {contacts.map((contact: Contact) => (
+          <div key={contact.id} className="col s12 m6 l6">
+            <article className="card surface-container-low padding round wave">
+              <div className="row middle-align">
+                <div className="pos-relative">
+                  <img
+                    src={contact.avatar}
+                    className="circle large"
+                    alt={contact.name}
+                  />
+                  {contact.online && (
+                    <span className="badge dot green pos-bottom pos-right"></span>
+                  )}
                 </div>
-                <p className="small-text line-clamp-1">{contact.lastMessage}</p>
+
+                <div className="max margin-left-small">
+                  <h6 className="small-text bold margin-none">{contact.name}</h6>
+                  <span className="small-text text-secondary display-block">
+                    {contact.publicFingerprint || "Chave não verificada"}
+                  </span>
+                </div>
               </div>
-              {contact.unreadCount > 0 && (
-                <span className="badge circle primary">{contact.unreadCount}</span>
-              )}
-            </a>
-          ))}
+
+              <div className="row right-align margin-top-small no-space">
+                <button
+                  type="button"
+                  className="button transparent circle"
+                  aria-label="Ver fingerprint"
+                  title="Fingerprint E2EE"
+                >
+                  <i>fingerprint</i>
+                </button>
+                <button
+                  type="button"
+                  className="button primary round"
+                  onClick={() => startChatWithContact(contact.id)}
+                >
+                  <i>chat</i>
+                  <span>Conversar</span>
+                </button>
+              </div>
+            </article>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/components/ChatMaster.tsx`
+
+```tsx
+import {
+  contactsSignal,
+  selectedChatId,
+  selectChat,
+  type Contact,
+} from "../store/chatStore.ts";
+
+export function ChatMaster() {
+  const contacts = contactsSignal.value;
+  const activeId = selectedChatId.value;
+
+  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)
+  const responsiveGridClass = activeId ? "col m4 l3 m l" : "col s12 m4 l3";
+
+  return (
+    <section
+      className={`${responsiveGridClass} surface border-right column max no-space`}
+    >
+      {/* CABEÇALHO DA LISTA */}
+      <header className="padding border-bottom surface">
+        <div className="row middle-align small-bottom-margin">
+          <h5 className="max bold margin-none">Conversas</h5>
+          <button
+            type="button"
+            className="circle transparent"
+            aria-label="Nova conversa"
+          >
+            <i>edit_square</i>
+          </button>
+        </div>
+
+        <div className="field prefix round fill small margin-none">
+          <i>search</i>
+          <input type="search" placeholder="Buscar conversas..." />
+        </div>
+      </header>
+
+      {/* PAINEL DE ROLAGEM ISOLADO */}
+      <div className="scroll max padding-small">
+        <div className="list">
+          {contacts.map((contact: Contact) => {
+            const isSelected = activeId === contact.id;
+
+            return (
+              <button
+                key={contact.id}
+                type="button"
+                className={`row wave padding round transparent left-align no-margin small-bottom-margin ${
+                  isSelected ? "active primary-container" : ""
+                }`}
+                onClick={() => selectChat(contact.id)}
+              >
+                <div className="pos-relative">
+                  <img
+                    src={contact.avatar}
+                    className="circle medium"
+                    alt={contact.name}
+                  />
+                  {contact.online && (
+                    <span className="badge dot green pos-bottom pos-right"></span>
+                  )}
+                </div>
+
+                <div className="max min margin-left-small">
+                  <div className="row middle-align no-space">
+                    <h6 className="small-text bold max truncate margin-none">
+                      {contact.name}
+                    </h6>
+                    <span className="small-text text-secondary">
+                      {contact.time}
+                    </span>
+                  </div>
+                  <p className="small-text text-secondary truncate margin-none">
+                    {contact.lastMessage}
+                  </p>
+                </div>
+
+                {contact.unreadCount > 0 && (
+                  <span className="badge circle primary small">
+                    {contact.unreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -242,182 +395,89 @@ export function ChatMaster({ contacts, selectedChatId }: ChatMasterProps) {
 
 ---
 
-## Arquivo: `monorepo/playground/src/components/NavBottom.tsx`
-
-```tsx
-import { activeRoute, navigateTo } from "../router.ts";
-
-export function NavBottom() {
-  return (
-    <nav className="bottom s m surface elevation-2">
-      <a
-        href="/chats"
-        className={activeRoute.value === "chats" ? "active" : ""}
-        onClick={(e) => navigateTo("/chats", e)}
-      >
-        <i>chat</i>
-        <span>Conversas</span>
-      </a>
-      <a
-        href="/contacts"
-        className={activeRoute.value === "contacts" ? "active" : ""}
-        onClick={(e) => navigateTo("/contacts", e)}
-      >
-        <i>group</i>
-        <span>Contatos</span>
-      </a>
-      <a
-        href="/settings"
-        className={activeRoute.value === "settings" ? "active" : ""}
-        onClick={(e) => navigateTo("/settings", e)}
-      >
-        <i>settings</i>
-        <span>Ajustes</span>
-      </a>
-    </nav>
-  );
-}
-```
-
----
-
-## Arquivo: `monorepo/playground/src/components/NavSidebar.tsx`
-
-```tsx
-import { activeRoute, navigateTo } from "../router.ts";
-
-export function NavSidebar() {
-  return (
-    <nav className="left l surface elevation-1">
-      <header className="center-align padding">
-        <i className="extra">lock</i>
-      </header>
-      <a
-        href="/chats"
-        className={activeRoute.value === "chats" ? "active" : ""}
-        onClick={(e) => navigateTo("/chats", e)}
-      >
-        <i>chat</i>
-        <span>Conversas</span>
-      </a>
-      <a
-        href="/contacts"
-        className={activeRoute.value === "contacts" ? "active" : ""}
-        onClick={(e) => navigateTo("/contacts", e)}
-      >
-        <i>group</i>
-        <span>Contatos</span>
-      </a>
-      <a
-        href="/settings"
-        className={activeRoute.value === "settings" ? "active" : ""}
-        onClick={(e) => navigateTo("/settings", e)}
-      >
-        <i>settings</i>
-        <span>Ajustes</span>
-      </a>
-    </nav>
-  );
-}
-```
-
----
-
 ## Arquivo: `monorepo/playground/src/components/ChatDetail.tsx`
 
 ```tsx
-import { Signal, ReadonlySignal } from "@preact/signals";
-import { Contact } from "./ChatMaster.tsx";
-
-export interface Message {
-  id: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-  status: "sent" | "delivered" | "read";
-}
-
-interface ChatDetailProps {
-  activeContact: ReadonlySignal<Contact | null>;
-  activeMessages: ReadonlySignal<Message[]>;
-  selectedChatId: Signal<string | null>;
-  messageInput: Signal<string>;
-  onSendMessage: (e: Event) => void;
-}
-
-export function ChatDetail({
+import {
   activeContact,
   activeMessages,
   selectedChatId,
   messageInput,
-  onSendMessage,
-}: ChatDetailProps) {
+  sendMessage,
+  selectChat,
+  type Message,
+} from "../store/chatStore.ts";
+
+export function ChatDetail() {
+  const contact = activeContact.value;
+  const messages = activeMessages.value;
+  const activeId = selectedChatId.value;
+
+  // Alternância responsiva de telas em Mobile (s) vs Desktop (m/l)
+  const responsiveGridClass = activeId ? "col s12 m8 l9" : "col m8 l9 m l";
+
   return (
-    <section
-      className={`col ${
-        selectedChatId.value ? "s12 m8 l9" : "m8 l9 m l"
-      } surface-container-lowest`}
-      style={{ height: "100%", overflow: "hidden" }}
-    >
-      {activeContact.value ? (
-        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-          
-          {/* CABEÇALHO DO CHAT */}
-          <header className="padding row middle-align surface border-bottom" style={{ flexShrink: 0 }}>
+    <section className={`${responsiveGridClass} surface-container-lowest max column no-space`}>
+      {contact ? (
+        <div className="column max no-space">
+          {/* TOPO: CABEÇALHO FIXO */}
+          <header className="padding row middle-align surface border-bottom">
             <button
-              className="circle transparent s"
-              style={{ marginRight: "0.5rem" }}
-              onClick={() => {
-                selectedChatId.value = null;
-              }}
-              aria-label="Voltar para a lista de conversas"
+              type="button"
+              className="circle transparent s margin-right"
+              onClick={() => selectChat(null)}
+              aria-label="Voltar para a lista"
             >
               <i>arrow_back</i>
             </button>
 
             <img
-              src={activeContact.value.avatar}
+              src={contact.avatar}
               className="circle medium"
-              alt={activeContact.value.name}
+              alt={contact.name}
             />
 
             <div className="max margin-left">
-              <h6 className="small-text bold">{activeContact.value.name}</h6>
-              <span className="small-text text-secondary">
-                {activeContact.value.online ? "Online (E2EE Ativo)" : "Offline"}
+              <h6 className="small-text bold margin-none truncate">
+                {contact.name}
+              </h6>
+              <span className="small-text text-secondary truncate">
+                {contact.online ? "Online (E2EE Ativo)" : "Offline"}
               </span>
             </div>
 
-            <button className="circle transparent" aria-label="Detalhes">
+            <button
+              type="button"
+              className="circle transparent"
+              aria-label="Detalhes"
+            >
               <i>info</i>
             </button>
           </header>
 
-          {/* ROLAGEM DE MENSAGENS */}
-          <div className="scroll padding" style={{ flex: 1, overflowY: "auto" }}>
-            {activeMessages.value.map((msg) => {
+          {/* MEIO: ÁREA DE ROLAGEM ISOLADA */}
+          <div className="scroll max padding column">
+            {messages.map((msg: Message) => {
               const isMe = msg.senderId === "me";
               return (
                 <div
                   key={msg.id}
-                  className={`row ${isMe ? "right-align" : "left-align"} margin-bottom`}
+                  className={`row ${
+                    isMe ? "right-align" : "left-align"
+                  } small-bottom-margin`}
                 >
                   <div
-                    className={`card padding round ${
+                    className={`padding round ${
                       isMe ? "primary-container" : "surface-container-high"
                     }`}
-                    style={{ maxWidth: "75%", display: "inline-block" }}
                   >
                     <p className="margin-none">{msg.text}</p>
-                    <div className="row right-align no-space margin-top-small">
-                      <span
-                        className="small-text text-secondary"
-                        style={{ fontSize: "0.75rem" }}
-                      >
+                    <div className="row right-align no-space small-top-margin">
+                      <span className="small-text text-secondary margin-right-small">
                         {msg.timestamp}
                       </span>
                       {isMe && (
-                        <i className="small margin-left-small text-primary">
+                        <i className="small text-primary">
                           {msg.status === "read" ? "done_all" : "done"}
                         </i>
                       )}
@@ -428,10 +488,14 @@ export function ChatDetail({
             })}
           </div>
 
-          {/* FORMULÁRIO DE ENVIO FIXO NO RODAPÉ */}
-          <footer className="padding surface border-top" style={{ flexShrink: 0 }}>
-            <form onSubmit={onSendMessage} className="row middle-align no-space">
-              <button type="button" className="circle transparent" aria-label="Anexar">
+          {/* BASE: RODAPÉ FIXO */}
+          <footer className="padding surface border-top">
+            <form onSubmit={sendMessage} className="row middle-align no-space">
+              <button
+                type="button"
+                className="circle transparent"
+                aria-label="Anexar arquivo"
+              >
                 <i>attach_file</i>
               </button>
 
@@ -446,20 +510,23 @@ export function ChatDetail({
                 />
               </div>
 
-              <button type="submit" className="circle primary" aria-label="Enviar">
+              <button
+                type="submit"
+                className="circle primary"
+                aria-label="Enviar mensagem"
+              >
                 <i>send</i>
               </button>
             </form>
           </footer>
-
         </div>
       ) : (
-        /* PLACEHOLDER DESKTOP / TABLET */
-        <div className="middle-align center-align max" style={{ height: "100%" }}>
+        /* ESTADO VAZIO (DESKTOP) */
+        <div className="column middle-align center-align max padding">
           <div className="center-align opacity-60">
             <i className="extra">lock</i>
-            <h5 className="margin-top">Loco PWA Messenger</h5>
-            <p>Selecione uma conversa ao lado para iniciar a comunicação E2EE.</p>
+            <h5 className="top-margin">Loco PWA Messenger</h5>
+            <p>Selecione uma conversa para iniciar a comunicação E2EE.</p>
           </div>
         </div>
       )}
@@ -470,136 +537,474 @@ export function ChatDetail({
 
 ---
 
-## Arquivo: `monorepo/playground/src/App.tsx`
+## Arquivo: `monorepo/playground/src/components/NavItems.tsx`
 
 ```tsx
+// src/components/NavItems.tsx
+import { activeRoute, navigateTo, ROUTES } from "../router.ts";
+
+interface NavItemsProps {
+  isSidebar?: boolean;
+}
+
+export function NavItems({ isSidebar = false }: NavItemsProps) {
+  return (
+    <>
+      {ROUTES.map((item) => {
+        const isActive = activeRoute.value === item.id;
+        const buttonClass = `transparent ${isSidebar ? "circle" : ""} ${
+          isActive ? "active" : ""
+        }`.trim();
+
+        return (
+          <button
+            key={item.id}
+            className={buttonClass}
+            onClick={() => navigateTo(item.id)}
+            aria-label={item.label}
+          >
+            <i>{item.icon}</i>
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/components/NavSidebar.tsx`
+
+```tsx
+// src/components/NavSidebar.tsx
+import { NavItems } from "./NavItems.tsx";
+
+export function NavSidebar() {
+  return (
+    <nav className="left m l border-right surface">
+      <NavItems isSidebar />
+    </nav>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/components/NavBottom.tsx`
+
+```tsx
+// src/components/NavBottom.tsx
+import { NavItems } from "./NavItems.tsx";
+
+export function NavBottom() {
+  return (
+    <nav className="bottom s surface border-top">
+      <NavItems />
+    </nav>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/pages/SettingsPage.tsx`
+
+```tsx
+import { SettingsView } from "../components/SettingsView.tsx";
+
+interface SettingsPageProps {
+  active: boolean;
+}
+
+export function SettingsPage({ active }: SettingsPageProps) {
+  if (!active) return null;
+
+  return (
+    <page className="active scroll">
+      <SettingsView />
+    </page>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/pages/ChatsPage.tsx`
+
+```tsx
+import { ChatMaster } from "../components/ChatMaster.tsx";
+import { ChatDetail } from "../components/ChatDetail.tsx";
+
+interface ChatsPageProps {
+  active: boolean;
+}
+
+export function ChatsPage({ active }: ChatsPageProps) {
+  if (!active) return null;
+
+  return (
+    <page className="active max">
+      <div className="grid no-space max">
+        <ChatMaster />
+        <ChatDetail />
+      </div>
+    </page>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/pages/ContactsPage.tsx`
+
+```tsx
+// src/pages/ChatsPage.tsx
+interface PageProps {
+  active: boolean;
+}
+
+export function ChatsPage({ active }: PageProps) {
+  // A MÁGICA ACONTECE AQUI: Se não estiver ativa, não renderiza nada no DOM.
+  if (!active) return null;
+
+  return (
+    <div className="page-container padding">
+      <h2>Conversas</h2>
+      <p>Lista de chats aparecerá aqui...</p>
+      {/* O ChatMaster e ChatDetail entrarão aqui depois */}
+    </div>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/store/chatStore.ts`
+
+```ts
 import { signal, computed } from "@preact/signals";
-import { activeRoute } from "./router.ts";
-import { NavSidebar } from "./components/NavSidebar.tsx";
-import { NavBottom } from "./components/NavBottom.tsx";
-import { ChatMaster, Contact } from "./components/ChatMaster.tsx";
-import { ChatDetail, Message } from "./components/ChatDetail.tsx";
+import { navigateTo } from "../router.ts";
 
-// Signals Globais no Escopo de Módulo
-const selectedChatId = signal<string | null>(null);
-const messageInput = signal<string>("");
+export interface Contact {
+  id: string;
+  name: string;
+  avatar: string;
+  lastMessage: string;
+  time: string;
+  unreadCount: number;
+  online: boolean;
+  publicFingerprint?: string;
+}
 
-// Mocks de Dados
-const mockContacts: Contact[] = [
+export interface Message {
+  id: string;
+  senderId: string;
+  text: string;
+  timestamp: string;
+  status: "sent" | "delivered" | "read";
+}
+
+/**
+ * FONTE ÚNICA DE VERDADE (SSOT) - CONTATOS E CONVERSAS
+ */
+export const contactsSignal = signal<Contact[]>([
   {
     id: "1",
     name: "Alice Vance (E2EE)",
     avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
-    lastMessage: "Chave pública trocada via ECDH.",
-    time: "10:42",
+    lastMessage: "Sessão ECDH estabelecida com sucesso.",
+    time: "10:45",
     unreadCount: 2,
     online: true,
+    publicFingerprint: "A1:F8:3C:99:E0:42",
   },
   {
     id: "2",
     name: "Bob Builder",
     avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
-    lastMessage: "Service Worker sincronizado.",
-    time: "Ontem",
-    unreadCount: 0,
+    lastMessage: "Mensagem enfileirada no IndexedDB offline.",
+    time: "09:12",
+    unreadCount: 1,
     online: false,
+    publicFingerprint: "B2:E7:4D:11:A9:88",
   },
   {
     id: "3",
     name: "CyberNode #882",
     avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
-    lastMessage: "Pacote enfileirado no IndexedDB.",
+    lastMessage: "Chave pública renovada no par P2P.",
+    time: "Ontem",
+    unreadCount: 0,
+    online: true,
+    publicFingerprint: "C3:D6:5E:22:B8:77",
+  },
+  {
+    id: "4",
+    name: "Diana Prince",
+    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+    lastMessage: "Pacote de semente gerado com WebCrypto.",
     time: "Segunda",
     unreadCount: 0,
     online: true,
+    publicFingerprint: "D4:C5:6F:33:C7:66",
   },
-];
+]);
 
-const mockMessages: Record<string, Message[]> = {
+/**
+ * MENSAGENS MOCKADAS POR CONTATO
+ */
+export const messagesSignal = signal<Record<string, Message[]>>({
   "1": [
-    { id: "m1", senderId: "1", text: "Olá! A sessão E2EE está ativa.", timestamp: "10:40", status: "read" },
-    { id: "m2", senderId: "me", text: "Perfeito. Mensagens persistidas no IndexedDB.", timestamp: "10:41", status: "read" },
-    { id: "m3", senderId: "1", text: "Chave pública trocada via ECDH.", timestamp: "10:42", status: "read" },
+    { id: "m1_1", senderId: "1", text: "Olá! Iniciando handshake E2EE via WebCrypto (P-256).", timestamp: "10:40", status: "read" },
+    { id: "m1_2", senderId: "me", text: "Chave pública recebida. Derivando segredo via HKDF.", timestamp: "10:42", status: "read" },
+    { id: "m1_3", senderId: "1", text: "Canal seguro ativo. Nenhuma chave privada saiu do dispositivo.", timestamp: "10:44", status: "read" },
+    { id: "m1_4", senderId: "1", text: "Sessão ECDH estabelecida com sucesso.", timestamp: "10:45", status: "read" },
   ],
   "2": [
-    { id: "m4", senderId: "2", text: "Service Worker sincronizado.", timestamp: "Ontem", status: "read" },
+    { id: "m2_1", senderId: "2", text: "Testando envio de pacotes em modo sem conexão à rede.", timestamp: "09:00", status: "read" },
+    { id: "m2_2", senderId: "me", text: "O Service Worker interceptou e salvou no IndexedDB.", timestamp: "09:05", status: "read" },
+    { id: "m2_3", senderId: "2", text: "Mensagem enfileirada no IndexedDB offline.", timestamp: "09:12", status: "delivered" },
   ],
   "3": [
-    { id: "m5", senderId: "3", text: "Pacote enfileirado no IndexedDB.", timestamp: "Segunda", status: "read" },
+    { id: "m3_1", senderId: "3", text: "Conexão P2P sinalizada através de requisições WebPush.", timestamp: "Ontem 18:20", status: "read" },
+    { id: "m3_2", senderId: "me", text: "Confirmado. Armazenamento persistente OPFS verificado.", timestamp: "Ontem 18:25", status: "read" },
+    { id: "m3_3", senderId: "3", text: "Chave pública renovada no par P2P.", timestamp: "Ontem 19:00", status: "read" },
   ],
-};
+  "4": [
+    { id: "m4_1", senderId: "4", text: "Gerei um novo par de chaves e de sementes via WebCrypto API.", timestamp: "Segunda 14:10", status: "read" },
+    { id: "m4_2", senderId: "me", text: "Perfeito! A pré-chave foi registrada no catálogo local.", timestamp: "Segunda 14:15", status: "read" },
+    { id: "m4_3", senderId: "4", text: "Pacote de semente gerado com WebCrypto.", timestamp: "Segunda 14:30", status: "read" },
+  ],
+});
 
-// Computeds no escopo do módulo
-const activeContact = computed(() =>
-  mockContacts.find((c) => c.id === selectedChatId.value) || null
-);
+/**
+ * ESTADOS DE SELEÇÃO E CONTROLE
+ */
+export const selectedChatId = signal<string | null>(null);
+export const messageInput = signal<string>("");
 
-const activeMessages = computed(() =>
-  selectedChatId.value ? mockMessages[selectedChatId.value] || [] : []
-);
+/**
+ * COMPUTEDS REATIVOS
+ */
+export const activeContact = computed(() => {
+  const id = selectedChatId.value;
+  return contactsSignal.value.find((c) => c.id === id) || null;
+});
 
-export function App() {
-  const handleSendMessage = (e: Event) => {
-    e.preventDefault();
-    if (!messageInput.value.trim() || !selectedChatId.value) return;
+export const activeMessages = computed(() => {
+  const id = selectedChatId.value;
+  return id ? messagesSignal.value[id] || [] : [];
+});
 
-    const newMessage: Message = {
-      id: `msg_${Date.now()}`,
-      senderId: "me",
-      text: messageInput.value,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      status: "sent",
-    };
+/**
+ * AÇÕES DO DOMÍNIO
+ */
+export function selectChat(id: string | null) {
+  selectedChatId.value = id;
 
-    if (!mockMessages[selectedChatId.value]) {
-      mockMessages[selectedChatId.value] = [];
-    }
-    mockMessages[selectedChatId.value].push(newMessage);
-    messageInput.value = "";
+  if (id) {
+    contactsSignal.value = contactsSignal.value.map((contact) =>
+      contact.id === id ? { ...contact, unreadCount: 0 } : contact
+    );
+  }
+}
+
+export function startChatWithContact(contactId: string) {
+  selectChat(contactId);
+  navigateTo("chats");
+}
+
+export function sendMessage(e: Event) {
+  e.preventDefault();
+  const text = messageInput.value.trim();
+  const chatId = selectedChatId.value;
+
+  if (!text || !chatId) return;
+
+  const newMessage: Message = {
+    id: `msg_${Date.now()}`,
+    senderId: "me",
+    text,
+    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    status: "sent",
   };
 
+  const currentMessages = messagesSignal.value;
+  const currentChatMessages = currentMessages[chatId] || [];
+
+  messagesSignal.value = {
+    ...currentMessages,
+    [chatId]: [...currentChatMessages, newMessage],
+  };
+
+  contactsSignal.value = contactsSignal.value.map((contact) => {
+    if (contact.id === chatId) {
+      return {
+        ...contact,
+        lastMessage: text,
+        time: newMessage.timestamp,
+      };
+    }
+    return contact;
+  });
+
+  messageInput.value = "";
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/store/themeStore.ts`
+
+```ts
+import { signal, effect } from "@preact/signals";
+
+export type ThemeMode = "light" | "dark" | "system";
+
+export interface ColorSeed {
+  name: string;
+  hex: string;
+}
+
+export const PRESET_COLORS: ColorSeed[] = [
+  { name: "Cyan Loco", hex: "#006689" },
+  { name: "Emerald", hex: "#006b54" },
+  { name: "Purple", hex: "#6b4ea2" },
+  { name: "Amber", hex: "#825500" },
+  { name: "Rose", hex: "#9b3749" },
+];
+
+const MODE_STORAGE_KEY = "loco_theme_mode";
+const COLOR_STORAGE_KEY = "loco_theme_color";
+
+const initialMode = (localStorage.getItem(MODE_STORAGE_KEY) as ThemeMode) || "system";
+const initialColor = localStorage.getItem(COLOR_STORAGE_KEY) || PRESET_COLORS[0].hex;
+
+export const themeModeSignal = signal<ThemeMode>(initialMode);
+export const themeColorSignal = signal<string>(initialColor);
+
+/**
+ * Aplica as personalizações utilizando a API nativa do BeerCSS v5.
+ */
+function applyBeerTheme(mode: ThemeMode, colorHex: string) {
+  if (typeof window === "undefined") return;
+
+  const beerMode = mode === "system" ? "auto" : mode;
+
+  // 1. Aplicação via API global do JS do BeerCSS
+  if (typeof (window as any).ui === "function") {
+    (window as any).ui("mode", beerMode);
+    (window as any).ui("theme", colorHex);
+    return;
+  }
+
+  // 2. Fallback declarativo via data-ui no HTML
+  document.documentElement.setAttribute("data-ui", beerMode);
+  document.documentElement.style.setProperty("--primary", colorHex);
+}
+
+// Reação em tempo real via Signals + Persistência local
+effect(() => {
+  const mode = themeModeSignal.value;
+  const color = themeColorSignal.value;
+
+  localStorage.setItem(MODE_STORAGE_KEY, mode);
+  localStorage.setItem(COLOR_STORAGE_KEY, color);
+
+  applyBeerTheme(mode, color);
+});
+
+export function setThemeMode(mode: ThemeMode) {
+  themeModeSignal.value = mode;
+}
+
+export function setThemeColor(colorHex: string) {
+  themeColorSignal.value = colorHex;
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/App.tsx`
+
+```tsx
+import { activeRoute } from "./router.ts";
+import { NavSidebar } from "./components/NavSidebar.tsx";
+import { NavBottom } from "./components/NavBottom.tsx";
+import { ChatsPage } from "./pages/ChatsPage.tsx";
+import { ContactsPage } from "./pages/ContactsPage.tsx";
+import { SettingsPage } from "./pages/SettingsPage.tsx";
+
+export function App() {
+  // Assina a Fonte Única de Verdade (SSOT) das rotas
+  const currentRoute = activeRoute.value;
+
   return (
-    <div className="layout" style={{ height: "100dvh", overflow: "hidden" }}>
-      {/* NAVEGAÇÕES COMPONENTIZADAS */}
+    <>
+      {/* COMPONENTES DE NAVEGAÇÃO REATIVOS */}
       <NavSidebar />
       <NavBottom />
 
-      {/* ÁREA PRINCIPAL DA APLICAÇÃO */}
-      <main className="responsive max" style={{ height: "100%", overflow: "hidden", padding: 0 }}>
-        
-        {/* VIEW 1: CONVERSAS (MASTER-DETAIL) */}
-        {activeRoute.value === "chats" && (
-          <div className="grid no-space max" style={{ height: "100%", overflow: "hidden" }}>
-            <ChatMaster contacts={mockContacts} selectedChatId={selectedChatId} />
-            <ChatDetail
-              activeContact={activeContact}
-              activeMessages={activeMessages}
-              selectedChatId={selectedChatId}
-              messageInput={messageInput}
-              onSendMessage={handleSendMessage}
-            />
-          </div>
-        )}
-
-        {/* VIEW 2: CONTATOS */}
-        {activeRoute.value === "contacts" && (
-          <div className="padding">
-            <h3>Contatos P2P</h3>
-            <p>Lista descentralizada de nós e pares verificados via WebCrypto.</p>
-          </div>
-        )}
-
-        {/* VIEW 3: CONFIGURAÇÕES */}
-        {activeRoute.value === "settings" && (
-          <div className="padding">
-            <h3>Ajustes e Chaves E2EE</h3>
-            <p>Gerenciamento de par de chaves ECDH e persistência local.</p>
-          </div>
-        )}
-
+      {/* CONTAINER PRINCIPAL RESPONSIVO */}
+      <main className="responsive max no-space">
+        {/* RENDERIZAÇÃO DECLARATIVA DAS PÁGINAS */}
+        <ChatsPage active={currentRoute === "chats"} />
+        <ContactsPage active={currentRoute === "contacts"} />
+        <SettingsPage active={currentRoute === "settings"} />
       </main>
-    </div>
+    </>
   );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/router.ts`
+
+```ts
+// src/router.ts
+import { signal } from "@preact/signals";
+
+export type Route = "chats" | "contacts" | "settings";
+
+export interface RouteConfig {
+  id: Route;
+  label: string;
+  icon: string;
+  title: string;
+}
+
+/**
+ * REGISTRO CENTRAL DE ROTAS (SSOT para Navegação e UI)
+ */
+export const ROUTES: RouteConfig[] = [
+  { id: "chats", label: "Conversas", icon: "chat", title: "Mensagens E2EE" },
+  { id: "contacts", label: "Contatos", icon: "group", title: "Contatos P2P" },
+  { id: "settings", label: "Ajustes", icon: "settings", title: "Ajustes e Segurança" },
+];
+
+const VALID_ROUTES = ROUTES.map((r) => r.id);
+
+function parseRoute(): Route {
+  const rawHash = window.location.hash.replace(/^#\/?/, "");
+  if (rawHash && VALID_ROUTES.includes(rawHash as Route)) {
+    return rawHash as Route;
+  }
+  return "chats";
+}
+
+export const activeRoute = signal<Route>(parseRoute());
+
+// Escuta mudanças na URL nativa para atualizar o estado global
+window.addEventListener("hashchange", () => {
+  activeRoute.value = parseRoute();
+});
+
+// A mutação agora altera a Hash, o que dispara o listener acima
+export function navigateTo(route: Route) {
+  window.location.hash = route;
 }
 ```
 
@@ -641,35 +1046,6 @@ Deno.test("Estado global: Fila de mensagens deve calcular pendências corretamen
   // Simula Handshake de Sincronização
   messages.value = messages.value.map(m => ({ ...m, status: "synced" }));
   assertEquals(pendingCount.value, 0);
-});
-```
-
----
-
-## Arquivo: `monorepo/playground/tests/router_test.ts`
-
-```ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
-import { currentRoute, transitionDirection, navigate, goBack } from "../src/router.ts";
-
-Deno.test("Router - Navegação inicial padrão deve ser 'chats'", () => {
-  assertEquals(currentRoute.value, "chats");
-});
-
-Deno.test("Router - Navegar para rota mais profunda deve definir direção 'right'", () => {
-  navigate("security-keys");
-  assertEquals(currentRoute.value, "security-keys");
-  assertEquals(transitionDirection.value, "right");
-});
-
-Deno.test("Router - Função goBack deve retornar à rota anterior com direção 'left'", () => {
-  navigate("chats");
-  navigate("security-keys");
-  
-  goBack();
-  
-  assertEquals(currentRoute.value, "chats");
-  assertEquals(transitionDirection.value, "left");
 });
 ```
 
@@ -865,6 +1241,33 @@ Deno.test("Subcomponentes - Fluxo de Dados entre Signals e Active Contact", () =
 
 ---
 
+## Arquivo: `monorepo/playground/tests/router_test.ts`
+
+```ts
+import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { currentPath, activeRoute, navigateTo, normalizePath } from "../src/router.ts";
+
+Deno.test("Router - Normalização do caminho raiz e vazios", () => {
+  assertEquals(normalizePath("/"), "/chats");
+  assertEquals(normalizePath(""), "/chats");
+  assertEquals(normalizePath("/contacts"), "/contacts");
+});
+
+Deno.test("Router - Navegação para rota '/contacts'", () => {
+  navigateTo("/contacts");
+  assertEquals(currentPath.value, "/contacts");
+  assertEquals(activeRoute.value, "contacts");
+});
+
+Deno.test("Router - Navegação para rota '/settings'", () => {
+  navigateTo("/settings");
+  assertEquals(currentPath.value, "/settings");
+  assertEquals(activeRoute.value, "settings");
+});
+```
+
+---
+
 ## Arquivo: `monorepo/playground/docs/ui-architecture.md`
 
 ```md
@@ -879,36 +1282,6 @@ Após experimentarmos o ecossistema de Web Components (`@material/web`) e wrappe
 3. **Leveza:** Ideal para a nossa arquitetura PWA Offline-First, eliminando dependências JavaScript inchadas.
 
 No futuro, para garantir o funcionamento 100% offline, os arquivos estáticos do BeerCSS serão armazenados em cache pelo Service Worker ou embutidos no nosso bundle final.
-```
-
----
-
-## Arquivo: `monorepo/playground/docs/01-router-e-navegacao.md`
-
-```md
-# 🗺️ Arquitetura de Roteamento e Transição de Páginas (Loco PWA)
-
-## 📌 Visão Geral
-O **Loco PWA** utiliza uma solução de roteamento sem dependências de terceiros, construída sobre o ecossistema **Deno 2.x**, **Preact Signals** e os elementos `<div class="page">` nativos do **Beer CSS**.
-
-## 🚀 Como Funciona
-
-### 1. Estado Global Reativo (`src/router.ts`)
-O estado da rota atual (`currentRoute`) e a direção da animação (`transitionDirection`) são expostos como *Signals*:
-- `currentRoute`: Armazena a rota ativa (`chats`, `contacts`, `settings`, `security-keys`).
-- `transitionDirection`: Determina o vetor físico da animação CSS (`right`, `left`, `top`, `bottom`).
-
-### 2. Animação Física com Beer CSS
-O Beer CSS define comportamentos de opacidade e posições CSS dinâmicas baseadas na classe `.page`:
-- `<div className="page right active">`: A página entra deslizando da direita para o centro.
-- `<div className="page left">`: A página permanece oculta à esquerda aguardando o retorno.
-
-### 3. Profundidade de Rota e Sincronização
-Ao navegar com `navigate(targetRoute)`:
-1. O sistema compara a **profundidade** (`ROUTE_DEPTH`) da rota de destino com a atual.
-2. Se `targetDepth >= currentDepth`, a animação é configurada como `right` (avanço).
-3. Se `targetDepth < currentDepth`, a animação é configurada como `left` (retorno).
-4. O hash da URL é atualizado (`#contacts`), garantindo que o botão "Voltar" do navegador ou do smartphone funcione nativamente.
 ```
 
 ---
@@ -1093,6 +1466,54 @@ A arquitetura do Loco PWA prioriza a reatividade declarativa do **Preact** aliad
    - `ChatMaster`: Gerencia unicamente a listagem de conversas e estado de seleção.
    - `ChatDetail`: Contém o chat ativo, histórico de mensagens e o formulário de envio ancorado.
 ```
+
+---
+
+## Arquivo: `monorepo/playground/docs/01-router-e-navegacao.md`
+
+```md
+# 🗺️ Arquitetura de Roteamento e Transição de Páginas (Loco PWA)
+
+## 📌 Visão Geral
+O **Loco PWA** utiliza uma solução de roteamento SPA sem dependências externas, baseada na History API nativa e em **Preact Signals**[cite: 1].
+
+## 🚀 Como Funciona
+
+### 1. Estado Global Reativo (`src/router.ts`)
+- `currentPath`: Signal contendo o caminho bruto da URL (ex: `/chats`, `/contacts`)[cite: 1].
+- `activeRoute`: Signal computado que mapeia o caminho para o identificador da view (`chats`, `contacts`, `settings`)[cite: 1].
+- `normalizePath()`: Trata caminhos nulos, vazios ou a raiz `/`, aplicando fallback padrão para `/chats`[cite: 1].
+
+### 2. Navegação sem Reload
+Ao chamar `navigateTo(path, event)`:
+1. Interrompe o comportamento do link com `event.preventDefault()`[cite: 1].
+2. Normaliza a URL de destino[cite: 1].
+3. Atualiza o histórico do navegador via `window.history.pushState`[cite: 1].
+4. Atualiza o Signal `currentPath`, re-renderizando dinamicamente apenas os componentes subscritos[cite: 1].
+```
+
+---
+
+## Arquivo: `monorepo/playground/docs/LAYOUT.md`
+
+````md
+# Arquitetura de Shell e Layout Responsivo (BeerCSS v5)
+
+## Estrutura do App Shell
+
+Para preservar as barras de navegação nativas em dispositivos móveis e desktops sem CSS inline, o app shell deve seguir rigorosamente a hierarquia abaixo:
+
+```tsx
+<>
+  <nav className="left m l">   {/* Visível apenas em Telas Médias e Grandes */}
+  <nav className="bottom s">  {/* Visível apenas em Telas Pequenas (Mobile) */}
+  <main className="responsive max no-space">
+    <div className="grid no-space max">
+      {/* Componentes de Visualização */}
+    </div>
+  </main>
+</>
+````
 
 ---
 

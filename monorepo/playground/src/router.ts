@@ -1,62 +1,42 @@
-import { signal, computed } from "@preact/signals";
+// src/router.ts
+import { signal } from "@preact/signals";
 
-/**
- * Normaliza o caminho de navegação.
- * Caso o usuário acesse a raiz ("/") ou um caminho inválido,
- * redireciona o estado padrão para "/chats".
- */
-export function normalizePath(path: string): string {
-  if (!path || path === "/" || path.trim() === "") {
-    return "/chats";
-  }
-  return path;
+export type Route = "chats" | "contacts" | "settings";
+
+export interface RouteConfig {
+  id: Route;
+  label: string;
+  icon: string;
+  title: string;
 }
 
-function getInitialPath(): string {
-  if (typeof globalThis.location !== "undefined") {
-    return normalizePath(globalThis.location.pathname);
-  }
-  return "/chats";
-}
-
-// Signal de estado reativo global para o caminho atual
-export const currentPath = signal<string>(getInitialPath());
-
 /**
- * Signal computado mantido no escopo do módulo.
- * Evita a destruição e recriação do sinal a cada renderização do Preact.
+ * REGISTRO CENTRAL DE ROTAS (SSOT para Navegação e UI)
  */
-export const activeRoute = computed(() => {
-  const path = currentPath.value;
-  if (path.startsWith("/contacts")) return "contacts";
-  if (path.startsWith("/settings")) return "settings";
+export const ROUTES: RouteConfig[] = [
+  { id: "chats", label: "Conversas", icon: "chat", title: "Mensagens E2EE" },
+  { id: "contacts", label: "Contatos", icon: "group", title: "Contatos P2P" },
+  { id: "settings", label: "Ajustes", icon: "settings", title: "Ajustes e Segurança" },
+];
+
+const VALID_ROUTES = ROUTES.map((r) => r.id);
+
+function parseRoute(): Route {
+  const rawHash = window.location.hash.replace(/^#\/?/, "");
+  if (rawHash && VALID_ROUTES.includes(rawHash as Route)) {
+    return rawHash as Route;
+  }
   return "chats";
+}
+
+export const activeRoute = signal<Route>(parseRoute());
+
+// Escuta mudanças na URL nativa para atualizar o estado global
+window.addEventListener("hashchange", () => {
+  activeRoute.value = parseRoute();
 });
 
-/**
- * Navega para uma nova rota atualizando a History API e impedindo o reload da página.
- */
-export function navigateTo(path: string, event?: Event): void {
-  if (event) {
-    event.preventDefault();
-  }
-  
-  const targetPath = normalizePath(path);
-  
-  if (
-    typeof globalThis.history !== "undefined" &&
-    globalThis.location.pathname !== targetPath
-  ) {
-    globalThis.history.pushState({}, "", targetPath);
-  }
-  
-  currentPath.value = targetPath;
-}
-
-// Escuta os botões "Voltar" e "Avançar" do navegador
-if (typeof globalThis.addEventListener === "function") {
-  globalThis.addEventListener("popstate", () => {
-    const path = globalThis.location ? globalThis.location.pathname : "/chats";
-    currentPath.value = normalizePath(path);
-  });
+// A mutação agora altera a Hash, o que dispara o listener acima
+export function navigateTo(route: Route) {
+  window.location.hash = route;
 }
