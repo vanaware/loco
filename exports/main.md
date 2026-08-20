@@ -1,13 +1,14 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém múltiplos arquivos do projeto **Loco v0.3.20-mszaorsr** (CÓDIGO FONTE) estruturados em blocos. 
+> O texto abaixo contém os arquivos de CÓDIGO FONTE principais da aplicação.
+> O projeto é o **Loco [v0.3.26-mszev7vv] ** estruturado em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.3.20-mszaorsr] - Modo: MAIN
+# Contexto Exportado do Projeto Loco [v0.3.26-mszev7vv] - Modo: MAIN
 
-Gerado automaticamente em: 8/18/2026, 8:30:43 PM
+Gerado automaticamente em: 8/19/2026, 10:20:20 PM
 
 ---
 
@@ -2213,86 +2214,30 @@ export function ProfileSection() {
 
 ---
 
-## Arquivo: `src/components/AppSidebar.tsx`
-
-```tsx
-import { navigate } from '../utils/router.ts';
-import { ContatosSection } from './ContatosSection.tsx';
-
-interface AppSidebarProps {
-  isIdentityValid: boolean;
-}
-
-export function AppSidebar({ isIdentityValid }: AppSidebarProps) {
-  return (
-    <aside class="app-sidebar">
-      <header class="sidebar-header">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="position: relative;">
-            <md-icon-button id="btn-menu" onClick={() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const menu: any = document.getElementById('main-menu');
-              if (menu) menu.open = !menu.open;
-            }}>
-              <md-icon>menu</md-icon>
-            </md-icon-button>
-            
-            <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
-              <md-menu-item onClick={() => { navigate('#settings'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                <div slot="headline">Configurações</div>
-                <md-icon slot="start">settings</md-icon>
-              </md-menu-item>
-              <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                <div slot="headline">Avançado</div>
-                <md-icon slot="start">settings_suggest</md-icon>
-              </md-menu-item>
-              <md-menu-item onClick={() => { navigate('#labs'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                <div slot="headline">WebTorrent Labs</div>
-                <md-icon slot="start">science</md-icon>
-              </md-menu-item>
-              <md-menu-item onClick={() => { navigate('#logout'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
-                <div slot="headline">Sair do App (Logout)</div>
-                <md-icon slot="start">logout</md-icon>
-              </md-menu-item>
-            </md-menu>
-          </div>
-          <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
-        </div>
-        
-        <div style="display: flex; gap: 4px;">
-          <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
-            <md-icon>account_circle</md-icon>
-          </md-icon-button>
-        </div>
-      </header>
-      
-      <div class="sidebar-content" style="padding: 0;">
-        <div style="padding: 12px; animation: fadeIn 0.3s ease;">
-          {isIdentityValid ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
-        </div>
-      </div>
-    </aside>
-  );
-}
-```
-
----
-
 ## Arquivo: `src/components/MainHeader.tsx`
 
 ```tsx
-import { activeView, navigate } from '../utils/router.ts';
+import { activeView, navigate, pastaSelecionada } from '../utils/router.ts';
 import { contatoSelecionado, contatoCompartilharHash } from '../signals/state.ts';
 import { profile, contatosComHash } from '../stores/index.ts';
+import { pastasAtivas } from '../stores/torrentLabsStore.ts';
 
 export function MainHeader() {
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
   const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
+  const pastaAtiva = pastasAtivas.value.find(p => p.id === pastaSelecionada.value);
 
   const nomeContatoAtivo = contatoAtivo ? (contatoAtivo.name?.trim() || "Anônimo") : "";
   const nomeDetalhesAtivo = contatoDetalhesAtivo ? (contatoDetalhesAtivo.name?.trim() || "Anônimo") : "";
 
-  const fecharAreaPrincipal = () => navigate('');
+  // 🔥 ARQUITETURA: Lógica inteligente de botão Voltar
+  const fecharAreaPrincipal = () => {
+    if (activeView.value === 'labs' && pastaSelecionada.value) {
+      navigate('#labs'); // Volta pra lista de pastas
+    } else {
+      navigate(''); // Volta pra home
+    }
+  };
   
   let headerTitle = "Loco PWA";
   let headerSubtitle = "";
@@ -2315,9 +2260,10 @@ export function MainHeader() {
     headerSubtitle = "Diagnóstico e Logs";
     headerIcon = "settings_suggest";
   } else if (activeView.value === 'labs') {
-    headerTitle = "WebTorrent Labs";
-    headerSubtitle = "Protótipo P2P + OPFS";
-    headerIcon = "science";
+    // 🔥 Atualização do Header baseada na Pasta
+    headerTitle = pastaAtiva ? pastaAtiva.name : "WebTorrent Labs";
+    headerSubtitle = pastaAtiva ? "Detalhes da Pasta" : "Gestão de Mídias P2P";
+    headerIcon = "folder_shared";
   } else if (activeView.value === 'settings') {
     headerTitle = "Configurações";
     headerSubtitle = "Ajustes de Rede e Interface";
@@ -2362,176 +2308,397 @@ export function MainHeader() {
 
 ---
 
+## Arquivo: `src/components/AppSidebar.tsx`
+
+```tsx
+import { navigate, activeView, pastaSelecionada } from '../utils/router.ts';
+import { ContatosSection } from './ContatosSection.tsx';
+import { 
+  pastasAtivas, 
+  isMotorLigar, 
+  alternarMotor, 
+  progressoMap 
+} from '../stores/torrentLabsStore.ts';
+
+interface AppSidebarProps {
+  isIdentityValid: boolean;
+}
+
+export function AppSidebar({ isIdentityValid }: AppSidebarProps) {
+  return (
+    <aside class="app-sidebar">
+      <header class="sidebar-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="position: relative;">
+            <md-icon-button id="btn-menu" onClick={() => {
+              const menu: any = document.getElementById('main-menu');
+              if (menu) menu.open = !menu.open;
+            }}>
+              <md-icon>menu</md-icon>
+            </md-icon-button>
+            
+            <md-menu id="main-menu" anchor="btn-menu" positioning="popover">
+              <md-menu-item onClick={() => { navigate(''); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                <div slot="headline">Início (Chat)</div>
+                <md-icon slot="start">forum</md-icon>
+              </md-menu-item>
+              <md-menu-item onClick={() => { navigate('#settings'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                <div slot="headline">Configurações</div>
+                <md-icon slot="start">settings</md-icon>
+              </md-menu-item>
+              <md-menu-item onClick={() => { navigate('#advanced'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                <div slot="headline">Avançado</div>
+                <md-icon slot="start">settings_suggest</md-icon>
+              </md-menu-item>
+              <md-menu-item onClick={() => { navigate('#labs'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                <div slot="headline">WebTorrent Labs</div>
+                <md-icon slot="start">science</md-icon>
+              </md-menu-item>
+              <md-menu-item onClick={() => { navigate('#logout'); document.getElementById('main-menu')?.removeAttribute('open'); }}>
+                <div slot="headline">Sair do App (Logout)</div>
+                <md-icon slot="start">logout</md-icon>
+              </md-menu-item>
+            </md-menu>
+          </div>
+          <h1 style="margin: 0; font-size: 1.25rem;">Loco</h1>
+        </div>
+        
+        <div style="display: flex; gap: 4px;">
+          <md-icon-button onClick={() => navigate('#profile')} title="Meu Perfil">
+            <md-icon>account_circle</md-icon>
+          </md-icon-button>
+        </div>
+      </header>
+      
+      <div class="sidebar-content" style="padding: 0; display: flex; flex-direction: column;">
+        {activeView.value === 'labs' ? (
+          /* 🔥 ARQUITETURA: Visão do Labs na Sidebar */
+          <div style="display: flex; flex-direction: column; height: 100%;">
+            <div style="padding: 16px; border-bottom: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-container-low);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <span style="font-weight: 600; font-size: 0.95rem; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 6px;">
+                  <md-icon>{isMotorLigar.value ? 'cloud_sync' : 'cloud_off'}</md-icon> Motor P2P
+                </span>
+                <md-switch selected={isMotorLigar.value} onClick={alternarMotor}></md-switch>
+              </div>
+              <md-filled-button onClick={() => navigate('#labs')} style="width: 100%;">
+                <md-icon slot="icon">create_new_folder</md-icon> Nova Pasta
+              </md-filled-button>
+            </div>
+
+            <div style="flex-grow: 1; overflow-y: auto; padding: 8px;">
+              <md-list style="background: transparent;">
+                {pastasAtivas.value.map((pasta) => {
+                  const isSelected = pastaSelecionada.value === pasta.id;
+                  const liveData = progressoMap.value[pasta.id];
+                  const displayProgress = liveData ? liveData.progress : pasta.complete;
+                  
+                  return (
+                    <md-list-item 
+                      key={pasta.id} 
+                      onClick={() => navigate(`#labs=${pasta.id}`)}
+                      style={`
+                        cursor: pointer; 
+                        border-radius: 8px; 
+                        margin-bottom: 4px;
+                        background: ${isSelected ? 'var(--md-sys-color-secondary-container)' : 'transparent'};
+                      `}
+                    >
+                      <md-icon slot="start" style={`color: ${pasta.status === 'seeding' ? 'var(--md-sys-color-primary)' : pasta.status === 'downloading' ? '#0288d1' : 'var(--md-sys-color-on-surface-variant)'};`}>
+                        {pasta.status === 'seeding' ? 'upload' : pasta.status === 'downloading' ? 'download' : 'pause_circle'}
+                      </md-icon>
+                      
+                      <div slot="headline" style="font-weight: 500; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {pasta.name}
+                      </div>
+                      
+                      <div slot="supporting-text" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); display: flex; gap: 8px;">
+                        <span>{displayProgress}%</span>
+                        <span>•</span>
+                        <span>{pasta.files.length} arq.</span>
+                      </div>
+                    </md-list-item>
+                  );
+                })}
+              </md-list>
+            </div>
+          </div>
+        ) : (
+          /* Visão Padrão: Contatos */
+          <div style="padding: 12px; animation: fadeIn 0.3s ease;">
+            {isIdentityValid ? <ContatosSection/> : <p style="text-align: center; color: var(--md-sys-color-on-surface-variant); margin-top: 40px;">Configure seu perfil primeiro.</p>}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+```
+
+---
+
 ## Arquivo: `src/components/WebTorrentLabsSection.tsx`
 
 ```tsx
 // src/components/WebTorrentLabsSection.tsx
-import { useSignal } from '@preact/signals';
-import { useEffect } from 'preact/hooks';
+import { useSignal, useComputed } from '@preact/signals';
+import { useRef } from 'preact/hooks';
 import { showToast } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
+import { navigate, pastaSelecionada } from '../utils/router.ts';
 import { 
-  iniciarSeed, 
-  iniciarDownload, 
-  pararTorrent, 
-  isTorrentActive, 
-  magnetUriGerado, 
-  downloadProgress, 
-  downloadSpeed, 
-  numPeers, 
-  downloadedFileUrl,
-  downloadedFileName
+  pastasAtivas,
+  progressoMap,
+  criarNovaPastaOffline,
+  adicionarMagnetDownload,
+  isMotorLigar,
+  atualizarPermissaoPasta,
+  adicionarArquivosPasta,
+  removerArquivoPasta,
+  baixarArquivoOpfs,
+  baixarZipPasta,
+  alternarStatusPasta
 } from '../stores/torrentLabsStore.ts';
 
 export function WebTorrentLabsSection() {
   const inputMagnet = useSignal<string>('');
+  const newFolderName = useSignal<string>('');
+  const newFilePermission = useSignal<'public' | 'listed' | 'trusted'>('trusted');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const appendInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    return () => {
-      // Limpa os URLs de Blob criados para evitar memory leaks ao sair da tela
-      if (downloadedFileUrl.value) {
-        URL.revokeObjectURL(downloadedFileUrl.value);
+  const p = useComputed(() => pastasAtivas.value.find(x => x.id === pastaSelecionada.value));
+
+  const handleCreateFolder = async () => {
+    const files = fileInputRef.current?.files;
+    if (files && files.length > 0) {
+      if (!newFolderName.value.trim()) {
+        showToast("Digite um nome para a Pasta primeiro.", "error");
+        return;
       }
-    };
-  }, []);
-
-  const handleFileSelect = (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    if (input.files && input.files.length > 0) {
-      const file = input.files[0];
-      if (file) iniciarSeed(file);
+      await criarNovaPastaOffline(newFolderName.value.trim(), files, newFilePermission.value);
+      newFolderName.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      showToast("Pasta P2P criada offline com sucesso!", "success");
     }
   };
 
-  const handleCopiarMagnet = async () => {
-    if (magnetUriGerado.value) {
-      await navigator.clipboard.writeText(magnetUriGerado.value);
+  const handleAppendFiles = async () => {
+    const files = appendInputRef.current?.files;
+    if (files && files.length > 0 && p.value) {
+      if (p.value.status !== 'standby') {
+        showToast("Coloque a pasta em Standby para editar.", "error");
+        return;
+      }
+      await adicionarArquivosPasta(p.value.id, files);
+      if (appendInputRef.current) appendInputRef.current.value = '';
+    }
+  };
+
+  const handleCopiarMagnet = async (magnet?: string) => {
+    if (magnet) {
+      await navigator.clipboard.writeText(magnet);
       showToast("Magnet URI copiado!", "success");
+    } else {
+      showToast("Ative a pasta primeiro para gerar um Magnet URI.", "info");
     }
   };
 
-  const formatSpeed = (bytesPerSec: number) => {
-    if (bytesPerSec === 0) return '0 B/s';
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '0 B';
     const k = 1024;
-    const sizes = ['B/s', 'KB/s', 'MB/s'];
-    const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
-    return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
-      <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
+  const renderEmptyState = () => (
+    <div style="max-width: 600px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 24px;">
+      
+      <div class="container" style="margin-bottom: 0;">
+        <h3 style="font-size: 1.1rem; margin-top: 0; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+          <md-icon>create_new_folder</md-icon> Nova Pasta P2P
+        </h3>
+        <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">
+          Crie pastas locais. Você pode adicionar arquivos livremente offline e compartilhar depois!
+        </p>
         
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-          <div style="display: flex; flex-direction: column;">
-            <span style="font-size: 1.2rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 8px;">
-              <md-icon>science</md-icon> WebTorrent Labs
-            </span>
-            <span style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-left: 32px;">
-              Ambiente de teste P2P + OPFS (Trackers Públicos)
-            </span>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <md-outlined-text-field
+            label="Nome da Pasta / Álbum"
+            value={newFolderName.value}
+            onInput={(e: Event) => newFolderName.value = (e.target as HTMLInputElement).value}
+          ></md-outlined-text-field>
+
+          <div style="display: flex; gap: 8px;">
+            <md-outlined-select 
+              value={newFilePermission.value} 
+              onChange={(e: Event) => newFilePermission.value = (e.target as any).value}
+              style="flex: 1;"
+            >
+              <md-select-option value="trusted"><div slot="headline">Contatos Confiáveis</div></md-select-option>
+              <md-select-option value="listed"><div slot="headline">Lista Restrita</div></md-select-option>
+              <md-select-option value="public"><div slot="headline">Público</div></md-select-option>
+            </md-outlined-select>
+
+            <input type="file" id="multi-file-upload" multiple ref={fileInputRef} style="display: none;" />
+            <label for="multi-file-upload" style="flex: 1; margin: 0;">
+              <md-filled-tonal-button onClick={() => fileInputRef.current?.click()} style="width: 100%; height: 56px;">
+                Selecionar Arquivos...
+              </md-filled-tonal-button>
+            </label>
           </div>
-          <md-icon-button onClick={() => navigate('')} title="Fechar Labs">
-            <md-icon>close</md-icon>
-          </md-icon-button>
+          <md-filled-button onClick={handleCreateFolder} disabled={!newFolderName.value.trim()} style="width: 100%;">
+            Criar Pasta
+          </md-filled-button>
         </div>
+      </div>
 
-        {/* MÓDULO SEMEADOR (NÓ A) */}
-        <div style="border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
-          <h3 style="font-size: 1rem; margin-top: 0; color: var(--md-sys-color-on-surface); display: flex; align-items: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem;">upload</md-icon> Semeador (Disponibilizar)
-          </h3>
-          <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">
-            Selecione um arquivo local para ser indexado e distribuído publicamente.
-          </p>
-          
-          <input 
-            type="file" 
-            id="file-upload" 
-            style="display: none;" 
-            onChange={handleFileSelect} 
-            disabled={isTorrentActive.value}
-          />
-          <label for="file-upload">
-            <md-filled-tonal-button disabled={isTorrentActive.value} style="width: 100%; pointer-events: none;">
-              Selecionar Arquivo para Seed
-            </md-filled-tonal-button>
-          </label>
-
-          {magnetUriGerado.value && (
-            <div style="margin-top: 16px; background: var(--md-sys-color-surface-variant); padding: 12px; border-radius: 8px;">
-              <span style="font-size: 0.75rem; font-weight: bold; color: var(--md-sys-color-primary);">Magnet URI Gerado:</span>
-              <p style="font-family: monospace; font-size: 0.7rem; word-break: break-all; margin: 4px 0 12px 0; color: var(--md-sys-color-on-surface-variant);">
-                {magnetUriGerado.value}
-              </p>
-              <md-outlined-button onClick={handleCopiarMagnet} style="width: 100%;">
-                <md-icon slot="icon">content_copy</md-icon> Copiar Magnet URI
-              </md-outlined-button>
-            </div>
-          )}
-        </div>
-
-        {/* MÓDULO SANGUESSUGA (NÓ B) */}
-        <div style="border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px; padding: 16px;">
-          <h3 style="font-size: 1rem; margin-top: 0; color: var(--md-sys-color-on-surface); display: flex; align-items: center; gap: 6px;">
-            <md-icon style="font-size: 1.2rem;">download</md-icon> Sanguessuga (Baixar)
-          </h3>
-          <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">
-            Cole um Magnet URI para baixar o arquivo. Ele será salvo no OPFS do seu navegador.
-          </p>
-          
+      <div class="container" style="margin-bottom: 0;">
+        <h3 style="font-size: 1.1rem; margin-top: 0; color: var(--md-sys-color-on-surface); display: flex; align-items: center; gap: 8px;">
+          <md-icon>download</md-icon> Baixar Mídia Externa
+        </h3>
+        <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">
+          (Requer Motor Ligado). Cole um Magnet para importar a pasta via P2P.
+        </p>
+        <div style="display: flex; gap: 8px;">
           <md-outlined-text-field
             label="Magnet URI"
             value={inputMagnet.value}
             onInput={(e: Event) => inputMagnet.value = (e.target as HTMLInputElement).value}
-            disabled={isTorrentActive.value}
-            style="width: 100%; margin-bottom: 12px;"
+            style="flex: 1;"
           ></md-outlined-text-field>
-
-          <md-filled-button 
-            onClick={() => iniciarDownload(inputMagnet.value)} 
-            disabled={!inputMagnet.value || isTorrentActive.value}
-            style="width: 100%; margin-bottom: 16px;"
-          >
-            Iniciar Download
+          <md-filled-button onClick={() => { adicionarMagnetDownload(inputMagnet.value); inputMagnet.value = ''; navigate('#labs'); }} disabled={!inputMagnet.value.trim() || !isMotorLigar.value} style="height: 56px;">
+            Baixar
           </md-filled-button>
+        </div>
+      </div>
+    </div>
+  );
 
-          {/* Progresso de Download */}
-          {isTorrentActive.value && !magnetUriGerado.value && (
-            <div style="background: var(--md-sys-color-surface-container-high); padding: 16px; border-radius: 8px; text-align: center;">
-              <md-linear-progress value={downloadProgress.value / 100} style="width: 100%; margin-bottom: 12px;"></md-linear-progress>
-              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant);">
-                <span>Progresso: {downloadProgress.value}%</span>
-                <span>Peers: {numPeers.value}</span>
-                <span>Velocidade: {formatSpeed(downloadSpeed.value)}</span>
-              </div>
-            </div>
-          )}
+  if (!p.value) {
+    return <div style="flex-grow: 1; overflow-y: auto; padding: 24px;">{renderEmptyState()}</div>;
+  }
 
-          {/* Arquivo Salvo no OPFS e pronto para consumo */}
-          {downloadedFileUrl.value && (
-            <div style="margin-top: 16px; text-align: center; border-top: 1px dashed var(--md-sys-color-outline-variant); padding-top: 16px;">
-              <md-icon style="font-size: 48px; color: var(--md-sys-color-primary); margin-bottom: 8px;">check_circle</md-icon>
-              <h4 style="margin: 0 0 4px 0; color: var(--md-sys-color-on-surface);">Arquivo Salvo no OPFS!</h4>
-              <p style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;">
-                {downloadedFileName.value}
-              </p>
-              <a href={downloadedFileUrl.value} download={downloadedFileName.value} style="text-decoration: none;">
-                <md-filled-button style="width: 100%;">
-                  Salvar no Dispositivo
-                </md-filled-button>
-              </a>
+  const liveProg = progressoMap.value[p.value.id];
+  const isStandby = p.value.status === 'standby';
+
+  return (
+    <div style="flex-grow: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 24px;">
+      <div style="max-width: 800px; width: 100%; margin: 0 auto;">
+        
+        {/* CABEÇALHO DA PASTA */}
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--md-sys-color-outline-variant); flex-wrap: wrap; gap: 16px;">
+          <div>
+            <h2 style="margin: 0 0 8px 0; font-size: 1.5rem; color: var(--md-sys-color-on-surface); display: flex; align-items: center; gap: 8px;">
+              {p.value.name}
+              <span style={`
+                font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: bold; text-transform: uppercase;
+                background: ${isStandby ? 'var(--md-sys-color-surface-variant)' : p.value.status === 'seeding' ? 'var(--md-sys-color-primary-container)' : '#e1f5fe'};
+                color: ${isStandby ? 'var(--md-sys-color-on-surface-variant)' : p.value.status === 'seeding' ? 'var(--md-sys-color-on-primary-container)' : '#01579b'};
+              `}>
+                {p.value.status}
+              </span>
+            </h2>
+            
+            <div style="display: flex; gap: 12px; font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); align-items: center; flex-wrap: wrap;">
+              <span style="display: flex; align-items: center; gap: 4px;"><md-icon style="font-size: 1rem;">fingerprint</md-icon> ID: {p.value.id.substring(0,8)}</span>
+              
+              <md-outlined-select 
+                value={p.value.permission} 
+                onChange={(e: Event) => atualizarPermissaoPasta(p.value!.id, (e.target as any).value)}
+                style="height: 32px;"
+              >
+                <md-select-option value="trusted"><div slot="headline">Confiáveis</div></md-select-option>
+                <md-select-option value="listed"><div slot="headline">Restrita</div></md-select-option>
+                <md-select-option value="public"><div slot="headline">Pública</div></md-select-option>
+              </md-outlined-select>
+
+              <span style="display: flex; align-items: center; gap: 4px;"><md-icon style="font-size: 1rem;">date_range</md-icon> {new Date(p.value.createdAt).toLocaleDateString()}</span>
             </div>
-          )}
+          </div>
+          
+          <div style="display: flex; gap: 8px; flex-direction: column; align-items: flex-end;">
+            <div style="display: flex; gap: 8px;">
+              <md-filled-tonal-button 
+                onClick={() => alternarStatusPasta(p.value!.id)}
+                style={!isStandby ? '--md-sys-color-secondary-container: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);' : ''}
+              >
+                <md-icon slot="icon">{isStandby ? 'play_arrow' : 'pause'}</md-icon>
+                {isStandby ? 'Ativar Pasta' : 'Colocar em Standby'}
+              </md-filled-tonal-button>
+
+              <md-outlined-button onClick={() => handleCopiarMagnet(p.value?.magnetURI)} disabled={!p.value.magnetURI}>
+                <md-icon slot="icon">share</md-icon> Copiar Magnet
+              </md-outlined-button>
+            </div>
+            
+            {!isMotorLigar.value && !isStandby && (
+              <span style="font-size: 0.75rem; color: var(--md-sys-color-error); font-weight: 500;">
+                ⚠️ Motor P2P está desligado.
+              </span>
+            )}
+          </div>
         </div>
 
-        {isTorrentActive.value && (
-          <div style="margin-top: 24px;">
-            <md-outlined-button onClick={pararTorrent} style="width: 100%; color: var(--md-sys-color-error); --md-sys-color-outline: var(--md-sys-color-error);">
-              <md-icon slot="icon">stop</md-icon> Encerrar Motor WebTorrent
-            </md-outlined-button>
-          </div>
+        {/* TELEMETRIA */}
+        {!isStandby && liveProg && (
+           <div style="background: var(--md-sys-color-surface-container-high); padding: 16px; border-radius: 8px; margin-bottom: 24px;">
+             <md-linear-progress value={liveProg.progress / 100} style="width: 100%; margin-bottom: 12px;"></md-linear-progress>
+             <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-family: monospace; color: var(--md-sys-color-on-surface-variant);">
+               <span>Peers: {liveProg.peers}</span>
+               <span>Rede: {formatSize(liveProg.speed)}/s</span>
+               <span>{liveProg.progress}%</span>
+             </div>
+           </div>
         )}
+
+        {/* TOOLBAR DE ARQUIVOS */}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 12px;">
+          <h3 style="font-size: 1.1rem; color: var(--md-sys-color-on-surface); margin: 0; display: flex; align-items: center; gap: 8px;">
+            <md-icon>draft</md-icon> Arquivos Físicos ({p.value.files.length})
+          </h3>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <md-outlined-button onClick={() => baixarZipPasta(p.value!.id)} disabled={p.value.complete !== 100 || p.value.files.length === 0}>
+              <md-icon slot="icon">archive</md-icon> Baixar ZIP
+            </md-outlined-button>
+            
+            <input type="file" multiple ref={appendInputRef} style="display: none;" onChange={handleAppendFiles} />
+            
+            <md-filled-tonal-button onClick={() => appendInputRef.current?.click()} disabled={!isStandby}>
+              <md-icon slot="icon">add</md-icon> Adicionar
+            </md-filled-tonal-button>
+            {!isStandby && <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-left: 4px;">Pausar para editar</span>}
+          </div>
+        </div>
+
+        {/* LISTA DE ARQUIVOS */}
+        <div style="background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px; overflow: hidden;">
+          <md-list>
+            {p.value.files.length === 0 ? (
+              <div style="padding: 24px; text-align: center; color: var(--md-sys-color-on-surface-variant);">A pasta está vazia.</div>
+            ) : p.value.files.map(f => (
+              <md-list-item key={f.name}>
+                <md-icon slot="start" style="color: var(--md-sys-color-on-surface-variant);">description</md-icon>
+                <div slot="headline" style="font-size: 0.9rem;">{f.name}</div>
+                <div slot="supporting-text" style="font-size: 0.75rem;">{formatSize(f.size)}</div>
+                
+                <div slot="end" style="display: flex; gap: 4px; align-items: center;">
+                  {p.value!.complete === 100 && (
+                    <span style="color: var(--md-sys-color-primary); font-size: 0.75rem; font-weight: bold; display: flex; align-items: center; gap: 4px; margin-right: 12px;">
+                      <md-icon style="font-size: 1rem;">check_circle</md-icon> OPFS
+                    </span>
+                  )}
+                  <md-icon-button onClick={() => baixarArquivoOpfs(p.value!.id, f.name)} disabled={p.value?.complete !== 100} title="Salvar no dispositivo">
+                    <md-icon>download</md-icon>
+                  </md-icon-button>
+                  <md-icon-button onClick={() => removerArquivoPasta(p.value!.id, f.name)} disabled={!isStandby} title={isStandby ? "Excluir arquivo" : "Pause para excluir"}>
+                    <md-icon style={`color: ${isStandby ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-on-surface-variant)'};`}>delete</md-icon>
+                  </md-icon-button>
+                </div>
+              </md-list-item>
+            ))}
+          </md-list>
+        </div>
 
       </div>
     </div>
@@ -2714,7 +2881,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 
 ```ts
 // Arquivo gerado automaticamente pelo build.ts
-export const APP_VERSION = "0.3.20-mszaorsr";
+export const APP_VERSION = "0.3.26-mszev7vv";
 
 ```
 
@@ -2730,6 +2897,8 @@ export const DB_NAMES = {
   CHAT: "Chat_DB", 
   CONTATOS: "BrowserB_Contatos_DB",
   HANDSHAKES: "Handshake_DB",
+  // 🔥 ARQUITETURA: Banco atualizado para mapear as Pastas (Coleções de Mídia/Torrents)
+  MIDIAS: "Midias_Metadata_DB" 
 } as const;
 
 export const STORE_NAMES = {
@@ -2778,9 +2947,10 @@ export interface Chat {
   updatedAt?: number;
   errorAt?: number;
   handshake: string;
+  // 🔥 ARQUITETURA: Ponteiro opcional para a Pasta/Coleção no OPFS
+  metadataId?: string; 
 }
 
-// 🔥 ARQUITETURA: Adicionado o estado 'deleted' para o padrão Tombstone
 export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved' | 'deleted';
 
 export interface Contato {
@@ -2799,6 +2969,29 @@ export interface Contato {
   me: MeStatus;
   createdAt: number;
   updatedAt: number;
+}
+
+// 🔥 ARQUITETURA: Nova Estrutura Baseada em Pastas/Manifestos P2P
+export interface FileMetadata {
+  name: string;      // Nome original (ex: foto.jpg). É o mesmo nome salvo no OPFS dentro da pasta.
+  size: number;      // Tamanho em bytes
+  type: string;      // MIME Type (ex: image/jpeg, video/mp4)
+  createdAt: number; 
+  modifiedAt: number;
+}
+
+export interface PastaMetadata {
+  id: string;                                    // ID único da pasta (gerado e espelhado pelo Manifesto JSON)
+  name: string;                                  // Nome da pasta
+  magnetURI?: string;                            // Magnet URI da coleção (opcional se a pasta for estritamente local por enquanto)
+  infoHash?: string;                             // Identificador único da rede BitTorrent (útil para resume e caching)
+  status: 'seeding' | 'downloading' | 'standby'; // Standby: o motor P2P ignora essa pasta ao ligar
+  complete: number;                              // 0 a 100 (% dos bytes baixados)
+  permission: 'public' | 'listed' | 'trusted';   // Controle de distribuição do Handshake do Magnet URI
+  contatos: string[];                            // Array de hashes de contatos com acesso explícito (usado se 'listed')
+  files: FileMetadata[];                         // Lista de arquivos contidos na pasta
+  createdAt: number;
+  modifiedAt: number;
 }
 
 export interface ProfileRouteData {
@@ -2932,17 +3125,6 @@ export function addDebugLog(
 }
 
 export function clearDebugLogs(): void {}
-```
-
----
-
-## Arquivo: `src/stores/index.ts`
-
-```ts
-// src/stores/index.ts
-export * from './contatosStore.ts';
-export * from './mensagensStore.ts';
-export * from './profileStore.ts';
 ```
 
 ---
@@ -3541,29 +3723,41 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
 
 ---
 
+## Arquivo: `src/stores/index.ts`
+
+```ts
+// src/stores/index.ts
+export * from './contatosStore.ts';
+export * from './mensagensStore.ts';
+export * from './profileStore.ts';
+export * from './torrentLabsStore.ts';
+```
+
+---
+
 ## Arquivo: `src/stores/torrentLabsStore.ts`
 
 ```ts
 // src/stores/torrentLabsStore.ts
 import { signal } from "@preact/signals";
-import { addDebugLog } from "../utils/debug-utils.ts";
-import { salvarNoOPFS, lerDoOPFS } from "../utils/opfs-utils.ts";
+import { zipSync } from "fflate";
+import { addDebugLog, showToast } from "../signals/state.ts";
+import { salvarNoOPFS, lerDoOPFS, excluirDoOPFS } from "../utils/opfs-utils.ts";
+import { gerarId } from "../utils/id-utils.ts";
+import { 
+  salvarPastaMetadata, 
+  listarTodasAsPastas, 
+  buscarPastaMetadata,
+  removerPastaMetadata
+} from "../utils/db-helpers.ts";
+import type { PastaMetadata, FileMetadata } from "../constants/db.ts";
 
-export const isTorrentActive = signal<boolean>(false);
-export const magnetUriGerado = signal<string>("");
-
-export const downloadProgress = signal<number>(0);
-export const downloadSpeed = signal<number>(0);
-export const numPeers = signal<number>(0);
-export const downloadedFileUrl = signal<string | null>(null);
-export const downloadedFileName = signal<string>("");
-export const isEngineLoading = signal<boolean>(false);
+export const isMotorLigar = signal<boolean>(false);
+export const pastasAtivas = signal<PastaMetadata[]>([]);
+export const progressoMap = signal<Record<string, { progress: number, speed: number, peers: number }>>({});
 
 let client: any = null;
 
-// 🔥 ARQUITETURA: Lista Limpa de Trackers Confiáveis
-// Ignoramos os trackers UDP (que o browser não suporta nativamente) e 
-// servidores abandonados, focando apenas na espinha dorsal do WebTorrent.
 const RELIABLE_TRACKERS = [
   "wss://tracker.webtorrent.dev:443",
   "wss://tracker.openwebtorrent.com:443",
@@ -3573,122 +3767,340 @@ const RELIABLE_TRACKERS = [
 function getClient(): any {
   if (!client) {
     const WebTorrentEngine = (globalThis as any).WebTorrent;
-    
     if (!WebTorrentEngine) {
       addDebugLog("error", "TORRENT_LAB", "Motor WebTorrent não foi carregado pelo index.html.");
       throw new Error("Falha no carregamento do WebTorrent.");
     }
-
     client = new WebTorrentEngine();
-    client.on('error', (err: any) => {
-      addDebugLog("error", "TORRENT_LAB", `Erro fatal no motor WebTorrent: ${err.message}`);
-    });
+    client.on('error', (err: any) => addDebugLog("error", "TORRENT_LAB", `Erro fatal: ${err.message}`));
   }
   return client;
 }
 
-export function iniciarSeed(file: File) {
-  isTorrentActive.value = true;
+export async function carregarPastasDoBanco() {
+  const todas = await listarTodasAsPastas();
+  pastasAtivas.value = todas.sort((a, b) => b.modifiedAt - a.modifiedAt);
+}
+
+// 🔥 ARQUITETURA: Função de inicialização chamada no Boot do App
+export async function initTorrentLabsStore() {
+  await carregarPastasDoBanco();
+}
+
+export async function alternarMotor() {
+  if (isMotorLigar.value) {
+    if (client) {
+      client.destroy();
+      client = null;
+    }
+    isMotorLigar.value = false;
+    progressoMap.value = {};
+    addDebugLog("info", "TORRENT_LAB", "Motor WebTorrent desligado.");
+  } else {
+    isMotorLigar.value = true;
+    addDebugLog("info", "TORRENT_LAB", "Motor WebTorrent ligado. Iniciando resumos...");
+    await carregarPastasDoBanco();
+    for (const pasta of pastasAtivas.value) {
+      if (pasta.status !== 'standby') {
+        reseedPasta(pasta.id); // Força a reconstrução a partir do OPFS
+      }
+    }
+  }
+}
+
+// 🔥 ARQUITETURA: Manifesto Enxuto. Apenas identidade viaja pela rede.
+export async function criarNovaPastaOffline(
+  nomePasta: string, 
+  arquivosInput: FileList | File[], 
+  permissao: 'public' | 'listed' | 'trusted' = 'trusted'
+) {
+  const id = gerarId();
+  const agora = Date.now();
+  const fileArray = Array.from(arquivosInput);
+
+  const fileMetadatas: FileMetadata[] = [];
+  for (const f of fileArray) {
+    await salvarNoOPFS(id, f.name, f);
+    fileMetadatas.push({ name: f.name, size: f.size, type: f.type, createdAt: agora, modifiedAt: agora });
+  }
+
+  const novaPasta: PastaMetadata = {
+    id, name: nomePasta, status: 'standby', complete: 100,
+    permission: permissao, contatos: [], files: fileMetadatas,
+    createdAt: agora, modifiedAt: agora
+  };
+
+  await salvarPastaMetadata(novaPasta);
+  await carregarPastasDoBanco();
+  
+  addDebugLog("success", "TORRENT_LAB", `Pasta '${nomePasta}' criada Offline no OPFS.`);
+  
+  if (isMotorLigar.value) {
+    novaPasta.status = 'seeding';
+    await salvarPastaMetadata(novaPasta);
+    await reseedPasta(id);
+  }
+}
+
+export async function reseedPasta(pastaId: string) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta || pasta.status === 'downloading' || pasta.status === 'standby' || !isMotorLigar.value) return;
+
   const wt = getClient();
-  
-  addDebugLog("info", "TORRENT_LAB", `Iniciando seed do arquivo: ${file.name}`);
-  
-  // Injeta apenas os trackers limpos na criação do Magnet
-  wt.seed(file, { announce: RELIABLE_TRACKERS }, (torrent: any) => {
-    magnetUriGerado.value = torrent.magnetURI;
-    addDebugLog("success", "TORRENT_LAB", "Seed criado! Semeando em Trackers Limpos.", { magnetURI: torrent.magnetURI });
-    
-    torrent.on('wire', (_wire: any, addr: string) => {
-      addDebugLog("info", "TORRENT_LAB", `🔗 Novo peer P2P conectado: ${addr}`);
-    });
+  const torrentId = pasta.infoHash || pasta.magnetURI;
+  if (torrentId) {
+    const t = wt.get(torrentId);
+    if (t) t.destroy(); // Apaga o torrent velho da memória
+  }
+
+  // 1. Recria o Manifesto JSON enxuto (apenas ID e Nome)
+  const manifesto = { id: pasta.id, name: pasta.name };
+  const manifestBlob = new Blob([JSON.stringify(manifesto, null, 2)], { type: 'application/json' });
+  await salvarNoOPFS(pasta.id, '.loco-manifest.json', manifestBlob);
+
+  // 2. Puxa todos os arquivos do OPFS
+  const filesToSeed: File[] = [];
+  for (const f of pasta.files) {
+    const file = await lerDoOPFS(pasta.id, f.name);
+    if (file) filesToSeed.push(file);
+  }
+  const manifestFile = await lerDoOPFS(pasta.id, '.loco-manifest.json');
+  if (manifestFile) filesToSeed.push(manifestFile);
+
+  // 3. Injeta na Rede (Isso vai gerar um Magnet URI inteiramente novo se o conteúdo mudou)
+  wt.seed(filesToSeed, { announce: RELIABLE_TRACKERS, name: pasta.name }, (torrent: any) => {
+    pasta.magnetURI = torrent.magnetURI;
+    pasta.infoHash = torrent.infoHash;
+    pasta.status = 'seeding';
+    salvarPastaMetadata(pasta).then(() => carregarPastasDoBanco());
+    _anexarEventosTorrent(torrent, pasta.id);
+    addDebugLog("info", "TORRENT_LAB", `Seed da pasta '${pasta.name}' reconstruído.`);
   });
 }
 
-export function iniciarDownload(magnetURI: string) {
-  if (!magnetURI) return;
-  
-  isTorrentActive.value = true;
-  downloadProgress.value = 0;
-  downloadedFileUrl.value = null;
-  downloadedFileName.value = "";
-  
-  const wt = getClient();
-  addDebugLog("info", "TORRENT_LAB", "Iniciando download do Magnet URI. Buscando na rede P2P...");
+// 🔥 ARQUITETURA: Travas de Segurança para Mutação
+export async function adicionarArquivosPasta(pastaId: string, novosArquivos: FileList | File[]) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta) return;
 
-  // Injeta apenas os trackers limpos na busca
+  if (pasta.status !== 'standby') {
+    showToast("Coloque a pasta em Standby para adicionar arquivos.", "error");
+    return;
+  }
+
+  const agora = Date.now();
+  const fileArray = Array.from(novosArquivos);
+
+  for (const f of fileArray) {
+    await salvarNoOPFS(pasta.id, f.name, f);
+    const existIndex = pasta.files.findIndex(x => x.name === f.name);
+    const meta: FileMetadata = { name: f.name, size: f.size, type: f.type, createdAt: agora, modifiedAt: agora };
+    if (existIndex >= 0) pasta.files[existIndex] = meta;
+    else pasta.files.push(meta);
+  }
+
+  pasta.modifiedAt = agora;
+  // Limpa o Magnet antigo, pois ele não é mais válido para o novo conjunto de arquivos
+  pasta.magnetURI = undefined; 
+  pasta.infoHash = undefined;
+
+  await salvarPastaMetadata(pasta);
+  await carregarPastasDoBanco();
+  showToast("Arquivos anexados. Ative a pasta para gerar o novo Seed.", "success");
+}
+
+export async function removerArquivoPasta(pastaId: string, fileName: string) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta) return;
+
+  if (pasta.status !== 'standby') {
+    showToast("Coloque a pasta em Standby para excluir arquivos.", "error");
+    return;
+  }
+
+  await excluirDoOPFS(pasta.id, fileName);
+  pasta.files = pasta.files.filter(f => f.name !== fileName);
+  pasta.modifiedAt = Date.now();
+  pasta.magnetURI = undefined;
+  pasta.infoHash = undefined;
+  
+  await salvarPastaMetadata(pasta);
+  await carregarPastasDoBanco();
+  showToast("Arquivo removido. Ative a pasta para gerar o novo Seed.", "info");
+}
+
+export async function atualizarPermissaoPasta(pastaId: string, novaPermissao: 'public' | 'listed' | 'trusted') {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta) return;
+
+  pasta.permission = novaPermissao;
+  pasta.modifiedAt = Date.now();
+  await salvarPastaMetadata(pasta);
+  await carregarPastasDoBanco();
+  
+  // 🔥 ARQUITETURA: Mudar permissão não exige reseed, pois não muda o conteúdo do torrent!
+  showToast("Permissão de acesso atualizada internamente.", "success");
+}
+
+export async function baixarArquivoOpfs(pastaId: string, fileName: string) {
+  const file = await lerDoOPFS(pastaId, fileName);
+  if (!file) {
+    showToast("Arquivo não encontrado no disco local.", "error");
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function baixarZipPasta(pastaId: string) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta || pasta.files.length === 0) return showToast("A pasta está vazia.", "error");
+
+  showToast("Compactando pasta em ZIP. Aguarde...", "info");
+  
+  try {
+    const zipObj: Record<string, Uint8Array> = {};
+    for (const f of pasta.files) {
+      const file = await lerDoOPFS(pasta.id, f.name);
+      if (file) {
+        zipObj[f.name] = new Uint8Array(await file.arrayBuffer());
+      }
+    }
+    
+    const zipped = zipSync(zipObj);
+    const blob = new Blob([new Uint8Array(zipped)], { type: 'application/zip' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${pasta.name}_P2P.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Download do ZIP concluído!", "success");
+  } catch (e: any) {
+    addDebugLog("error", "OPFS", "Falha ao gerar ZIP", e.message);
+    showToast("Erro ao compactar arquivos.", "error");
+  }
+}
+
+export async function adicionarMagnetDownload(magnetURI: string) {
+  if (!isMotorLigar.value) return;
+
+  const wt = getClient();
   const torrent = wt.add(magnetURI, { announce: RELIABLE_TRACKERS });
 
-  torrent.on('infoHash', () => {
-    addDebugLog("info", "TORRENT_LAB", "🔎 InfoHash reconhecido. Buscando metadados...");
-  });
-
   torrent.on('metadata', () => {
-    addDebugLog("info", "TORRENT_LAB", "📄 Metadados baixados! Transferindo blocos...");
-  });
+    const manifestTorrentFile = torrent.files.find((f: any) => f.name === '.loco-manifest.json');
+    if (manifestTorrentFile) {
+      manifestTorrentFile.getBuffer(async (err: any, buffer: Uint8Array) => {
+        if (err || !buffer) return;
+        try {
+          const manifestStr = new TextDecoder().decode(buffer);
+          const manifestJson = JSON.parse(manifestStr);
+          const realId = manifestJson.id;
+          const agora = Date.now();
 
-  torrent.on('warning', (err: any) => {
-    // Filtramos agressivamente os avisos irrelevantes de infraestrutura pública
-    if (!err.message.includes('udp://') && !err.message.includes('WebSocket connection')) {
-      addDebugLog("warn", "TORRENT_LAB", `⚠️ Aviso P2P: ${err.message}`);
-    }
-  });
-
-  torrent.on('noPeers', (announceType: string) => {
-    // Em redes descentralizadas, demorar alguns segundos para achar peers é normal.
-    // addDebugLog("warn", "TORRENT_LAB", `📡 Nenhum peer encontrado via: ${announceType}`);
-  });
-
-  torrent.on('download', () => {
-    downloadProgress.value = Math.round(torrent.progress * 100);
-    downloadSpeed.value = torrent.downloadSpeed;
-    numPeers.value = torrent.numPeers;
-  });
-
-  torrent.on('done', () => {
-    addDebugLog("success", "TORRENT_LAB", "✅ Download concluído na RAM. Salvando no OPFS de forma assíncrona...");
-    downloadProgress.value = 100;
-    
-    const file = torrent.files[0];
-    if (file) {
-      downloadedFileName.value = file.name;
-      
-      file.getBlob(async (err: any, blob: Blob | undefined) => {
-        if (err || !blob) {
-          addDebugLog("error", "TORRENT_LAB", "Erro ao extrair Blob do Torrent.", err);
-          return;
-        }
-        
-        const sucessoOpfs = await salvarNoOPFS(file.name, blob);
-        if (sucessoOpfs) {
-          const savedFile = await lerDoOPFS(file.name);
-          if (savedFile) {
-            downloadedFileUrl.value = URL.createObjectURL(savedFile);
-            addDebugLog("info", "TORRENT_LAB", "Arquivo renderizado na UI e pronto para uso.");
+          const existe = await buscarPastaMetadata(realId);
+          if (existe) {
+            torrent.destroy();
+            showToast("Você já possui esta pasta.", "info");
+            return;
           }
-        } else {
-          addDebugLog("error", "TORRENT_LAB", "Falha ao gravar arquivo no OPFS.");
+
+          const fileMetadatas: FileMetadata[] = torrent.files
+            .filter((f: any) => f.name !== '.loco-manifest.json')
+            .map((f: any) => ({
+              name: f.name, size: f.length, type: 'application/octet-stream', 
+              createdAt: agora, modifiedAt: agora
+            }));
+
+          const novaPasta: PastaMetadata = {
+            id: realId, name: manifestJson.name || torrent.name,
+            magnetURI: torrent.magnetURI, infoHash: torrent.infoHash,
+            status: 'downloading', complete: 0,
+            permission: 'trusted', contatos: [], // Padrões locais seguros
+            files: fileMetadatas, createdAt: agora, modifiedAt: agora
+          };
+
+          await salvarPastaMetadata(novaPasta);
+          await carregarPastasDoBanco();
+          _anexarEventosTorrent(torrent, realId);
+
+        } catch (parseErr: any) {
+          addDebugLog("error", "TORRENT_LAB", `Erro de Parse: ${parseErr.message}`);
         }
       });
     }
   });
 }
 
-export function pararTorrent() {
-  if (client) {
-    client.destroy((err: any) => {
-      if (err) addDebugLog("error", "TORRENT_LAB", "Erro ao destruir client WebTorrent", err);
-      client = null;
-      isTorrentActive.value = false;
-      magnetUriGerado.value = "";
-      downloadProgress.value = 0;
-      downloadSpeed.value = 0;
-      numPeers.value = 0;
-      downloadedFileUrl.value = null;
-      addDebugLog("info", "TORRENT_LAB", "Motor WebTorrent encerrado com sucesso.");
-    });
+export async function alternarStatusPasta(pastaId: string) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta) return;
+
+  if (pasta.status === 'standby') {
+    pasta.status = pasta.complete === 100 ? 'seeding' : 'downloading';
+    await salvarPastaMetadata(pasta);
+    await carregarPastasDoBanco();
+    if (isMotorLigar.value) {
+      if (pasta.status === 'seeding') await reseedPasta(pasta.id);
+      else if (pasta.magnetURI) {
+        const wt = getClient();
+        _anexarEventosTorrent(wt.add(pasta.magnetURI, { announce: RELIABLE_TRACKERS }), pasta.id);
+      }
+    }
   } else {
-    isTorrentActive.value = false;
+    pasta.status = 'standby';
+    if (client) {
+      const torrentId = pasta.infoHash || pasta.magnetURI;
+      if (torrentId) {
+        const torrentObj = client.get(torrentId);
+        if (torrentObj) torrentObj.destroy();
+      }
+    }
+    const novoMapa = { ...progressoMap.value };
+    delete novoMapa[pastaId];
+    progressoMap.value = novoMapa;
+    
+    await salvarPastaMetadata(pasta);
+    await carregarPastasDoBanco();
   }
+}
+
+function _anexarEventosTorrent(torrent: any, pastaId: string) {
+  torrent.on('download', () => {
+    progressoMap.value = {
+      ...progressoMap.value,
+      [pastaId]: {
+        progress: Math.round(torrent.progress * 100),
+        speed: torrent.downloadSpeed,
+        peers: torrent.numPeers
+      }
+    };
+  });
+
+  torrent.on('done', async () => {
+    progressoMap.value = { ...progressoMap.value, [pastaId]: { progress: 100, speed: 0, peers: torrent.numPeers } };
+
+    const pasta = await buscarPastaMetadata(pastaId);
+    if (pasta) {
+      pasta.complete = 100;
+      pasta.status = 'seeding';
+      await salvarPastaMetadata(pasta);
+      await carregarPastasDoBanco();
+    }
+
+    for (const file of torrent.files) {
+      if (file.name === '.loco-manifest.json') continue;
+      file.getBlob(async (err: any, blob: Blob | undefined) => {
+        if (!err && blob) await salvarNoOPFS(pastaId, file.name, blob);
+      });
+    }
+  });
 }
 ```
 
@@ -4896,288 +5308,6 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
 
 ---
 
-## Arquivo: `src/utils/db-helpers.ts`
-
-```ts
-// src/utils/db-helpers.ts
-import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type { ProfileConfig, Chat, Contato, Handshake } from "../constants/db.ts";
-import { 
-  minifyVapidPublic, expandVapidPublic, 
-  minifyVapidPrivate, expandVapidPrivate, 
-  minifyRsaPublic, expandRsaPublic, 
-  minifyRsaPrivate, expandRsaPrivate 
-} from "./crypto-utils.ts";
-
-// ============================================================
-// Criação de Stores
-// ============================================================
-
-export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
-  return createStore(nome, storeName);
-}
-
-const storeConfig = criarStore(DB_NAMES.CONFIG);
-export const storeChat = criarStore(DB_NAMES.CHAT); 
-export const storeContatos = criarStore(DB_NAMES.CONTATOS);
-export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
-
-// ============================================================
-// Funções Genéricas
-// ============================================================
-
-export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
-  return set(key, value, store);
-}
-
-export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
-  return get(key, store);
-}
-
-export async function removerChave(store: any, key: string): Promise<void> {
-  return del(key, store);
-}
-
-export async function listarChaves<T>(store: any): Promise<[string, T][]> {
-  return entries(store) as Promise<[string, T][]>;
-}
-
-export async function listarValores<T>(store: any): Promise<T[]> {
-  return values(store) as Promise<T[]>;
-}
-
-// ============================================================
-// Interceptadores de Compressão (DB Middlewares)
-// ============================================================
-
-function compactarProfile(p: ProfileConfig): any {
-  return {
-    ...p,
-    vapidPublicKey: minifyVapidPublic(p.vapidPublicKey),
-    vapidPrivateKeyJwk: minifyVapidPrivate(p.vapidPrivateKeyJwk),
-    e2ePublicKey: minifyRsaPublic(p.e2ePublicKey),
-    e2ePrivateKeyJwk: minifyRsaPrivate(p.e2ePrivateKeyJwk)
-  };
-}
-
-function expandirProfile(p: any): ProfileConfig | undefined {
-  if (!p) return undefined;
-  return {
-    ...p,
-    vapidPublicKey: expandVapidPublic(p.vapidPublicKey),
-    vapidPrivateKeyJwk: expandVapidPrivate(p.vapidPrivateKeyJwk, p.vapidPublicKey),
-    e2ePublicKey: expandRsaPublic(p.e2ePublicKey),
-    e2ePrivateKeyJwk: expandRsaPrivate(p.e2ePrivateKeyJwk, p.e2ePublicKey)
-  } as ProfileConfig;
-}
-
-function compactarContato(c: Contato): any {
-  return {
-    ...c,
-    vapidPublicKey: minifyVapidPublic(c.vapidPublicKey),
-    e2ePublicKey: minifyRsaPublic(c.e2ePublicKey)
-  };
-}
-
-function expandirContato(c: any): Contato | undefined {
-  if (!c) return undefined;
-  return {
-    ...c,
-    vapidPublicKey: expandVapidPublic(c.vapidPublicKey),
-    e2ePublicKey: expandRsaPublic(c.e2ePublicKey)
-  } as Contato;
-}
-
-// ============================================================
-// Gerenciamento do Perfil (ProfileConfig)
-// ============================================================
-
-export async function salvarProfile(profile: ProfileConfig): Promise<void> {
-  profile.updatedAt = Date.now();
-  if (!profile.createdAt) {
-    profile.createdAt = Date.now();
-  }
-  await salvarChave(storeConfig, KEY_NAMES.PROFILE, compactarProfile(profile));
-}
-
-export async function buscarProfile(): Promise<ProfileConfig | undefined> {
-  const p = await buscarChave<any>(storeConfig, KEY_NAMES.PROFILE);
-  return expandirProfile(p);
-}
-
-export async function removerProfile(): Promise<void> {
-  await removerChave(storeConfig, KEY_NAMES.PROFILE);
-}
-
-export async function buscarChaveDecript(): Promise<CryptoKey | null> {
-  try {
-    const profile = await buscarProfile();
-    if (!profile || !profile.e2ePrivateKeyJwk) return null;
-
-    return await crypto.subtle.importKey(
-      "jwk",
-      profile.e2ePrivateKeyJwk,
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["decrypt"]
-    );
-  } catch (err) {
-    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
-    return null;
-  }
-}
-
-// ============================================================
-// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
-// ============================================================
-
-export async function salvarChat(chat: Chat): Promise<void> {
-  chat.updatedAt = Date.now();
-  await salvarChave(storeChat, chat.id, chat);
-
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  
-  if (!index.includes(chat.id)) {
-    index.push(chat.id);
-    await salvarChave(storeChat, indexKey, index);
-  }
-}
-
-export async function buscarChat(id: string): Promise<Chat | undefined> {
-  return buscarChave<Chat>(storeChat, id);
-}
-
-export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-
-  const total = index.length;
-  if (total === 0 || offset >= total) return [];
-
-  const startIndex = Math.max(0, total - offset - limit);
-  const endIndex = total - offset;
-  
-  const sliceIds = index.slice(startIndex, endIndex);
-
-  const records = await getMany(sliceIds, storeChat);
-  return records.filter(Boolean) as Chat[];
-}
-
-// 🔥 ARQUITETURA: Agora a remoção de mensagem localiza e destrói o Handshake fantasma associado!
-export async function removerChat(id: string, contatoHash: string): Promise<void> {
-  const chat = await buscarChat(id);
-  if (chat && chat.handshake && chat.handshake !== 'self') {
-    // Apaga a pendência de envio/recebimento silenciosamente se houver
-    await removerHandshake(chat.handshake);
-  }
-
-  await removerChave(storeChat, id);
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  index = index.filter(x => x !== id);
-  await salvarChave(storeChat, indexKey, index);
-}
-
-export async function removerTodoHistoricoChat(contatoHash: string): Promise<void> {
-  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
-  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  
-  // Apaga as mensagens físicas
-  for (const id of index) {
-    await removerChave(storeChat, id);
-  }
-  
-  // Apaga o índice associado
-  await removerChave(storeChat, indexKey);
-}
-
-// ============================================================
-// Contatos
-// ============================================================
-
-async function sha256(message: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
-  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  
-  const expanded = expandVapidPublic(jwk);
-  const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
-  return await sha256(raw);
-}
-
-export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
-  if (typeof input === 'string') return input;
-  if (typeof input === 'object' && input !== null && ('kty' in input || 'x' in input)) {
-    return await serializarPublicKeyVapid(input as JsonWebKey);
-  }
-  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
-}
-
-export async function salvarContato(contato: Contato): Promise<void> {
-  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
-  await salvarChave(storeContatos, key, compactarContato(contato));
-}
-
-export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  const c = await buscarChave<any>(storeContatos, key);
-  return expandirContato(c);
-}
-
-export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
-  const key = await normalizarChaveContato(chaveOuJwk);
-  const c = await buscarChave<any>(storeContatos, key);
-  return expandirContato(c);
-}
-
-export async function listarContatos(): Promise<Contato[]> {
-  const entriesList = await listarChaves<any>(storeContatos);
-  return entriesList.map(([_, c]) => expandirContato(c) as Contato);
-}
-
-export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
-  const key = await serializarPublicKeyVapid(vapidPublicKey);
-  await removerChave(storeContatos, key);
-}
-
-export async function removerContatoPorHash(hash: string): Promise<void> {
-  await removerChave(storeContatos, hash);
-}
-
-// ============================================================
-// Handshakes
-// ============================================================
-
-export async function salvarHandshake(handshake: Handshake): Promise<void> {
-  handshake.updatedAt = Date.now();
-  if (!handshake.createdAt) {
-    handshake.createdAt = Date.now();
-  }
-  await salvarChave(storeHandshakes, handshake.id, handshake);
-}
-
-export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
-  return buscarChave<Handshake>(storeHandshakes, id);
-}
-
-export async function listarHandshakes(): Promise<Handshake[]> {
-  return listarValores<Handshake>(storeHandshakes);
-}
-
-export async function removerHandshake(id: string): Promise<void> {
-  await removerChave(storeHandshakes, id);
-}
-```
-
----
-
 ## Arquivo: `src/utils/profile-utils.ts`
 
 ```ts
@@ -5946,62 +6076,408 @@ export async function extrairEExpandirChavesVapid(
 ```ts
 // src/utils/opfs-utils.ts
 import { addDebugLog } from "./debug-utils.ts";
+import { APP_VERSION } from "../constants/version.ts";
 
-const ROOT_DIR_NAME = "chat_files";
+let opfsWorker: Worker | null = null;
+let messageIdCounter = 0;
+
+// Mapa para resolver as promises quando o worker responder
+const pendingRequests = new Map<number, { resolve: Function, reject: Function }>();
+
+function getOpfsWorker(): Worker {
+  if (!opfsWorker) {
+    // 🔥 ARQUITETURA [Cache-Busting]: Garante a versão do Build
+    opfsWorker = new Worker(`/opfs.worker.js?v=${APP_VERSION}`);
+    
+    opfsWorker.onmessage = (event: MessageEvent) => {
+      const { id, status, error, file, fileName } = event.data;
+      
+      const request = pendingRequests.get(id);
+      if (request) {
+        pendingRequests.delete(id);
+        if (status === 'SUCCESS') {
+          // Resolve a promise com o arquivo ou true/fileName dependendo da ação
+          request.resolve(file || fileName || true);
+        } else {
+          request.reject(new Error(error));
+        }
+      }
+    };
+
+    opfsWorker.onerror = (err) => {
+      addDebugLog("error", "OPFS_WORKER", "Erro fatal na thread do OPFS", err.message);
+    };
+  }
+  return opfsWorker;
+}
 
 /**
- * Salva um Blob no Origin Private File System (OPFS) de forma assíncrona.
- * Ideal para uso na Main Thread.
+ * Envia uma mensagem para o Worker e retorna uma Promise que resolve com a resposta.
  */
-export async function salvarNoOPFS(filename: string, blob: Blob): Promise<boolean> {
+function execOpfsWorkerAction(action: string, payload: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const id = ++messageIdCounter;
+    pendingRequests.set(id, { resolve, reject });
+    
+    const worker = getOpfsWorker();
+    worker.postMessage({ action, id, payload });
+  });
+}
+
+/**
+ * Salva um Blob no Origin Private File System (OPFS) via Background Worker.
+ */
+export async function salvarNoOPFS(chatHash: string, fileName: string, blob: Blob): Promise<boolean> {
   try {
-    const root = await navigator.storage.getDirectory();
-    const directoryHandle = await root.getDirectoryHandle(ROOT_DIR_NAME, { create: true });
-    const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
-    
-    const writable = await fileHandle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-    
-    addDebugLog("success", "OPFS", `Arquivo ${filename} salvo com sucesso no OPFS.`);
+    await execOpfsWorkerAction('OPFS_SALVAR', { chatHash, fileName, blob });
+    addDebugLog("success", "OPFS", `Arquivo ${fileName} salvo no OPFS (Chat: ${chatHash.substring(0,6)}...).`);
     return true;
   } catch (error: any) {
-    addDebugLog("error", "OPFS", `Erro ao salvar ${filename} no OPFS: ${error.message}`);
+    addDebugLog("error", "OPFS", `Erro do Worker ao salvar ${fileName}: ${error.message}`);
     return false;
   }
 }
 
 /**
- * Lê um arquivo do OPFS e retorna como um File object.
+ * Lê um arquivo do OPFS via Background Worker.
  */
-export async function lerDoOPFS(filename: string): Promise<File | null> {
+export async function lerDoOPFS(chatHash: string, fileName: string): Promise<File | null> {
   try {
-    const root = await navigator.storage.getDirectory();
-    const directoryHandle = await root.getDirectoryHandle(ROOT_DIR_NAME, { create: false });
-    const fileHandle = await directoryHandle.getFileHandle(filename, { create: false });
-    
-    const file = await fileHandle.getFile();
-    return file;
+    const file = await execOpfsWorkerAction('OPFS_LER', { chatHash, fileName });
+    return file as File;
   } catch (error: any) {
-    addDebugLog("warn", "OPFS", `Arquivo ${filename} não encontrado ou erro ao ler: ${error.message}`);
+    // É comum tentar ler algo que não existe, apenas avisa silenciosamente
+    addDebugLog("warn", "OPFS", `Arquivo ${fileName} não encontrado no OPFS.`);
     return null;
   }
 }
 
 /**
- * Exclui um arquivo do OPFS.
+ * Exclui um único arquivo do OPFS via Background Worker.
  */
-export async function excluirDoOPFS(filename: string): Promise<boolean> {
+export async function excluirDoOPFS(chatHash: string, fileName: string): Promise<boolean> {
   try {
-    const root = await navigator.storage.getDirectory();
-    const directoryHandle = await root.getDirectoryHandle(ROOT_DIR_NAME, { create: false });
-    await directoryHandle.removeEntry(filename);
-    addDebugLog("info", "OPFS", `Arquivo ${filename} removido do OPFS.`);
+    await execOpfsWorkerAction('OPFS_EXCLUIR_ARQUIVO', { chatHash, fileName });
+    addDebugLog("info", "OPFS", `Arquivo ${fileName} removido do OPFS.`);
     return true;
   } catch (error: any) {
-    addDebugLog("error", "OPFS", `Erro ao excluir ${filename} do OPFS: ${error.message}`);
+    addDebugLog("error", "OPFS", `Worker falhou ao excluir ${fileName}: ${error.message}`);
     return false;
   }
+}
+
+/**
+ * Exclui toda a pasta de mídias de um Contato Específico do OPFS.
+ */
+export async function excluirTodoChatDoOPFS(chatHash: string): Promise<boolean> {
+  try {
+    await execOpfsWorkerAction('OPFS_EXCLUIR_CHAT_INTEIRO', { chatHash });
+    addDebugLog("info", "OPFS", `Pasta de mídia do Chat ${chatHash.substring(0,6)}... expurgada.`);
+    return true;
+  } catch (error: any) {
+    addDebugLog("error", "OPFS", `Worker falhou ao expurgar pasta do Chat: ${error.message}`);
+    return false;
+  }
+}
+```
+
+---
+
+## Arquivo: `src/utils/db-helpers.ts`
+
+```ts
+// src/utils/db-helpers.ts
+import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
+import type { ProfileConfig, Chat, Contato, Handshake, PastaMetadata } from "../constants/db.ts";
+import { 
+  minifyVapidPublic, expandVapidPublic, 
+  minifyVapidPrivate, expandVapidPrivate, 
+  minifyRsaPublic, expandRsaPublic, 
+  minifyRsaPrivate, expandRsaPrivate 
+} from "./crypto-utils.ts";
+
+// ============================================================
+// Criação de Stores
+// ============================================================
+
+export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
+  return createStore(nome, storeName);
+}
+
+const storeConfig = criarStore(DB_NAMES.CONFIG);
+export const storeChat = criarStore(DB_NAMES.CHAT); 
+export const storeContatos = criarStore(DB_NAMES.CONTATOS);
+export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
+// 🔥 ARQUITETURA: Store para os metadados de Mídias/Pastas
+export const storeMidias = criarStore(DB_NAMES.MIDIAS);
+
+// ============================================================
+// Funções Genéricas
+// ============================================================
+
+export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
+  return set(key, value, store);
+}
+
+export async function buscarChave<T>(store: any, key: string): Promise<T | undefined> {
+  return get(key, store);
+}
+
+export async function removerChave(store: any, key: string): Promise<void> {
+  return del(key, store);
+}
+
+export async function listarChaves<T>(store: any): Promise<[string, T][]> {
+  return entries(store) as Promise<[string, T][]>;
+}
+
+export async function listarValores<T>(store: any): Promise<T[]> {
+  return values(store) as Promise<T[]>;
+}
+
+// ============================================================
+// Interceptadores de Compressão (DB Middlewares)
+// ============================================================
+
+function compactarProfile(p: ProfileConfig): any {
+  return {
+    ...p,
+    vapidPublicKey: minifyVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: minifyVapidPrivate(p.vapidPrivateKeyJwk),
+    e2ePublicKey: minifyRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: minifyRsaPrivate(p.e2ePrivateKeyJwk)
+  };
+}
+
+function expandirProfile(p: any): ProfileConfig | undefined {
+  if (!p) return undefined;
+  return {
+    ...p,
+    vapidPublicKey: expandVapidPublic(p.vapidPublicKey),
+    vapidPrivateKeyJwk: expandVapidPrivate(p.vapidPrivateKeyJwk, p.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(p.e2ePublicKey),
+    e2ePrivateKeyJwk: expandRsaPrivate(p.e2ePrivateKeyJwk, p.e2ePublicKey)
+  } as ProfileConfig;
+}
+
+function compactarContato(c: Contato): any {
+  return {
+    ...c,
+    vapidPublicKey: minifyVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: minifyRsaPublic(c.e2ePublicKey)
+  };
+}
+
+function expandirContato(c: any): Contato | undefined {
+  if (!c) return undefined;
+  return {
+    ...c,
+    vapidPublicKey: expandVapidPublic(c.vapidPublicKey),
+    e2ePublicKey: expandRsaPublic(c.e2ePublicKey)
+  } as Contato;
+}
+
+// ============================================================
+// Gerenciamento do Perfil (ProfileConfig)
+// ============================================================
+
+export async function salvarProfile(profile: ProfileConfig): Promise<void> {
+  profile.updatedAt = Date.now();
+  if (!profile.createdAt) {
+    profile.createdAt = Date.now();
+  }
+  await salvarChave(storeConfig, KEY_NAMES.PROFILE, compactarProfile(profile));
+}
+
+export async function buscarProfile(): Promise<ProfileConfig | undefined> {
+  const p = await buscarChave<any>(storeConfig, KEY_NAMES.PROFILE);
+  return expandirProfile(p);
+}
+
+export async function removerProfile(): Promise<void> {
+  await removerChave(storeConfig, KEY_NAMES.PROFILE);
+}
+
+export async function buscarChaveDecript(): Promise<CryptoKey | null> {
+  try {
+    const profile = await buscarProfile();
+    if (!profile || !profile.e2ePrivateKeyJwk) return null;
+
+    return await crypto.subtle.importKey(
+      "jwk",
+      profile.e2ePrivateKeyJwk,
+      { name: "RSA-OAEP", hash: "SHA-256" },
+      false,
+      ["decrypt"]
+    );
+  } catch (err) {
+    console.error("[DB-HELPERS] ❌ Erro ao buscar chave de decodificação:", err);
+    return null;
+  }
+}
+
+// ============================================================
+// Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
+// ============================================================
+
+export async function salvarChat(chat: Chat): Promise<void> {
+  chat.updatedAt = Date.now();
+  await salvarChave(storeChat, chat.id, chat);
+
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  if (!index.includes(chat.id)) {
+    index.push(chat.id);
+    await salvarChave(storeChat, indexKey, index);
+  }
+}
+
+export async function buscarChat(id: string): Promise<Chat | undefined> {
+  return buscarChave<Chat>(storeChat, id);
+}
+
+export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+
+  const total = index.length;
+  if (total === 0 || offset >= total) return [];
+
+  const startIndex = Math.max(0, total - offset - limit);
+  const endIndex = total - offset;
+  
+  const sliceIds = index.slice(startIndex, endIndex);
+
+  const records = await getMany(sliceIds, storeChat);
+  return records.filter(Boolean) as Chat[];
+}
+
+export async function removerChat(id: string, contatoHash: string): Promise<void> {
+  const chat = await buscarChat(id);
+  if (chat && chat.handshake && chat.handshake !== 'self') {
+    await removerHandshake(chat.handshake);
+  }
+
+  await removerChave(storeChat, id);
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  let index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  index = index.filter(x => x !== id);
+  await salvarChave(storeChat, indexKey, index);
+}
+
+export async function removerTodoHistoricoChat(contatoHash: string): Promise<void> {
+  const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
+  const index = await buscarChave<string[]>(storeChat, indexKey) || [];
+  
+  for (const id of index) {
+    await removerChave(storeChat, id);
+  }
+  await removerChave(storeChat, indexKey);
+}
+
+// ============================================================
+// Contatos
+// ============================================================
+
+async function sha256(message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  
+  const expanded = expandVapidPublic(jwk);
+  const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
+  return await sha256(raw);
+}
+
+export async function normalizarChaveContato(input: string | JsonWebKey): Promise<string> {
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object' && input !== null && ('kty' in input || 'x' in input)) {
+    return await serializarPublicKeyVapid(input as JsonWebKey);
+  }
+  throw new Error('Chave de contato inválida: deve ser string (hash) ou JWK.');
+}
+
+export async function salvarContato(contato: Contato): Promise<void> {
+  const key = await serializarPublicKeyVapid(contato.vapidPublicKey);
+  await salvarChave(storeContatos, key, compactarContato(contato));
+}
+
+export async function buscarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<Contato | undefined> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
+}
+
+export async function buscarContatoPorChave(chaveOuJwk: string | JsonWebKey): Promise<Contato | undefined> {
+  const key = await normalizarChaveContato(chaveOuJwk);
+  const c = await buscarChave<any>(storeContatos, key);
+  return expandirContato(c);
+}
+
+export async function listarContatos(): Promise<Contato[]> {
+  const entriesList = await listarChaves<any>(storeContatos);
+  return entriesList.map(([_, c]) => expandirContato(c) as Contato);
+}
+
+export async function removerContato(vapidPublicKey: JsonWebKey): Promise<void> {
+  const key = await serializarPublicKeyVapid(vapidPublicKey);
+  await removerChave(storeContatos, key);
+}
+
+export async function removerContatoPorHash(hash: string): Promise<void> {
+  await removerChave(storeContatos, hash);
+}
+
+// ============================================================
+// Handshakes
+// ============================================================
+
+export async function salvarHandshake(handshake: Handshake): Promise<void> {
+  handshake.updatedAt = Date.now();
+  if (!handshake.createdAt) {
+    handshake.createdAt = Date.now();
+  }
+  await salvarChave(storeHandshakes, handshake.id, handshake);
+}
+
+export async function buscarHandshake(id: string): Promise<Handshake | undefined> {
+  return buscarChave<Handshake>(storeHandshakes, id);
+}
+
+export async function listarHandshakes(): Promise<Handshake[]> {
+  return listarValores<Handshake>(storeHandshakes);
+}
+
+export async function removerHandshake(id: string): Promise<void> {
+  await removerChave(storeHandshakes, id);
+}
+
+// ============================================================
+// Metadados de Mídias e OPFS (Coleções/Pastas P2P)
+// ============================================================
+
+export async function salvarPastaMetadata(pasta: PastaMetadata): Promise<void> {
+  pasta.modifiedAt = Date.now();
+  await salvarChave(storeMidias, pasta.id, pasta);
+}
+
+export async function buscarPastaMetadata(id: string): Promise<PastaMetadata | undefined> {
+  return buscarChave<PastaMetadata>(storeMidias, id);
+}
+
+export async function listarTodasAsPastas(): Promise<PastaMetadata[]> {
+  return await listarValores<PastaMetadata>(storeMidias);
+}
+
+export async function removerPastaMetadata(id: string): Promise<void> {
+  await removerChave(storeMidias, id);
 }
 ```
 
@@ -6034,6 +6510,9 @@ export function navigate(hash: string) {
   }
 }
 
+// 🔥 ARQUITETURA: Signal dedicado para a Pasta Selecionada no roteamento
+export const pastaSelecionada = signal<string | null>(null);
+
 effect(() => {
   const hash = currentHash.value;
 
@@ -6041,6 +6520,7 @@ effect(() => {
   contatoSelecionado.value = '';
   contatoCompartilharHash.value = null;
   showAdvanced.value = false;
+  pastaSelecionada.value = null; // Reseta a pasta por padrão
 
   if (hash.startsWith('#chat=')) {
     contatoSelecionado.value = hash.substring(6);
@@ -6054,8 +6534,11 @@ effect(() => {
     showAdvanced.value = true;
     currentMobileView.value = 'chat';
     sharePayload.value = null;
-  } else if (hash === '#labs') {
-    currentMobileView.value = 'chat';
+  } else if (hash.startsWith('#labs')) {
+    // 🔥 ARQUITETURA: Roteamento Master/Detail para o Labs
+    const id = hash.includes('=') ? hash.substring(6) : null;
+    pastaSelecionada.value = id;
+    currentMobileView.value = id ? 'chat' : 'list';
     sharePayload.value = null;
   } else if (hash === '#profile') {
     currentMobileView.value = 'chat';
@@ -6078,7 +6561,7 @@ export const activeView = computed(() => {
   if (hash.startsWith('#chat=')) return 'chat';
   if (hash.startsWith('#detail=')) return 'detail';
   if (hash === '#advanced') return 'advanced';
-  if (hash === '#labs') return 'labs';
+  if (hash.startsWith('#labs')) return 'labs'; // Trata #labs e #labs=123 da mesma forma
   if (hash === '#profile') return 'profile';
   if (hash === '#logout') return 'logout';
   if (hash.startsWith('#share')) return 'share';
@@ -6112,6 +6595,7 @@ declare module "preact" {
     type MdElement = JSX.HTMLAttributes<HTMLElement> & {
       value?: string | number;
       checked?: boolean;
+      selected?: boolean; // 🔥 ARQUITETURA: Adicionado suporte para md-switch, md-tabs, etc.
       disabled?: boolean;
       label?: string;
       placeholder?: string;
@@ -7392,188 +7876,82 @@ label {
 
 ---
 
-## Arquivo: `src/app.tsx`
+## Arquivo: `src/worker/opfs.worker.ts`
 
-```tsx
-import { render } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
-import { effect } from '@preact/signals';
-import type { ComponentType } from 'preact';
+```ts
+// src/worker/opfs.worker.ts
+/// <reference lib="webworker" />
+declare const self: DedicatedWorkerGlobalScope;
 
-// Componentes da Interface (App Shell & Rotas)
-import { AppSidebar } from './components/AppSidebar.tsx';
-import { MainHeader } from './components/MainHeader.tsx';
-import { ChatSection } from './components/ChatSection.tsx'; 
-import { ContactDetailSection } from './components/ContactDetailSection.tsx';
-import { AdvancedSection } from './components/AdvancedSection.tsx';
-import { ProfileSection } from './components/ProfileSection.tsx';
-import { LogoutSection } from './components/LogoutSection.tsx';
-import { ShareSection } from './components/ShareSection.tsx';
-import { SettingsSection } from './components/SettingsSection.tsx';
-import { ToastSnackbar } from './components/ToastSnackbar.tsx';
-import { WebTorrentLabsSection } from './components/WebTorrentLabsSection.tsx'; // 🔥 NOVA IMPORTAÇÃO
+const ROOT_DIR_NAME = "loco_media_files";
 
-// Signals e Lógica de Negócio
-import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, appTheme, AppTheme } from './signals/state.ts';
-import { profile, initProfileStore, initContatosStore, initMensagensStore, contatosComHash } from './stores/index.ts';
-import { isCarregandoContatos } from './stores/contatosStore.ts';
-import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
+/**
+ * Função interna para garantir a existência do diretório raiz e do chat.
+ */
+async function getChatDirectory(chatHash: string): Promise<FileSystemDirectoryHandle> {
+  const root = await navigator.storage.getDirectory();
+  const mediaRoot = await root.getDirectoryHandle(ROOT_DIR_NAME, { create: true });
+  // Cria uma sub-pasta exclusiva para o Chat/Contato
+  const chatDir = await mediaRoot.getDirectoryHandle(chatHash, { create: true });
+  return chatDir;
+}
 
-// Roteador Reativo
-import { activeView, navigate } from './utils/router.ts';
+self.addEventListener('message', async (event: MessageEvent) => {
+  const { action, id, payload } = event.data;
 
-import "@material/web";
-import './styles.css';
-
-effect(() => {
-  if (typeof document !== 'undefined') {
-    const theme = appTheme.value;
-    if (theme === 'system') {
-      document.documentElement.removeAttribute('data-theme');
-    } else {
-      document.documentElement.setAttribute('data-theme', theme);
+  try {
+    if (action === 'OPFS_SALVAR') {
+      const { chatHash, fileName, blob } = payload;
+      
+      const chatDir = await getChatDirectory(chatHash);
+      const fileHandle = await chatDir.getFileHandle(fileName, { create: true });
+      
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      
+      self.postMessage({ id, status: 'SUCCESS', fileName });
     }
+    
+    else if (action === 'OPFS_LER') {
+      const { chatHash, fileName } = payload;
+      
+      const chatDir = await getChatDirectory(chatHash);
+      const fileHandle = await chatDir.getFileHandle(fileName, { create: false });
+      const file = await fileHandle.getFile();
+      
+      self.postMessage({ id, status: 'SUCCESS', file });
+    }
+    
+    else if (action === 'OPFS_EXCLUIR_ARQUIVO') {
+      const { chatHash, fileName } = payload;
+      
+      const chatDir = await getChatDirectory(chatHash);
+      await chatDir.removeEntry(fileName);
+      
+      self.postMessage({ id, status: 'SUCCESS' });
+    }
+    
+    else if (action === 'OPFS_EXCLUIR_CHAT_INTEIRO') {
+      const { chatHash } = payload;
+      
+      const root = await navigator.storage.getDirectory();
+      const mediaRoot = await root.getDirectoryHandle(ROOT_DIR_NAME, { create: true });
+      
+      // Deleta a pasta do chat com tudo dentro (recursive)
+      await mediaRoot.removeEntry(chatHash, { recursive: true });
+      
+      self.postMessage({ id, status: 'SUCCESS' });
+    }
+
+    else {
+      throw new Error(`Ação desconhecida do Worker OPFS: ${action}`);
+    }
+    
+  } catch (error: any) {
+    self.postMessage({ id, status: 'ERROR', error: error.message });
   }
 });
-
-const HomePlaceholder = () => (
-  <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-on-surface-variant);">
-    <div style="text-align: center;">
-      <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
-      <p style="font-size: 0.9rem;">Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
-    </div>
-  </div>
-);
-
-// 🔥 ARQUITETURA: Banner não-bloqueante para falhas de rede/push
-const PushAlertBanner = () => {
-  const p = profile.value;
-  // Truque reativo para re-avaliação contínua
-  const _view = activeView.value; 
-  
-  if (!p || !p.name) return null;
-
-  const hasEndpoint = !!(p.subscription && p.subscription.endpoint);
-  const hasPermission = 'Notification' in window && Notification.permission === 'granted';
-
-  if (hasEndpoint && hasPermission) return null;
-
-  return (
-    <div style="background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.85rem; z-index: 50; flex-shrink: 0; border-bottom: 1px solid var(--md-sys-color-error);">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <md-icon style="color: var(--md-sys-color-error);">notifications_off</md-icon>
-        <span><strong>Rede Incompleta:</strong> Você não pode receber notificações ou mensagens diretas.</span>
-      </div>
-      <md-outlined-button onClick={() => navigate('#advanced')} style="flex-shrink: 0; --md-sys-color-outline: var(--md-sys-color-on-error-container); color: var(--md-sys-color-on-error-container);">
-        Corrigir
-      </md-outlined-button>
-    </div>
-  );
-};
-
-// Mapa de Componentes das Rotas
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ViewMap: Record<string, ComponentType<any>> = {
-  'chat': ChatSection,
-  'detail': ContactDetailSection,
-  'advanced': AdvancedSection,
-  'labs': WebTorrentLabsSection, // 🔥 NOVA ROTA REGISTRADA AQUI!
-  'profile': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
-  'logout': LogoutSection,
-  'share': ShareSection,
-  'settings': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><SettingsSection/></div></div>,
-  'home': HomePlaceholder,
-};
-
-function App() {
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const init = async () => {
-      const savedTheme = await getConfigValue('APP_THEME');
-      if (savedTheme) appTheme.value = savedTheme as AppTheme;
-
-      addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
-      await loadAllConfigs();
-      await initProfileStore();
-      
-      const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
-      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); // 🔥 'labs' liberado!
-      
-      if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
-        navigate('#profile');
-      }
-
-      await initContatosStore();
-      await initMensagensStore();
-      setIsLoading(false);
-    };
-    init();
-  }, []);
-
-  // Route Guard: Proteção contra contatos inexistentes
-  useEffect(() => {
-    if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
-       const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
-       
-       if (hashAlvo) {
-         const contatoExiste = contatosComHash.value.some(c => c.hash === hashAlvo);
-         if (!contatoExiste) {
-           addDebugLog("warn", "ROUTER", "Tentativa de acesso a contato inexistente/excluído. Redirecionando para Home.");
-           navigate(''); 
-         }
-       }
-    }
-  }, [isLoading, isCarregandoContatos.value, activeView.value, contatoSelecionado.value, contatoCompartilharHash.value, contatosComHash.value]);
-
-  if (isLoading) {
-    return (
-      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
-        <md-circular-progress indeterminate></md-circular-progress>
-      </div>
-    );
-  }
-
-  const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
-  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); // 🔥 'labs' liberado!
-  const viewToRender = (!isIdentityValid && !isRouteAllowedWithoutProfile) ? 'profile' : activeView.value;
-  
-  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
-  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
-  const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
-  
-  const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
-
-  return (
-    <div style="display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; overflow: hidden;">
-      
-      <PushAlertBanner />
-
-      <div id="app-root" class={`view-mode-${currentMobileView.value}`} style="flex-grow: 1; display: flex; position: relative; min-height: 0;">
-        
-        {/* Componente Modular: Barra Lateral */}
-        <AppSidebar isIdentityValid={isIdentityValid} />
-
-        <main class="app-main">
-          
-          {/* Componente Modular: Cabeçalho Dinâmico */}
-          <MainHeader />
-
-          {/* Componente Modular: Rota Ativa */}
-          <RouteComponent/>
-
-        </main>
-
-      </div>
-      <ToastSnackbar/>
-    </div>
-  );
-}
-
-const root = document.getElementById('app');
-if (root) {
-  render(<App/>, root);
-}
 ```
 
 ---
@@ -7593,11 +7971,9 @@ importScripts('/webtorrent.min.js');
 const WebTorrentEngine = (self as any).WebTorrent;
 let client: any = null;
 
-// Extrai o parâmetro de versão enviado na URL do Worker (ex: ?v=0.3.12-msz7mns8)
 const urlParams = new URLSearchParams(self.location.search);
 const WORKER_VERSION = urlParams.get('v') || 'desconhecida';
 
-// Log imediato no boot da thread
 self.postMessage({ 
   type: 'P2P_LOG', 
   payload: `[WORKER-BOOT] ⚙️ Web Worker Dedicado inicializado (Versão: ${WORKER_VERSION})` 
@@ -7621,7 +7997,6 @@ function getClient(): any {
 self.addEventListener('message', async (event: MessageEvent) => {
   const { type, payload } = event.data;
 
-  // Resposta de checagem de versão enviada pela UI
   if (type === 'P2P_PING_VERSION') {
     self.postMessage({ 
       type: 'P2P_PONG_VERSION', 
@@ -7693,7 +8068,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
             return;
           }
           
-          const sucesso = await salvarNoOPFS(file.name, blob);
+          // 🔥 CORREÇÃO DA TIPAGEM: Assinatura nova exige ChatHash!
+          const sucesso = await salvarNoOPFS("p2p_transfer_sandbox", file.name, blob);
           if (sucesso) {
             self.postMessage({ 
               type: 'P2P_DOWNLOAD_COMPLETE', 
@@ -7790,6 +8166,187 @@ self.addEventListener('message', (event: any) => {
     }
   }
 });
+```
+
+---
+
+## Arquivo: `src/app.tsx`
+
+```tsx
+import { render } from 'preact';
+import { useEffect, useState } from 'preact/hooks';
+import { effect } from '@preact/signals';
+import type { ComponentType } from 'preact';
+
+// Componentes da Interface (App Shell & Rotas)
+import { AppSidebar } from './components/AppSidebar.tsx';
+import { MainHeader } from './components/MainHeader.tsx';
+import { ChatSection } from './components/ChatSection.tsx'; 
+import { ContactDetailSection } from './components/ContactDetailSection.tsx';
+import { AdvancedSection } from './components/AdvancedSection.tsx';
+import { ProfileSection } from './components/ProfileSection.tsx';
+import { LogoutSection } from './components/LogoutSection.tsx';
+import { ShareSection } from './components/ShareSection.tsx';
+import { SettingsSection } from './components/SettingsSection.tsx';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
+import { WebTorrentLabsSection } from './components/WebTorrentLabsSection.tsx'; 
+
+// Signals e Lógica de Negócio
+import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, appTheme, AppTheme } from './signals/state.ts';
+import { profile, initProfileStore, initContatosStore, initMensagensStore, initTorrentLabsStore, contatosComHash } from './stores/index.ts';
+import { isCarregandoContatos } from './stores/contatosStore.ts';
+import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
+
+// Roteador Reativo
+import { activeView, navigate } from './utils/router.ts';
+
+import "@material/web";
+import './styles.css';
+
+effect(() => {
+  if (typeof document !== 'undefined') {
+    const theme = appTheme.value;
+    if (theme === 'system') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  }
+});
+
+const HomePlaceholder = () => (
+  <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-on-surface-variant);">
+    <div style="text-align: center;">
+      <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
+      <p style="font-size: 0.9rem;">Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
+    </div>
+  </div>
+);
+
+const PushAlertBanner = () => {
+  const p = profile.value;
+  const _view = activeView.value; 
+  
+  if (!p || !p.name) return null;
+
+  const hasEndpoint = !!(p.subscription && p.subscription.endpoint);
+  const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+
+  if (hasEndpoint && hasPermission) return null;
+
+  return (
+    <div style="background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.85rem; z-index: 50; flex-shrink: 0; border-bottom: 1px solid var(--md-sys-color-error);">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <md-icon style="color: var(--md-sys-color-error);">notifications_off</md-icon>
+        <span><strong>Rede Incompleta:</strong> Você não pode receber notificações ou mensagens diretas.</span>
+      </div>
+      <md-outlined-button onClick={() => navigate('#advanced')} style="flex-shrink: 0; --md-sys-color-outline: var(--md-sys-color-on-error-container); color: var(--md-sys-color-on-error-container);">
+        Corrigir
+      </md-outlined-button>
+    </div>
+  );
+};
+
+// Mapa de Componentes das Rotas
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ViewMap: Record<string, ComponentType<any>> = {
+  'chat': ChatSection,
+  'detail': ContactDetailSection,
+  'advanced': AdvancedSection,
+  'labs': WebTorrentLabsSection, 
+  'profile': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
+  'logout': LogoutSection,
+  'share': ShareSection,
+  'settings': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><SettingsSection/></div></div>,
+  'home': HomePlaceholder,
+};
+
+function App() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const init = async () => {
+      const savedTheme = await getConfigValue('APP_THEME');
+      if (savedTheme) appTheme.value = savedTheme as AppTheme;
+
+      addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
+      await loadAllConfigs();
+      await initProfileStore();
+      
+      const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
+      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); 
+      
+      if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
+        navigate('#profile');
+      }
+
+      await initContatosStore();
+      await initMensagensStore();
+      
+      // 🔥 ARQUITETURA: Agora o Labs é inicializado globalmente no Boot!
+      await initTorrentLabsStore();
+      
+      setIsLoading(false);
+    };
+    init();
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
+       const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
+       
+       if (hashAlvo) {
+         const contatoExiste = contatosComHash.value.some(c => c.hash === hashAlvo);
+         if (!contatoExiste) {
+           addDebugLog("warn", "ROUTER", "Tentativa de acesso a contato inexistente/excluído. Redirecionando para Home.");
+           navigate(''); 
+         }
+       }
+    }
+  }, [isLoading, isCarregandoContatos.value, activeView.value, contatoSelecionado.value, contatoCompartilharHash.value, contatosComHash.value]);
+
+  if (isLoading) {
+    return (
+      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
+        <md-circular-progress indeterminate></md-circular-progress>
+      </div>
+    );
+  }
+
+  const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
+  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); 
+  const viewToRender = (!isIdentityValid && !isRouteAllowedWithoutProfile) ? 'profile' : activeView.value;
+  
+  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
+  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
+  const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
+  
+  const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
+
+  return (
+    <div style="display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; overflow: hidden;">
+      
+      <PushAlertBanner />
+
+      <div id="app-root" class={`view-mode-${currentMobileView.value}`} style="flex-grow: 1; display: flex; position: relative; min-height: 0;">
+        
+        <AppSidebar isIdentityValid={isIdentityValid} />
+
+        <main class="app-main">
+          <MainHeader />
+          <RouteComponent/>
+        </main>
+
+      </div>
+      <ToastSnackbar/>
+    </div>
+  );
+}
+
+const root = document.getElementById('app');
+if (root) {
+  render(<App/>, root);
+}
 ```
 
 ---
@@ -8256,7 +8813,7 @@ async function build() {
 
   console.log("📦 Compilando Web Worker Dedicado (P2P)...");
   await runBundle("WebWorker", {
-    entrypoints: [join(SRC_DIR, "worker", "p2p-transfer.worker.ts")],
+    entrypoints: [join(SRC_DIR, "worker", "opfs.worker.ts")],
     outputDir: join(BUILD_DIR, DIST_DIR),
     platform: "browser",
     format: "iife", // O formato IIFE clássico garante compatibilidade total com importScripts() em 100% dos navegadores
@@ -8908,7 +9465,7 @@ echo "============================================================"
 
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
-  "version": "0.3.20-mszaorsr",
+  "version": "0.3.26-mszev7vv",
   "exports": "./main.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
