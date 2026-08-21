@@ -14,7 +14,8 @@
   
   "workspace": [
     "proto/_template",
-    "proto/01-push-messaging"
+    "proto/01-push-messaging",
+    "./monorepo/playground"
   ],
 
   // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)

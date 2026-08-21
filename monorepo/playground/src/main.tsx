@@ -2,6 +2,7 @@
 import { render } from "preact";
 import { App } from "./App.tsx";
 
+
 // Buscamos o contêiner principal definido no index.html
 const rootElement = document.getElementById("app");
 

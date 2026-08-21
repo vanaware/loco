@@ -1,4 +1,3 @@
-// src/router.ts
 import { signal } from "@preact/signals";
 
 export type Route = "chats" | "contacts" | "settings";
@@ -22,21 +21,30 @@ export const ROUTES: RouteConfig[] = [
 const VALID_ROUTES = ROUTES.map((r) => r.id);
 
 function parseRoute(): Route {
-  const rawHash = window.location.hash.replace(/^#\/?/, "");
+  if (typeof globalThis.location === "undefined") {
+    return "chats";
+  }
+
+  const rawHash = globalThis.location.hash.replace(/^#\/?/, "");
   if (rawHash && VALID_ROUTES.includes(rawHash as Route)) {
     return rawHash as Route;
   }
   return "chats";
 }
 
+// O Signal limpo e global
 export const activeRoute = signal<Route>(parseRoute());
 
-// Escuta mudanças na URL nativa para atualizar o estado global
-window.addEventListener("hashchange", () => {
-  activeRoute.value = parseRoute();
-});
+// Atualiza o estado quando a URL muda nativamente
+if (typeof globalThis.window !== "undefined") {
+  globalThis.addEventListener("hashchange", () => {
+    activeRoute.value = parseRoute();
+  });
+}
 
-// A mutação agora altera a Hash, o que dispara o listener acima
+// Mutação simples
 export function navigateTo(route: Route) {
-  window.location.hash = route;
+  if (typeof globalThis.location !== "undefined") {
+    globalThis.location.hash = route;
+  }
 }

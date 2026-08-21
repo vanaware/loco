@@ -2,18 +2,21 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"],
+    "strict": true
   },
   "imports": {
     "preact": "https://esm.sh/preact@10.19.6",
     "preact/": "https://esm.sh/preact@10.19.6/",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2?external=preact"
+    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2?deps=preact@10.19.6"
   },
 
   "tasks": {
     "build": "deno run -A --unstable-bundle build.ts",
     "serve": "deno run -A server.ts",
-    "dev": "deno run -A --watch server.ts"
+    "dev": "deno run -A --watch server.ts",
+    "test": "deno test --allow-env --allow-net tests/",
+    "check": "deno check build.ts server.ts src/**/*.ts src/**/*.tsx"
   }
 
 
