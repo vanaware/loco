@@ -16,6 +16,7 @@ out/
 
 # Node on Deno
 node_modules/
+vendor/
 
 # Wrangler
 .wrangler/

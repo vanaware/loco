@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "imports": {
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
+
+    "@std/fs": "jsr:@std/fs",
+    "@deno/cache-dir": "jsr:@deno/cache-dir",
+    "@deno/graph": "jsr:@deno/graph",
+    "@std/jsonc": "jsr:@std/jsonc",
+    "@std/path": "jsr:@std/path"
+  },
+
+  "tasks": {
+    "build": "deno run -A --unstable-bundle build.ts",
+    "test": "deno test --allow-env --allow-net tests/",
+    "check": "deno check build.ts src/**/*.ts src/**/*.tsx"
+  },
+  
+ "vendor": true
+
+}

@@ -80,12 +80,12 @@ const cache = async () => {
 
 const clean = async () => {
   try {
-    await Deno.remove("./build/dist", { recursive: true });
+    await Deno.remove("./build", { recursive: true });
     console.log("📁 Arquivos anteriores excluídos");
   } catch {
     // diretório não existe, ok
   }
-  await ensureDir("./build/dist");
+  await ensureDir("./build");
 }
 
 const build = async () => {
@@ -104,18 +104,18 @@ const build = async () => {
     console.log("⚙️ Gerando bundle da aplicação...");
     const result = await Deno.bundle({
       entrypoints: [
-        "./src/main.tsx"
+        "./src/main.ts"
       ],
-      outputDir: "./build/dist",
+      outputPath: "./build/worker-db.js",
       platform: "browser",
-      format: "esm",
-      bundle: true,
-      minify: false, 
-      write: true,   
-      jsx: "automatic",
-      jsxImportSource: "preact",
-      jsxFactory: "h",
-      jsxFragment: "Fragment",
+      format: "iife",
+      packages: "external",
+      keepnames: true,
+      inlineImports: true,
+      codeSplitting: false,
+      minify: false,
+      sourcemap: "linked",
+      write: true,
     });
 
     if (!result.success) {
@@ -127,12 +127,9 @@ const build = async () => {
       console.warn(warning);
     }
 
-    // 4. Copia o arquivo estático HTML
-    await Deno.copyFile("./src/index.html", "./build/dist/index.html");
-
     const endTime = performance.now();
     console.log(`✅ Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
-    console.log("📁 Saída gerada no diretório: ./build/dist/");
+    console.log("📁 Saída gerada no diretório: ./build/");
 
   } catch (error) {
     console.error("❌ Erro fatal durante o processo de build:");

@@ -936,6 +936,24 @@
       "npm:wrangler@^4.123.0"
     ],
     "members": {
+      "monorepo/playground": {
+        "dependencies": [
+          "jsr:@deno/cache-dir@*",
+          "jsr:@deno/graph@*",
+          "jsr:@std/fs@*",
+          "jsr:@std/jsonc@*",
+          "jsr:@std/path@*"
+        ]
+      },
+      "monorepo/worker-db": {
+        "dependencies": [
+          "jsr:@deno/cache-dir@*",
+          "jsr:@deno/graph@*",
+          "jsr:@std/fs@*",
+          "jsr:@std/jsonc@*",
+          "jsr:@std/path@*"
+        ]
+      },
       "proto/01-push-messaging": {
         "dependencies": [
           "jsr:@negrel/webpush@0.5"
