@@ -1,8 +1,9 @@
+// mod.ts
 import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
 import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs } from "./utils/opfs_utils.ts";
 import { ls } from "./ls.ts";
 
-// Exportando os utilitários de OPFS para uso fácil na Main Thread (ex: UI de listagem e download)
+// Exportando os utilitários de OPFS para uso fácil na Main Thread
 export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, type WithId };
 
 let workerInstance: Worker | null = null;
@@ -15,7 +16,6 @@ function getWorker(workerPath?: string | URL): Worker {
   }
   
   if (!workerInstance) {
-    // Resolve o caminho. Se for string, torna relativo a este módulo (ou ao bundle de destino)
     const workerUrl = typeof currentWorkerPath === "string" 
       ? new URL(currentWorkerPath, import.meta.url) 
       : currentWorkerPath;
@@ -50,7 +50,7 @@ function restartWorker() {
   }
   pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
   pendingRequests.clear();
-  getWorker(); // Usa o currentWorkerPath pré-configurado
+  getWorker(); 
 }
 
 function terminateWorker() {
@@ -62,7 +62,8 @@ function terminateWorker() {
 
 function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
   return new Promise((resolve, reject) => {
-    const requestId = crypto.randomUUID();
+    // Utilizando o nosso utilitário seguro ao invés de crypto.randomUUID direto
+    const requestId = gerarId();
     pendingRequests.set(requestId, { resolve, reject });
     
     try {

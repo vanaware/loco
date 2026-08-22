@@ -1,25 +1,4 @@
-import { APP_CONFIG } from "./config.ts";
-
-if (APP_CONFIG.USE_FAKE) {
-  await import("fake-indexeddb");
-  const { FakeOPFSDirectory } = await import("./utils/fake-opfs.ts");
-  
-  const _nav = (globalThis as any).navigator;
-  if (!_nav) {
-    (globalThis as any).navigator = {};
-  }
-  
-  if (!(globalThis as any).navigator.storage) {
-    Object.defineProperty((globalThis as any).navigator, "storage", {
-      value: {
-        getDirectory: async () => new FakeOPFSDirectory()
-      },
-      writable: true,
-      configurable: true
-    });
-  }
-}
-
+// db.ts
 import { 
   get, set, del, keys, clear, getMany, setMany, delMany, 
   values, entries, createStore, type UseStore

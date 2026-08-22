@@ -1,8 +1,5 @@
 import { assertEquals, assert, assertThrows, assertNotEquals } from "@std/assert";
-import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
-import { ls } from "../src/mod.ts";
-
-globalThis.localStorage = new FakeLocalStorage();
+import { ls, listOpfsFiles } from "../src/fake-mod.ts";
 
 Deno.test({
   name: "LS Advanced - Execução de Métodos Modernos de Array JS (query, getSome)",
@@ -19,22 +16,22 @@ Deno.test({
     });
 
     // Valida execução de funções avançadas síncronas de Array
-    const result = store.query((items) => {
+    const result = store.query((items: any[]) => {
       return {
         count: items.length, // length
-        total: items.reduce((acc, i) => acc + (i as any).amount, 0), // reduce
-        firstWork: items.find((i) => (i as any).tag === "work"), // find
-        lastWork: items.findLast((i) => (i as any).tag === "work"), // findLast
+        total: items.reduce((acc: number, i: any) => acc + i.amount, 0), // reduce
+        firstWork: items.find((i: any) => i.tag === "work"), // find
+        lastWork: items.findLast((i: any) => i.tag === "work"), // findLast
         lastItem: items.at(-1), // at
-        hasPending: items.some((i) => (i as any).status === "pending"), // some
-        allPositive: items.every((i) => (i as any).amount > 0), // every
-        tagsHaveHome: items.map((i) => (i as any).tag).includes("home"), // map e includes
-        idxPersonal: items.findIndex((i) => (i as any).tag === "personal"), // findIndex
-        lastIdxWork: items.findLastIndex((i) => (i as any).tag === "work"), // findLastIndex
-        indexOfZ: items.map((i) => (i as any).code).indexOf("z"), // indexOf
-        paidItems: items.filter((i) => (i as any).status === "paid"), // filter
+        hasPending: items.some((i: any) => i.status === "pending"), // some
+        allPositive: items.every((i: any) => i.amount > 0), // every
+        tagsHaveHome: items.map((i: any) => i.tag).includes("home"), // map e includes
+        idxPersonal: items.findIndex((i: any) => i.tag === "personal"), // findIndex
+        lastIdxWork: items.findLastIndex((i: any) => i.tag === "work"), // findLastIndex
+        indexOfZ: items.map((i: any) => i.code).indexOf("z"), // indexOf
+        paidItems: items.filter((i: any) => i.status === "paid"), // filter
         sliced: items.slice(1, 4), // slice
-        sortedByAmount: items.toSorted((a, b) => (a as any).amount - (b as any).amount), // toSorted
+        sortedByAmount: items.toSorted((a: any, b: any) => a.amount - b.amount), // toSorted
         reversed: items.toReversed(), // toReversed
         spliced: items.toSpliced(0, 2), // toSpliced
       };
@@ -82,7 +79,7 @@ Deno.test({
     );
 
     assertThrows(
-      () => store.setSome(() => "string" as any, (i) => i),
+      () => store.setSome(() => "string" as any, (i: any) => i),
       Error,
       "A função de seleção em setSome deve retornar um Array."
     );
@@ -105,12 +102,12 @@ Deno.test({
 
     // Atualiza nome para UPPERCASE e converte 'level' (number) para string
     store.setSome(
-      (items) => items.filter((item) => (item as any).active === true),
-      (item) => ({
+      (items: any[]) => items.filter((item: any) => item.active === true),
+      (item: any) => ({
         ...item,
-        name: (item as any).name.toUpperCase(),
-        department: (item as any).department.toUpperCase(),
-        level: String((item as any).level) // Mutação de tipo explícita!
+        name: item.name.toUpperCase(),
+        department: item.department.toUpperCase(),
+        level: String(item.level) // Mutação de tipo explícita!
       })
     );
 
@@ -125,7 +122,7 @@ Deno.test({
     assertEquals(typeof e30?.level, "number"); // Permanece tipo número
 
     // Exclui funcionários inativos via delSome
-    store.delSome((items) => items.filter((i) => (i as any).active === false));
+    store.delSome((items: any[]) => items.filter((i: any) => i.active === false));
     
     // Checa deleção correta
     assertEquals(store.get("e30"), undefined);

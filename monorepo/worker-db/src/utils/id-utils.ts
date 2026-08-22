@@ -31,7 +31,10 @@ export function prepareForSave(key: string | undefined | null, val: any, prefix 
     rawId = gerarId();
   }
 
-  let finalKey = key || "";
+  // Intercepta a chave informada como "auto" via parâmetro direto ou tupla do setMany
+  let processKey = key === "auto" ? gerarId() : key;
+
+  let finalKey = processKey || "";
 
   if (rawId) {
     if (prefix && rawId.startsWith(prefix)) {
@@ -39,11 +42,11 @@ export function prepareForSave(key: string | undefined | null, val: any, prefix 
     } else {
       finalKey = prefix ? `${prefix}${rawId}` : rawId;
     }
-  } else if (key) {
-    if (prefix && key.startsWith(prefix)) {
-      finalKey = key;
+  } else if (processKey) {
+    if (prefix && processKey.startsWith(prefix)) {
+      finalKey = processKey;
     } else {
-      finalKey = prefix ? `${prefix}${key}` : key;
+      finalKey = prefix ? `${prefix}${processKey}` : processKey;
     }
   }
 

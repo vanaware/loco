@@ -1,12 +1,6 @@
 import { assertEquals, assert, assertNotEquals } from "@std/assert";
 
-if (typeof Deno !== "undefined") {
-  Deno.env.set("USE_FAKE", "true");
-}
-
-import { db } from "../src/mod.ts";
-
-db.init(new URL("../build/worker-db.js", import.meta.url));
+import { db, listOpfsFiles } from "../src/fake-mod.ts";
 
 Deno.test({
   name: "DB Simple - Tratamento de _id ('auto', '0990', com prefixo)",

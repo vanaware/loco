@@ -1,28 +1,7 @@
 import { assertEquals, assert } from "@std/assert";
 
-const isFake = typeof Deno !== "undefined" && Deno.env.get("USE_FAKE") === "true";
-if (isFake) {
-  Deno.env.set("USE_FAKE", "true");
-}
-
-import { db, ls } from "../src/mod.ts";
-import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
+import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
 import { FakeOPFSDirectory } from "../src/utils/fake-opfs.ts";
-
-globalThis.localStorage = new FakeLocalStorage();
-
-const _nav = (globalThis as any).navigator;
-if (!_nav) {
-  (globalThis as any).navigator = {};
-}
-
-if (!(globalThis as any).navigator.storage) {
-  Object.defineProperty((globalThis as any).navigator, "storage", {
-    value: { getDirectory: async () => new FakeOPFSDirectory() },
-    writable: true,
-    configurable: true
-  });
-}
 
 Deno.test({
   name: "ISOLATION - LS: Garantir que instâncias com prefixos diferentes não colidam",

@@ -1,4 +1,6 @@
 export class FakeOPFSFileHandle {
+  public kind: "file" | "directory" = "file";
+
   constructor(
     private name: string,
     private storage: Map<string, string>
@@ -44,9 +46,24 @@ export class FakeOPFSDirectory {
     FakeOPFSDirectory.sharedStorage.delete(name);
   }
 
+  // Iterador apenas das chaves (nomes dos arquivos)
   async *keys() {
     for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
       yield key;
+    }
+  }
+
+  // Iterador completo devolvendo [nome, handle] (Espelha a API Nativa)
+  async *entries() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+    }
+  }
+
+  // Iterador devolvendo apenas as instâncias (handles)
+  async *values() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
     }
   }
 

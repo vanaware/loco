@@ -8,38 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/22/2026, 2:42:18 PM
-
----
-
-## Arquivo: `monorepo/worker-db/deno.jsonc`
-
-```json
-{
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-  "imports": {
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
-
-    "@std/assert": "jsr:@std/assert",
-    "@std/fs": "jsr:@std/fs",
-    "@std/http": "jsr:@std/http",
-    "@std/path": "jsr:@std/path"
-  },
-  "tasks": {
-    "build": "deno run -A --unstable-bundle build.ts",
-    "test": "deno task build && deno test --allow-env --allow-net --allow-read tests/",
-    "check": "deno check build.ts src/**/*.ts src/**/*.tsx",
-    "demo": "deno task build && USE_FAKE=true deno run --allow-env --allow-read --allow-net ./example/demo.ts",
-    "example": "deno task build && deno run -A --unstable-bundle ./example/server.ts"
-  }
-}
-```
+Gerado automaticamente em: 8/22/2026, 6:06:04 PM
 
 ---
 
@@ -144,69 +113,6 @@ export class FakeLocalStorage {
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/utils/fake-opfs.ts`
-
-```ts
-export class FakeOPFSFileHandle {
-  constructor(
-    private name: string,
-    private storage: Map<string, string>
-  ) {}
-
-  async createWritable() {
-    const self = this;
-    let content = "";
-    return {
-      async write(data: string) {
-        content = data;
-      },
-      async close() {
-        self.storage.set(self.name, content);
-      }
-    };
-  }
-
-  async getFile() {
-    const content = this.storage.get(this.name);
-    if (content === undefined) {
-      throw new Error(`File ${this.name} not found in Fake OPFS`);
-    }
-    return {
-      async text() {
-        return content;
-      }
-    };
-  }
-}
-
-export class FakeOPFSDirectory {
-  private static sharedStorage = new Map<string, string>();
-
-  async getFileHandle(name: string, options?: { create?: boolean }) {
-    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(name)) {
-      throw new Error(`File ${name} not found in Fake OPFS`);
-    }
-    return new FakeOPFSFileHandle(name, FakeOPFSDirectory.sharedStorage);
-  }
-
-  async removeEntry(name: string) {
-    FakeOPFSDirectory.sharedStorage.delete(name);
-  }
-
-  async *keys() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      yield key;
-    }
-  }
-
-  static clear() {
-    FakeOPFSDirectory.sharedStorage.clear();
-  }
-}
-```
-
----
-
 ## Arquivo: `monorepo/worker-db/src/utils/opfs_utils.ts`
 
 ```ts
@@ -281,6 +187,86 @@ export async function downloadOpfsFile(fileName: string): Promise<void> {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/fake-opfs.ts`
+
+```ts
+export class FakeOPFSFileHandle {
+  public kind: "file" | "directory" = "file";
+
+  constructor(
+    private name: string,
+    private storage: Map<string, string>
+  ) {}
+
+  async createWritable() {
+    const self = this;
+    let content = "";
+    return {
+      async write(data: string) {
+        content = data;
+      },
+      async close() {
+        self.storage.set(self.name, content);
+      }
+    };
+  }
+
+  async getFile() {
+    const content = this.storage.get(this.name);
+    if (content === undefined) {
+      throw new Error(`File ${this.name} not found in Fake OPFS`);
+    }
+    return {
+      async text() {
+        return content;
+      }
+    };
+  }
+}
+
+export class FakeOPFSDirectory {
+  private static sharedStorage = new Map<string, string>();
+
+  async getFileHandle(name: string, options?: { create?: boolean }) {
+    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(name)) {
+      throw new Error(`File ${name} not found in Fake OPFS`);
+    }
+    return new FakeOPFSFileHandle(name, FakeOPFSDirectory.sharedStorage);
+  }
+
+  async removeEntry(name: string) {
+    FakeOPFSDirectory.sharedStorage.delete(name);
+  }
+
+  // Iterador apenas das chaves (nomes dos arquivos)
+  async *keys() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      yield key;
+    }
+  }
+
+  // Iterador completo devolvendo [nome, handle] (Espelha a API Nativa)
+  async *entries() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+    }
+  }
+
+  // Iterador devolvendo apenas as instâncias (handles)
+  async *values() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+    }
+  }
+
+  static clear() {
+    FakeOPFSDirectory.sharedStorage.clear();
+  }
 }
 ```
 
@@ -536,31 +522,205 @@ export const ls = Object.assign(
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/db.ts`
+## Arquivo: `monorepo/worker-db/src/mod.ts`
 
 ```ts
-import { APP_CONFIG } from "./config.ts";
+// mod.ts
+import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
+import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs } from "./utils/opfs_utils.ts";
+import { ls } from "./ls.ts";
 
-if (APP_CONFIG.USE_FAKE) {
-  await import("fake-indexeddb");
-  const { FakeOPFSDirectory } = await import("./utils/fake-opfs.ts");
-  
-  const _nav = (globalThis as any).navigator;
-  if (!_nav) {
-    (globalThis as any).navigator = {};
+// Exportando os utilitários de OPFS para uso fácil na Main Thread
+export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, type WithId };
+
+let workerInstance: Worker | null = null;
+let currentWorkerPath: string | URL = "./worker-db.js";
+const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
+
+function getWorker(workerPath?: string | URL): Worker {
+  if (workerPath) {
+    currentWorkerPath = workerPath;
   }
   
-  if (!(globalThis as any).navigator.storage) {
-    Object.defineProperty((globalThis as any).navigator, "storage", {
-      value: {
-        getDirectory: async () => new FakeOPFSDirectory()
-      },
-      writable: true,
-      configurable: true
-    });
+  if (!workerInstance) {
+    const workerUrl = typeof currentWorkerPath === "string" 
+      ? new URL(currentWorkerPath, import.meta.url) 
+      : currentWorkerPath;
+
+    workerInstance = new Worker(workerUrl, { type: "module" });
+
+    workerInstance.onmessage = (e: MessageEvent) => {
+      const { requestId, success, result, error } = e.data;
+      const promise = pendingRequests.get(requestId);
+      
+      if (promise) {
+        if (success) promise.resolve(result);
+        else promise.reject(new Error(error));
+        pendingRequests.delete(requestId);
+      }
+    };
+
+    workerInstance.onerror = (event) => {
+      console.error("⚠️ Falha crítica no Web Worker:", event.message);
+      pendingRequests.forEach(({ reject }) => reject(new Error("Worker crashed")));
+      pendingRequests.clear();
+      restartWorker();
+    };
+  }
+  return workerInstance;
+}
+
+function restartWorker() {
+  if (workerInstance) {
+    workerInstance.terminate();
+    workerInstance = null;
+  }
+  pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
+  pendingRequests.clear();
+  getWorker(); 
+}
+
+function terminateWorker() {
+  if (workerInstance) {
+    workerInstance.terminate();
+    workerInstance = null;
   }
 }
 
+function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID();
+    pendingRequests.set(requestId, { resolve, reject });
+    
+    try {
+      getWorker().postMessage({ requestId, command, args });
+    } catch (err) {
+      pendingRequests.delete(requestId);
+      reject(err);
+    }
+  });
+}
+
+export interface DbStoreOptions {
+  dbName?: string;
+  storeName?: string;
+  prefix?: string;
+}
+
+const globalDbAPI = {
+  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
+  
+  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
+    if (typeof keyOrVal !== "string") {
+      const options = opts || (val as DbStoreOptions) || {};
+      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
+    }
+    return exec<string>("SET", { key: keyOrVal, val, ...opts });
+  },
+  
+  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
+    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
+    const newVal = updater(currentVal);
+    await exec<void>("SET", { key, val: newVal, ...opts });
+  },
+
+  patch: <T extends Record<string, any>, C = any>(
+    key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions
+  ): Promise<WithId<T>> => {
+    const isFn = typeof patchOrFn === "function";
+    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
+  },
+
+  delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
+
+  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
+  setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
+  deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
+
+  keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
+  values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
+  entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
+  clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
+
+  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => 
+    exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
+
+  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => 
+    exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
+
+  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => 
+    exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
+
+  setSome: <T, C = any>(
+    selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], 
+    updateFn: (item: WithId<T>, ctx: C) => WithId<T>, 
+    context?: C, 
+    opts?: DbStoreOptions
+  ): Promise<void> => exec<void>("SET_SOME", { 
+    selectFnStr: selectFn.toString(), 
+    updateFnStr: updateFn.toString(), 
+    context, 
+    ...opts 
+  }),
+
+  exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
+  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
+
+  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
+  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
+
+  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
+  restart: () => restartWorker(),
+  terminate: () => terminateWorker(),
+};
+
+function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
+  const opts: DbStoreOptions = { dbName, storeName, prefix };
+
+  return {
+    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
+    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
+    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
+    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
+    delete: (key: string) => globalDbAPI.delete(key, opts),
+    
+    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
+    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
+    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
+    
+    keys: () => globalDbAPI.keys(opts),
+    values: <T>() => globalDbAPI.values<T>(opts),
+    entries: <T>() => globalDbAPI.entries<T>(opts),
+    clear: () => globalDbAPI.clear(opts), 
+    
+    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
+    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
+    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
+    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
+      
+    exportDB: () => globalDbAPI.exportDB(opts),
+    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
+
+    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
+    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
+    
+    gerarId,
+    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
+  };
+}
+
+export const db = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
+  globalDbAPI
+);
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/db.ts`
+
+```ts
+// db.ts
 import { 
   get, set, del, keys, clear, getMany, setMany, delMany, 
   values, entries, createStore, type UseStore
@@ -833,570 +993,74 @@ self.onmessage = async (e: MessageEvent) => {
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/mod.ts`
+## Arquivo: `monorepo/worker-db/src/fake-mod.ts`
 
 ```ts
-import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
-import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs } from "./utils/opfs_utils.ts";
-import { ls } from "./ls.ts";
+// monorepo/worker-db/src/fake-mod.ts
 
-// Exportando os utilitários de OPFS para uso fácil na Main Thread (ex: UI de listagem e download)
-export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, type WithId };
+// 1. Injeta o IndexedDB Fake globalmente (Main Thread)
+import "fake-indexeddb/auto";
 
-let workerInstance: Worker | null = null;
-let currentWorkerPath: string | URL = "./worker-db.js";
-const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
+import { FakeOPFSDirectory } from "./utils/fake-opfs.ts";
+import { FakeLocalStorage } from "./utils/fake-local-storage.ts";
 
-function getWorker(workerPath?: string | URL): Worker {
-  if (workerPath) {
-    currentWorkerPath = workerPath;
-  }
-  
-  if (!workerInstance) {
-    // Resolve o caminho. Se for string, torna relativo a este módulo (ou ao bundle de destino)
-    const workerUrl = typeof currentWorkerPath === "string" 
-      ? new URL(currentWorkerPath, import.meta.url) 
-      : currentWorkerPath;
+const _global = globalThis as any;
 
-    workerInstance = new Worker(workerUrl, { type: "module" });
-
-    workerInstance.onmessage = (e: MessageEvent) => {
-      const { requestId, success, result, error } = e.data;
-      const promise = pendingRequests.get(requestId);
-      
-      if (promise) {
-        if (success) promise.resolve(result);
-        else promise.reject(new Error(error));
-        pendingRequests.delete(requestId);
-      }
-    };
-
-    workerInstance.onerror = (event) => {
-      console.error("⚠️ Falha crítica no Web Worker:", event.message);
-      pendingRequests.forEach(({ reject }) => reject(new Error("Worker crashed")));
-      pendingRequests.clear();
-      restartWorker();
-    };
-  }
-  return workerInstance;
+// 2. Injeta OPFS Fake (Main Thread)
+if (!_global.navigator) _global.navigator = {};
+if (!_global.navigator.storage) _global.navigator.storage = {};
+if (!_global.navigator.storage.getDirectory) {
+  _global.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
 }
 
-function restartWorker() {
-  if (workerInstance) {
-    workerInstance.terminate();
-    workerInstance = null;
-  }
-  pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
-  pendingRequests.clear();
-  getWorker(); // Usa o currentWorkerPath pré-configurado
-}
-
-function terminateWorker() {
-  if (workerInstance) {
-    workerInstance.terminate();
-    workerInstance = null;
-  }
-}
-
-function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const requestId = crypto.randomUUID();
-    pendingRequests.set(requestId, { resolve, reject });
-    
-    try {
-      getWorker().postMessage({ requestId, command, args });
-    } catch (err) {
-      pendingRequests.delete(requestId);
-      reject(err);
-    }
-  });
-}
-
-export interface DbStoreOptions {
-  dbName?: string;
-  storeName?: string;
-  prefix?: string;
-}
-
-const globalDbAPI = {
-  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
-  
-  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
-    if (typeof keyOrVal !== "string") {
-      const options = opts || (val as DbStoreOptions) || {};
-      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
-    }
-    return exec<string>("SET", { key: keyOrVal, val, ...opts });
-  },
-  
-  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
-    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
-    const newVal = updater(currentVal);
-    await exec<void>("SET", { key, val: newVal, ...opts });
-  },
-
-  patch: <T extends Record<string, any>, C = any>(
-    key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions
-  ): Promise<WithId<T>> => {
-    const isFn = typeof patchOrFn === "function";
-    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
-  },
-
-  delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
-
-  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
-  setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
-  deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
-
-  keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
-  values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
-  entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
-  clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
-
-  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => 
-    exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
-
-  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => 
-    exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
-
-  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => 
-    exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
-
-  setSome: <T, C = any>(
-    selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], 
-    updateFn: (item: WithId<T>, ctx: C) => WithId<T>, 
-    context?: C, 
-    opts?: DbStoreOptions
-  ): Promise<void> => exec<void>("SET_SOME", { 
-    selectFnStr: selectFn.toString(), 
-    updateFnStr: updateFn.toString(), 
-    context, 
-    ...opts 
-  }),
-
-  exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
-  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
-
-  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
-  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
-
-  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
-  restart: () => restartWorker(),
-  terminate: () => terminateWorker(),
-};
-
-function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
-  const opts: DbStoreOptions = { dbName, storeName, prefix };
-
-  return {
-    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
-    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
-    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
-    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
-    delete: (key: string) => globalDbAPI.delete(key, opts),
-    
-    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
-    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
-    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
-    
-    keys: () => globalDbAPI.keys(opts),
-    values: <T>() => globalDbAPI.values<T>(opts),
-    entries: <T>() => globalDbAPI.entries<T>(opts),
-    clear: () => globalDbAPI.clear(opts), 
-    
-    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
-    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
-    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
-    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
-      
-    exportDB: () => globalDbAPI.exportDB(opts),
-    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
-
-    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
-    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
-    
-    gerarId,
-    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
-  };
-}
-
-export const db = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
-  globalDbAPI
-);
-```
-
----
-
-## Arquivo: `monorepo/worker-db/tests/db_advanced_test.ts`
-
-```ts
-import { assertEquals, assert, assertRejects, assertNotEquals } from "@std/assert";
-
-if (typeof Deno !== "undefined") {
-  Deno.env.set("USE_FAKE", "true");
-}
-
-import { db } from "../src/mod.ts";
-
-db.init(new URL("../build/worker-db.js", import.meta.url));
-
-Deno.test({
-  name: "DB Advanced - Execução de Métodos de Array no Worker (query, getSome)",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const store = db("FINANCAS", "faturas", "FAT_");
-    await store.clear();
-
-    await store.importDB({
-      FAT_f1: { tag: "work", amount: 150, status: "paid", code: "x" },
-      FAT_f2: { tag: "personal", amount: 300, status: "pending", code: "y" },
-      FAT_f3: { tag: "work", amount: 500, status: "paid", code: "z" },
-      FAT_f4: { tag: "home", amount: 80, status: "pending", code: "w" },
-      FAT_f5: { tag: "work", amount: 200, status: "paid", code: "k" },
+// 3. Injeta LocalStorage Fake (Main Thread)
+if (!_global.localStorage || _global.localStorage.constructor.name !== "FakeLocalStorage") {
+  try {
+    Object.defineProperty(_global, "localStorage", {
+      value: new FakeLocalStorage(),
+      writable: true,
+      configurable: true
     });
-
-    // Valida execução de funções avançadas dentro do Worker de Banco de Dados
-    const result = await store.query((items) => {
-      return {
-        count: items.length, // length
-        total: items.reduce((acc, i) => acc + (i as any).amount, 0), // reduce
-        firstWork: items.find((i) => (i as any).tag === "work"), // find
-        lastWork: items.findLast((i) => (i as any).tag === "work"), // findLast
-        lastItem: items.at(-1), // at
-        hasPending: items.some((i) => (i as any).status === "pending"), // some
-        allPositive: items.every((i) => (i as any).amount > 0), // every
-        tagsHaveHome: items.map((i) => (i as any).tag).includes("home"), // map e includes
-        idxPersonal: items.findIndex((i) => (i as any).tag === "personal"), // findIndex
-        lastIdxWork: items.findLastIndex((i) => (i as any).tag === "work"), // findLastIndex
-        indexOfZ: items.map((i) => (i as any).code).indexOf("z"), // indexOf
-        paidItems: items.filter((i) => (i as any).status === "paid"), // filter
-        sliced: items.slice(1, 4), // slice
-        sortedByAmount: items.toSorted((a, b) => (a as any).amount - (b as any).amount), // toSorted
-        reversed: items.toReversed(), // toReversed
-        spliced: items.toSpliced(0, 2), // toSpliced
-      };
-    });
-
-    assertEquals(result.count, 5);
-    assertEquals(result.total, 1230);
-    assertEquals((result.firstWork as any).amount, 150);
-    assertEquals((result.lastWork as any).amount, 200);
-    assertEquals((result.lastItem as any).code, "k");
-    assert(result.hasPending);
-    assert(result.allPositive);
-    assert(result.tagsHaveHome);
-    assertEquals(result.idxPersonal, 1);
-    assertEquals(result.lastIdxWork, 4);
-    assertEquals(result.indexOfZ, 2);
-    assertEquals(result.paidItems.length, 3);
-    assertEquals(result.sliced.length, 3);
-    assertEquals((result.sortedByAmount[0] as any).amount, 80);
-    assertEquals((result.reversed[0] as any).code, "k");
-    assertEquals(result.spliced.length, 3);
-  },
-});
-
-Deno.test({
-  name: "DB Advanced - Erros em tempo de execução no Worker (Retornos Inválidos)",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const store = db("ERROS_WORKER", "testes", "ERR_");
-    await store.clear();
-    await store.set("1", { valid: true });
-
-    // AssertRejects captura os throw Exceptions disparados lá no switch(command) do worker
-    await assertRejects(
-      async () => await store.getSome(() => ({ obj: "invalid" } as any)),
-      Error,
-      "A função injetada em GET_SOME deve retornar um Array."
-    );
-
-    await assertRejects(
-      async () => await store.delSome(() => false as any),
-      Error,
-      "A função injetada em DEL_SOME deve retornar um Array."
-    );
-
-    await assertRejects(
-      async () => await store.setSome(() => "string" as any, (i) => i),
-      Error,
-      "A função de seleção em SET_SOME deve retornar um Array."
-    );
+  } catch {
+    _global.localStorage = new FakeLocalStorage();
   }
-});
+}
 
-Deno.test({
-  name: "DB Advanced - Transformações de Tipo, UPPERCASE e Exclusão Segura no Worker",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const store = db("EMPRESA", "funcionarios", "EMP_");
-    await store.clear();
+// 4. Exportamos tudo do módulo principal para que o demo.ts consuma
+export * from "./mod.ts";
 
-    await store.importDB({
-      EMP_e10: { name: "joão silva", department: "tecnologia", level: 2, active: true },
-      EMP_e20: { name: "maria souza", department: "rh", level: 3, active: true },
-      EMP_e30: { name: "pedro alves", department: "vendas", level: 1, active: false },
-    });
-
-    // Atualiza nome para UPPERCASE e converte 'level' (number) para string
-    await store.setSome(
-      (items) => items.filter((item) => (item as any).active === true),
-      (item) => ({
-        ...item,
-        name: (item as any).name.toUpperCase(),
-        department: (item as any).department.toUpperCase(),
-        level: String((item as any).level) // Mutação de tipo!
-      })
-    );
-
-    const e10 = await store.get<any>("e10");
-    assertEquals(e10?.name, "JOÃO SILVA");
-    assertEquals(e10?.department, "TECNOLOGIA");
-    assertEquals(typeof e10?.level, "string");
-    assertEquals(e10?.level, "2");
-
-    const e30 = await store.get<any>("e30");
-    assertEquals(e30?.department, "vendas"); // Permanece em lowercase
-    assertEquals(typeof e30?.level, "number"); // Permanece tipo número
-
-    // Exclui funcionários inativos via delSome
-    await store.delSome((items) => items.filter((i) => (i as any).active === false));
-    
-    // Checa deleção correta
-    assertEquals(await store.get("e30"), undefined);
-    const remainingKeys = await store.keys();
-    assertEquals(remainingKeys.length, 2);
-    
-    // Assegura integridade dos que ficaram
-    const remaining = await store.values<any>();
-    assertNotEquals(remaining[0].name, "pedro alves");
-  },
-});
+// 5. O PULO DO GATO: Forçamos a inicialização do módulo para usar o Worker Fake.
+// O Deno resolve arquivos .ts nativamente em Workers usando import.meta.url
+import { db } from "./mod.ts";
+const fakeWorkerUrl = new URL("./fake-db.ts", import.meta.url);
+db.init(fakeWorkerUrl);
 ```
 
 ---
 
-## Arquivo: `monorepo/worker-db/tests/opfs_and_isolation_test.ts`
+## Arquivo: `monorepo/worker-db/src/fake-db.ts`
 
 ```ts
-import { assertEquals, assert } from "@std/assert";
+// monorepo/worker-db/src/fake-db.ts
 
-const isFake = typeof Deno !== "undefined" && Deno.env.get("USE_FAKE") === "true";
-if (isFake) {
-  Deno.env.set("USE_FAKE", "true");
+// 1. Injeta o IndexedDB Fake no escopo global (self) do Worker
+import "fake-indexeddb/auto";
+
+import { FakeOPFSDirectory } from "./utils/fake-opfs.ts";
+
+const _self = self as any;
+
+// 2. Injeta OPFS Fake no escopo do Worker
+if (!_self.navigator) _self.navigator = {};
+if (!_self.navigator.storage) _self.navigator.storage = {};
+if (!_self.navigator.storage.getDirectory) {
+  _self.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
 }
 
-import { db, ls } from "../src/mod.ts";
-import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
-import { FakeOPFSDirectory } from "../src/utils/fake-opfs.ts";
-
-globalThis.localStorage = new FakeLocalStorage();
-
-const _nav = (globalThis as any).navigator;
-if (!_nav) {
-  (globalThis as any).navigator = {};
-}
-
-if (!(globalThis as any).navigator.storage) {
-  Object.defineProperty((globalThis as any).navigator, "storage", {
-    value: { getDirectory: async () => new FakeOPFSDirectory() },
-    writable: true,
-    configurable: true
-  });
-}
-
-Deno.test({
-  name: "ISOLATION - LS: Garantir que instâncias com prefixos diferentes não colidam",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  fn() {
-    const storeA = ls("APP_A_");
-    const storeB = ls("APP_B_");
-    
-    storeA.clear();
-    storeB.clear();
-
-    storeA.set("1", { data: "from A" });
-    storeB.set("1", { data: "from B" });
-
-    assertEquals(storeA.get<any>("1")?.data, "from A");
-    assertEquals(storeB.get<any>("1")?.data, "from B");
-
-    storeA.clear();
-    assertEquals(storeA.keys().length, 0);
-    assertEquals(storeB.keys().length, 1);
-    assertEquals(storeB.get<any>("1")?.data, "from B");
-  }
-});
-
-db.init(new URL("../build/worker-db.js", import.meta.url));
-
-Deno.test({
-  name: "ISOLATION - DB: Garantir que instâncias no mesmo Store, com prefixos diferentes, são isoladas",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const dbApp1 = db("SHARED_DB", "keyval", "APP_1_");
-    const dbApp2 = db("SHARED_DB", "keyval", "APP_2_");
-
-    await dbApp1.clear();
-    await dbApp2.clear();
-
-    await dbApp1.set("config", { theme: "dark" });
-    await dbApp2.set("config", { theme: "light" });
-
-    const app1Vals = await dbApp1.values<any>();
-    assertEquals(app1Vals.length, 1);
-    assertEquals(app1Vals[0].theme, "dark");
-
-    const exportApp2 = await dbApp2.exportDB();
-    assert(Object.keys(exportApp2).includes("APP_2_config"));
-    assert(!Object.keys(exportApp2).includes("APP_1_config"));
-
-    await dbApp1.clear();
-    assertEquals((await dbApp1.keys()).length, 0);
-    
-    const app2Keys = await dbApp2.keys();
-    assertEquals(app2Keys.length, 1);
-    assertEquals(app2Keys[0], "APP_2_config");
-  }
-});
-
-Deno.test({
-  name: "OPFS - Fluxo completo de Backup e Restore (DB e LS)",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    FakeOPFSDirectory.clear();
-    const store = db("OPFS_DB", "test", "BACKUP_");
-    await store.clear();
-
-    await store.set("k1", { text: "Hello OPFS" });
-    await store.set("k2", { text: "Loco PWA" });
-
-    const fileName = await store.backupToOpfs("meu_backup.json");
-    assert(fileName.includes("BACKUP_")); 
-    assert(fileName.includes("meu_backup.json"));
-
-    await store.clear();
-    assertEquals((await store.keys()).length, 0);
-
-    await store.restoreFromOpfs(fileName);
-    const restored = await store.values<any>();
-    assertEquals(restored.length, 2);
-    
-    const k1 = await store.get<any>("k1");
-    assertEquals(k1?.text, "Hello OPFS");
-    
-    FakeOPFSDirectory.clear();
-  }
-});
-```
-
----
-
-## Arquivo: `monorepo/worker-db/tests/worker_lifecycle_test.ts`
-
-```ts
-import { assertEquals } from "@std/assert";
-
-const isFake = typeof Deno !== "undefined" && Deno.env.get("USE_FAKE") === "true";
-if (isFake) {
-  Deno.env.set("USE_FAKE", "true");
-}
-
-import { db } from "../src/mod.ts";
-import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
-
-// @ts-ignore: Injeção de mock de ambiente
-globalThis.localStorage = new FakeLocalStorage();
-
-db.init(new URL("../build/worker-db.js", import.meta.url));
-
-Deno.test({
-  name: "LIFECYCLE - Inicialização, Terminação, Restart e Persistência do Worker",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const store = db("WORKER_LIFECYCLE_DB", "state", "LC_");
-    await store.clear();
-
-    await store.set("status", { alive: true, phase: "init" });
-    let result = await store.get<any>("status");
-    assertEquals(result?.alive, true);
-
-    db.terminate();
-
-    if (!isFake) {
-      result = await store.get<any>("status");
-      assertEquals(result?.alive, true, "Worker não conseguiu se auto-restaurar com persistência");
-    } else {
-      await store.set("status", { alive: true, phase: "healed" });
-      result = await store.get<any>("status");
-      assertEquals(result?.phase, "healed");
-    }
-
-    db.restart();
-    
-    await store.patch<any>("status", { phase: "restarted" });
-    result = await store.get<any>("status");
-    assertEquals(result?.phase, "restarted", "Worker recriado pelo restart() falhou");
-
-    db.terminate();
-  }
-});
-
-Deno.test({
-  name: "LIFECYCLE - Comportamento com requisições disparadas imediatamente após restart",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const store = db("WORKER_LIFECYCLE_DB", "stress", "STRESS_");
-    
-    db.init(new URL("../build/worker-db.js", import.meta.url));
-    db.restart();
-    
-    await store.set("k1", { val: 1 });
-    await store.set("k2", { val: 2 });
-    
-    const keys = await store.keys();
-    assertEquals(keys.length, 2);
-    
-    await store.clear();
-    db.terminate();
-  }
-});
-```
-
----
-
-## Arquivo: `monorepo/worker-db/tests/main.test.ts`
-
-```ts
-import { assertEquals, assert } from "@std/assert";
-import { gerarId, validarId } from "../src/utils/id-utils.ts";
-import { db, ls } from "../src/mod.ts";
-import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
-
-globalThis.localStorage = new FakeLocalStorage();
-
-Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () => {
-  const id = gerarId();
-  assert(id.length > 0);
-
-  const isValid = validarId(id);
-  assertEquals(isValid, true);
-
-  const dbInstance = db("MAIN_DB", "main");
-  assert(dbInstance !== undefined);
-
-  const lsInstance = ls("MAIN_LS_");
-  assert(lsInstance !== undefined);
-});
+// 3. Agora que o ambiente do Worker está perfeitamente simulado,
+// importamos a lógica real do banco de dados. O db.ts vai rodar
+// achando que está em um browser de verdade!
+import "./db.ts";
 ```
 
 ---
@@ -1406,13 +1070,7 @@ Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () =
 ```ts
 import { assertEquals, assert, assertNotEquals } from "@std/assert";
 
-if (typeof Deno !== "undefined") {
-  Deno.env.set("USE_FAKE", "true");
-}
-
-import { db } from "../src/mod.ts";
-
-db.init(new URL("../build/worker-db.js", import.meta.url));
+import { db, listOpfsFiles } from "../src/fake-mod.ts";
 
 Deno.test({
   name: "DB Simple - Tratamento de _id ('auto', '0990', com prefixo)",
@@ -1508,14 +1166,302 @@ Deno.test({
 
 ---
 
+## Arquivo: `monorepo/worker-db/tests/db_advanced_test.ts`
+
+```ts
+import { assertEquals, assert, assertRejects, assertNotEquals } from "@std/assert";
+
+import { db, listOpfsFiles } from "../src/fake-mod.ts";
+
+Deno.test({
+  name: "DB Advanced - Execução de Métodos de Array no Worker (query, getSome)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("FINANCAS", "faturas", "FAT_");
+    await store.clear();
+
+    await store.importDB({
+      FAT_f1: { tag: "work", amount: 150, status: "paid", code: "x" },
+      FAT_f2: { tag: "personal", amount: 300, status: "pending", code: "y" },
+      FAT_f3: { tag: "work", amount: 500, status: "paid", code: "z" },
+      FAT_f4: { tag: "home", amount: 80, status: "pending", code: "w" },
+      FAT_f5: { tag: "work", amount: 200, status: "paid", code: "k" },
+    });
+
+    // Valida execução de funções avançadas dentro do Worker de Banco de Dados
+    const result = await store.query((items: any[]) => {
+      return {
+        count: items.length, // length
+        total: items.reduce((acc: number, i: any) => acc + i.amount, 0), // reduce
+        firstWork: items.find((i: any) => i.tag === "work"), // find
+        lastWork: items.findLast((i: any) => i.tag === "work"), // findLast
+        lastItem: items.at(-1), // at
+        hasPending: items.some((i: any) => i.status === "pending"), // some
+        allPositive: items.every((i: any) => i.amount > 0), // every
+        tagsHaveHome: items.map((i: any) => i.tag).includes("home"), // map e includes
+        idxPersonal: items.findIndex((i: any) => i.tag === "personal"), // findIndex
+        lastIdxWork: items.findLastIndex((i: any) => i.tag === "work"), // findLastIndex
+        indexOfZ: items.map((i: any) => i.code).indexOf("z"), // indexOf
+        paidItems: items.filter((i: any) => i.status === "paid"), // filter
+        sliced: items.slice(1, 4), // slice
+        sortedByAmount: items.toSorted((a: any, b: any) => a.amount - b.amount), // toSorted
+        reversed: items.toReversed(), // toReversed
+        spliced: items.toSpliced(0, 2), // toSpliced
+      };
+    });
+
+    assertEquals(result.count, 5);
+    assertEquals(result.total, 1230);
+    assertEquals((result.firstWork as any).amount, 150);
+    assertEquals((result.lastWork as any).amount, 200);
+    assertEquals((result.lastItem as any).code, "k");
+    assert(result.hasPending);
+    assert(result.allPositive);
+    assert(result.tagsHaveHome);
+    assertEquals(result.idxPersonal, 1);
+    assertEquals(result.lastIdxWork, 4);
+    assertEquals(result.indexOfZ, 2);
+    assertEquals(result.paidItems.length, 3);
+    assertEquals(result.sliced.length, 3);
+    assertEquals((result.sortedByAmount[0] as any).amount, 80);
+    assertEquals((result.reversed[0] as any).code, "k");
+    assertEquals(result.spliced.length, 3);
+  },
+});
+
+Deno.test({
+  name: "DB Advanced - Erros em tempo de execução no Worker (Retornos Inválidos)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("ERROS_WORKER", "testes", "ERR_");
+    await store.clear();
+    await store.set("1", { valid: true });
+
+    // AssertRejects captura os throw Exceptions disparados lá no switch(command) do worker
+    await assertRejects(
+      async () => await store.getSome(() => ({ obj: "invalid" } as any)),
+      Error,
+      "A função injetada em GET_SOME deve retornar um Array."
+    );
+
+    await assertRejects(
+      async () => await store.delSome(() => false as any),
+      Error,
+      "A função injetada em DEL_SOME deve retornar um Array."
+    );
+
+    await assertRejects(
+      async () => await store.setSome(() => "string" as any, (i: any) => i),
+      Error,
+      "A função de seleção em SET_SOME deve retornar um Array."
+    );
+  }
+});
+
+Deno.test({
+  name: "DB Advanced - Transformações de Tipo, UPPERCASE e Exclusão Segura no Worker",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("EMPRESA", "funcionarios", "EMP_");
+    await store.clear();
+
+    await store.importDB({
+      EMP_e10: { name: "joão silva", department: "tecnologia", level: 2, active: true },
+      EMP_e20: { name: "maria souza", department: "rh", level: 3, active: true },
+      EMP_e30: { name: "pedro alves", department: "vendas", level: 1, active: false },
+    });
+
+    // Atualiza nome para UPPERCASE e converte 'level' (number) para string
+    await store.setSome(
+      (items: any[]) => items.filter((item: any) => item.active === true),
+      (item: any) => ({
+        ...item,
+        name: item.name.toUpperCase(),
+        department: item.department.toUpperCase(),
+        level: String(item.level) // Mutação de tipo!
+      })
+    );
+
+    const e10 = await store.get<any>("e10");
+    assertEquals(e10?.name, "JOÃO SILVA");
+    assertEquals(e10?.department, "TECNOLOGIA");
+    assertEquals(typeof e10?.level, "string");
+    assertEquals(e10?.level, "2");
+
+    const e30 = await store.get<any>("e30");
+    assertEquals(e30?.department, "vendas"); // Permanece em lowercase
+    assertEquals(typeof e30?.level, "number"); // Permanece tipo número
+
+    // Exclui funcionários inativos via delSome
+    await store.delSome((items: any[]) => items.filter((i: any) => i.active === false));
+    
+    // Checa deleção correta
+    assertEquals(await store.get("e30"), undefined);
+    const remainingKeys = await store.keys();
+    assertEquals(remainingKeys.length, 2);
+    
+    // Assegura integridade dos que ficaram
+    const remaining = await store.values<any>();
+    assertNotEquals(remaining[0].name, "pedro alves");
+  },
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/ls_advanced_test.ts`
+
+```ts
+import { assertEquals, assert, assertThrows, assertNotEquals } from "@std/assert";
+import { ls, listOpfsFiles } from "../src/fake-mod.ts";
+
+Deno.test({
+  name: "LS Advanced - Execução de Métodos Modernos de Array JS (query, getSome)",
+  fn() {
+    const store = ls("LS_FINANCAS_");
+    store.clear();
+
+    store.importLS({
+      LS_FINANCAS_f1: { tag: "work", amount: 150, status: "paid", code: "x" },
+      LS_FINANCAS_f2: { tag: "personal", amount: 300, status: "pending", code: "y" },
+      LS_FINANCAS_f3: { tag: "work", amount: 500, status: "paid", code: "z" },
+      LS_FINANCAS_f4: { tag: "home", amount: 80, status: "pending", code: "w" },
+      LS_FINANCAS_f5: { tag: "work", amount: 200, status: "paid", code: "k" },
+    });
+
+    // Valida execução de funções avançadas síncronas de Array
+    const result = store.query((items: any[]) => {
+      return {
+        count: items.length, // length
+        total: items.reduce((acc: number, i: any) => acc + i.amount, 0), // reduce
+        firstWork: items.find((i: any) => i.tag === "work"), // find
+        lastWork: items.findLast((i: any) => i.tag === "work"), // findLast
+        lastItem: items.at(-1), // at
+        hasPending: items.some((i: any) => i.status === "pending"), // some
+        allPositive: items.every((i: any) => i.amount > 0), // every
+        tagsHaveHome: items.map((i: any) => i.tag).includes("home"), // map e includes
+        idxPersonal: items.findIndex((i: any) => i.tag === "personal"), // findIndex
+        lastIdxWork: items.findLastIndex((i: any) => i.tag === "work"), // findLastIndex
+        indexOfZ: items.map((i: any) => i.code).indexOf("z"), // indexOf
+        paidItems: items.filter((i: any) => i.status === "paid"), // filter
+        sliced: items.slice(1, 4), // slice
+        sortedByAmount: items.toSorted((a: any, b: any) => a.amount - b.amount), // toSorted
+        reversed: items.toReversed(), // toReversed
+        spliced: items.toSpliced(0, 2), // toSpliced
+      };
+    });
+
+    assertEquals(result.count, 5);
+    assertEquals(result.total, 1230);
+    assertEquals((result.firstWork as any).amount, 150);
+    assertEquals((result.lastWork as any).amount, 200);
+    assertEquals((result.lastItem as any).code, "k");
+    assert(result.hasPending);
+    assert(result.allPositive);
+    assert(result.tagsHaveHome);
+    assertEquals(result.idxPersonal, 1);
+    assertEquals(result.lastIdxWork, 4);
+    assertEquals(result.indexOfZ, 2);
+    assertEquals(result.paidItems.length, 3);
+    assertEquals(result.sliced.length, 3);
+    assertEquals((result.sortedByAmount[0] as any).amount, 80);
+    assertEquals((result.reversed[0] as any).code, "k");
+    assertEquals(result.spliced.length, 3);
+
+    store.clear();
+  }
+});
+
+Deno.test({
+  name: "LS Advanced - Erros de Tipagem Síncronos (Retornos Inválidos)",
+  fn() {
+    const store = ls("LS_ERROS_");
+    store.clear();
+    store.set("1", { valid: true });
+
+    // AssertThrows captura as exceções síncronas disparadas pelo wrapper ls()
+    assertThrows(
+      () => store.getSome(() => ({ obj: "invalid" } as any)),
+      Error,
+      "A função em getSome deve retornar um Array."
+    );
+
+    assertThrows(
+      () => store.delSome(() => false as any),
+      Error,
+      "A função em delSome deve retornar um Array."
+    );
+
+    assertThrows(
+      () => store.setSome(() => "string" as any, (i: any) => i),
+      Error,
+      "A função de seleção em setSome deve retornar um Array."
+    );
+
+    store.clear();
+  }
+});
+
+Deno.test({
+  name: "LS Advanced - Transformações de Tipo, Mutação em Massa e Exclusão Segura",
+  fn() {
+    const store = ls("LS_EMPRESA_");
+    store.clear();
+
+    store.importLS({
+      LS_EMPRESA_e10: { name: "joão silva", department: "tecnologia", level: 2, active: true },
+      LS_EMPRESA_e20: { name: "maria souza", department: "rh", level: 3, active: true },
+      LS_EMPRESA_e30: { name: "pedro alves", department: "vendas", level: 1, active: false },
+    });
+
+    // Atualiza nome para UPPERCASE e converte 'level' (number) para string
+    store.setSome(
+      (items: any[]) => items.filter((item: any) => item.active === true),
+      (item: any) => ({
+        ...item,
+        name: item.name.toUpperCase(),
+        department: item.department.toUpperCase(),
+        level: String(item.level) // Mutação de tipo explícita!
+      })
+    );
+
+    const e10 = store.get<any>("e10");
+    assertEquals(e10?.name, "JOÃO SILVA");
+    assertEquals(e10?.department, "TECNOLOGIA");
+    assertEquals(typeof e10?.level, "string");
+    assertEquals(e10?.level, "2");
+
+    const e30 = store.get<any>("e30");
+    assertEquals(e30?.department, "vendas"); // Permanece em lowercase pois active=false
+    assertEquals(typeof e30?.level, "number"); // Permanece tipo número
+
+    // Exclui funcionários inativos via delSome
+    store.delSome((items: any[]) => items.filter((i: any) => i.active === false));
+    
+    // Checa deleção correta
+    assertEquals(store.get("e30"), undefined);
+    const remainingKeys = store.keys();
+    assertEquals(remainingKeys.length, 2);
+    
+    // Assegura integridade dos que ficaram
+    const remaining = store.values<any>();
+    assertNotEquals(remaining[0].name, "pedro alves");
+
+    store.clear();
+  }
+});
+```
+
+---
+
 ## Arquivo: `monorepo/worker-db/tests/ls_simple_test.ts`
 
 ```ts
 import { assertEquals, assert, assertNotEquals } from "@std/assert";
-import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
-import { ls } from "../src/mod.ts";
-
-globalThis.localStorage = new FakeLocalStorage();
+import { ls, listOpfsFiles } from "../src/fake-mod.ts";
 
 Deno.test({
   name: "LS Simple - Gestão de _id ('auto', '0990', com prefixo)",
@@ -1588,11 +1534,11 @@ Deno.test({
 
     const allValues = store.values<any>();
     assertEquals(allValues.length, 3);
-    assert(allValues.some(v => v._id === "user2" && v.name === "Ana")); // Valida se formatDbItem agiu nos values
+    assert(allValues.some((v: any) => v._id === "user2" && v.name === "Ana")); // Valida se formatDbItem agiu nos values
 
     const allEntries = store.entries<any>();
     assertEquals(allEntries.length, 3);
-    const firstEntry = allEntries.find(([k]) => k === "LS_CRUD_user3");
+    const firstEntry = allEntries.find(([k]: [string, any]) => k === "LS_CRUD_user3");
     assert(firstEntry !== undefined);
     assertEquals(firstEntry[1].name, "Beatriz");
 
@@ -1626,7 +1572,7 @@ Deno.test({
 
     const values = store.values<any>();
     assertEquals(values.length, 2);
-    assertEquals(values.find(i => i._id === "k1")?.v, 1);
+    assertEquals(values.find((i: any) => i._id === "k1")?.v, 1);
 
     store.clear();
   }
@@ -1635,148 +1581,187 @@ Deno.test({
 
 ---
 
-## Arquivo: `monorepo/worker-db/tests/ls_advanced_test.ts`
+## Arquivo: `monorepo/worker-db/tests/opfs_and_isolation_test.ts`
 
 ```ts
-import { assertEquals, assert, assertThrows, assertNotEquals } from "@std/assert";
-import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
-import { ls } from "../src/mod.ts";
+import { assertEquals, assert } from "@std/assert";
 
-globalThis.localStorage = new FakeLocalStorage();
+import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { FakeOPFSDirectory } from "../src/utils/fake-opfs.ts";
 
 Deno.test({
-  name: "LS Advanced - Execução de Métodos Modernos de Array JS (query, getSome)",
+  name: "ISOLATION - LS: Garantir que instâncias com prefixos diferentes não colidam",
+  sanitizeOps: false,
+  sanitizeResources: false,
   fn() {
-    const store = ls("LS_FINANCAS_");
-    store.clear();
+    const storeA = ls("APP_A_");
+    const storeB = ls("APP_B_");
+    
+    storeA.clear();
+    storeB.clear();
 
-    store.importLS({
-      LS_FINANCAS_f1: { tag: "work", amount: 150, status: "paid", code: "x" },
-      LS_FINANCAS_f2: { tag: "personal", amount: 300, status: "pending", code: "y" },
-      LS_FINANCAS_f3: { tag: "work", amount: 500, status: "paid", code: "z" },
-      LS_FINANCAS_f4: { tag: "home", amount: 80, status: "pending", code: "w" },
-      LS_FINANCAS_f5: { tag: "work", amount: 200, status: "paid", code: "k" },
-    });
+    storeA.set("1", { data: "from A" });
+    storeB.set("1", { data: "from B" });
 
-    // Valida execução de funções avançadas síncronas de Array
-    const result = store.query((items) => {
-      return {
-        count: items.length, // length
-        total: items.reduce((acc, i) => acc + (i as any).amount, 0), // reduce
-        firstWork: items.find((i) => (i as any).tag === "work"), // find
-        lastWork: items.findLast((i) => (i as any).tag === "work"), // findLast
-        lastItem: items.at(-1), // at
-        hasPending: items.some((i) => (i as any).status === "pending"), // some
-        allPositive: items.every((i) => (i as any).amount > 0), // every
-        tagsHaveHome: items.map((i) => (i as any).tag).includes("home"), // map e includes
-        idxPersonal: items.findIndex((i) => (i as any).tag === "personal"), // findIndex
-        lastIdxWork: items.findLastIndex((i) => (i as any).tag === "work"), // findLastIndex
-        indexOfZ: items.map((i) => (i as any).code).indexOf("z"), // indexOf
-        paidItems: items.filter((i) => (i as any).status === "paid"), // filter
-        sliced: items.slice(1, 4), // slice
-        sortedByAmount: items.toSorted((a, b) => (a as any).amount - (b as any).amount), // toSorted
-        reversed: items.toReversed(), // toReversed
-        spliced: items.toSpliced(0, 2), // toSpliced
-      };
-    });
+    assertEquals(storeA.get<any>("1")?.data, "from A");
+    assertEquals(storeB.get<any>("1")?.data, "from B");
 
-    assertEquals(result.count, 5);
-    assertEquals(result.total, 1230);
-    assertEquals((result.firstWork as any).amount, 150);
-    assertEquals((result.lastWork as any).amount, 200);
-    assertEquals((result.lastItem as any).code, "k");
-    assert(result.hasPending);
-    assert(result.allPositive);
-    assert(result.tagsHaveHome);
-    assertEquals(result.idxPersonal, 1);
-    assertEquals(result.lastIdxWork, 4);
-    assertEquals(result.indexOfZ, 2);
-    assertEquals(result.paidItems.length, 3);
-    assertEquals(result.sliced.length, 3);
-    assertEquals((result.sortedByAmount[0] as any).amount, 80);
-    assertEquals((result.reversed[0] as any).code, "k");
-    assertEquals(result.spliced.length, 3);
+    storeA.clear();
+    assertEquals(storeA.keys().length, 0);
+    assertEquals(storeB.keys().length, 1);
+    assertEquals(storeB.get<any>("1")?.data, "from B");
+  }
+});
 
-    store.clear();
+db.init(new URL("../build/worker-db.js", import.meta.url));
+
+Deno.test({
+  name: "ISOLATION - DB: Garantir que instâncias no mesmo Store, com prefixos diferentes, são isoladas",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const dbApp1 = db("SHARED_DB", "keyval", "APP_1_");
+    const dbApp2 = db("SHARED_DB", "keyval", "APP_2_");
+
+    await dbApp1.clear();
+    await dbApp2.clear();
+
+    await dbApp1.set("config", { theme: "dark" });
+    await dbApp2.set("config", { theme: "light" });
+
+    const app1Vals = await dbApp1.values<any>();
+    assertEquals(app1Vals.length, 1);
+    assertEquals(app1Vals[0].theme, "dark");
+
+    const exportApp2 = await dbApp2.exportDB();
+    assert(Object.keys(exportApp2).includes("APP_2_config"));
+    assert(!Object.keys(exportApp2).includes("APP_1_config"));
+
+    await dbApp1.clear();
+    assertEquals((await dbApp1.keys()).length, 0);
+    
+    const app2Keys = await dbApp2.keys();
+    assertEquals(app2Keys.length, 1);
+    assertEquals(app2Keys[0], "APP_2_config");
   }
 });
 
 Deno.test({
-  name: "LS Advanced - Erros de Tipagem Síncronos (Retornos Inválidos)",
-  fn() {
-    const store = ls("LS_ERROS_");
-    store.clear();
-    store.set("1", { valid: true });
+  name: "OPFS - Fluxo completo de Backup e Restore (DB e LS)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    FakeOPFSDirectory.clear();
+    const store = db("OPFS_DB", "test", "BACKUP_");
+    await store.clear();
 
-    // AssertThrows captura as exceções síncronas disparadas pelo wrapper ls()
-    assertThrows(
-      () => store.getSome(() => ({ obj: "invalid" } as any)),
-      Error,
-      "A função em getSome deve retornar um Array."
-    );
+    await store.set("k1", { text: "Hello OPFS" });
+    await store.set("k2", { text: "Loco PWA" });
 
-    assertThrows(
-      () => store.delSome(() => false as any),
-      Error,
-      "A função em delSome deve retornar um Array."
-    );
+    const fileName = await store.backupToOpfs("meu_backup.json");
+    assert(fileName.includes("BACKUP_")); 
+    assert(fileName.includes("meu_backup.json"));
 
-    assertThrows(
-      () => store.setSome(() => "string" as any, (i) => i),
-      Error,
-      "A função de seleção em setSome deve retornar um Array."
-    );
+    await store.clear();
+    assertEquals((await store.keys()).length, 0);
 
-    store.clear();
+    await store.restoreFromOpfs(fileName);
+    const restored = await store.values<any>();
+    assertEquals(restored.length, 2);
+    
+    const k1 = await store.get<any>("k1");
+    assertEquals(k1?.text, "Hello OPFS");
+    
+    FakeOPFSDirectory.clear();
+  }
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/main.test.ts`
+
+```ts
+import { assertEquals, assert } from "@std/assert";
+import { gerarId, validarId } from "../src/utils/id-utils.ts";
+import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
+
+Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () => {
+  const id = gerarId();
+  assert(id.length > 0);
+
+  const isValid = validarId(id);
+  assertEquals(isValid, true);
+
+  const dbInstance = db("MAIN_DB", "main");
+  assert(dbInstance !== undefined);
+
+  const lsInstance = ls("MAIN_LS_");
+  assert(lsInstance !== undefined);
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/worker_lifecycle_test.ts`
+
+```ts
+import { assertEquals } from "@std/assert";
+import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
+
+const isFake = true;
+
+Deno.test({
+  name: "LIFECYCLE - Inicialização, Terminação, Restart e Persistência do Worker",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("WORKER_LIFECYCLE_DB", "state", "LC_");
+    await store.clear();
+
+    await store.set("status", { alive: true, phase: "init" });
+    let result = await store.get<any>("status");
+    assertEquals(result?.alive, true);
+
+    db.terminate();
+
+    await store.set("status", { alive: true, phase: "healed" });
+    result = await store.get<any>("status");
+    assertEquals(result?.phase, "healed");
+
+    // O restart vai recriar o Worker utilizando o último caminho válido 
+    // (que é o fake-db.ts garantido pelo nosso fake-mod.ts)
+    db.restart();
+    
+    if (!isFake) {
+       // Lógica isolada para cenários não-falsos, caso necessário
+    }
+    
+    await store.patch<any>("status", { phase: "restarted" });
+    result = await store.get<any>("status");
+    assertEquals(result?.phase, "restarted", "Worker recriado pelo restart() falhou");
+
+    db.terminate();
   }
 });
 
 Deno.test({
-  name: "LS Advanced - Transformações de Tipo, Mutação em Massa e Exclusão Segura",
-  fn() {
-    const store = ls("LS_EMPRESA_");
-    store.clear();
-
-    store.importLS({
-      LS_EMPRESA_e10: { name: "joão silva", department: "tecnologia", level: 2, active: true },
-      LS_EMPRESA_e20: { name: "maria souza", department: "rh", level: 3, active: true },
-      LS_EMPRESA_e30: { name: "pedro alves", department: "vendas", level: 1, active: false },
-    });
-
-    // Atualiza nome para UPPERCASE e converte 'level' (number) para string
-    store.setSome(
-      (items) => items.filter((item) => (item as any).active === true),
-      (item) => ({
-        ...item,
-        name: (item as any).name.toUpperCase(),
-        department: (item as any).department.toUpperCase(),
-        level: String((item as any).level) // Mutação de tipo explícita!
-      })
-    );
-
-    const e10 = store.get<any>("e10");
-    assertEquals(e10?.name, "JOÃO SILVA");
-    assertEquals(e10?.department, "TECNOLOGIA");
-    assertEquals(typeof e10?.level, "string");
-    assertEquals(e10?.level, "2");
-
-    const e30 = store.get<any>("e30");
-    assertEquals(e30?.department, "vendas"); // Permanece em lowercase pois active=false
-    assertEquals(typeof e30?.level, "number"); // Permanece tipo número
-
-    // Exclui funcionários inativos via delSome
-    store.delSome((items) => items.filter((i) => (i as any).active === false));
+  name: "LIFECYCLE - Comportamento com requisições disparadas imediatamente após restart",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("WORKER_LIFECYCLE_DB", "stress", "STRESS_");
     
-    // Checa deleção correta
-    assertEquals(store.get("e30"), undefined);
-    const remainingKeys = store.keys();
-    assertEquals(remainingKeys.length, 2);
+    db.restart();
     
-    // Assegura integridade dos que ficaram
-    const remaining = store.values<any>();
-    assertNotEquals(remaining[0].name, "pedro alves");
-
-    store.clear();
+    await store.set("k1", { val: 1 });
+    await store.set("k2", { val: 2 });
+    
+    const keys = await store.keys();
+    assertEquals(keys.length, 2);
+    
+    await store.clear();
+    db.terminate();
   }
 });
 ```
@@ -2075,7 +2060,7 @@ runRealWorldTests().catch((err) => {
 ## Arquivo: `monorepo/worker-db/example/demo.ts`
 
 ```ts
-import { db, ls, listOpfsFiles } from "../src/mod.ts";
+import { db, ls } from "../src/fake-mod.ts";
 
 // Tipagem dos modelos de domínio do Loco PWA
 interface LocoMessage {
@@ -2095,9 +2080,6 @@ interface UserPreferences {
 
 async function runLocoDbDemo() {
   console.log("🚀 [Loco PWA] Iniciando demonstração do WORKER-DB...\n");
-
-  // Ajusta o caminho do Worker para execução nativa no Deno
-  db.init(new URL("../build/worker-db.js", import.meta.url));
 
   // -------------------------------------------------------------
   // 1. GERENCIAMENTO DE PREFERÊNCIAS DE UI (LocalStorage Scoped)
@@ -2163,24 +2145,6 @@ async function runLocoDbDemo() {
   const updatedMessages = await msgStore.values<LocoMessage>();
   console.log("   --> Estado das mensagens após envio:", updatedMessages);
 
-  // -------------------------------------------------------------
-  // 4. BACKUP E RESTAURAÇÃO DE SEGURANÇA (OPFS)
-  // -------------------------------------------------------------
-  console.log("\n💾 4. Executando Backup no OPFS (Origin Private File System)...");
-  const backupFileName = await msgStore.backupToOpfs("mensagens_backup.json");
-  console.log(`   --> Backup gerado com sucesso: ${backupFileName}`);
-
-  const opfsFiles = await listOpfsFiles();
-  console.log("   --> Arquivos armazenados no OPFS:", opfsFiles);
-
-  // Limpa o banco e restaura a partir do backup do OPFS
-  await msgStore.clear();
-  console.log("   --> Banco de dados limpo. Total de itens:", (await msgStore.keys()).length);
-
-  await msgStore.restoreFromOpfs(backupFileName);
-  const restoredCount = (await msgStore.keys()).length;
-  console.log(`   --> Banco de dados restaurado. Total de itens: ${restoredCount}`);
-
   // Limpa o ambiente antes de fechar
   db.terminate();
   console.log("\n✅ Demonstração finalizada. Worker encerrado.");
@@ -2188,6 +2152,38 @@ async function runLocoDbDemo() {
 
 // Executar
 runLocoDbDemo();
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/deno.jsonc`
+
+```json
+{
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "imports": {
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle&target=es2022",
+    "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
+
+    "@std/assert": "jsr:@std/assert",
+    "@std/fs": "jsr:@std/fs",
+    "@std/http": "jsr:@std/http",
+    "@std/path": "jsr:@std/path"
+  },
+  "tasks": {
+    "build": "deno run -A --unstable-bundle build.ts",
+    "test": "deno task build && deno test --allow-env --allow-net --allow-read tests/",
+    "check": "deno check build.ts src/**/*.ts src/**/*.tsx",
+    "demo": "deno run --allow-env --allow-read --allow-net ./example/demo.ts",
+    "example": "deno task build && deno run -A --unstable-bundle ./example/server.ts"
+  }
+}
 ```
 
 ---

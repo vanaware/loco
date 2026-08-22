@@ -1,4 +1,4 @@
-import { db, ls, listOpfsFiles } from "../src/mod.ts";
+import { db, ls } from "../src/fake-mod.ts";
 
 // Tipagem dos modelos de domínio do Loco PWA
 interface LocoMessage {
@@ -10,47 +10,67 @@ interface LocoMessage {
   timestamp: number;
 }
 
-interface UserPreferences {
-  theme: "dark" | "light";
-  notificationsEnabled: boolean;
-  activeChatId: string | null;
-}
-
 async function runLocoDbDemo() {
   console.log("🚀 [Loco PWA] Iniciando demonstração do WORKER-DB...\n");
 
-  // Ajusta o caminho do Worker para execução nativa no Deno
-  db.init(new URL("../build/worker-db.js", import.meta.url));
+  // Garante que o ambiente inicie limpo para a demonstração
+  ls().clear();
 
   // -------------------------------------------------------------
-  // 1. GERENCIAMENTO DE PREFERÊNCIAS DE UI (LocalStorage Scoped)
+  // 1. LOCALSTORAGE: Geração Automática de IDs (_id: "auto")
   // -------------------------------------------------------------
-  console.log("📦 1. Configurando Preferências do Usuário (LS)...");
-  const prefsStore = ls("LOCO_PREF_");
-  prefsStore.clear();
+  console.log("📦 1. LocalStorage - Criando itens com _id 'auto'...");
+  const prefStore = ls("LOCO_PREF_");
 
-  prefsStore.set<UserPreferences>("config", {
-    theme: "dark",
-    notificationsEnabled: true,
-    activeChatId: "chat_123",
-  });
+  const autoKey1 = prefStore.set({ _id: "auto", theme: "dark", notifications: true });
+  const autoKey2 = prefStore.set({ _id: "auto", theme: "light", notifications: false });
 
-  const currentPrefs = prefsStore.get<UserPreferences>("config");
-  console.log("   --> Preferências salvas:", currentPrefs);
+  console.log(`   --> Item 1 gerado: Chave = ${autoKey1}`);
+  console.log(`   --> Recuperando Item 1 (notem que '_id' volta limpo):`, prefStore.get(autoKey1));
+  console.log(`   --> Recuperando Item 2:`, prefStore.get(autoKey2));
+
 
   // -------------------------------------------------------------
-  // 2. FILA DE MENSAGENS OFFLINE (IndexedDB via Web Worker)
+  // 2. LOCALSTORAGE: Isolamento de Escopos por Prefixo
   // -------------------------------------------------------------
-  console.log("\n💬 2. Enfileirando Mensagens Offline (DB Worker)...");
+  console.log("\n🔒 2. LocalStorage - Testando Isolamento de Prefixos...");
+  const authStore = ls("LOCO_AUTH_");
+  
+  // Gravando uma chave fixa (ex: sessão)
+  authStore.set("session_token", { token: "abc-123", active: true });
+  
+  console.log(`   --> Total de itens em LOCO_PREF_ (Preferências): ${prefStore.keys().length}`);
+  console.log(`   --> Total de itens em LOCO_AUTH_ (Autenticação): ${authStore.keys().length}`);
+
+
+  // -------------------------------------------------------------
+  // 3. LOCALSTORAGE: Consulta Global (Prefixo nulo)
+  // -------------------------------------------------------------
+  console.log("\n🌍 3. LocalStorage - Visão Global (Sem prefixo)...");
+  
+  // Instanciando o `ls` sem parâmetros nos dá acesso a TODO o localStorage
+  const globalStore = ls(); 
+  const allKeys = globalStore.keys();
+  
+  console.log(`   --> Total de itens armazenados em TODA a aplicação: ${allKeys.length}`);
+  console.log(`   --> Chaves globais detectadas:`, allKeys);
+  console.log(`   --> Realizando leitura global do token:`, globalStore.get("LOCO_AUTH_session_token"));
+
+
+  // -------------------------------------------------------------
+  // 4. WORKER DB: Fila de Mensagens Offline com Geração de ID
+  // -------------------------------------------------------------
+  console.log("\n💬 4. IndexedDB Worker - Enfileirando Mensagens Offline...");
+  
+  // Lembrete: O DB() roda em background assíncrono (Web Worker)
   const msgStore = db("LOCO_DATA", "messages", "MSG_");
   await msgStore.clear();
 
-  // Inserção com geração automática de ID (_id: "auto")
   const msgId1 = await msgStore.set<LocoMessage>({
     _id: "auto",
     senderId: "user_alice",
     recipientId: "user_bob",
-    content: "Olá! Esta mensagem foi gravada offline.",
+    content: "Olá! Esta mensagem foi enfileirada offline.",
     status: "pending",
     timestamp: Date.now(),
   });
@@ -59,52 +79,35 @@ async function runLocoDbDemo() {
     _id: "auto",
     senderId: "user_alice",
     recipientId: "user_bob",
-    content: "Segunda mensagem na fila de sincronização.",
+    content: "Esperando o Handshake com o servidor...",
     status: "pending",
     timestamp: Date.now() + 1000,
   });
 
-  console.log(`   --> Mensagens enfileiradas. Keys: ${msgId1}, ${msgId2}`);
+  console.log(`   --> Mensagens injetadas no IndexedDB. Keys geradas: ${msgId1}, ${msgId2}`);
+
 
   // -------------------------------------------------------------
-  // 3. CONSULTAS E MUTAÇÕES AVANÇADAS NO WORKER (query & setSome)
+  // 5. WORKER DB: Consultas Avançadas (Background Processing)
   // -------------------------------------------------------------
-  console.log("\n⚙️ 3. Processando Fila de Mensagens no Worker...");
+  console.log("\n⚙️ 5. IndexedDB Worker - Mutações Assíncronas...");
 
-  // Consulta agregada executada dentro da thread do Worker
+  // Contagem feita DIRETAMENTE na thread do Worker, sem trafegar o array gigante para a Main Thread
   const pendingCount = await msgStore.query<LocoMessage, number>((items) => {
     return items.filter((m) => m.status === "pending").length;
   });
-  console.log(`   --> Mensagens pendentes para envio: ${pendingCount}`);
+  console.log(`   --> Total pendente (calculado remotamente): ${pendingCount}`);
 
-  // Transição de estado: Marcar todas as mensagens de 'pending' para 'sent'
+  // Atualização em massa: simula o Service Worker alterando tudo após conectar na rede
   await msgStore.setSome<LocoMessage>(
     (items) => items.filter((m) => m.status === "pending"),
     (item) => ({ ...item, status: "sent" })
   );
 
   const updatedMessages = await msgStore.values<LocoMessage>();
-  console.log("   --> Estado das mensagens após envio:", updatedMessages);
+  console.log("   --> Estado das mensagens após envio simulado:", updatedMessages);
 
-  // -------------------------------------------------------------
-  // 4. BACKUP E RESTAURAÇÃO DE SEGURANÇA (OPFS)
-  // -------------------------------------------------------------
-  console.log("\n💾 4. Executando Backup no OPFS (Origin Private File System)...");
-  const backupFileName = await msgStore.backupToOpfs("mensagens_backup.json");
-  console.log(`   --> Backup gerado com sucesso: ${backupFileName}`);
-
-  const opfsFiles = await listOpfsFiles();
-  console.log("   --> Arquivos armazenados no OPFS:", opfsFiles);
-
-  // Limpa o banco e restaura a partir do backup do OPFS
-  await msgStore.clear();
-  console.log("   --> Banco de dados limpo. Total de itens:", (await msgStore.keys()).length);
-
-  await msgStore.restoreFromOpfs(backupFileName);
-  const restoredCount = (await msgStore.keys()).length;
-  console.log(`   --> Banco de dados restaurado. Total de itens: ${restoredCount}`);
-
-  // Limpa o ambiente antes de fechar
+  // Limpa o ambiente antes de fechar para garantir finalização limpa do processo Deno
   db.terminate();
   console.log("\n✅ Demonstração finalizada. Worker encerrado.");
 }

@@ -1,8 +1,5 @@
 import { assertEquals, assert, assertNotEquals } from "@std/assert";
-import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
-import { ls } from "../src/mod.ts";
-
-globalThis.localStorage = new FakeLocalStorage();
+import { ls, listOpfsFiles } from "../src/fake-mod.ts";
 
 Deno.test({
   name: "LS Simple - Gestão de _id ('auto', '0990', com prefixo)",
@@ -75,11 +72,11 @@ Deno.test({
 
     const allValues = store.values<any>();
     assertEquals(allValues.length, 3);
-    assert(allValues.some(v => v._id === "user2" && v.name === "Ana")); // Valida se formatDbItem agiu nos values
+    assert(allValues.some((v: any) => v._id === "user2" && v.name === "Ana")); // Valida se formatDbItem agiu nos values
 
     const allEntries = store.entries<any>();
     assertEquals(allEntries.length, 3);
-    const firstEntry = allEntries.find(([k]) => k === "LS_CRUD_user3");
+    const firstEntry = allEntries.find(([k]: [string, any]) => k === "LS_CRUD_user3");
     assert(firstEntry !== undefined);
     assertEquals(firstEntry[1].name, "Beatriz");
 
@@ -113,7 +110,7 @@ Deno.test({
 
     const values = store.values<any>();
     assertEquals(values.length, 2);
-    assertEquals(values.find(i => i._id === "k1")?.v, 1);
+    assertEquals(values.find((i: any) => i._id === "k1")?.v, 1);
 
     store.clear();
   }

@@ -7,7 +7,8 @@
   },
   "imports": {
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
+    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle&target=es2022",
+    "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
 
     "@std/assert": "jsr:@std/assert",
     "@std/fs": "jsr:@std/fs",
@@ -18,7 +19,7 @@
     "build": "deno run -A --unstable-bundle build.ts",
     "test": "deno task build && deno test --allow-env --allow-net --allow-read tests/",
     "check": "deno check build.ts src/**/*.ts src/**/*.tsx",
-    "demo": "deno task build && USE_FAKE=true deno run --allow-env --allow-read --allow-net ./example/demo.ts",
+    "demo": "deno run --allow-env --allow-read --allow-net ./example/demo.ts",
     "example": "deno task build && deno run -A --unstable-bundle ./example/server.ts"
   }
 }

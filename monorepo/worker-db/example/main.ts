@@ -1,4 +1,21 @@
-import { db, ls } from "../src/mod.ts";
+import { db, ls, listOpfsFiles, deleteFromOpfs } from "../src/mod.ts";
+
+// Tipagem dos modelos de domínio do Loco PWA
+interface LocoMessage {
+  _id?: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  status: "pending" | "sent" | "delivered" | "read";
+  priority: number;
+  timestamp: number;
+}
+
+interface UserPreferences {
+  theme: "dark" | "light";
+  notificationsEnabled: boolean;
+  activeChatId: string | null;
+}
 
 // Utilitário simples para printar os resultados visualmente na interface HTML
 const logElement = document.getElementById("log-output");
@@ -13,76 +30,127 @@ function log(msg: string, data?: any) {
     }
     logElement.innerText += fullText;
   }
-  console.log(msg, data || "");
+  console.log(msg, data || ""); // Mantém no console do DevTools também
 }
 
 async function runRealWorldTests() {
-  log("🚀 INICIANDO TESTES DO LOCO PWA (AMBIENTE REAL)\n");
+  log("🚀 INICIANDO DEMONSTRAÇÃO AVANÇADA DO LOCO PWA (AMBIENTE REAL)\n");
   
-  // ==========================================
-  // 1. TESTE LOCALSTORAGE
-  // ==========================================
-  log("--- TESTANDO LOCALSTORAGE (ls) ---");
-  const local = ls("test_");
-  local.clear();
+  // Limpeza global
+  ls().clear();
+  db.init(); // Inicia o Worker do IndexedDB
+
+  // -------------------------------------------------------------
+  // 1. LOCALSTORAGE: Isolamento e Visão Global
+  // -------------------------------------------------------------
+  log("📦 1. LocalStorage - Escopos e Prefixos...");
+  const prefStore = ls("LOCO_PREF_");
+  const authStore = ls("LOCO_AUTH_");
   
-  local.set("session", { active: true, device: "desktop" });
-  const sess = local.get("session");
-  log("✅ LocalStorage gravou e recuperou com prefixo 'test_':", sess);
+  // Utilizando a nova lógica: enviando "auto" direto no ID interno
+  prefStore.set<UserPreferences>({ _id: "auto", theme: "dark", notificationsEnabled: true, activeChatId: "chat_1" });
+  authStore.set("session_token", { token: "abc-123-xyz", active: true });
   
-  // ==========================================
-  // 2. TESTE WORKER DB (INDEXEDDB)
-  // ==========================================
-  log("\n--- TESTANDO INDEXEDDB VIA WORKER (db) ---");
+  const globalStore = ls(); 
+  log(`   --> Total de chaves isoladas de Preferências: ${prefStore.keys().length}`);
+  log(`   --> Visão Global da Aplicação (todas as chaves):`, globalStore.keys());
+
+  // -------------------------------------------------------------
+  // 2. WORKER DB: Carga de Dados Massiva
+  // -------------------------------------------------------------
+  log("\n💬 2. IndexedDB Worker - Populando Fila de Mensagens...");
+  const msgStore = db("LOCO_DATA", "messages", "MSG_");
+  await msgStore.clear();
+
+  const now = Date.now();
   
-  // Inicia explicitamente o Worker (instancia usando o default './worker-db.js')
-  db.init();
-
-  // Escopo definido pela instrução do TODO
-  const store = db("db_test", "test", "demo_");
-  await store.clear();
-  log("🧹 Banco de dados 'db_test' (store: test) limpo com sucesso.");
-
-  // Teste de CRUD Simples
-  log("\n[ CRUD Simples ]");
-  const userId = await store.set("user_1", { nome: "Satoshi Nakamoto", privacy: "high" });
-  log(`✅ Registro salvo via set(). Chave gerada: ${userId}`);
-
-  const user = await store.get("user_1");
-  log("✅ Leitura realizada com get():", user);
-
-  await store.patch("user_1", { status: "online" });
-  const updatedUser = await store.get("user_1");
-  log("✅ Atualização parcial via patch() finalizada:", updatedUser);
-
-  // ==========================================
-  // 3. TESTE FUNÇÕES AVANÇADAS NO WORKER
-  // ==========================================
-  log("\n[ Mutação em Massa e Processamento em Background ]");
-  
-  await store.setMany([
-    ["msg_1", { txt: "Hello PWA", read: true }],
-    ["msg_2", { txt: "E2EE is awesome", read: false }],
-    ["msg_3", { txt: "Offline First!", read: false }],
+  // Testando o seu design: A chave informada é "auto" e o objeto não precisa de _id
+  await msgStore.setMany([
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Oi!", status: "delivered", priority: 1, timestamp: now - 5000 }],
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Tudo bem?", status: "pending", priority: 1, timestamp: now - 4000 }],
+    ["auto", { senderId: "bob", recipientId: "alice", content: "ALERTA URGENTE", status: "pending", priority: 5, timestamp: now - 3000 }],
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Foto.jpg", status: "read", priority: 1, timestamp: now - 10000 }],
   ]);
-  log("✅ setMany() inseriu 3 registros de uma vez.");
 
-  // Executa contagem diretamente na thread do worker para não bloquear a UI!
-  const unreadCount = await store.query<any, number>((items) => {
-    return items.filter(i => i.read === false).length;
-  });
-  log(`✅ query() executada remotamente. Total de msgs não lidas: ${unreadCount}`);
+  log(`   --> Banco populado via "auto" explícito nas chaves.`);
+  log(`   --> Total de mensagens injetadas com UUIDs gerados com sucesso: ${(await msgStore.keys()).length}`);
 
-  // Marca todas as não lidas como lidas de uma só vez (no worker!)
-  await store.setSome<any>(
-    (items) => items.filter(i => i.read === false),
-    (item) => ({ ...item, read: true })
-  );
+  // Testando também o .set simples para visualizar o retorno da chave gerada
+  const keyGerada = await msgStore.set("auto", { senderId: "admin", recipientId: "all", content: "Bem-vindo!", status: "read", priority: 10, timestamp: now });
+  log(`   --> Teste .set("auto"): Chave final retornada pelo sistema = ${keyGerada}`);
+
+  // -------------------------------------------------------------
+  // 3. WORKER DB: Consultas Analíticas (Agregações remotas)
+  // -------------------------------------------------------------
+  log("\n📊 3. IndexedDB Worker - Análises e Agregações Remotas (query)...");
   
-  const finalMessages = await store.values();
-  log("✅ Estado final do banco após setSome() (todas lidas):", finalMessages);
+  // Tudo isso roda em background, sem travar o Event Loop da UI!
+  const stats = await msgStore.query<LocoMessage, any>((items) => {
+    return {
+      totalPending: items.filter(i => i.status === "pending").length,
+      highestPriorityPending: items
+        .filter(i => i.status === "pending")
+        .toSorted((a, b) => b.priority - a.priority)[0], // toSorted do ES2023 no Worker!
+      hasUrgent: items.some(i => i.priority >= 5),
+      oldestMessage: items.reduce((oldest, current) => current.timestamp < oldest.timestamp ? current : oldest)
+    };
+  });
+  
+  log(`   --> Estatísticas processadas no Worker:`, stats);
 
-  log("\n🏁 TODOS OS TESTES PASSARAM COM SUCESSO!");
+  // -------------------------------------------------------------
+  // 4. WORKER DB: Mutações Condicionais Complexas
+  // -------------------------------------------------------------
+  log("\n⚙️ 4. IndexedDB Worker - Transformações Assíncronas (setSome)...");
+
+  // Altera mensagens pendentes: sobe o status para 'sent' e ofusca o conteúdo (Simulando preparo E2EE)
+  await msgStore.setSome<LocoMessage>(
+    (items) => items.filter((m) => m.status === "pending"),
+    (item) => ({ 
+      ...item, 
+      status: "sent",
+      content: `[ENCRIPTADO] ${item.content.length} bytes` 
+    })
+  );
+
+  const updatedMessages = await msgStore.getSome<LocoMessage>((items) => items.filter(m => m.status === "sent"));
+  log("   --> Mensagens atualizadas condicionalmente:", updatedMessages);
+
+  // -------------------------------------------------------------
+  // 5. WORKER DB: Deleção em Lote Segura (Garbage Collection)
+  // -------------------------------------------------------------
+  log("\n🧹 5. IndexedDB Worker - Limpeza Condicional (delSome)...");
+
+  // Removemos as mensagens antigas que já foram lidas (Simulando mensagens efêmeras)
+  await msgStore.delSome<LocoMessage>((items) => items.filter(m => m.status === "read"));
+  log(`   --> Mensagens "read" deletadas. Restantes no DB: ${(await msgStore.keys()).length}`);
+
+  // -------------------------------------------------------------
+  // 6. OPFS NATIVO: Backup Assíncrono no Sistema de Arquivos
+  // -------------------------------------------------------------
+  log("\n💾 6. Origin Private File System (OPFS) - Backup Nativo...");
+  
+  // Limpa lixos anteriores para a demonstração ser limpa
+  const oldFiles = await listOpfsFiles();
+  for (const f of oldFiles) await deleteFromOpfs(f);
+
+  const backupName = await msgStore.backupToOpfs("mensagens_v1.json");
+  const storedFiles = await listOpfsFiles();
+  
+  log(`   --> Backup gerado pelo Worker com sucesso.`);
+  log(`   --> Arquivos fisicamente guardados no OPFS do navegador:`, storedFiles);
+
+  // Prova real: vamos limpar o IndexedDB inteiro e restaurar pelo arquivo do OPFS
+  await msgStore.clear();
+  log(`   --> IndexedDB completamente apagado. Chaves: ${(await msgStore.keys()).length}`);
+  
+  await msgStore.restoreFromOpfs(backupName);
+  log(`   --> Banco restaurado do disco (OPFS). Chaves recuperadas: ${(await msgStore.keys()).length}`);
+
+
+  // Encerramento
+  db.terminate();
+  log("\n✅ Demonstração Completa Finalizada! Ambiente de dados totalmente operacional.");
 }
 
 // Inicia os testes no frontend
