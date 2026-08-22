@@ -1,7 +1,7 @@
-// worker-db/mod.ts
-import { gerarId, gerarIdComPrefixo, validarId } from "./utils/id-utils.ts";
+import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
+import { ls } from "./ls.ts";
 
-export { gerarId, gerarIdComPrefixo, validarId };
+export { gerarId, gerarIdComPrefixo, validarId, ls, type WithId };
 
 let workerInstance: Worker | null = null;
 const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
@@ -29,7 +29,6 @@ function getWorker(): Worker {
       restartWorker();
     };
   }
-
   return workerInstance;
 }
 
@@ -67,89 +66,105 @@ function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
 export interface DbStoreOptions {
   dbName?: string;
   storeName?: string;
-}
-
-export interface PaginateOptions extends DbStoreOptions {
   prefix?: string;
-  offset?: number;
-  limit?: number;
 }
 
-export interface PaginateResult<T> {
-  items: T[];
-  total: number;
-  hasMore: boolean;
-}
-
-// Métodos Globais aceitando DbStoreOptions
-export const db = {
-  // Unitários
-  get: <T>(key: string, opts?: DbStoreOptions) => exec<T>("GET", { key, ...opts }),
-  set: <T>(key: string, val: T, opts?: DbStoreOptions) => exec<void>("SET", { key, val, ...opts }),
+const globalDbAPI = {
+  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
   
-  update: async <T>(
-    key: string, 
-    updater: (val: T | undefined) => T, 
-    opts?: DbStoreOptions
-  ): Promise<void> => {
-    const currentVal = await exec<T | undefined>("GET", { key, ...opts });
+  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
+    if (typeof keyOrVal !== "string") {
+      return exec<string>("SET", { key: undefined, val: keyOrVal, ...(val as DbStoreOptions) });
+    }
+    return exec<string>("SET", { key: keyOrVal, val, ...opts });
+  },
+  
+  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
+    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
     const newVal = updater(currentVal);
     await exec<void>("SET", { key, val: newVal, ...opts });
   },
 
+  patch: <T extends Record<string, any>, C = any>(
+    key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions
+  ): Promise<WithId<T>> => {
+    const isFn = typeof patchOrFn === "function";
+    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
+  },
+
   delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
 
-  // Em Lote
-  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<T[]>("GET_MANY", { keys, ...opts }),
+  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
   setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
   deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
 
-  // Coleções
   keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
   values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
   entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
   clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
 
-  // Avançados
-  getByPrefix: <T>(prefix: string, opts?: DbStoreOptions) => exec<T[]>("GET_BY_PREFIX", { prefix, ...opts }),
-  deleteByPrefix: (prefix: string, opts?: DbStoreOptions) => exec<void>("DELETE_BY_PREFIX", { prefix, ...opts }),
-  count: (prefix?: string, opts?: DbStoreOptions) => exec<number>("COUNT", { prefix, ...opts }),
-  
-  paginate: <T>(options: PaginateOptions = {}) => exec<PaginateResult<T>>("PAGINATE", options),
+  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => 
+    exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
+
+  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => 
+    exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
+
+  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => 
+    exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
+
+  setSome: <T, C = any>(
+    selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], 
+    updateFn: (item: WithId<T>, ctx: C) => WithId<T>, 
+    context?: C, 
+    opts?: DbStoreOptions
+  ): Promise<void> => exec<void>("SET_SOME", { 
+    selectFnStr: selectFn.toString(), 
+    updateFnStr: updateFn.toString(), 
+    context, 
+    ...opts 
+  }),
 
   exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
-  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => 
-    exec<void>("IMPORT", { data, clearFirst, ...opts }),
+  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
 
-  // Lifecycle
   init: () => { getWorker(); }, 
   restart: () => restartWorker(),
   terminate: () => terminateWorker(),
-
-  // 🎯 Fábrica para uso focado em um banco específico
-  forDB: (dbName: string, storeName = "keyval") => {
-    const opts: DbStoreOptions = { dbName, storeName };
-    return {
-      get: <T>(key: string) => db.get<T>(key, opts),
-      set: <T>(key: string, val: T) => db.set<T>(key, val, opts),
-      update: <T>(key: string, updater: (val: T | undefined) => T) => db.update<T>(key, updater, opts),
-      delete: (key: string) => db.delete(key, opts),
-      getMany: <T>(keys: string[]) => db.getMany<T>(keys, opts),
-      setMany: (entries: [string, any][]) => db.setMany(entries, opts),
-      deleteMany: (keys: string[]) => db.deleteMany(keys, opts),
-      keys: () => db.keys(opts),
-      values: <T>() => db.values<T>(opts),
-      entries: <T>() => db.entries<T>(opts),
-      clear: () => db.clear(opts),
-      getByPrefix: <T>(prefix: string) => db.getByPrefix<T>(prefix, opts),
-      deleteByPrefix: (prefix: string) => db.deleteByPrefix(prefix, opts),
-      count: (prefix?: string) => db.count(prefix, opts),
-      paginate: <T>(pOpts?: Omit<PaginateOptions, "dbName" | "storeName">) => 
-        db.paginate<T>({ ...pOpts, ...opts }),
-      exportDB: () => db.exportDB(opts),
-      importDB: (data: Record<string, any>, clearFirst = false) => db.importDB(data, clearFirst, opts),
-      gerarId,
-      gerarIdComPrefixo
-    };
-  }
 };
+
+function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
+  const opts: DbStoreOptions = { dbName, storeName, prefix };
+
+  return {
+    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
+    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
+    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
+    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
+    delete: (key: string) => globalDbAPI.delete(key, opts),
+    
+    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
+    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
+    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
+    
+    keys: () => globalDbAPI.keys(opts),
+    values: <T>() => globalDbAPI.values<T>(opts),
+    entries: <T>() => globalDbAPI.entries<T>(opts),
+    clear: () => globalDbAPI.clear(opts), 
+    
+    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
+    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
+    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
+    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
+      
+    exportDB: () => globalDbAPI.exportDB(opts),
+    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
+    
+    gerarId,
+    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
+  };
+}
+
+export const db = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
+  globalDbAPI
+);

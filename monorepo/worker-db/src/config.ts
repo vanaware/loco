@@ -1,21 +1,21 @@
 // config.ts
-const getUseFakeDb = (): boolean => {
+const checkEnv = (key: string): boolean | undefined => {
   try {
-    // 1. Se estiver rodando no Deno (CLI / Testes), tenta ler a variável de ambiente
     if (typeof Deno !== "undefined") {
-      const envVal = Deno.env.get("USE_FAKE_DB");
+      const envVal = Deno.env.get(key);
       if (envVal !== undefined) return envVal === "true";
     }
   } catch {
-    // Caso a flag --allow-env não tenha sido passada no Deno CLI
+    // Caso a flag --allow-env não tenha sido passada
+    console.warn(`Não foi possível acessar a variável de ambiente ${key}.`);
   }
-
-  // 2. Fallback padrão para desenvolvimento do protótipo no navegador
-  return true;
+  return undefined;
 };
 
+const getUseFake = (): boolean => checkEnv("USE_FAKE") ?? false;
+
 export const APP_CONFIG = {
-  USE_FAKE_DB: getUseFakeDb(),
+  USE_FAKE: getUseFake(),
   APP_VERSION: "1.0.0-beta",
   LOG_LEVEL: "debug",
 };

@@ -1,42 +1,58 @@
 import { assertEquals } from "@std/assert";
 
-// Força a variável de ambiente antes de inicializar qualquer banco
 if (typeof Deno !== "undefined") {
-  Deno.env.set("USE_FAKE_DB", "true");
+  Deno.env.set("USE_FAKE", "true");
 }
 
 import { db } from "../src/mod.ts";
 
 Deno.test({
-  name: "Deve realizar operações de CRUD no IndexedDB via Web Worker (FakeDB)",
+  name: "Deve suportar _id e as funções em lote getSome, delSome, setSome e query",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    // Garantia de estado limpo no início do teste
     await db.clear();
 
-    // 1. SET & GET
-    await db.set("user_1", { name: "Alice", role: "Dev" });
-    const user = await db.get<{ name: string; role: string }>("user_1");
-    assertEquals(user?.name, "Alice");
+    const loja = db("LOJA", "produtos", "PROD_");
+    
+    await loja.setMany([
+      ["001", { nome: "Lápis", preco: 2, ativo: true }],
+      ["002", { nome: "Borracha", preco: 3, ativo: false }],
+      ["003", { nome: "Caderno", preco: 15, ativo: true }],
+      ["004", { nome: "Mochila", preco: 150, ativo: true }],
+    ]);
 
-    // 2. UPDATE
-    await db.update<{ name: string; role: string }>("user_1", (prev) => ({
-      ...prev!,
-      role: "Lead Dev",
-    }));
-    const updatedUser = await db.get<{ name: string; role: string }>("user_1");
-    assertEquals(updatedUser?.role, "Lead Dev");
+    // 1. QUERY
+    const activeCount = await loja.query<{ preco: number, ativo: boolean }, number>(
+      (items) => items.filter(i => i.ativo).length
+    );
+    assertEquals(activeCount, 3);
 
-    // 3. KEYS & DELETE
-    const allKeys = await db.keys();
-    assertEquals(allKeys.includes("user_1"), true);
+    // 2. GET_SOME (Verifica _id injetado)
+    const caros = await loja.getSome<{ preco: number, nome: string }>(
+      (items) => items.filter(i => i.preco > 10).toSorted((a, b) => b.preco - a.preco)
+    );
+    assertEquals(caros.length, 2);
+    assertEquals(caros[0]?.nome, "Mochila");
+    assertEquals(caros[0]?._id, "004");
 
-    await db.delete("user_1");
-    const emptyUser = await db.get("user_1");
-    assertEquals(emptyUser, undefined);
+    // 3. SET_SOME
+    await loja.setSome<{ preco: number, ativo: boolean, nome: string }>(
+      (items) => items.filter(i => i.ativo),
+      (item) => ({ ...item, preco: item.preco * 1.1 })
+    );
+    
+    const lapisAtt = await loja.get<{ preco: number }>("001");
+    assertEquals(lapisAtt?.preco, 2.2);
 
-    // Encerra o Worker para fechar os recursos de teste
+    // 4. DEL_SOME
+    await loja.delSome<{ ativo: boolean }>(
+      (items) => items.filter(i => i.ativo === false)
+    );
+
+    const remainingKeys = await loja.keys();
+    assertEquals(remainingKeys.length, 3);
+    
     db.terminate();
   },
 });

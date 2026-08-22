@@ -22,7 +22,7 @@ const build = async () => {
     // 2. Compilação do Worker da aplicação
     console.log("⚙️ Gerando bundle do Worker...");
     const result = await Deno.bundle({
-      entrypoints: ["./src/main.ts"],
+      entrypoints: ["./src/db.ts"],
       outputPath: "./build/worker-db.js",
       platform: "browser",
       format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker

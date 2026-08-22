@@ -1,107 +1,60 @@
-Aqui está a documentação completa do pacote `worker-db` no padrão exigido pelo projeto Loco.
+# Loco Worker-DB
 
-# 📦 @loco/worker-db
+Um banco de dados programável de alta performance para o projeto Loco. Ele executa o IndexedDB inteiramente dentro de um Web Worker, garantindo que a thread principal da aplicação (UI) nunca seja bloqueada por operações pesadas de leitura e escrita.
 
-Módulo isolado de banco de dados baseado em **Web Worker** e **IndexedDB** (`idb-keyval`). Projetado para desacoplar totalmente a persistência e o processamento de dados da thread principal (UI) da aplicação PWA[cite: 1].
+## 🚀 Funções Avançadas Injetáveis (Edge Computing no Worker)
 
----
+Para reduzir o tráfego de mensagens e o custo de serialização entre a thread principal e o Worker, o Loco Worker-DB permite que você **injete funções** que são executadas diretamente onde os dados estão.
 
-## 🚀 Recursos
-
-- **Thread Isolada:** Operações de I/O e manipulação do IndexedDB executadas fora da Main Thread para manter 60 FPS.
-- **Proxy Assíncrono (`mod.ts`):** Interface limpa baseada em `Promises` com suporte a operações unitárias, em lote e coleções[cite: 1].
-- **Suporte a FakeDB:** Injeção automática de `fake-indexeddb` em memória para testes e prototipagem offline[cite: 1].
-- **Gestão de Ciclo de Vida:** Funções para inicialização (`init`), reinicialização (`restart`) e finalização (`terminate`) da thread do Worker[cite: 1].
-- **Resiliência:** Tratamento de erros graves com recriação automática da thread caso o Worker venha a falhar[cite: 1].
+Essas funções avançadas são divididas em duas categorias principais: **Seleção de Array** e **Consultas Livres (Queries)**.
 
 ---
 
-## 📁 Estrutura do Pacote
+### 1. Seleção e Filtro de Arrays (`getSome`, `setSome`, `delSome`)
 
-- `src/mod.ts`: Ponto de entrada consumido pela aplicação (Main Thread). Gerencia a instância do Worker e expõe o objeto `db`[cite: 1].
-- `src/main.ts`: Código que roda dentro do Web Worker. Executa os comandos CRUD chamando o `idb-keyval`[cite: 1].
-- `src/config.ts`: Central de configurações e verificação do ambiente (Browser vs Deno CLI)[cite: 1].
-- `build.ts`: Script de compilação que gera o bundle otimizado em `build/worker-db.js`[cite: 1].
-- `tests/main.test.ts`: Testes automatizados executados via Deno CLI em modo FakeDB[cite: 1].
+Estas funções devem ser usadas exclusivamente para **selecionar, recortar ou ordenar** registros do banco de dados. A função injetada precisa manipular a lista de itens e retornar um Array.
 
----
+**Regra de Retorno:** 
+O retorno será sempre um Array contendo os objetos originais armazenados no banco, porém enriquecidos dinamicamente com a propriedade `_id` (a fonte da verdade é a chave no IndexedDB, sem gravar o `_id` internamente no objeto). O tipo retornado é estritamente `WithId<T>[]`.
 
-## 🛠️ Como Utilizar
+**Métodos de Array recomendados para essas funções:**
+* `filter()`: Seleciona itens com base em uma condição.
+* `slice()`: Ideal para criar paginação nativa.
+* `toSorted()`: Retorna os itens ordenados.
+* `toReversed()`: Inverte a ordem da lista.
+* `toSpliced()`: Substitui ou remove partes específicas do array.
 
-Importe o objeto `db` exportado por `src/mod.ts` para interagir com o banco de dados[cite: 1]:
-
+**Exemplo (`getSome`):**
 ```typescript
-import { db } from "./src/mod.ts";
-
-// 🔹 Operações Unitárias
-await db.set("user_1", { name: "Alice", role: "Dev" });
-const user = await db.get<{ name: string; role: string }>("user_1");
-
-// 🔹 Atualização Atômica na Main Thread (evita falhas de clonagem de funções)
-await db.update<{ name: string; role: string }>("user_1", (prev) => ({
-  ...prev!,
-  role: "Lead Dev"
-}));
-
-// 🔹 Operações em Lote (Batch)
-await db.setMany([
-  ["settings_theme", "dark"],
-  ["settings_lang", "pt-BR"]
-]);
-
-// 🔹 Consultas e Coleções
-const allKeys = await db.keys();
-const allValues = await db.values();
-
-// 🔹 Limpeza de Dados
-await db.clear();
-
-// 🔹 Controle de Ciclo de Vida
-db.restart();   // Reinicia a thread do Worker
-db.terminate(); // Encerra o Worker e libera recursos
-
-// 🔹 Operações de uso prático:
-import { db, gerarIdComPrefixo } from "./worker-db/src/mod.ts";
-
-// Opção A: Usando a fábrica isolada por banco
-const userStore = db.forDB("USUARIOS_DB");
-
-const userId = gerarIdComPrefixo("USER"); // "USER:a1b2c3d4e5f6"
-await userStore.set(userId, { name: "Carlos", email: "carlos@email.com" });
-
-const user = await userStore.get(userId);
-const allUsers = await userStore.getByPrefix("USER:");
-
-// Opção B: Passando a opção de banco diretamente
-await db.set("CONFIG:THEME", "dark", { dbName: "CONFIGS_DB" });
+const caros = await loja.getSome<{ preco: number, nome: string }>(
+  (items) => items.filter(i => i.preco > 10).toSorted((a, b) => b.preco - a.preco)
+);
+// caros[0]._id estará disponível automaticamente
 
 ```
 
 ---
 
-## 🧪 Comandos de Build e Teste
+### 2. Consultas e Agregações Livres (`query`)
 
-Os comandos são gerenciados pelas tarefas declaradas no `deno.jsonc`:
+A função `query` é a ferramenta de processamento livre do banco. Você deve usá-la quando quiser extrair apenas um valor específico, fazer um cálculo ou transformar os dados completamente antes de devolvê-los para a thread principal.
 
-| Comando | Descrição |
-| --- | --- |
-| `deno task build` | Compila o arquivo `src/main.ts` gerando o bundle ESM em `build/worker-db.js`.
+**Regra de Retorno:**
+Pode retornar **qualquer coisa** (`any` ou o tipo genérico `R` fornecido na chamada).
 
- |
-| `deno task test` | Executa o build e roda a suíte de testes com a flag `USE_FAKE_DB` ativa.
+**Métodos de Array recomendados para o `query`:**
 
- |
-| `deno task check` | Executa a verificação estática de tipos nos arquivos do módulo.
+* **Cálculos e Contagem:** `reduce()`, `length`.
+* **Busca de item único:** `find()`, `findLast()`, `at()`.
+* **Validações Lógicas:** `some()`, `every()`, `includes()`.
+* **Mapeamento e Extração:** `map()`, `flatMap()`.
+* **Índices:** `findIndex()`, `findLastIndex()`, `indexOf()`.
 
- |
+**Exemplo (`query`):**
 
----
+```typescript
+const somaPrecos = await loja.query<{ preco: number }, number>(
+  (items) => items.reduce((acc, curr) => acc + curr.preco, 0)
+);
 
-## ⚙️ Alternância de Banco (Fake vs Real)
-
-A seleção do banco é controlada dinamicamente pelo `src/config.ts`:
-
-1. **Em ambiente de testes / CLI:** A variável de ambiente `USE_FAKE_DB="true"` força o uso do `fake-indexeddb`.
-
-
-2. **No navegador (desenvolvimento/protótipo):** Por padrão, a propriedade `USE_FAKE_DB` no `config.ts` é definida como `true`. Para chavear para o IndexedDB real do navegador, altere esse valor para `false`.
+```

@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/22/2026, 8:17:00 AM
+Gerado automaticamente em: 8/22/2026, 10:19:47 AM
 
 ---
 
@@ -39,27 +39,228 @@ Gerado automaticamente em: 8/22/2026, 8:17:00 AM
 
 ---
 
+## Arquivo: `monorepo/worker-db/src/ls.ts`
+
+```ts
+import { APP_CONFIG } from "./config.ts";
+import { FakeLocalStorage } from "./utils/fake-storage.ts";
+
+function ensureLocalStorage(): Storage {
+  if (!APP_CONFIG.USE_FAKE && typeof globalThis.localStorage == "undefined") {
+    console.warn(
+      "localStorage is not available in this environment. Falling back to FakeLocalStorage."
+    );
+  }
+  if (APP_CONFIG.USE_FAKE || typeof globalThis.localStorage === "undefined") {
+    if (!(globalThis.localStorage instanceof FakeLocalStorage)) {
+      Object.defineProperty(globalThis, "localStorage", {
+        value: new FakeLocalStorage(),
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    }
+  }
+  return globalThis.localStorage;
+}
+
+export function createLsStore(prefix: string = "") {
+  const formatKey = (key: string) => `${prefix}${key}`;
+
+  return {
+    get: <T>(key: string, fallback: T | null = null): T | null => {
+      try {
+        const item = ensureLocalStorage().getItem(formatKey(key));
+        return item ? (JSON.parse(item) as T) : fallback;
+      } catch {
+        return fallback;
+      }
+    },
+    set: <T>(key: string, value: T): void => {
+      ensureLocalStorage().setItem(formatKey(key), JSON.stringify(value));
+    },
+    patch: <T extends Record<string, any>>(
+      key: string,
+      patchOrFn: Partial<T> | ((prev: T | null) => T | Partial<T>)
+    ): T => {
+      const fullKey = formatKey(key);
+      const storage = ensureLocalStorage();
+      const raw = storage.getItem(fullKey);
+      const current = raw ? JSON.parse(raw) : null;
+      let updated: T;
+
+      if (typeof patchOrFn === "function") {
+        updated = patchOrFn(current) as T;
+      } else {
+        updated = Object.assign({}, current || {}, patchOrFn);
+      }
+
+      storage.setItem(fullKey, JSON.stringify(updated));
+      return updated;
+    },
+    delete: (key: string): void => {
+      ensureLocalStorage().removeItem(formatKey(key));
+    },
+    has: (key: string): boolean => {
+      return ensureLocalStorage().getItem(formatKey(key)) !== null;
+    },
+    keys: (): string[] => {
+      const storage = ensureLocalStorage();
+      const resultKeys: string[] = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && k.startsWith(prefix)) {
+          resultKeys.push(prefix ? k.slice(prefix.length) : k);
+        }
+      }
+      return resultKeys;
+    },
+    clear: (): void => {
+      const storage = ensureLocalStorage();
+      if (!prefix) {
+        storage.clear();
+        return;
+      }
+      const toRemove: string[] = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && k.startsWith(prefix)) toRemove.push(k);
+      }
+      toRemove.forEach((k) => storage.removeItem(k));
+    }
+  };
+}
+
+export const ls = Object.assign(
+  (prefix: string = "") => createLsStore(prefix),
+  createLsStore("")
+);
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/fake-storage.ts`
+
+```ts
+export class FakeLocalStorage implements Storage {
+  private store = new Map<string, string>();
+
+  get length(): number {
+    return this.store.size;
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.store.keys())[index] ?? null;
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/id-utils.ts`
+
+```ts
+export function gerarId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
+}
+
+export function gerarIdComPrefixo(prefix: string): string {
+  return `${prefix}${gerarId()}`;
+}
+
+export function validarId(id: string): boolean {
+  return typeof id === "string" && id.length > 0;
+}
+
+// Injeta dinamicamente o '_id' sem o prefixo ao LER do IndexedDB
+export function formatDbItem(key: IDBValidKey, val: any, prefix = ""): any {
+  if (!val || typeof val !== "object" || Array.isArray(val)) return val;
+  const keyStr = String(key);
+  const _id = prefix && keyStr.startsWith(prefix) ? keyStr.slice(prefix.length) : keyStr;
+  return { _id, ...val };
+}
+
+// Prepara a chave final para o IndexedDB e limpa o '_id' do objeto gravado
+export function prepareForSave(key: string | undefined | null, val: any, prefix = ""): { key: string; cleanVal: any } {
+  let rawId = val && typeof val === "object" ? val._id : undefined;
+  
+  // Utiliza a função gerarId quando for "auto"
+  if (rawId === "auto") {
+    rawId = gerarId();
+  }
+
+  let finalKey = key || "";
+
+  if (rawId) {
+    if (prefix && rawId.startsWith(prefix)) {
+      finalKey = rawId;
+    } else {
+      finalKey = prefix ? `${prefix}${rawId}` : rawId;
+    }
+  } else if (key) {
+    if (prefix && key.startsWith(prefix)) {
+      finalKey = key;
+    } else {
+      finalKey = prefix ? `${prefix}${key}` : key;
+    }
+  }
+
+  if (!finalKey) {
+    throw new Error("Uma chave (key) ou um atributo '_id' no objeto deve ser fornecido.");
+  }
+
+  // Remove a propriedade '_id' para manter a chave no IndexedDB como única fonte da verdade
+  if (val && typeof val === "object" && !Array.isArray(val) && "_id" in val) {
+    const { _id: _, ...cleanVal } = val;
+    return { key: finalKey, cleanVal };
+  }
+
+  return { key: finalKey, cleanVal: val };
+}
+```
+
+---
+
 ## Arquivo: `monorepo/worker-db/src/config.ts`
 
 ```ts
 // config.ts
-const getUseFakeDb = (): boolean => {
+const checkEnv = (key: string): boolean | undefined => {
   try {
-    // 1. Se estiver rodando no Deno (CLI / Testes), tenta ler a variável de ambiente
     if (typeof Deno !== "undefined") {
-      const envVal = Deno.env.get("USE_FAKE_DB");
+      const envVal = Deno.env.get(key);
       if (envVal !== undefined) return envVal === "true";
     }
   } catch {
-    // Caso a flag --allow-env não tenha sido passada no Deno CLI
+    // Caso a flag --allow-env não tenha sido passada
+    console.warn(`Não foi possível acessar a variável de ambiente ${key}.`);
   }
-
-  // 2. Fallback padrão para desenvolvimento do protótipo no navegador
-  return true;
+  return undefined;
 };
 
+const getUseFake = (): boolean => checkEnv("USE_FAKE") ?? false;
+
 export const APP_CONFIG = {
-  USE_FAKE_DB: getUseFakeDb(),
+  USE_FAKE: getUseFake(),
   APP_VERSION: "1.0.0-beta",
   LOG_LEVEL: "debug",
 };
@@ -67,42 +268,40 @@ export const APP_CONFIG = {
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/main.ts`
+## Arquivo: `monorepo/worker-db/src/db.ts`
 
 ```ts
 import { APP_CONFIG } from "./config.ts";
 
-// Inicializa FakeDB se configurado
-if (APP_CONFIG.USE_FAKE_DB) {
+if (APP_CONFIG.USE_FAKE) {
   await import("fake-indexeddb");
 }
 
 import { 
-  get, 
-  set, 
-  del, 
-  keys, 
-  clear, 
-  getMany, 
-  setMany, 
-  delMany, 
-  values, 
-  entries,
-  createStore,
-  type UseStore
+  get, set, del, keys, clear, getMany, setMany, delMany, 
+  values, entries, createStore, type UseStore
 } from "idb-keyval";
 
-// Cache de instâncias de bancos para reaproveitamento
+import { formatDbItem, prepareForSave } from "./utils/id-utils.ts";
+
 const storeCache = new Map<string, UseStore>();
 
 function getCustomStore(dbName?: string, storeName = "keyval"): UseStore | undefined {
-  if (!dbName) return undefined; // Usa o banco e store padrão do idb-keyval
+  if (!dbName) return undefined; 
   
   const cacheKey = `${dbName}:${storeName}`;
   if (!storeCache.has(cacheKey)) {
     storeCache.set(cacheKey, createStore(dbName, storeName));
   }
   return storeCache.get(cacheKey);
+}
+
+function formatDbEntries(rawEntries: [IDBValidKey, any][], prefix?: string) {
+  let items = rawEntries;
+  if (prefix) {
+    items = items.filter(([k]) => typeof k === "string" && k.startsWith(prefix));
+  }
+  return items.map(([k, v]) => formatDbItem(k, v, prefix));
 }
 
 self.onmessage = async (e: MessageEvent) => {
@@ -113,65 +312,138 @@ self.onmessage = async (e: MessageEvent) => {
     let result;
 
     switch (command) {
-      // 🔹 Operações Unitárias
-      case "GET":      result = await get(args.key, store); break;
-      case "SET":      result = await set(args.key, args.val, store); break;
-      case "DELETE":   result = await del(args.key, store); break;
-      
-      // 🔹 Operações em Lote
-      case "GET_MANY": result = await getMany(args.keys, store); break;
-      case "SET_MANY": result = await setMany(args.entries, store); break;
-      case "DEL_MANY": result = await delMany(args.keys, store); break;
-      
-      // 🔹 Leitura de Coleções
-      case "KEYS":     result = await keys(store); break;
-      case "VALUES":   result = await values(store); break;
-      case "ENTRIES":  result = await entries(store); break;
-      case "CLEAR":    result = await clear(store); break;
-
-      // 🚀 Operações Avançadas
-      case "GET_BY_PREFIX": {
-        const allEntries = await entries(store);
-        result = allEntries
-          .filter(([k]) => typeof k === "string" && k.startsWith(args.prefix))
-          .map(([_, v]) => v);
+      case "GET": {
+        const rawKey = args.key ? (args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key) : args.key;
+        const val = await get(rawKey, store);
+        result = val !== undefined ? formatDbItem(rawKey, val, args.prefix) : undefined;
         break;
       }
 
-      case "DELETE_BY_PREFIX": {
-        const allKeys = await keys(store);
-        const targetKeys = allKeys.filter(
-          (k) => typeof k === "string" && k.startsWith(args.prefix)
-        );
-        result = await delMany(targetKeys as string[], store);
+      case "SET": {
+        const { key, cleanVal } = prepareForSave(args.key, args.val, args.prefix);
+        await set(key, cleanVal, store);
+        result = key;
         break;
       }
 
-      case "COUNT": {
-        const allKeys = await keys(store);
-        result = args.prefix
-          ? allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix)).length
-          : allKeys.length;
+      case "DELETE": {
+        const rawKey = args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key;
+        result = await del(rawKey, store);
         break;
       }
 
-      case "PAGINATE": {
-        let allEntries = await entries(store);
-        if (args.prefix) {
-          allEntries = allEntries.filter(
-            ([k]) => typeof k === "string" && k.startsWith(args.prefix)
-          );
+      case "GET_MANY": {
+        const fullKeys = args.keys.map((k: string) => args.prefix && !k.startsWith(args.prefix) ? `${args.prefix}${k}` : k);
+        const rawValues = await getMany(fullKeys, store);
+        result = rawValues.map((val, idx) => val !== undefined ? formatDbItem(fullKeys[idx]!, val, args.prefix) : undefined);
+        break;
+      }
+
+      case "SET_MANY": {
+        const entriesToSet: [string, any][] = args.entries.map(([k, v]: [string, any]) => {
+          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
+          return [key, cleanVal];
+        });
+        result = await setMany(entriesToSet, store);
+        break;
+      }
+
+      case "DEL_MANY": {
+        const fullKeys = args.keys.map((k: string) => args.prefix && !k.startsWith(args.prefix) ? `${args.prefix}${k}` : k);
+        result = await delMany(fullKeys, store);
+        break;
+      }
+
+      case "KEYS":    result = await keys(store); break;
+      case "VALUES":  result = await values(store); break;
+      case "ENTRIES": result = await entries(store); break;
+      case "CLEAR":   result = await clear(store); break;
+
+      case "PATCH": {
+        const rawKey = args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key;
+        const current = (await get(rawKey, store)) || {};
+        let updated: any;
+
+        if (args.fnStr) {
+          const runner = new Function("prev", "ctx", `return (${args.fnStr})(prev, ctx);`);
+          updated = runner(formatDbItem(rawKey, current, args.prefix), args.context);
+        } else {
+          updated = Object.assign({}, current, args.patch);
         }
-        const total = allEntries.length;
-        const offset = args.offset || 0;
-        const limit = args.limit || 10;
-        const slice = allEntries.slice(offset, offset + limit).map(([_, v]) => v);
+
+        const { key, cleanVal } = prepareForSave(rawKey, updated, args.prefix);
+        await set(key, cleanVal, store);
+        result = formatDbItem(key, cleanVal, args.prefix);
+        break;
+      }
+
+      case "QUERY": {
+        const rawEntries = await entries(store);
+        const formattedItems = formatDbEntries(rawEntries, args.prefix);
+        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
+        result = runner(formattedItems, args.context);
+        break;
+      }
+
+      case "GET_SOME": {
+        const rawEntries = await entries(store);
+        const formattedItems = formatDbEntries(rawEntries, args.prefix);
+        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
+        const selectedItems = runner(formattedItems, args.context);
         
-        result = {
-          items: slice,
-          total,
-          hasMore: offset + limit < total
-        };
+        if (!Array.isArray(selectedItems)) {
+          throw new Error("A função injetada em GET_SOME deve retornar um Array.");
+        }
+        
+        result = selectedItems;
+        break;
+      }
+
+      case "DEL_SOME": {
+        const rawEntries = await entries(store);
+        const formattedItems = formatDbEntries(rawEntries, args.prefix);
+        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
+        const selectedItems = runner(formattedItems, args.context);
+        
+        if (!Array.isArray(selectedItems)) {
+          throw new Error("A função injetada em DEL_SOME deve retornar um Array.");
+        }
+        
+        const keysToDelete: string[] = selectedItems.map((item: any) => {
+          if (!item || item._id === undefined) {
+            throw new Error("Os itens retornados em DEL_SOME precisam conter a propriedade '_id'.");
+          }
+          return args.prefix && !item._id.startsWith(args.prefix) ? `${args.prefix}${item._id}` : item._id;
+        });
+          
+        result = await delMany(keysToDelete, store);
+        break;
+      }
+
+      case "SET_SOME": {
+        const rawEntries = await entries(store);
+        const formattedItems = formatDbEntries(rawEntries, args.prefix);
+        
+        const selectRunner = new Function("items", "ctx", `return (${args.selectFnStr})(items, ctx);`);
+        const updateRunner = new Function("item", "ctx", `return (${args.updateFnStr})(item, ctx);`);
+        
+        const selectedItems = selectRunner(formattedItems, args.context);
+        
+        if (!Array.isArray(selectedItems)) {
+          throw new Error("A função de seleção em SET_SOME deve retornar um Array.");
+        }
+        
+        const entriesToSet: [string, any][] = selectedItems.map((item: any) => {
+          if (!item || item._id === undefined) {
+             throw new Error("Os itens selecionados no SET_SOME precisam conter a propriedade '_id'.");
+          }
+          
+          const updatedItem = updateRunner(item, args.context);
+          const { key, cleanVal } = prepareForSave(undefined, updatedItem, args.prefix);
+          return [key, cleanVal];
+        });
+        
+        result = await setMany(entriesToSet, store);
         break;
       }
 
@@ -204,10 +476,10 @@ self.onmessage = async (e: MessageEvent) => {
 ## Arquivo: `monorepo/worker-db/src/mod.ts`
 
 ```ts
-// worker-db/mod.ts
 import { gerarId, gerarIdComPrefixo, validarId } from "./utils/id-utils.ts";
+import { ls } from "./ls.ts";
 
-export { gerarId, gerarIdComPrefixo, validarId };
+export { gerarId, gerarIdComPrefixo, validarId, ls };
 
 let workerInstance: Worker | null = null;
 const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
@@ -235,7 +507,6 @@ function getWorker(): Worker {
       restartWorker();
     };
   }
-
   return workerInstance;
 }
 
@@ -273,92 +544,110 @@ function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
 export interface DbStoreOptions {
   dbName?: string;
   storeName?: string;
-}
-
-export interface PaginateOptions extends DbStoreOptions {
   prefix?: string;
-  offset?: number;
-  limit?: number;
 }
 
-export interface PaginateResult<T> {
-  items: T[];
-  total: number;
-  hasMore: boolean;
-}
+export type WithId<T> = T & { _id: string };
 
-// Métodos Globais aceitando DbStoreOptions
-export const db = {
-  // Unitários
-  get: <T>(key: string, opts?: DbStoreOptions) => exec<T>("GET", { key, ...opts }),
-  set: <T>(key: string, val: T, opts?: DbStoreOptions) => exec<void>("SET", { key, val, ...opts }),
+const globalDbAPI = {
+  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
   
-  update: async <T>(
-    key: string, 
-    updater: (val: T | undefined) => T, 
-    opts?: DbStoreOptions
-  ): Promise<void> => {
-    const currentVal = await exec<T | undefined>("GET", { key, ...opts });
+  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
+    if (typeof keyOrVal !== "string") {
+      return exec<string>("SET", { key: undefined, val: keyOrVal, ...(val as DbStoreOptions) });
+    }
+    return exec<string>("SET", { key: keyOrVal, val, ...opts });
+  },
+  
+  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
+    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
     const newVal = updater(currentVal);
     await exec<void>("SET", { key, val: newVal, ...opts });
   },
 
+  patch: <T extends Record<string, any>, C = any>(
+    key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions
+  ): Promise<WithId<T>> => {
+    const isFn = typeof patchOrFn === "function";
+    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
+  },
+
   delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
 
-  // Em Lote
-  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<T[]>("GET_MANY", { keys, ...opts }),
+  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]>("GET_MANY", { keys, ...opts }),
   setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
   deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
 
-  // Coleções
   keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
   values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
   entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
   clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
 
-  // Avançados
-  getByPrefix: <T>(prefix: string, opts?: DbStoreOptions) => exec<T[]>("GET_BY_PREFIX", { prefix, ...opts }),
-  deleteByPrefix: (prefix: string, opts?: DbStoreOptions) => exec<void>("DELETE_BY_PREFIX", { prefix, ...opts }),
-  count: (prefix?: string, opts?: DbStoreOptions) => exec<number>("COUNT", { prefix, ...opts }),
-  
-  paginate: <T>(options: PaginateOptions = {}) => exec<PaginateResult<T>>("PAGINATE", options),
+  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => 
+    exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
+
+  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => 
+    exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
+
+  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => 
+    exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
+
+  setSome: <T, C = any>(
+    selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], 
+    updateFn: (item: WithId<T>, ctx: C) => WithId<T>, 
+    context?: C, 
+    opts?: DbStoreOptions
+  ): Promise<void> => exec<void>("SET_SOME", { 
+    selectFnStr: selectFn.toString(), 
+    updateFnStr: updateFn.toString(), 
+    context, 
+    ...opts 
+  }),
 
   exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
-  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => 
-    exec<void>("IMPORT", { data, clearFirst, ...opts }),
+  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
 
-  // Lifecycle
   init: () => { getWorker(); }, 
   restart: () => restartWorker(),
   terminate: () => terminateWorker(),
-
-  // 🎯 Fábrica para uso focado em um banco específico
-  forDB: (dbName: string, storeName = "keyval") => {
-    const opts: DbStoreOptions = { dbName, storeName };
-    return {
-      get: <T>(key: string) => db.get<T>(key, opts),
-      set: <T>(key: string, val: T) => db.set<T>(key, val, opts),
-      update: <T>(key: string, updater: (val: T | undefined) => T) => db.update<T>(key, updater, opts),
-      delete: (key: string) => db.delete(key, opts),
-      getMany: <T>(keys: string[]) => db.getMany<T>(keys, opts),
-      setMany: (entries: [string, any][]) => db.setMany(entries, opts),
-      deleteMany: (keys: string[]) => db.deleteMany(keys, opts),
-      keys: () => db.keys(opts),
-      values: <T>() => db.values<T>(opts),
-      entries: <T>() => db.entries<T>(opts),
-      clear: () => db.clear(opts),
-      getByPrefix: <T>(prefix: string) => db.getByPrefix<T>(prefix, opts),
-      deleteByPrefix: (prefix: string) => db.deleteByPrefix(prefix, opts),
-      count: (prefix?: string) => db.count(prefix, opts),
-      paginate: <T>(pOpts?: Omit<PaginateOptions, "dbName" | "storeName">) => 
-        db.paginate<T>({ ...pOpts, ...opts }),
-      exportDB: () => db.exportDB(opts),
-      importDB: (data: Record<string, any>, clearFirst = false) => db.importDB(data, clearFirst, opts),
-      gerarId,
-      gerarIdComPrefixo
-    };
-  }
 };
+
+function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
+  const opts: DbStoreOptions = { dbName, storeName, prefix };
+
+  return {
+    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
+    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
+    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
+    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
+    delete: (key: string) => globalDbAPI.delete(key, opts),
+    
+    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
+    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
+    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
+    
+    keys: () => globalDbAPI.keys(opts),
+    values: <T>() => globalDbAPI.values<T>(opts),
+    entries: <T>() => globalDbAPI.entries<T>(opts),
+    clear: () => globalDbAPI.clear(opts), 
+    
+    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
+    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
+    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
+    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
+      
+    exportDB: () => globalDbAPI.exportDB(opts),
+    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
+    
+    gerarId,
+    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
+  };
+}
+
+export const db = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
+  globalDbAPI
+);
 ```
 
 ---
@@ -368,43 +657,59 @@ export const db = {
 ```ts
 import { assertEquals } from "@std/assert";
 
-// Força a variável de ambiente antes de inicializar qualquer banco
 if (typeof Deno !== "undefined") {
-  Deno.env.set("USE_FAKE_DB", "true");
+  Deno.env.set("USE_FAKE", "true");
 }
 
 import { db } from "../src/mod.ts";
 
 Deno.test({
-  name: "Deve realizar operações de CRUD no IndexedDB via Web Worker (FakeDB)",
+  name: "Deve suportar _id e as funções em lote getSome, delSome, setSome e query",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    // Garantia de estado limpo no início do teste
     await db.clear();
 
-    // 1. SET & GET
-    await db.set("user_1", { name: "Alice", role: "Dev" });
-    const user = await db.get<{ name: string; role: string }>("user_1");
-    assertEquals(user?.name, "Alice");
+    const loja = db("LOJA", "produtos", "PROD_");
+    
+    await loja.setMany([
+      ["001", { nome: "Lápis", preco: 2, ativo: true }],
+      ["002", { nome: "Borracha", preco: 3, ativo: false }],
+      ["003", { nome: "Caderno", preco: 15, ativo: true }],
+      ["004", { nome: "Mochila", preco: 150, ativo: true }],
+    ]);
 
-    // 2. UPDATE
-    await db.update<{ name: string; role: string }>("user_1", (prev) => ({
-      ...prev!,
-      role: "Lead Dev",
-    }));
-    const updatedUser = await db.get<{ name: string; role: string }>("user_1");
-    assertEquals(updatedUser?.role, "Lead Dev");
+    // 1. QUERY
+    const activeCount = await loja.query<{ preco: number, ativo: boolean }, number>(
+      (items) => items.filter(i => i.ativo).length
+    );
+    assertEquals(activeCount, 3);
 
-    // 3. KEYS & DELETE
-    const allKeys = await db.keys();
-    assertEquals(allKeys.includes("user_1"), true);
+    // 2. GET_SOME (Verifica _id injetado)
+    const caros = await loja.getSome<{ preco: number, nome: string }>(
+      (items) => items.filter(i => i.preco > 10).toSorted((a, b) => b.preco - a.preco)
+    );
+    assertEquals(caros.length, 2);
+    assertEquals(caros[0]?.nome, "Mochila");
+    assertEquals(caros[0]?._id, "004");
 
-    await db.delete("user_1");
-    const emptyUser = await db.get("user_1");
-    assertEquals(emptyUser, undefined);
+    // 3. SET_SOME
+    await loja.setSome<{ preco: number, ativo: boolean, nome: string }>(
+      (items) => items.filter(i => i.ativo),
+      (item) => ({ ...item, preco: item.preco * 1.1 })
+    );
+    
+    const lapisAtt = await loja.get<{ preco: number }>("001");
+    assertEquals(lapisAtt?.preco, 2.2);
 
-    // Encerra o Worker para fechar os recursos de teste
+    // 4. DEL_SOME
+    await loja.delSome<{ ativo: boolean }>(
+      (items) => items.filter(i => i.ativo === false)
+    );
+
+    const remainingKeys = await loja.keys();
+    assertEquals(remainingKeys.length, 3);
+    
     db.terminate();
   },
 });
@@ -439,7 +744,7 @@ const build = async () => {
     // 2. Compilação do Worker da aplicação
     console.log("⚙️ Gerando bundle do Worker...");
     const result = await Deno.bundle({
-      entrypoints: ["./src/main.ts"],
+      entrypoints: ["./src/db.ts"],
       outputPath: "./build/worker-db.js",
       platform: "browser",
       format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
