@@ -18,6 +18,7 @@
   },
 
   "tasks": {
+    "cache": "deno cache build.ts server.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
     "build": "deno run -A --unstable-bundle build.ts",
     "serve": "deno run -A server.ts",
     "dev": "deno run -A --watch server.ts",

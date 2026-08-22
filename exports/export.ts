@@ -10,12 +10,12 @@
  * - deno task export playground -> Exporta a área de Playground
  */
 
-import { walk } from "jsr:@std/fs/walk";
-import { relative } from "jsr:@std/path/relative";
+import { walk } from "@std/fs/walk";
+import { relative } from "@std/path/relative";
 import { APP_VERSION } from "../src/constants/version.ts";
 
 // 1. Definição de Tipos e Interfaces
-type ModoExportacao = "main" | "docs" | "tests" | "server" | "playground";
+type ModoExportacao = "main" | "docs" | "tests" | "server" | "playground" | "workerdb";
 
 interface ExportConfig {
   arquivoSaida: string;
@@ -79,6 +79,15 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND."
+  },
+  workerdb: {
+    arquivoSaida: "exports/worker-db.md",
+    extensoesPermitidas: EXTENSOES_PADRAO,
+    pastaBase: "monorepo/worker-db",
+    subpastasPermitidas: ["src", "tests","docs"],
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md", "LICENSE"],
+    incluiVersao: false,
+    instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de WORKER-DB."
   }
 };
 

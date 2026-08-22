@@ -71,5 +71,8 @@
     "deploy": "./deploy.sh"
   },
   "exclude": ["build/", "public/"],
-  "nodeModulesDir": "auto"
+  "nodeModulesDir": "auto",
+    
+ "vendor": true,
+  "allowScripts": ["npm:esbuild@0.28.1", "npm:workerd@1.20260811.1"]
 }
