@@ -84,7 +84,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivoSaida: "exports/worker-db.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/worker-db",
-    subpastasPermitidas: ["src", "tests","docs"],
+    subpastasPermitidas: ["src", "tests","docs", "example"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md", "LICENSE"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de WORKER-DB."

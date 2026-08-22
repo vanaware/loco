@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/22/2026, 10:19:47 AM
+Gerado automaticamente em: 8/22/2026, 2:42:18 PM
 
 ---
 
@@ -25,148 +25,18 @@ Gerado automaticamente em: 8/22/2026, 10:19:47 AM
   "imports": {
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
     "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
-    "@std/assert": "jsr:@std/assert",
 
-    "@std/fs": "jsr:@std/fs"
+    "@std/assert": "jsr:@std/assert",
+    "@std/fs": "jsr:@std/fs",
+    "@std/http": "jsr:@std/http",
+    "@std/path": "jsr:@std/path"
   },
   "tasks": {
     "build": "deno run -A --unstable-bundle build.ts",
     "test": "deno task build && deno test --allow-env --allow-net --allow-read tests/",
-    "check": "deno check build.ts src/**/*.ts src/**/*.tsx"
-  }
-}
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/ls.ts`
-
-```ts
-import { APP_CONFIG } from "./config.ts";
-import { FakeLocalStorage } from "./utils/fake-storage.ts";
-
-function ensureLocalStorage(): Storage {
-  if (!APP_CONFIG.USE_FAKE && typeof globalThis.localStorage == "undefined") {
-    console.warn(
-      "localStorage is not available in this environment. Falling back to FakeLocalStorage."
-    );
-  }
-  if (APP_CONFIG.USE_FAKE || typeof globalThis.localStorage === "undefined") {
-    if (!(globalThis.localStorage instanceof FakeLocalStorage)) {
-      Object.defineProperty(globalThis, "localStorage", {
-        value: new FakeLocalStorage(),
-        writable: true,
-        configurable: true,
-        enumerable: true,
-      });
-    }
-  }
-  return globalThis.localStorage;
-}
-
-export function createLsStore(prefix: string = "") {
-  const formatKey = (key: string) => `${prefix}${key}`;
-
-  return {
-    get: <T>(key: string, fallback: T | null = null): T | null => {
-      try {
-        const item = ensureLocalStorage().getItem(formatKey(key));
-        return item ? (JSON.parse(item) as T) : fallback;
-      } catch {
-        return fallback;
-      }
-    },
-    set: <T>(key: string, value: T): void => {
-      ensureLocalStorage().setItem(formatKey(key), JSON.stringify(value));
-    },
-    patch: <T extends Record<string, any>>(
-      key: string,
-      patchOrFn: Partial<T> | ((prev: T | null) => T | Partial<T>)
-    ): T => {
-      const fullKey = formatKey(key);
-      const storage = ensureLocalStorage();
-      const raw = storage.getItem(fullKey);
-      const current = raw ? JSON.parse(raw) : null;
-      let updated: T;
-
-      if (typeof patchOrFn === "function") {
-        updated = patchOrFn(current) as T;
-      } else {
-        updated = Object.assign({}, current || {}, patchOrFn);
-      }
-
-      storage.setItem(fullKey, JSON.stringify(updated));
-      return updated;
-    },
-    delete: (key: string): void => {
-      ensureLocalStorage().removeItem(formatKey(key));
-    },
-    has: (key: string): boolean => {
-      return ensureLocalStorage().getItem(formatKey(key)) !== null;
-    },
-    keys: (): string[] => {
-      const storage = ensureLocalStorage();
-      const resultKeys: string[] = [];
-      for (let i = 0; i < storage.length; i++) {
-        const k = storage.key(i);
-        if (k && k.startsWith(prefix)) {
-          resultKeys.push(prefix ? k.slice(prefix.length) : k);
-        }
-      }
-      return resultKeys;
-    },
-    clear: (): void => {
-      const storage = ensureLocalStorage();
-      if (!prefix) {
-        storage.clear();
-        return;
-      }
-      const toRemove: string[] = [];
-      for (let i = 0; i < storage.length; i++) {
-        const k = storage.key(i);
-        if (k && k.startsWith(prefix)) toRemove.push(k);
-      }
-      toRemove.forEach((k) => storage.removeItem(k));
-    }
-  };
-}
-
-export const ls = Object.assign(
-  (prefix: string = "") => createLsStore(prefix),
-  createLsStore("")
-);
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/utils/fake-storage.ts`
-
-```ts
-export class FakeLocalStorage implements Storage {
-  private store = new Map<string, string>();
-
-  get length(): number {
-    return this.store.size;
-  }
-
-  clear(): void {
-    this.store.clear();
-  }
-
-  getItem(key: string): string | null {
-    return this.store.get(key) ?? null;
-  }
-
-  setItem(key: string, value: string): void {
-    this.store.set(key, String(value));
-  }
-
-  removeItem(key: string): void {
-    this.store.delete(key);
-  }
-
-  key(index: number): string | null {
-    return Array.from(this.store.keys())[index] ?? null;
+    "check": "deno check build.ts src/**/*.ts src/**/*.tsx",
+    "demo": "deno task build && USE_FAKE=true deno run --allow-env --allow-read --allow-net ./example/demo.ts",
+    "example": "deno task build && deno run -A --unstable-bundle ./example/server.ts"
   }
 }
 ```
@@ -176,6 +46,8 @@ export class FakeLocalStorage implements Storage {
 ## Arquivo: `monorepo/worker-db/src/utils/id-utils.ts`
 
 ```ts
+export type WithId<T> = T & { _id: string };
+
 export function gerarId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -191,7 +63,7 @@ export function validarId(id: string): boolean {
   return typeof id === "string" && id.length > 0;
 }
 
-// Injeta dinamicamente o '_id' sem o prefixo ao LER do IndexedDB
+// Injeta dinamicamente o '_id' sem o prefixo ao LER do banco/localStorage
 export function formatDbItem(key: IDBValidKey, val: any, prefix = ""): any {
   if (!val || typeof val !== "object" || Array.isArray(val)) return val;
   const keyStr = String(key);
@@ -199,11 +71,10 @@ export function formatDbItem(key: IDBValidKey, val: any, prefix = ""): any {
   return { _id, ...val };
 }
 
-// Prepara a chave final para o IndexedDB e limpa o '_id' do objeto gravado
+// Prepara a chave final e limpa o '_id' do objeto gravado
 export function prepareForSave(key: string | undefined | null, val: any, prefix = ""): { key: string; cleanVal: any } {
   let rawId = val && typeof val === "object" ? val._id : undefined;
   
-  // Utiliza a função gerarId quando for "auto"
   if (rawId === "auto") {
     rawId = gerarId();
   }
@@ -228,13 +99,188 @@ export function prepareForSave(key: string | undefined | null, val: any, prefix 
     throw new Error("Uma chave (key) ou um atributo '_id' no objeto deve ser fornecido.");
   }
 
-  // Remove a propriedade '_id' para manter a chave no IndexedDB como única fonte da verdade
   if (val && typeof val === "object" && !Array.isArray(val) && "_id" in val) {
     const { _id: _, ...cleanVal } = val;
     return { key: finalKey, cleanVal };
   }
 
   return { key: finalKey, cleanVal: val };
+}
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/fake-local-storage.ts`
+
+```ts
+export class FakeLocalStorage {
+  private store = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+
+  get length(): number {
+    return this.store.size;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.store.keys())[index] ?? null;
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/fake-opfs.ts`
+
+```ts
+export class FakeOPFSFileHandle {
+  constructor(
+    private name: string,
+    private storage: Map<string, string>
+  ) {}
+
+  async createWritable() {
+    const self = this;
+    let content = "";
+    return {
+      async write(data: string) {
+        content = data;
+      },
+      async close() {
+        self.storage.set(self.name, content);
+      }
+    };
+  }
+
+  async getFile() {
+    const content = this.storage.get(this.name);
+    if (content === undefined) {
+      throw new Error(`File ${this.name} not found in Fake OPFS`);
+    }
+    return {
+      async text() {
+        return content;
+      }
+    };
+  }
+}
+
+export class FakeOPFSDirectory {
+  private static sharedStorage = new Map<string, string>();
+
+  async getFileHandle(name: string, options?: { create?: boolean }) {
+    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(name)) {
+      throw new Error(`File ${name} not found in Fake OPFS`);
+    }
+    return new FakeOPFSFileHandle(name, FakeOPFSDirectory.sharedStorage);
+  }
+
+  async removeEntry(name: string) {
+    FakeOPFSDirectory.sharedStorage.delete(name);
+  }
+
+  async *keys() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      yield key;
+    }
+  }
+
+  static clear() {
+    FakeOPFSDirectory.sharedStorage.clear();
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/opfs_utils.ts`
+
+```ts
+export interface OpfsResolveOptions {
+  dbName?: string;
+  storeName?: string;
+  prefix?: string;
+}
+
+// Resolve o nome do arquivo dinamicamente (ex: db_LOJA_produtos_PROD__meu_backup.json)
+export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: OpfsResolveOptions): string {
+  const parts: string[] = [type]; // CORREÇÃO: tipagem explícita adicionada aqui
+  if (type === "db") {
+    if (opts?.dbName) parts.push(opts.dbName);
+    if (opts?.storeName) parts.push(opts.storeName);
+  }
+  if (opts?.prefix) parts.push(opts.prefix);
+  
+  parts.push(fileName);
+  return parts.join("_");
+}
+
+export async function writeJsonToOpfs(fileName: string, data: any): Promise<string> {
+  const root = await navigator.storage.getDirectory();
+  const fileHandle = await root.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(JSON.stringify(data));
+  await writable.close();
+  return fileName;
+}
+
+export async function readJsonFromOpfs(fileName: string): Promise<any> {
+  const root = await navigator.storage.getDirectory();
+  const fileHandle = await root.getFileHandle(fileName);
+  const file = await fileHandle.getFile();
+  const text = await file.text();
+  return JSON.parse(text);
+}
+
+export async function deleteFromOpfs(fileName: string): Promise<void> {
+  const root = await navigator.storage.getDirectory();
+  await root.removeEntry(fileName);
+}
+
+export async function getFileFromOpfs(fileName: string): Promise<File> {
+  const root = await navigator.storage.getDirectory();
+  const fileHandle = await root.getFileHandle(fileName);
+  return await fileHandle.getFile();
+}
+
+export async function listOpfsFiles(): Promise<string[]> {
+  const root = await navigator.storage.getDirectory();
+  const files: string[] = [];
+  // @ts-ignore: async iterator support
+  for await (const [name, handle] of root.entries()) {
+    if (handle.kind === "file") files.push(name);
+  }
+  return files;
+}
+
+// Dispara o download nativo do arquivo no navegador (Apenas Main Thread)
+export async function downloadOpfsFile(fileName: string): Promise<void> {
+  if (typeof document === "undefined") {
+    throw new Error("downloadOpfsFile só pode ser executado na Main Thread (onde 'document' existe).");
+  }
+  const file = await getFileFromOpfs(fileName);
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 ```
 
@@ -268,6 +314,228 @@ export const APP_CONFIG = {
 
 ---
 
+## Arquivo: `monorepo/worker-db/src/ls.ts`
+
+```ts
+import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo } from "./utils/id-utils.ts";
+import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
+import type { WithId } from "./mod.ts";
+
+export interface LsStoreOptions {
+  prefix?: string;
+}
+
+function getAllPrefixedEntries(prefix = ""): [string, any][] {
+  const entries: [string, any][] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (!prefix || key.startsWith(prefix))) {
+      const rawVal = localStorage.getItem(key);
+      if (rawVal !== null) {
+        try {
+          entries.push([key, JSON.parse(rawVal)]);
+        } catch {
+          // Ignora itens que não sejam JSON válido
+        }
+      }
+    }
+  }
+  return entries;
+}
+
+function getFormattedItems<T>(prefix = ""): WithId<T>[] {
+  const rawEntries = getAllPrefixedEntries(prefix);
+  return rawEntries.map(([k, v]) => formatDbItem(k, v, prefix));
+}
+
+function resolveKey(key: string, prefix = ""): string {
+  return prefix && !key.startsWith(prefix) ? `${prefix}${key}` : key;
+}
+
+function createScopedLs(prefix = "") {
+  return {
+    get: <T>(key: string): WithId<T> | undefined => {
+      const fullKey = resolveKey(key, prefix);
+      const raw = localStorage.getItem(fullKey);
+      if (raw === null) return undefined;
+      try {
+        return formatDbItem(fullKey, JSON.parse(raw), prefix);
+      } catch {
+        return undefined;
+      }
+    },
+
+    set: <T>(keyOrVal: string | T, val?: T): string => {
+      let key: string | undefined;
+      let targetVal: any;
+
+      if (typeof keyOrVal === "string") {
+        key = keyOrVal;
+        targetVal = val;
+      } else {
+        key = undefined;
+        targetVal = keyOrVal;
+      }
+
+      const { key: finalKey, cleanVal } = prepareForSave(key, targetVal, prefix);
+      localStorage.setItem(finalKey, JSON.stringify(cleanVal));
+      return finalKey;
+    },
+
+    patch: <T extends Record<string, any>, C = any>(
+      key: string, 
+      patchOrFn: Partial<T> | ((prev: WithId<T>, ctx?: C) => T | Partial<T>), 
+      context?: C
+    ): WithId<T> => {
+      const current = createScopedLs(prefix).get<T>(key) || ({} as WithId<T>);
+      let updated: any;
+
+      if (typeof patchOrFn === "function") {
+        updated = patchOrFn(current, context);
+      } else {
+        updated = Object.assign({}, current, patchOrFn);
+      }
+
+      const { key: finalKey, cleanVal } = prepareForSave(key, updated, prefix);
+      localStorage.setItem(finalKey, JSON.stringify(cleanVal));
+      return formatDbItem(finalKey, cleanVal, prefix);
+    },
+
+    delete: (key: string): void => {
+      localStorage.removeItem(resolveKey(key, prefix));
+    },
+
+    getMany: <T>(keys: string[]): (WithId<T> | undefined)[] => {
+      const api = createScopedLs(prefix);
+      return keys.map((k) => api.get<T>(k));
+    },
+
+    setMany: (entries: [string, any][]): void => {
+      const api = createScopedLs(prefix);
+      entries.forEach(([k, v]) => api.set(k, v));
+    },
+
+    deleteMany: (keys: string[]): void => {
+      const api = createScopedLs(prefix);
+      keys.forEach((k) => api.delete(k));
+    },
+
+    keys: (): string[] => {
+      const keysList: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (!prefix || k.startsWith(prefix))) {
+          keysList.push(k);
+        }
+      }
+      return keysList;
+    },
+
+    values: <T>(): T[] => {
+      return getFormattedItems<T>(prefix) as unknown as T[];
+    },
+
+    entries: <T>(): [string, T][] => {
+      return getAllPrefixedEntries(prefix);
+    },
+
+    clear: (): void => {
+      if (!prefix) {
+        localStorage.clear();
+        return;
+      }
+      const keysToRemove = createScopedLs(prefix).keys();
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    },
+
+    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx?: C) => R, context?: C): R => {
+      const items = getFormattedItems<T>(prefix);
+      return fn(items, context);
+    },
+
+    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C): WithId<T>[] => {
+      const items = getFormattedItems<T>(prefix);
+      const selected = fn(items, context);
+      if (!Array.isArray(selected)) {
+        throw new Error("A função em getSome deve retornar um Array.");
+      }
+      return selected;
+    },
+
+    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C): void => {
+      const items = getFormattedItems<T>(prefix);
+      const selected = fn(items, context);
+      if (!Array.isArray(selected)) {
+        throw new Error("A função em delSome deve retornar um Array.");
+      }
+      selected.forEach((item) => {
+        if (!item || item._id === undefined) {
+          throw new Error("Os itens retornados em delSome precisam conter a propriedade '_id'.");
+        }
+        const rawKey = prefix && !item._id.startsWith(prefix) ? `${prefix}${item._id}` : item._id;
+        localStorage.removeItem(rawKey);
+      });
+    },
+
+    setSome: <T, C = any>(
+      selectFn: (items: WithId<T>[], ctx?: C) => WithId<T>[],
+      updateFn: (item: WithId<T>, ctx?: C) => WithId<T>,
+      context?: C
+    ): void => {
+      const items = getFormattedItems<T>(prefix);
+      const selected = selectFn(items, context);
+      if (!Array.isArray(selected)) {
+        throw new Error("A função de seleção em setSome deve retornar um Array.");
+      }
+      selected.forEach((item) => {
+        if (!item || item._id === undefined) {
+          throw new Error("Os itens selecionados em setSome precisam conter a propriedade '_id'.");
+        }
+        const updatedItem = updateFn(item, context);
+        const { key: finalKey, cleanVal } = prepareForSave(undefined, updatedItem, prefix);
+        localStorage.setItem(finalKey, JSON.stringify(cleanVal));
+      });
+    },
+
+    // --- MÉTODOS DE EXPORTAÇÃO / IMPORTAÇÃO ---
+
+    exportLS: (): Record<string, any> => {
+      const allEntries = getAllPrefixedEntries(prefix);
+      return Object.fromEntries(allEntries);
+    },
+
+    importLS: (data: Record<string, any>, clearFirst = false): void => {
+      const api = createScopedLs(prefix);
+      if (clearFirst) api.clear();
+      Object.entries(data).forEach(([k, v]) => api.set(k, v));
+    },
+
+    backupToOpfs: async (fileName = "backup.json"): Promise<string> => {
+      const data = Object.fromEntries(getAllPrefixedEntries(prefix));
+      const finalName = resolveOpfsFileName("ls", fileName, { prefix });
+      return await writeJsonToOpfs(finalName, data);
+    },
+
+    restoreFromOpfs: async (fileName: string, clearFirst = false): Promise<void> => {
+      const data = await readJsonFromOpfs(fileName);
+      const api = createScopedLs(prefix);
+      if (clearFirst) api.clear();
+      Object.entries(data).forEach(([k, v]) => api.set(k, v));
+    },
+
+    gerarId,
+    gerarIdComPrefixo: () => (prefix ? gerarIdComPrefixo(prefix) : gerarId()),
+  };
+}
+
+export const ls = Object.assign(
+  (prefix = "") => createScopedLs(prefix),
+  createScopedLs()
+);
+```
+
+---
+
 ## Arquivo: `monorepo/worker-db/src/db.ts`
 
 ```ts
@@ -275,6 +543,22 @@ import { APP_CONFIG } from "./config.ts";
 
 if (APP_CONFIG.USE_FAKE) {
   await import("fake-indexeddb");
+  const { FakeOPFSDirectory } = await import("./utils/fake-opfs.ts");
+  
+  const _nav = (globalThis as any).navigator;
+  if (!_nav) {
+    (globalThis as any).navigator = {};
+  }
+  
+  if (!(globalThis as any).navigator.storage) {
+    Object.defineProperty((globalThis as any).navigator, "storage", {
+      value: {
+        getDirectory: async () => new FakeOPFSDirectory()
+      },
+      writable: true,
+      configurable: true
+    });
+  }
 }
 
 import { 
@@ -283,6 +567,7 @@ import {
 } from "idb-keyval";
 
 import { formatDbItem, prepareForSave } from "./utils/id-utils.ts";
+import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
 
 const storeCache = new Map<string, UseStore>();
 
@@ -354,10 +639,35 @@ self.onmessage = async (e: MessageEvent) => {
         break;
       }
 
-      case "KEYS":    result = await keys(store); break;
-      case "VALUES":  result = await values(store); break;
-      case "ENTRIES": result = await entries(store); break;
-      case "CLEAR":   result = await clear(store); break;
+      case "KEYS": {
+        const allKeys = await keys(store);
+        result = args.prefix ? allKeys.filter(k => typeof k === "string" && k.startsWith(args.prefix)) : allKeys;
+        break;
+      }
+
+      case "VALUES": {
+        const allEntries = await entries(store);
+        const formattedItems = formatDbEntries(allEntries, args.prefix);
+        result = formattedItems; 
+        break;
+      }
+
+      case "ENTRIES": {
+        const allEntries = await entries(store);
+        result = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
+        break;
+      }
+
+      case "CLEAR": {
+        if (args.prefix) {
+          const allKeys = await keys(store);
+          const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+          await delMany(keysToDelete, store);
+        } else {
+          await clear(store);
+        }
+        break;
+      }
 
       case "PATCH": {
         const rawKey = args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key;
@@ -449,13 +759,63 @@ self.onmessage = async (e: MessageEvent) => {
 
       case "EXPORT": {
         const allEntries = await entries(store);
-        result = Object.fromEntries(allEntries);
+        const filtered = args.prefix 
+          ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) 
+          : allEntries;
+        result = Object.fromEntries(filtered);
         break;
       }
 
       case "IMPORT": {
-        if (args.clearFirst) await clear(store);
-        const entriesToImport = Object.entries(args.data);
+        if (args.clearFirst) {
+          if (args.prefix) {
+            const allKeys = await keys(store);
+            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+            await delMany(keysToDelete, store);
+          } else {
+            await clear(store);
+          }
+        }
+        const entriesToImport: [string, any][] = Object.entries(args.data).map(([k, v]) => {
+          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
+          return [key, cleanVal];
+        });
+        result = await setMany(entriesToImport, store);
+        break;
+      }
+
+      case "BACKUP_OPFS": {
+        const allEntries = await entries(store);
+        const filtered = args.prefix 
+          ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) 
+          : allEntries;
+        const data = Object.fromEntries(filtered);
+        
+        const fileName = resolveOpfsFileName("db", args.fileName || "backup.json", {
+          dbName: args.dbName,
+          storeName: args.storeName,
+          prefix: args.prefix
+        });
+        result = await writeJsonToOpfs(fileName, data);
+        break;
+      }
+
+      case "RESTORE_OPFS": {
+        const data = await readJsonFromOpfs(args.fileName);
+        if (args.clearFirst) {
+          if (args.prefix) {
+            const allKeys = await keys(store);
+            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+            await delMany(keysToDelete, store);
+          } else {
+            await clear(store);
+          }
+        }
+        
+        const entriesToImport: [string, any][] = Object.entries(data).map(([k, v]) => {
+          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
+          return [key, cleanVal];
+        });
         result = await setMany(entriesToImport, store);
         break;
       }
@@ -476,17 +836,28 @@ self.onmessage = async (e: MessageEvent) => {
 ## Arquivo: `monorepo/worker-db/src/mod.ts`
 
 ```ts
-import { gerarId, gerarIdComPrefixo, validarId } from "./utils/id-utils.ts";
+import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
+import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs } from "./utils/opfs_utils.ts";
 import { ls } from "./ls.ts";
 
-export { gerarId, gerarIdComPrefixo, validarId, ls };
+// Exportando os utilitários de OPFS para uso fácil na Main Thread (ex: UI de listagem e download)
+export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, type WithId };
 
 let workerInstance: Worker | null = null;
+let currentWorkerPath: string | URL = "./worker-db.js";
 const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
 
-function getWorker(): Worker {
+function getWorker(workerPath?: string | URL): Worker {
+  if (workerPath) {
+    currentWorkerPath = workerPath;
+  }
+  
   if (!workerInstance) {
-    const workerUrl = new URL("../build/worker-db.js", import.meta.url);
+    // Resolve o caminho. Se for string, torna relativo a este módulo (ou ao bundle de destino)
+    const workerUrl = typeof currentWorkerPath === "string" 
+      ? new URL(currentWorkerPath, import.meta.url) 
+      : currentWorkerPath;
+
     workerInstance = new Worker(workerUrl, { type: "module" });
 
     workerInstance.onmessage = (e: MessageEvent) => {
@@ -517,7 +888,7 @@ function restartWorker() {
   }
   pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
   pendingRequests.clear();
-  getWorker();
+  getWorker(); // Usa o currentWorkerPath pré-configurado
 }
 
 function terminateWorker() {
@@ -547,14 +918,13 @@ export interface DbStoreOptions {
   prefix?: string;
 }
 
-export type WithId<T> = T & { _id: string };
-
 const globalDbAPI = {
   get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
   
   set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
     if (typeof keyOrVal !== "string") {
-      return exec<string>("SET", { key: undefined, val: keyOrVal, ...(val as DbStoreOptions) });
+      const options = opts || (val as DbStoreOptions) || {};
+      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
     }
     return exec<string>("SET", { key: keyOrVal, val, ...opts });
   },
@@ -574,7 +944,7 @@ const globalDbAPI = {
 
   delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
 
-  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]>("GET_MANY", { keys, ...opts }),
+  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
   setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
   deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
 
@@ -607,7 +977,10 @@ const globalDbAPI = {
   exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
   importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
 
-  init: () => { getWorker(); }, 
+  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
+  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
+
+  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
   restart: () => restartWorker(),
   terminate: () => terminateWorker(),
 };
@@ -638,6 +1011,9 @@ function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
       
     exportDB: () => globalDbAPI.exportDB(opts),
     importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
+
+    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
+    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
     
     gerarId,
     gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
@@ -652,10 +1028,10 @@ export const db = Object.assign(
 
 ---
 
-## Arquivo: `monorepo/worker-db/tests/main.test.ts`
+## Arquivo: `monorepo/worker-db/tests/db_advanced_test.ts`
 
 ```ts
-import { assertEquals } from "@std/assert";
+import { assertEquals, assert, assertRejects, assertNotEquals } from "@std/assert";
 
 if (typeof Deno !== "undefined") {
   Deno.env.set("USE_FAKE", "true");
@@ -663,55 +1039,745 @@ if (typeof Deno !== "undefined") {
 
 import { db } from "../src/mod.ts";
 
+db.init(new URL("../build/worker-db.js", import.meta.url));
+
 Deno.test({
-  name: "Deve suportar _id e as funções em lote getSome, delSome, setSome e query",
+  name: "DB Advanced - Execução de Métodos de Array no Worker (query, getSome)",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await db.clear();
+    const store = db("FINANCAS", "faturas", "FAT_");
+    await store.clear();
 
-    const loja = db("LOJA", "produtos", "PROD_");
+    await store.importDB({
+      FAT_f1: { tag: "work", amount: 150, status: "paid", code: "x" },
+      FAT_f2: { tag: "personal", amount: 300, status: "pending", code: "y" },
+      FAT_f3: { tag: "work", amount: 500, status: "paid", code: "z" },
+      FAT_f4: { tag: "home", amount: 80, status: "pending", code: "w" },
+      FAT_f5: { tag: "work", amount: 200, status: "paid", code: "k" },
+    });
+
+    // Valida execução de funções avançadas dentro do Worker de Banco de Dados
+    const result = await store.query((items) => {
+      return {
+        count: items.length, // length
+        total: items.reduce((acc, i) => acc + (i as any).amount, 0), // reduce
+        firstWork: items.find((i) => (i as any).tag === "work"), // find
+        lastWork: items.findLast((i) => (i as any).tag === "work"), // findLast
+        lastItem: items.at(-1), // at
+        hasPending: items.some((i) => (i as any).status === "pending"), // some
+        allPositive: items.every((i) => (i as any).amount > 0), // every
+        tagsHaveHome: items.map((i) => (i as any).tag).includes("home"), // map e includes
+        idxPersonal: items.findIndex((i) => (i as any).tag === "personal"), // findIndex
+        lastIdxWork: items.findLastIndex((i) => (i as any).tag === "work"), // findLastIndex
+        indexOfZ: items.map((i) => (i as any).code).indexOf("z"), // indexOf
+        paidItems: items.filter((i) => (i as any).status === "paid"), // filter
+        sliced: items.slice(1, 4), // slice
+        sortedByAmount: items.toSorted((a, b) => (a as any).amount - (b as any).amount), // toSorted
+        reversed: items.toReversed(), // toReversed
+        spliced: items.toSpliced(0, 2), // toSpliced
+      };
+    });
+
+    assertEquals(result.count, 5);
+    assertEquals(result.total, 1230);
+    assertEquals((result.firstWork as any).amount, 150);
+    assertEquals((result.lastWork as any).amount, 200);
+    assertEquals((result.lastItem as any).code, "k");
+    assert(result.hasPending);
+    assert(result.allPositive);
+    assert(result.tagsHaveHome);
+    assertEquals(result.idxPersonal, 1);
+    assertEquals(result.lastIdxWork, 4);
+    assertEquals(result.indexOfZ, 2);
+    assertEquals(result.paidItems.length, 3);
+    assertEquals(result.sliced.length, 3);
+    assertEquals((result.sortedByAmount[0] as any).amount, 80);
+    assertEquals((result.reversed[0] as any).code, "k");
+    assertEquals(result.spliced.length, 3);
+  },
+});
+
+Deno.test({
+  name: "DB Advanced - Erros em tempo de execução no Worker (Retornos Inválidos)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("ERROS_WORKER", "testes", "ERR_");
+    await store.clear();
+    await store.set("1", { valid: true });
+
+    // AssertRejects captura os throw Exceptions disparados lá no switch(command) do worker
+    await assertRejects(
+      async () => await store.getSome(() => ({ obj: "invalid" } as any)),
+      Error,
+      "A função injetada em GET_SOME deve retornar um Array."
+    );
+
+    await assertRejects(
+      async () => await store.delSome(() => false as any),
+      Error,
+      "A função injetada em DEL_SOME deve retornar um Array."
+    );
+
+    await assertRejects(
+      async () => await store.setSome(() => "string" as any, (i) => i),
+      Error,
+      "A função de seleção em SET_SOME deve retornar um Array."
+    );
+  }
+});
+
+Deno.test({
+  name: "DB Advanced - Transformações de Tipo, UPPERCASE e Exclusão Segura no Worker",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("EMPRESA", "funcionarios", "EMP_");
+    await store.clear();
+
+    await store.importDB({
+      EMP_e10: { name: "joão silva", department: "tecnologia", level: 2, active: true },
+      EMP_e20: { name: "maria souza", department: "rh", level: 3, active: true },
+      EMP_e30: { name: "pedro alves", department: "vendas", level: 1, active: false },
+    });
+
+    // Atualiza nome para UPPERCASE e converte 'level' (number) para string
+    await store.setSome(
+      (items) => items.filter((item) => (item as any).active === true),
+      (item) => ({
+        ...item,
+        name: (item as any).name.toUpperCase(),
+        department: (item as any).department.toUpperCase(),
+        level: String((item as any).level) // Mutação de tipo!
+      })
+    );
+
+    const e10 = await store.get<any>("e10");
+    assertEquals(e10?.name, "JOÃO SILVA");
+    assertEquals(e10?.department, "TECNOLOGIA");
+    assertEquals(typeof e10?.level, "string");
+    assertEquals(e10?.level, "2");
+
+    const e30 = await store.get<any>("e30");
+    assertEquals(e30?.department, "vendas"); // Permanece em lowercase
+    assertEquals(typeof e30?.level, "number"); // Permanece tipo número
+
+    // Exclui funcionários inativos via delSome
+    await store.delSome((items) => items.filter((i) => (i as any).active === false));
     
-    await loja.setMany([
-      ["001", { nome: "Lápis", preco: 2, ativo: true }],
-      ["002", { nome: "Borracha", preco: 3, ativo: false }],
-      ["003", { nome: "Caderno", preco: 15, ativo: true }],
-      ["004", { nome: "Mochila", preco: 150, ativo: true }],
+    // Checa deleção correta
+    assertEquals(await store.get("e30"), undefined);
+    const remainingKeys = await store.keys();
+    assertEquals(remainingKeys.length, 2);
+    
+    // Assegura integridade dos que ficaram
+    const remaining = await store.values<any>();
+    assertNotEquals(remaining[0].name, "pedro alves");
+  },
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/opfs_and_isolation_test.ts`
+
+```ts
+import { assertEquals, assert } from "@std/assert";
+
+const isFake = typeof Deno !== "undefined" && Deno.env.get("USE_FAKE") === "true";
+if (isFake) {
+  Deno.env.set("USE_FAKE", "true");
+}
+
+import { db, ls } from "../src/mod.ts";
+import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
+import { FakeOPFSDirectory } from "../src/utils/fake-opfs.ts";
+
+globalThis.localStorage = new FakeLocalStorage();
+
+const _nav = (globalThis as any).navigator;
+if (!_nav) {
+  (globalThis as any).navigator = {};
+}
+
+if (!(globalThis as any).navigator.storage) {
+  Object.defineProperty((globalThis as any).navigator, "storage", {
+    value: { getDirectory: async () => new FakeOPFSDirectory() },
+    writable: true,
+    configurable: true
+  });
+}
+
+Deno.test({
+  name: "ISOLATION - LS: Garantir que instâncias com prefixos diferentes não colidam",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn() {
+    const storeA = ls("APP_A_");
+    const storeB = ls("APP_B_");
+    
+    storeA.clear();
+    storeB.clear();
+
+    storeA.set("1", { data: "from A" });
+    storeB.set("1", { data: "from B" });
+
+    assertEquals(storeA.get<any>("1")?.data, "from A");
+    assertEquals(storeB.get<any>("1")?.data, "from B");
+
+    storeA.clear();
+    assertEquals(storeA.keys().length, 0);
+    assertEquals(storeB.keys().length, 1);
+    assertEquals(storeB.get<any>("1")?.data, "from B");
+  }
+});
+
+db.init(new URL("../build/worker-db.js", import.meta.url));
+
+Deno.test({
+  name: "ISOLATION - DB: Garantir que instâncias no mesmo Store, com prefixos diferentes, são isoladas",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const dbApp1 = db("SHARED_DB", "keyval", "APP_1_");
+    const dbApp2 = db("SHARED_DB", "keyval", "APP_2_");
+
+    await dbApp1.clear();
+    await dbApp2.clear();
+
+    await dbApp1.set("config", { theme: "dark" });
+    await dbApp2.set("config", { theme: "light" });
+
+    const app1Vals = await dbApp1.values<any>();
+    assertEquals(app1Vals.length, 1);
+    assertEquals(app1Vals[0].theme, "dark");
+
+    const exportApp2 = await dbApp2.exportDB();
+    assert(Object.keys(exportApp2).includes("APP_2_config"));
+    assert(!Object.keys(exportApp2).includes("APP_1_config"));
+
+    await dbApp1.clear();
+    assertEquals((await dbApp1.keys()).length, 0);
+    
+    const app2Keys = await dbApp2.keys();
+    assertEquals(app2Keys.length, 1);
+    assertEquals(app2Keys[0], "APP_2_config");
+  }
+});
+
+Deno.test({
+  name: "OPFS - Fluxo completo de Backup e Restore (DB e LS)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    FakeOPFSDirectory.clear();
+    const store = db("OPFS_DB", "test", "BACKUP_");
+    await store.clear();
+
+    await store.set("k1", { text: "Hello OPFS" });
+    await store.set("k2", { text: "Loco PWA" });
+
+    const fileName = await store.backupToOpfs("meu_backup.json");
+    assert(fileName.includes("BACKUP_")); 
+    assert(fileName.includes("meu_backup.json"));
+
+    await store.clear();
+    assertEquals((await store.keys()).length, 0);
+
+    await store.restoreFromOpfs(fileName);
+    const restored = await store.values<any>();
+    assertEquals(restored.length, 2);
+    
+    const k1 = await store.get<any>("k1");
+    assertEquals(k1?.text, "Hello OPFS");
+    
+    FakeOPFSDirectory.clear();
+  }
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/worker_lifecycle_test.ts`
+
+```ts
+import { assertEquals } from "@std/assert";
+
+const isFake = typeof Deno !== "undefined" && Deno.env.get("USE_FAKE") === "true";
+if (isFake) {
+  Deno.env.set("USE_FAKE", "true");
+}
+
+import { db } from "../src/mod.ts";
+import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
+
+// @ts-ignore: Injeção de mock de ambiente
+globalThis.localStorage = new FakeLocalStorage();
+
+db.init(new URL("../build/worker-db.js", import.meta.url));
+
+Deno.test({
+  name: "LIFECYCLE - Inicialização, Terminação, Restart e Persistência do Worker",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("WORKER_LIFECYCLE_DB", "state", "LC_");
+    await store.clear();
+
+    await store.set("status", { alive: true, phase: "init" });
+    let result = await store.get<any>("status");
+    assertEquals(result?.alive, true);
+
+    db.terminate();
+
+    if (!isFake) {
+      result = await store.get<any>("status");
+      assertEquals(result?.alive, true, "Worker não conseguiu se auto-restaurar com persistência");
+    } else {
+      await store.set("status", { alive: true, phase: "healed" });
+      result = await store.get<any>("status");
+      assertEquals(result?.phase, "healed");
+    }
+
+    db.restart();
+    
+    await store.patch<any>("status", { phase: "restarted" });
+    result = await store.get<any>("status");
+    assertEquals(result?.phase, "restarted", "Worker recriado pelo restart() falhou");
+
+    db.terminate();
+  }
+});
+
+Deno.test({
+  name: "LIFECYCLE - Comportamento com requisições disparadas imediatamente após restart",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const store = db("WORKER_LIFECYCLE_DB", "stress", "STRESS_");
+    
+    db.init(new URL("../build/worker-db.js", import.meta.url));
+    db.restart();
+    
+    await store.set("k1", { val: 1 });
+    await store.set("k2", { val: 2 });
+    
+    const keys = await store.keys();
+    assertEquals(keys.length, 2);
+    
+    await store.clear();
+    db.terminate();
+  }
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/main.test.ts`
+
+```ts
+import { assertEquals, assert } from "@std/assert";
+import { gerarId, validarId } from "../src/utils/id-utils.ts";
+import { db, ls } from "../src/mod.ts";
+import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
+
+globalThis.localStorage = new FakeLocalStorage();
+
+Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () => {
+  const id = gerarId();
+  assert(id.length > 0);
+
+  const isValid = validarId(id);
+  assertEquals(isValid, true);
+
+  const dbInstance = db("MAIN_DB", "main");
+  assert(dbInstance !== undefined);
+
+  const lsInstance = ls("MAIN_LS_");
+  assert(lsInstance !== undefined);
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/db_simple_test.ts`
+
+```ts
+import { assertEquals, assert, assertNotEquals } from "@std/assert";
+
+if (typeof Deno !== "undefined") {
+  Deno.env.set("USE_FAKE", "true");
+}
+
+import { db } from "../src/mod.ts";
+
+db.init(new URL("../build/worker-db.js", import.meta.url));
+
+Deno.test({
+  name: "DB Simple - Tratamento de _id ('auto', '0990', com prefixo)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // CORREÇÃO: Utilizando um nome de banco isolado para o teste para evitar choque de instâncias no IndexedDB fake
+    const store = db("LOJA_TEST_1", "clientes", "CLI_");
+    await store.clear();
+
+    // 1. _id: "auto"
+    const keyAuto = await store.set({ _id: "auto", name: "Alice", level: 1 });
+    assert(keyAuto.startsWith("CLI_"));
+    const itemAuto = await store.get<any>(keyAuto);
+    assert(itemAuto !== undefined);
+    assertNotEquals(itemAuto?._id, "auto");
+    assertEquals(itemAuto?.name, "Alice");
+
+    // 2. _id: "0990"
+    const key0990 = await store.set({ _id: "0990", name: "Bob", level: 2 });
+    assertEquals(key0990, "CLI_0990");
+    const item0990 = await store.get<any>("0990");
+    assertEquals(item0990?._id, "0990");
+    assertEquals(item0990?.name, "Bob");
+
+    // 3. _id: "CLI_0990" (com prefixo pré-existente)
+    const keyPref = await store.set({ _id: "CLI_0990", name: "Bob Atualizado", level: 3 });
+    assertEquals(keyPref, "CLI_0990");
+    const itemPref = await store.get<any>("0990");
+    assertEquals(itemPref?.name, "Bob Atualizado");
+  },
+});
+
+Deno.test({
+  name: "DB Simple - CRUD, Patch e Métodos de Coleção",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // CORREÇÃO: Isolando o banco para não colidir com o teste anterior
+    const store = db("LOJA_TEST_2", "produtos", "PROD_");
+    await store.clear();
+
+    await store.set("p1", { name: "Notebook", price: 3000 });
+    const p1 = await store.get<any>("p1");
+    assertEquals(p1?.name, "Notebook");
+
+    const patched = await store.patch<any>("p1", { price: 3200 });
+    assertEquals(patched.price, 3200);
+
+    await store.setMany([
+      ["p2", { name: "Mouse", price: 80 }],
+      ["p3", { name: "Teclado", price: 200 }],
     ]);
 
-    // 1. QUERY
-    const activeCount = await loja.query<{ preco: number, ativo: boolean }, number>(
-      (items) => items.filter(i => i.ativo).length
-    );
-    assertEquals(activeCount, 3);
+    const items = await store.getMany<any>(["p1", "p2", "p3"]);
+    assertEquals(items.length, 3);
 
-    // 2. GET_SOME (Verifica _id injetado)
-    const caros = await loja.getSome<{ preco: number, nome: string }>(
-      (items) => items.filter(i => i.preco > 10).toSorted((a, b) => b.preco - a.preco)
-    );
-    assertEquals(caros.length, 2);
-    assertEquals(caros[0]?.nome, "Mochila");
-    assertEquals(caros[0]?._id, "004");
+    const keys = await store.keys();
+    assert(keys.includes("PROD_p1"));
 
-    // 3. SET_SOME
-    await loja.setSome<{ preco: number, ativo: boolean, nome: string }>(
-      (items) => items.filter(i => i.ativo),
-      (item) => ({ ...item, preco: item.preco * 1.1 })
-    );
-    
-    const lapisAtt = await loja.get<{ preco: number }>("001");
-    assertEquals(lapisAtt?.preco, 2.2);
+    await store.delete("p1");
+    assertEquals(await store.get("p1"), undefined);
 
-    // 4. DEL_SOME
-    await loja.delSome<{ ativo: boolean }>(
-      (items) => items.filter(i => i.ativo === false)
-    );
-
-    const remainingKeys = await loja.keys();
-    assertEquals(remainingKeys.length, 3);
-    
-    db.terminate();
+    await store.deleteMany(["p2", "p3"]);
+    assertEquals((await store.keys()).length, 0);
   },
+});
+
+Deno.test({
+  name: "DB Simple - ImportDB e ExportDB com Respeito ao Escopo/Prefixo",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // CORREÇÃO: Isolando o banco de dados
+    const store = db("LOJA_TEST_3", "estoque", "EST_");
+    await store.clear();
+
+    const mockData = {
+      EST_e1: { item: "Parafuso", qty: 100 },
+      EST_e2: { item: "Porca", qty: 200 },
+    };
+
+    await store.importDB(mockData, true);
+
+    const exported = await store.exportDB();
+    assertEquals(exported, mockData);
+
+    const values = await store.values<any>();
+    assertEquals(values.length, 2);
+  },
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/ls_simple_test.ts`
+
+```ts
+import { assertEquals, assert, assertNotEquals } from "@std/assert";
+import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
+import { ls } from "../src/mod.ts";
+
+globalThis.localStorage = new FakeLocalStorage();
+
+Deno.test({
+  name: "LS Simple - Gestão de _id ('auto', '0990', com prefixo)",
+  fn() {
+    const store = ls("LS_PRE_");
+    store.clear();
+
+    // 1. Geração automática com _id: "auto"
+    const autoKey = store.set({ _id: "auto", name: "Item Auto", type: "system" });
+    assert(autoKey.startsWith("LS_PRE_"), "A chave gerada automaticamente deve conter o prefixo do banco");
+
+    // O _id retornado no objeto deve ter o prefixo removido pelo formatDbItem
+    const fetchedAuto = store.get<any>(autoKey);
+    assert(fetchedAuto !== undefined);
+    assertNotEquals(fetchedAuto._id, "auto", "O _id 'auto' deve ter sido substituído por um UUID ou Hash");
+    assertEquals(autoKey, `LS_PRE_${fetchedAuto._id}`);
+    assertEquals(fetchedAuto.name, "Item Auto");
+
+    // 2. Definindo chave customizada via parâmetro direto
+    const customKey = store.set("0990", { name: "Item Fixo", type: "user" });
+    assertEquals(customKey, "LS_PRE_0990");
+
+    // A busca aceita tanto a chave simples quanto a formatada (resolveKey cuida disso)
+    const fetchedCustom = store.get<any>("0990");
+    assertEquals(fetchedCustom._id, "0990");
+    assertEquals(fetchedCustom.name, "Item Fixo");
+
+    // 3. Salvando passando um objeto que já possui o prefixo no _id
+    const keyPref = store.set({ _id: "LS_PRE_0991", name: "Item Fixo 2", type: "user" });
+    assertEquals(keyPref, "LS_PRE_0991");
+    const fetchedPref = store.get<any>("0991");
+    assertEquals(fetchedPref.name, "Item Fixo 2");
+
+    store.clear();
+  }
+});
+
+Deno.test({
+  name: "LS Simple - CRUD Básico, Patch e Iteradores (keys, values, entries)",
+  fn() {
+    const store = ls("LS_CRUD_");
+    store.clear();
+
+    // Create / Read
+    store.set("user1", { name: "Carlos", age: 30 });
+    let user = store.get<any>("user1");
+    assertEquals(user.name, "Carlos");
+
+    // Update Parcial (Patch)
+    const patchedUser = store.patch("user1", { age: 31 });
+    assertEquals(patchedUser.age, 31);
+    
+    user = store.get<any>("user1");
+    assertEquals(user.age, 31);
+
+    // Operações em Lote (setMany, getMany)
+    store.setMany([
+      ["user2", { name: "Ana" }],
+      ["user3", { name: "Beatriz" }]
+    ]);
+
+    const users = store.getMany<any>(["user1", "user2", "user3"]);
+    assertEquals(users.length, 3);
+    assertEquals(users[1]?.name, "Ana");
+
+    // Testando Iteradores (keys, values, entries)
+    const allKeys = store.keys();
+    assertEquals(allKeys.length, 3);
+    assert(allKeys.includes("LS_CRUD_user1"));
+
+    const allValues = store.values<any>();
+    assertEquals(allValues.length, 3);
+    assert(allValues.some(v => v._id === "user2" && v.name === "Ana")); // Valida se formatDbItem agiu nos values
+
+    const allEntries = store.entries<any>();
+    assertEquals(allEntries.length, 3);
+    const firstEntry = allEntries.find(([k]) => k === "LS_CRUD_user3");
+    assert(firstEntry !== undefined);
+    assertEquals(firstEntry[1].name, "Beatriz");
+
+    // Delete
+    store.delete("user1");
+    assertEquals(store.get("user1"), undefined);
+    assertEquals(store.keys().length, 2);
+
+    store.deleteMany(["user2", "user3"]);
+    assertEquals(store.keys().length, 0);
+
+    store.clear();
+  }
+});
+
+Deno.test({
+  name: "LS Simple - Import e Export com Respeito ao Escopo/Prefixo",
+  fn() {
+    const store = ls("LS_EXP_");
+    store.clear();
+
+    const mockData = {
+      LS_EXP_k1: { v: 1, label: "A" },
+      LS_EXP_k2: { v: 2, label: "B" },
+    };
+
+    store.importLS(mockData, true);
+
+    const exported = store.exportLS();
+    assertEquals(exported, mockData);
+
+    const values = store.values<any>();
+    assertEquals(values.length, 2);
+    assertEquals(values.find(i => i._id === "k1")?.v, 1);
+
+    store.clear();
+  }
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/tests/ls_advanced_test.ts`
+
+```ts
+import { assertEquals, assert, assertThrows, assertNotEquals } from "@std/assert";
+import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
+import { ls } from "../src/mod.ts";
+
+globalThis.localStorage = new FakeLocalStorage();
+
+Deno.test({
+  name: "LS Advanced - Execução de Métodos Modernos de Array JS (query, getSome)",
+  fn() {
+    const store = ls("LS_FINANCAS_");
+    store.clear();
+
+    store.importLS({
+      LS_FINANCAS_f1: { tag: "work", amount: 150, status: "paid", code: "x" },
+      LS_FINANCAS_f2: { tag: "personal", amount: 300, status: "pending", code: "y" },
+      LS_FINANCAS_f3: { tag: "work", amount: 500, status: "paid", code: "z" },
+      LS_FINANCAS_f4: { tag: "home", amount: 80, status: "pending", code: "w" },
+      LS_FINANCAS_f5: { tag: "work", amount: 200, status: "paid", code: "k" },
+    });
+
+    // Valida execução de funções avançadas síncronas de Array
+    const result = store.query((items) => {
+      return {
+        count: items.length, // length
+        total: items.reduce((acc, i) => acc + (i as any).amount, 0), // reduce
+        firstWork: items.find((i) => (i as any).tag === "work"), // find
+        lastWork: items.findLast((i) => (i as any).tag === "work"), // findLast
+        lastItem: items.at(-1), // at
+        hasPending: items.some((i) => (i as any).status === "pending"), // some
+        allPositive: items.every((i) => (i as any).amount > 0), // every
+        tagsHaveHome: items.map((i) => (i as any).tag).includes("home"), // map e includes
+        idxPersonal: items.findIndex((i) => (i as any).tag === "personal"), // findIndex
+        lastIdxWork: items.findLastIndex((i) => (i as any).tag === "work"), // findLastIndex
+        indexOfZ: items.map((i) => (i as any).code).indexOf("z"), // indexOf
+        paidItems: items.filter((i) => (i as any).status === "paid"), // filter
+        sliced: items.slice(1, 4), // slice
+        sortedByAmount: items.toSorted((a, b) => (a as any).amount - (b as any).amount), // toSorted
+        reversed: items.toReversed(), // toReversed
+        spliced: items.toSpliced(0, 2), // toSpliced
+      };
+    });
+
+    assertEquals(result.count, 5);
+    assertEquals(result.total, 1230);
+    assertEquals((result.firstWork as any).amount, 150);
+    assertEquals((result.lastWork as any).amount, 200);
+    assertEquals((result.lastItem as any).code, "k");
+    assert(result.hasPending);
+    assert(result.allPositive);
+    assert(result.tagsHaveHome);
+    assertEquals(result.idxPersonal, 1);
+    assertEquals(result.lastIdxWork, 4);
+    assertEquals(result.indexOfZ, 2);
+    assertEquals(result.paidItems.length, 3);
+    assertEquals(result.sliced.length, 3);
+    assertEquals((result.sortedByAmount[0] as any).amount, 80);
+    assertEquals((result.reversed[0] as any).code, "k");
+    assertEquals(result.spliced.length, 3);
+
+    store.clear();
+  }
+});
+
+Deno.test({
+  name: "LS Advanced - Erros de Tipagem Síncronos (Retornos Inválidos)",
+  fn() {
+    const store = ls("LS_ERROS_");
+    store.clear();
+    store.set("1", { valid: true });
+
+    // AssertThrows captura as exceções síncronas disparadas pelo wrapper ls()
+    assertThrows(
+      () => store.getSome(() => ({ obj: "invalid" } as any)),
+      Error,
+      "A função em getSome deve retornar um Array."
+    );
+
+    assertThrows(
+      () => store.delSome(() => false as any),
+      Error,
+      "A função em delSome deve retornar um Array."
+    );
+
+    assertThrows(
+      () => store.setSome(() => "string" as any, (i) => i),
+      Error,
+      "A função de seleção em setSome deve retornar um Array."
+    );
+
+    store.clear();
+  }
+});
+
+Deno.test({
+  name: "LS Advanced - Transformações de Tipo, Mutação em Massa e Exclusão Segura",
+  fn() {
+    const store = ls("LS_EMPRESA_");
+    store.clear();
+
+    store.importLS({
+      LS_EMPRESA_e10: { name: "joão silva", department: "tecnologia", level: 2, active: true },
+      LS_EMPRESA_e20: { name: "maria souza", department: "rh", level: 3, active: true },
+      LS_EMPRESA_e30: { name: "pedro alves", department: "vendas", level: 1, active: false },
+    });
+
+    // Atualiza nome para UPPERCASE e converte 'level' (number) para string
+    store.setSome(
+      (items) => items.filter((item) => (item as any).active === true),
+      (item) => ({
+        ...item,
+        name: (item as any).name.toUpperCase(),
+        department: (item as any).department.toUpperCase(),
+        level: String((item as any).level) // Mutação de tipo explícita!
+      })
+    );
+
+    const e10 = store.get<any>("e10");
+    assertEquals(e10?.name, "JOÃO SILVA");
+    assertEquals(e10?.department, "TECNOLOGIA");
+    assertEquals(typeof e10?.level, "string");
+    assertEquals(e10?.level, "2");
+
+    const e30 = store.get<any>("e30");
+    assertEquals(e30?.department, "vendas"); // Permanece em lowercase pois active=false
+    assertEquals(typeof e30?.level, "number"); // Permanece tipo número
+
+    // Exclui funcionários inativos via delSome
+    store.delSome((items) => items.filter((i) => (i as any).active === false));
+    
+    // Checa deleção correta
+    assertEquals(store.get("e30"), undefined);
+    const remainingKeys = store.keys();
+    assertEquals(remainingKeys.length, 2);
+    
+    // Assegura integridade dos que ficaram
+    const remaining = store.values<any>();
+    assertNotEquals(remaining[0].name, "pedro alves");
+
+    store.clear();
+  }
 });
 ```
 
@@ -777,6 +1843,351 @@ const build = async () => {
 };
 
 await build();
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/example/server.ts`
+
+```ts
+import { serveDir } from "@std/http/file-server";
+import { copy, ensureDir } from "@std/fs";
+import { join } from "@std/path";
+
+async function prepareAndBuild() {
+  const startTime = performance.now();
+  console.log("🔨 [DEV SERVER] Preparando ambiente...");
+
+  // 2. Garante a existência do diretório
+  await ensureDir("./build");
+
+  // 3. Faz o bundle do index.html do exemplo para ser servido no navegador
+  console.log("📦 [DEV SERVER] Fazendo bundle do index.html...");
+  const result = await Deno.bundle({
+    entrypoints: [
+      "./example/index.html"
+    ],
+    outputDir: "./build",
+    platform: "browser",
+    format: "esm",
+    packages: "external",
+    keepnames: true,
+    inlineImports: true,
+    codeSplitting: false,
+    minify: false,
+    sourcemap: "linked",
+    write: true,
+  });
+
+  if (!result.success) {
+    console.error(result.errors);
+    throw new Error("Falha ao gerar bundle pelo compilador interno.");
+  }
+
+  for (const warning of result.warnings || []) {
+    console.warn(warning);
+  }
+
+  const endTime = performance.now();
+  console.log(`✅ [DEV SERVER] Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
+}
+
+// Inicia o processo de build e depois sobe o servidor HTTP
+await prepareAndBuild();
+
+console.log(`\n🚀 Servidor estático rodando em: http://localhost:9000`);
+console.log("   Disponibilizando o diretório: ./build/");
+
+Deno.serve({ port: 9000 }, (req) => {
+  return serveDir(req, {
+    fsRoot: "./build/",
+    showDirListing: true,
+    enableCors: true,
+  });
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/example/index.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Loco PWA - WorkerDB Demo</title>
+  <style>
+    :root {
+      --md-sys-color-background: #1a1c19;
+      --md-sys-color-on-background: #e2e3dd;
+      --md-sys-color-primary: #9edeb6;
+      --md-sys-color-surface: #2d312d;
+    }
+    
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: var(--md-sys-color-background);
+      color: var(--md-sys-color-on-background);
+      margin: 0;
+      padding: 24px;
+      line-height: 1.6;
+    }
+
+    h1 { color: var(--md-sys-color-primary); }
+    
+    #app { max-width: 800px; margin: 0 auto; }
+
+    .console-card {
+      background-color: var(--md-sys-color-surface);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      overflow-x: auto;
+    }
+
+    pre {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 14px;
+      color: #b5e8b0;
+      margin: 0;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body class="dark">
+  <div id="app">
+    <h1>Loco PWA - Testes Reais (IndexedDB)</h1>
+    <p>Os testes abaixo comprovam a integração <strong>Offline-First</strong> executada assincronamente através de um Web Worker. Sem bloquear a UI!</p>
+    
+    <div class="console-card">
+      <pre id="log-output">Aguardando execução do main.ts...</pre>
+    </div>
+  </div>
+  
+  <!-- Arquivo gerado pelo deno bundle no nosso server.ts -->
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/example/main.ts`
+
+```ts
+import { db, ls } from "../src/mod.ts";
+
+// Utilitário simples para printar os resultados visualmente na interface HTML
+const logElement = document.getElementById("log-output");
+
+function log(msg: string, data?: any) {
+  const dataStr = data ? `\n  ↳ ${JSON.stringify(data, null, 2)}` : "";
+  const fullText = `${msg}${dataStr}\n`;
+  
+  if (logElement) {
+    if (logElement.innerText.includes("Aguardando execução")) {
+      logElement.innerText = ""; // Limpa a tela inicial
+    }
+    logElement.innerText += fullText;
+  }
+  console.log(msg, data || "");
+}
+
+async function runRealWorldTests() {
+  log("🚀 INICIANDO TESTES DO LOCO PWA (AMBIENTE REAL)\n");
+  
+  // ==========================================
+  // 1. TESTE LOCALSTORAGE
+  // ==========================================
+  log("--- TESTANDO LOCALSTORAGE (ls) ---");
+  const local = ls("test_");
+  local.clear();
+  
+  local.set("session", { active: true, device: "desktop" });
+  const sess = local.get("session");
+  log("✅ LocalStorage gravou e recuperou com prefixo 'test_':", sess);
+  
+  // ==========================================
+  // 2. TESTE WORKER DB (INDEXEDDB)
+  // ==========================================
+  log("\n--- TESTANDO INDEXEDDB VIA WORKER (db) ---");
+  
+  // Inicia explicitamente o Worker (instancia usando o default './worker-db.js')
+  db.init();
+
+  // Escopo definido pela instrução do TODO
+  const store = db("db_test", "test", "demo_");
+  await store.clear();
+  log("🧹 Banco de dados 'db_test' (store: test) limpo com sucesso.");
+
+  // Teste de CRUD Simples
+  log("\n[ CRUD Simples ]");
+  const userId = await store.set("user_1", { nome: "Satoshi Nakamoto", privacy: "high" });
+  log(`✅ Registro salvo via set(). Chave gerada: ${userId}`);
+
+  const user = await store.get("user_1");
+  log("✅ Leitura realizada com get():", user);
+
+  await store.patch("user_1", { status: "online" });
+  const updatedUser = await store.get("user_1");
+  log("✅ Atualização parcial via patch() finalizada:", updatedUser);
+
+  // ==========================================
+  // 3. TESTE FUNÇÕES AVANÇADAS NO WORKER
+  // ==========================================
+  log("\n[ Mutação em Massa e Processamento em Background ]");
+  
+  await store.setMany([
+    ["msg_1", { txt: "Hello PWA", read: true }],
+    ["msg_2", { txt: "E2EE is awesome", read: false }],
+    ["msg_3", { txt: "Offline First!", read: false }],
+  ]);
+  log("✅ setMany() inseriu 3 registros de uma vez.");
+
+  // Executa contagem diretamente na thread do worker para não bloquear a UI!
+  const unreadCount = await store.query<any, number>((items) => {
+    return items.filter(i => i.read === false).length;
+  });
+  log(`✅ query() executada remotamente. Total de msgs não lidas: ${unreadCount}`);
+
+  // Marca todas as não lidas como lidas de uma só vez (no worker!)
+  await store.setSome<any>(
+    (items) => items.filter(i => i.read === false),
+    (item) => ({ ...item, read: true })
+  );
+  
+  const finalMessages = await store.values();
+  log("✅ Estado final do banco após setSome() (todas lidas):", finalMessages);
+
+  log("\n🏁 TODOS OS TESTES PASSARAM COM SUCESSO!");
+}
+
+// Inicia os testes no frontend
+runRealWorldTests().catch((err) => {
+  log("❌ OCORREU UM ERRO FATAL:", err.message);
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/example/demo.ts`
+
+```ts
+import { db, ls, listOpfsFiles } from "../src/mod.ts";
+
+// Tipagem dos modelos de domínio do Loco PWA
+interface LocoMessage {
+  _id?: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  status: "pending" | "sent" | "delivered";
+  timestamp: number;
+}
+
+interface UserPreferences {
+  theme: "dark" | "light";
+  notificationsEnabled: boolean;
+  activeChatId: string | null;
+}
+
+async function runLocoDbDemo() {
+  console.log("🚀 [Loco PWA] Iniciando demonstração do WORKER-DB...\n");
+
+  // Ajusta o caminho do Worker para execução nativa no Deno
+  db.init(new URL("../build/worker-db.js", import.meta.url));
+
+  // -------------------------------------------------------------
+  // 1. GERENCIAMENTO DE PREFERÊNCIAS DE UI (LocalStorage Scoped)
+  // -------------------------------------------------------------
+  console.log("📦 1. Configurando Preferências do Usuário (LS)...");
+  const prefsStore = ls("LOCO_PREF_");
+  prefsStore.clear();
+
+  prefsStore.set<UserPreferences>("config", {
+    theme: "dark",
+    notificationsEnabled: true,
+    activeChatId: "chat_123",
+  });
+
+  const currentPrefs = prefsStore.get<UserPreferences>("config");
+  console.log("   --> Preferências salvas:", currentPrefs);
+
+  // -------------------------------------------------------------
+  // 2. FILA DE MENSAGENS OFFLINE (IndexedDB via Web Worker)
+  // -------------------------------------------------------------
+  console.log("\n💬 2. Enfileirando Mensagens Offline (DB Worker)...");
+  const msgStore = db("LOCO_DATA", "messages", "MSG_");
+  await msgStore.clear();
+
+  // Inserção com geração automática de ID (_id: "auto")
+  const msgId1 = await msgStore.set<LocoMessage>({
+    _id: "auto",
+    senderId: "user_alice",
+    recipientId: "user_bob",
+    content: "Olá! Esta mensagem foi gravada offline.",
+    status: "pending",
+    timestamp: Date.now(),
+  });
+
+  const msgId2 = await msgStore.set<LocoMessage>({
+    _id: "auto",
+    senderId: "user_alice",
+    recipientId: "user_bob",
+    content: "Segunda mensagem na fila de sincronização.",
+    status: "pending",
+    timestamp: Date.now() + 1000,
+  });
+
+  console.log(`   --> Mensagens enfileiradas. Keys: ${msgId1}, ${msgId2}`);
+
+  // -------------------------------------------------------------
+  // 3. CONSULTAS E MUTAÇÕES AVANÇADAS NO WORKER (query & setSome)
+  // -------------------------------------------------------------
+  console.log("\n⚙️ 3. Processando Fila de Mensagens no Worker...");
+
+  // Consulta agregada executada dentro da thread do Worker
+  const pendingCount = await msgStore.query<LocoMessage, number>((items) => {
+    return items.filter((m) => m.status === "pending").length;
+  });
+  console.log(`   --> Mensagens pendentes para envio: ${pendingCount}`);
+
+  // Transição de estado: Marcar todas as mensagens de 'pending' para 'sent'
+  await msgStore.setSome<LocoMessage>(
+    (items) => items.filter((m) => m.status === "pending"),
+    (item) => ({ ...item, status: "sent" })
+  );
+
+  const updatedMessages = await msgStore.values<LocoMessage>();
+  console.log("   --> Estado das mensagens após envio:", updatedMessages);
+
+  // -------------------------------------------------------------
+  // 4. BACKUP E RESTAURAÇÃO DE SEGURANÇA (OPFS)
+  // -------------------------------------------------------------
+  console.log("\n💾 4. Executando Backup no OPFS (Origin Private File System)...");
+  const backupFileName = await msgStore.backupToOpfs("mensagens_backup.json");
+  console.log(`   --> Backup gerado com sucesso: ${backupFileName}`);
+
+  const opfsFiles = await listOpfsFiles();
+  console.log("   --> Arquivos armazenados no OPFS:", opfsFiles);
+
+  // Limpa o banco e restaura a partir do backup do OPFS
+  await msgStore.clear();
+  console.log("   --> Banco de dados limpo. Total de itens:", (await msgStore.keys()).length);
+
+  await msgStore.restoreFromOpfs(backupFileName);
+  const restoredCount = (await msgStore.keys()).length;
+  console.log(`   --> Banco de dados restaurado. Total de itens: ${restoredCount}`);
+
+  // Limpa o ambiente antes de fechar
+  db.terminate();
+  console.log("\n✅ Demonstração finalizada. Worker encerrado.");
+}
+
+// Executar
+runLocoDbDemo();
 ```
 
 ---

@@ -978,7 +978,9 @@
       "monorepo/worker-db": {
         "dependencies": [
           "jsr:@std/assert@*",
-          "jsr:@std/fs@*"
+          "jsr:@std/fs@*",
+          "jsr:@std/http@*",
+          "jsr:@std/path@*"
         ]
       },
       "proto/01-push-messaging": {

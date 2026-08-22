@@ -2,6 +2,22 @@ import { APP_CONFIG } from "./config.ts";
 
 if (APP_CONFIG.USE_FAKE) {
   await import("fake-indexeddb");
+  const { FakeOPFSDirectory } = await import("./utils/fake-opfs.ts");
+  
+  const _nav = (globalThis as any).navigator;
+  if (!_nav) {
+    (globalThis as any).navigator = {};
+  }
+  
+  if (!(globalThis as any).navigator.storage) {
+    Object.defineProperty((globalThis as any).navigator, "storage", {
+      value: {
+        getDirectory: async () => new FakeOPFSDirectory()
+      },
+      writable: true,
+      configurable: true
+    });
+  }
 }
 
 import { 
@@ -10,6 +26,7 @@ import {
 } from "idb-keyval";
 
 import { formatDbItem, prepareForSave } from "./utils/id-utils.ts";
+import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
 
 const storeCache = new Map<string, UseStore>();
 
@@ -81,10 +98,35 @@ self.onmessage = async (e: MessageEvent) => {
         break;
       }
 
-      case "KEYS":    result = await keys(store); break;
-      case "VALUES":  result = await values(store); break;
-      case "ENTRIES": result = await entries(store); break;
-      case "CLEAR":   result = await clear(store); break;
+      case "KEYS": {
+        const allKeys = await keys(store);
+        result = args.prefix ? allKeys.filter(k => typeof k === "string" && k.startsWith(args.prefix)) : allKeys;
+        break;
+      }
+
+      case "VALUES": {
+        const allEntries = await entries(store);
+        const formattedItems = formatDbEntries(allEntries, args.prefix);
+        result = formattedItems; 
+        break;
+      }
+
+      case "ENTRIES": {
+        const allEntries = await entries(store);
+        result = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
+        break;
+      }
+
+      case "CLEAR": {
+        if (args.prefix) {
+          const allKeys = await keys(store);
+          const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+          await delMany(keysToDelete, store);
+        } else {
+          await clear(store);
+        }
+        break;
+      }
 
       case "PATCH": {
         const rawKey = args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key;
@@ -176,13 +218,63 @@ self.onmessage = async (e: MessageEvent) => {
 
       case "EXPORT": {
         const allEntries = await entries(store);
-        result = Object.fromEntries(allEntries);
+        const filtered = args.prefix 
+          ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) 
+          : allEntries;
+        result = Object.fromEntries(filtered);
         break;
       }
 
       case "IMPORT": {
-        if (args.clearFirst) await clear(store);
-        const entriesToImport = Object.entries(args.data);
+        if (args.clearFirst) {
+          if (args.prefix) {
+            const allKeys = await keys(store);
+            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+            await delMany(keysToDelete, store);
+          } else {
+            await clear(store);
+          }
+        }
+        const entriesToImport: [string, any][] = Object.entries(args.data).map(([k, v]) => {
+          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
+          return [key, cleanVal];
+        });
+        result = await setMany(entriesToImport, store);
+        break;
+      }
+
+      case "BACKUP_OPFS": {
+        const allEntries = await entries(store);
+        const filtered = args.prefix 
+          ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) 
+          : allEntries;
+        const data = Object.fromEntries(filtered);
+        
+        const fileName = resolveOpfsFileName("db", args.fileName || "backup.json", {
+          dbName: args.dbName,
+          storeName: args.storeName,
+          prefix: args.prefix
+        });
+        result = await writeJsonToOpfs(fileName, data);
+        break;
+      }
+
+      case "RESTORE_OPFS": {
+        const data = await readJsonFromOpfs(args.fileName);
+        if (args.clearFirst) {
+          if (args.prefix) {
+            const allKeys = await keys(store);
+            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+            await delMany(keysToDelete, store);
+          } else {
+            await clear(store);
+          }
+        }
+        
+        const entriesToImport: [string, any][] = Object.entries(data).map(([k, v]) => {
+          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
+          return [key, cleanVal];
+        });
         result = await setMany(entriesToImport, store);
         break;
       }

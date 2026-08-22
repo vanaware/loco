@@ -1,4 +1,5 @@
 import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo } from "./utils/id-utils.ts";
+import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
 import type { WithId } from "./mod.ts";
 
 export interface LsStoreOptions {
@@ -175,6 +176,32 @@ function createScopedLs(prefix = "") {
         const { key: finalKey, cleanVal } = prepareForSave(undefined, updatedItem, prefix);
         localStorage.setItem(finalKey, JSON.stringify(cleanVal));
       });
+    },
+
+    // --- MÉTODOS DE EXPORTAÇÃO / IMPORTAÇÃO ---
+
+    exportLS: (): Record<string, any> => {
+      const allEntries = getAllPrefixedEntries(prefix);
+      return Object.fromEntries(allEntries);
+    },
+
+    importLS: (data: Record<string, any>, clearFirst = false): void => {
+      const api = createScopedLs(prefix);
+      if (clearFirst) api.clear();
+      Object.entries(data).forEach(([k, v]) => api.set(k, v));
+    },
+
+    backupToOpfs: async (fileName = "backup.json"): Promise<string> => {
+      const data = Object.fromEntries(getAllPrefixedEntries(prefix));
+      const finalName = resolveOpfsFileName("ls", fileName, { prefix });
+      return await writeJsonToOpfs(finalName, data);
+    },
+
+    restoreFromOpfs: async (fileName: string, clearFirst = false): Promise<void> => {
+      const data = await readJsonFromOpfs(fileName);
+      const api = createScopedLs(prefix);
+      if (clearFirst) api.clear();
+      Object.entries(data).forEach(([k, v]) => api.set(k, v));
     },
 
     gerarId,

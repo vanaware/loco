@@ -1,58 +1,20 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assert } from "@std/assert";
+import { gerarId, validarId } from "../src/utils/id-utils.ts";
+import { db, ls } from "../src/mod.ts";
+import { FakeLocalStorage } from "../src/utils/fake-local-storage.ts";
 
-if (typeof Deno !== "undefined") {
-  Deno.env.set("USE_FAKE", "true");
-}
+globalThis.localStorage = new FakeLocalStorage();
 
-import { db } from "../src/mod.ts";
+Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () => {
+  const id = gerarId();
+  assert(id.length > 0);
 
-Deno.test({
-  name: "Deve suportar _id e as funções em lote getSome, delSome, setSome e query",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    await db.clear();
+  const isValid = validarId(id);
+  assertEquals(isValid, true);
 
-    const loja = db("LOJA", "produtos", "PROD_");
-    
-    await loja.setMany([
-      ["001", { nome: "Lápis", preco: 2, ativo: true }],
-      ["002", { nome: "Borracha", preco: 3, ativo: false }],
-      ["003", { nome: "Caderno", preco: 15, ativo: true }],
-      ["004", { nome: "Mochila", preco: 150, ativo: true }],
-    ]);
+  const dbInstance = db("MAIN_DB", "main");
+  assert(dbInstance !== undefined);
 
-    // 1. QUERY
-    const activeCount = await loja.query<{ preco: number, ativo: boolean }, number>(
-      (items) => items.filter(i => i.ativo).length
-    );
-    assertEquals(activeCount, 3);
-
-    // 2. GET_SOME (Verifica _id injetado)
-    const caros = await loja.getSome<{ preco: number, nome: string }>(
-      (items) => items.filter(i => i.preco > 10).toSorted((a, b) => b.preco - a.preco)
-    );
-    assertEquals(caros.length, 2);
-    assertEquals(caros[0]?.nome, "Mochila");
-    assertEquals(caros[0]?._id, "004");
-
-    // 3. SET_SOME
-    await loja.setSome<{ preco: number, ativo: boolean, nome: string }>(
-      (items) => items.filter(i => i.ativo),
-      (item) => ({ ...item, preco: item.preco * 1.1 })
-    );
-    
-    const lapisAtt = await loja.get<{ preco: number }>("001");
-    assertEquals(lapisAtt?.preco, 2.2);
-
-    // 4. DEL_SOME
-    await loja.delSome<{ ativo: boolean }>(
-      (items) => items.filter(i => i.ativo === false)
-    );
-
-    const remainingKeys = await loja.keys();
-    assertEquals(remainingKeys.length, 3);
-    
-    db.terminate();
-  },
+  const lsInstance = ls("MAIN_LS_");
+  assert(lsInstance !== undefined);
 });

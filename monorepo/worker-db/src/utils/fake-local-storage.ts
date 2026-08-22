@@ -1,13 +1,5 @@
-export class FakeLocalStorage implements Storage {
+export class FakeLocalStorage {
   private store = new Map<string, string>();
-
-  get length(): number {
-    return this.store.size;
-  }
-
-  clear(): void {
-    this.store.clear();
-  }
 
   getItem(key: string): string | null {
     return this.store.get(key) ?? null;
@@ -19,6 +11,14 @@ export class FakeLocalStorage implements Storage {
 
   removeItem(key: string): void {
     this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+
+  get length(): number {
+    return this.store.size;
   }
 
   key(index: number): string | null {

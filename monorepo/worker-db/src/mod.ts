@@ -1,14 +1,25 @@
 import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
+import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs } from "./utils/opfs_utils.ts";
 import { ls } from "./ls.ts";
 
-export { gerarId, gerarIdComPrefixo, validarId, ls, type WithId };
+// Exportando os utilitários de OPFS para uso fácil na Main Thread (ex: UI de listagem e download)
+export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, type WithId };
 
 let workerInstance: Worker | null = null;
+let currentWorkerPath: string | URL = "./worker-db.js";
 const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
 
-function getWorker(): Worker {
+function getWorker(workerPath?: string | URL): Worker {
+  if (workerPath) {
+    currentWorkerPath = workerPath;
+  }
+  
   if (!workerInstance) {
-    const workerUrl = new URL("../build/worker-db.js", import.meta.url);
+    // Resolve o caminho. Se for string, torna relativo a este módulo (ou ao bundle de destino)
+    const workerUrl = typeof currentWorkerPath === "string" 
+      ? new URL(currentWorkerPath, import.meta.url) 
+      : currentWorkerPath;
+
     workerInstance = new Worker(workerUrl, { type: "module" });
 
     workerInstance.onmessage = (e: MessageEvent) => {
@@ -39,7 +50,7 @@ function restartWorker() {
   }
   pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
   pendingRequests.clear();
-  getWorker();
+  getWorker(); // Usa o currentWorkerPath pré-configurado
 }
 
 function terminateWorker() {
@@ -74,7 +85,8 @@ const globalDbAPI = {
   
   set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
     if (typeof keyOrVal !== "string") {
-      return exec<string>("SET", { key: undefined, val: keyOrVal, ...(val as DbStoreOptions) });
+      const options = opts || (val as DbStoreOptions) || {};
+      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
     }
     return exec<string>("SET", { key: keyOrVal, val, ...opts });
   },
@@ -127,7 +139,10 @@ const globalDbAPI = {
   exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
   importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
 
-  init: () => { getWorker(); }, 
+  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
+  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
+
+  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
   restart: () => restartWorker(),
   terminate: () => terminateWorker(),
 };
@@ -158,6 +173,9 @@ function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
       
     exportDB: () => globalDbAPI.exportDB(opts),
     importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
+
+    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
+    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
     
     gerarId,
     gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
