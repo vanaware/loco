@@ -1,4 +1,4 @@
-import { db, ls, listOpfsFiles, deleteFromOpfs } from "../src/mod.ts";
+import { db, ls, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "../src/mod.ts";
 
 // Tipagem dos modelos de domínio do Loco PWA
 interface LocoMessage {
@@ -17,7 +17,8 @@ interface UserPreferences {
   activeChatId: string | null;
 }
 
-// Utilitário simples para printar os resultados visualmente na interface HTML
+// Elementos da interface HTML
+const appElement = document.getElementById("app");
 const logElement = document.getElementById("log-output");
 
 function log(msg: string, data?: any) {
@@ -47,7 +48,6 @@ async function runRealWorldTests() {
   const prefStore = ls("LOCO_PREF_");
   const authStore = ls("LOCO_AUTH_");
   
-  // Utilizando a nova lógica: enviando "auto" direto no ID interno
   prefStore.set<UserPreferences>({ _id: "auto", theme: "dark", notificationsEnabled: true, activeChatId: "chat_1" });
   authStore.set("session_token", { token: "abc-123-xyz", active: true });
   
@@ -63,8 +63,6 @@ async function runRealWorldTests() {
   await msgStore.clear();
 
   const now = Date.now();
-  
-  // Testando o seu design: A chave informada é "auto" e o objeto não precisa de _id
   await msgStore.setMany([
     ["auto", { senderId: "alice", recipientId: "bob", content: "Oi!", status: "delivered", priority: 1, timestamp: now - 5000 }],
     ["auto", { senderId: "alice", recipientId: "bob", content: "Tudo bem?", status: "pending", priority: 1, timestamp: now - 4000 }],
@@ -75,22 +73,17 @@ async function runRealWorldTests() {
   log(`   --> Banco populado via "auto" explícito nas chaves.`);
   log(`   --> Total de mensagens injetadas com UUIDs gerados com sucesso: ${(await msgStore.keys()).length}`);
 
-  // Testando também o .set simples para visualizar o retorno da chave gerada
-  const keyGerada = await msgStore.set("auto", { senderId: "admin", recipientId: "all", content: "Bem-vindo!", status: "read", priority: 10, timestamp: now });
-  log(`   --> Teste .set("auto"): Chave final retornada pelo sistema = ${keyGerada}`);
-
   // -------------------------------------------------------------
   // 3. WORKER DB: Consultas Analíticas (Agregações remotas)
   // -------------------------------------------------------------
   log("\n📊 3. IndexedDB Worker - Análises e Agregações Remotas (query)...");
   
-  // Tudo isso roda em background, sem travar o Event Loop da UI!
   const stats = await msgStore.query<LocoMessage, any>((items) => {
     return {
       totalPending: items.filter(i => i.status === "pending").length,
       highestPriorityPending: items
         .filter(i => i.status === "pending")
-        .toSorted((a, b) => b.priority - a.priority)[0], // toSorted do ES2023 no Worker!
+        .toSorted((a, b) => b.priority - a.priority)[0],
       hasUrgent: items.some(i => i.priority >= 5),
       oldestMessage: items.reduce((oldest, current) => current.timestamp < oldest.timestamp ? current : oldest)
     };
@@ -103,7 +96,6 @@ async function runRealWorldTests() {
   // -------------------------------------------------------------
   log("\n⚙️ 4. IndexedDB Worker - Transformações Assíncronas (setSome)...");
 
-  // Altera mensagens pendentes: sobe o status para 'sent' e ofusca o conteúdo (Simulando preparo E2EE)
   await msgStore.setSome<LocoMessage>(
     (items) => items.filter((m) => m.status === "pending"),
     (item) => ({ 
@@ -121,34 +113,57 @@ async function runRealWorldTests() {
   // -------------------------------------------------------------
   log("\n🧹 5. IndexedDB Worker - Limpeza Condicional (delSome)...");
 
-  // Removemos as mensagens antigas que já foram lidas (Simulando mensagens efêmeras)
   await msgStore.delSome<LocoMessage>((items) => items.filter(m => m.status === "read"));
   log(`   --> Mensagens "read" deletadas. Restantes no DB: ${(await msgStore.keys()).length}`);
 
   // -------------------------------------------------------------
-  // 6. OPFS NATIVO: Backup Assíncrono no Sistema de Arquivos
+  // 6. OPFS NATIVO: Backup Assíncrono e Download de Múltiplos Arquivos
   // -------------------------------------------------------------
-  log("\n💾 6. Origin Private File System (OPFS) - Backup Nativo...");
+  log("\n💾 6. Origin Private File System (OPFS) - Backup Nativo e Resgate...");
   
-  // Limpa lixos anteriores para a demonstração ser limpa
   const oldFiles = await listOpfsFiles();
   for (const f of oldFiles) await deleteFromOpfs(f);
 
-  const backupName = await msgStore.backupToOpfs("mensagens_v1.json");
-  const storedFiles = await listOpfsFiles();
-  
-  log(`   --> Backup gerado pelo Worker com sucesso.`);
-  log(`   --> Arquivos fisicamente guardados no OPFS do navegador:`, storedFiles);
+  // Gerando os dois backups
+  await msgStore.backupToOpfs("mensagens_v1.json");
+  await msgStore.set("auto", { senderId: "admin", recipientId: "all", content: "Aviso importante!", status: "delivered", priority: 10, timestamp: Date.now() });
+  const finalBackupName = await msgStore.backupToOpfs("mensagens_v2_final.json");
 
-  // Prova real: vamos limpar o IndexedDB inteiro e restaurar pelo arquivo do OPFS
+  const storedFiles = await listOpfsFiles();
+  log(`   --> Backups gerados com sucesso na pasta interna '/backup'.`);
+  log(`   --> Arquivos fisicamente encontrados na pasta:`, storedFiles);
+
+  // Criando a UI interativa de Downloads fora do <pre> para o innerText do log() não esmagá-los
+  if (appElement && storedFiles.length > 0) {
+    const downloadContainer = document.createElement("div");
+    downloadContainer.style.marginTop = "24px";
+    downloadContainer.style.padding = "16px";
+    downloadContainer.style.backgroundColor = "var(--md-sys-color-surface)";
+    downloadContainer.style.borderRadius = "12px";
+    downloadContainer.style.boxShadow = "0 4px 6px rgba(0,0,0,0.3)";
+
+    let linksHTML = `<h3 style="margin-top: 0; color: var(--md-sys-color-primary);">🗂️ Arquivos de Backup (OPFS)</h3>`;
+    linksHTML += `<div style="display: flex; flex-direction: column; gap: 12px;">`;
+    
+    for (const fileName of storedFiles) {
+      const fileBlob = await getFileFromOpfs(fileName);
+      const objectUrl = URL.createObjectURL(fileBlob);
+      linksHTML += `<a href="${objectUrl}" download="${fileName}" style="color: #1a1c19; background: #9edeb6; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; width: fit-content; font-size: 14px;">📥 Baixar: ${fileName}</a>`;
+    }
+    
+    linksHTML += `</div>`;
+    downloadContainer.innerHTML = linksHTML;
+    appElement.appendChild(downloadContainer); // Adiciona na página de forma segura
+    log(`   --> Links de download renderizados na interface gráfica com sucesso!`);
+  }
+
+  // Restauração do sistema
   await msgStore.clear();
   log(`   --> IndexedDB completamente apagado. Chaves: ${(await msgStore.keys()).length}`);
   
-  await msgStore.restoreFromOpfs(backupName);
-  log(`   --> Banco restaurado do disco (OPFS). Chaves recuperadas: ${(await msgStore.keys()).length}`);
+  await msgStore.restoreFromOpfs(finalBackupName);
+  log(`   --> Banco restaurado do disco (OPFS: ${finalBackupName}). Chaves recuperadas: ${(await msgStore.keys()).length}`);
 
-
-  // Encerramento
   db.terminate();
   log("\n✅ Demonstração Completa Finalizada! Ambiente de dados totalmente operacional.");
 }

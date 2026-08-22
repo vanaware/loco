@@ -8,7 +8,41 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/22/2026, 6:06:04 PM
+Gerado automaticamente em: 8/22/2026, 6:49:37 PM
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/fake-local-storage.ts`
+
+```ts
+export class FakeLocalStorage {
+  private store = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+
+  get length(): number {
+    return this.store.size;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.store.keys())[index] ?? null;
+  }
+}
+```
 
 ---
 
@@ -48,7 +82,10 @@ export function prepareForSave(key: string | undefined | null, val: any, prefix 
     rawId = gerarId();
   }
 
-  let finalKey = key || "";
+  // Intercepta a chave informada como "auto" via parâmetro direto ou tupla do setMany
+  let processKey = key === "auto" ? gerarId() : key;
+
+  let finalKey = processKey || "";
 
   if (rawId) {
     if (prefix && rawId.startsWith(prefix)) {
@@ -56,11 +93,11 @@ export function prepareForSave(key: string | undefined | null, val: any, prefix 
     } else {
       finalKey = prefix ? `${prefix}${rawId}` : rawId;
     }
-  } else if (key) {
-    if (prefix && key.startsWith(prefix)) {
-      finalKey = key;
+  } else if (processKey) {
+    if (prefix && processKey.startsWith(prefix)) {
+      finalKey = processKey;
     } else {
-      finalKey = prefix ? `${prefix}${key}` : key;
+      finalKey = prefix ? `${prefix}${processKey}` : processKey;
     }
   }
 
@@ -79,34 +116,101 @@ export function prepareForSave(key: string | undefined | null, val: any, prefix 
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/utils/fake-local-storage.ts`
+## Arquivo: `monorepo/worker-db/src/utils/fake-opfs.ts`
 
 ```ts
-export class FakeLocalStorage {
-  private store = new Map<string, string>();
+export class FakeOPFSFileHandle {
+  public kind: "file" | "directory" = "file";
 
-  getItem(key: string): string | null {
-    return this.store.get(key) ?? null;
+  constructor(
+    private fullPath: string,
+    private storage: Map<string, string>
+  ) {}
+
+  async createWritable() {
+    const self = this;
+    let content = "";
+    return {
+      async write(data: string) {
+        content = data;
+      },
+      async close() {
+        self.storage.set(self.fullPath, content);
+      }
+    };
   }
 
-  setItem(key: string, value: string): void {
-    this.store.set(key, String(value));
+  async getFile() {
+    const content = this.storage.get(this.fullPath);
+    if (content === undefined) {
+      throw new Error(`File ${this.fullPath} not found in Fake OPFS`);
+    }
+    return {
+      async text() {
+        return content;
+      }
+    };
+  }
+}
+
+export class FakeOPFSDirectory {
+  private static sharedStorage = new Map<string, string>();
+
+  constructor(private path: string = "") {}
+
+  async getDirectoryHandle(name: string, options?: { create?: boolean }) {
+    // Simula a criação/retorno de um subdiretório
+    return new FakeOPFSDirectory(this.path ? `${this.path}/${name}` : name);
   }
 
-  removeItem(key: string): void {
-    this.store.delete(key);
+  async getFileHandle(name: string, options?: { create?: boolean }) {
+    const fullPath = this.path ? `${this.path}/${name}` : name;
+    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(fullPath)) {
+      throw new Error(`File ${fullPath} not found in Fake OPFS`);
+    }
+    return new FakeOPFSFileHandle(fullPath, FakeOPFSDirectory.sharedStorage);
   }
 
-  clear(): void {
-    this.store.clear();
+  async removeEntry(name: string) {
+    const fullPath = this.path ? `${this.path}/${name}` : name;
+    FakeOPFSDirectory.sharedStorage.delete(fullPath);
   }
 
-  get length(): number {
-    return this.store.size;
+  async *keys() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield localName;
+      } else if (!this.path && !key.includes("/")) {
+         yield key;
+      }
+    }
   }
 
-  key(index: number): string | null {
-    return Array.from(this.store.keys())[index] ?? null;
+  async *entries() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield [localName, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      } else if (!this.path && !key.includes("/")) {
+         yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      }
+    }
+  }
+
+  async *values() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      } else if (!this.path && !key.includes("/")) {
+         yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      }
+    }
+  }
+
+  static clear() {
+    FakeOPFSDirectory.sharedStorage.clear();
   }
 }
 ```
@@ -122,9 +226,9 @@ export interface OpfsResolveOptions {
   prefix?: string;
 }
 
-// Resolve o nome do arquivo dinamicamente (ex: db_LOJA_produtos_PROD__meu_backup.json)
+// Resolve o nome do arquivo dinamicamente
 export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: OpfsResolveOptions): string {
-  const parts: string[] = [type]; // CORREÇÃO: tipagem explícita adicionada aqui
+  const parts: string[] = [type]; 
   if (type === "db") {
     if (opts?.dbName) parts.push(opts.dbName);
     if (opts?.storeName) parts.push(opts.storeName);
@@ -135,9 +239,15 @@ export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: 
   return parts.join("_");
 }
 
-export async function writeJsonToOpfs(fileName: string, data: any): Promise<string> {
+// Utilitário interno para garantir que sempre operemos na pasta 'backup'
+async function getBackupDir() {
   const root = await navigator.storage.getDirectory();
-  const fileHandle = await root.getFileHandle(fileName, { create: true });
+  return await root.getDirectoryHandle("backup", { create: true });
+}
+
+export async function writeJsonToOpfs(fileName: string, data: any): Promise<string> {
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(JSON.stringify(data));
   await writable.close();
@@ -145,35 +255,34 @@ export async function writeJsonToOpfs(fileName: string, data: any): Promise<stri
 }
 
 export async function readJsonFromOpfs(fileName: string): Promise<any> {
-  const root = await navigator.storage.getDirectory();
-  const fileHandle = await root.getFileHandle(fileName);
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName);
   const file = await fileHandle.getFile();
   const text = await file.text();
   return JSON.parse(text);
 }
 
 export async function deleteFromOpfs(fileName: string): Promise<void> {
-  const root = await navigator.storage.getDirectory();
-  await root.removeEntry(fileName);
+  const backupDir = await getBackupDir();
+  await backupDir.removeEntry(fileName);
 }
 
 export async function getFileFromOpfs(fileName: string): Promise<File> {
-  const root = await navigator.storage.getDirectory();
-  const fileHandle = await root.getFileHandle(fileName);
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName);
   return await fileHandle.getFile();
 }
 
 export async function listOpfsFiles(): Promise<string[]> {
-  const root = await navigator.storage.getDirectory();
+  const backupDir = await getBackupDir();
   const files: string[] = [];
   // @ts-ignore: async iterator support
-  for await (const [name, handle] of root.entries()) {
+  for await (const [name, handle] of backupDir.entries()) {
     if (handle.kind === "file") files.push(name);
   }
   return files;
 }
 
-// Dispara o download nativo do arquivo no navegador (Apenas Main Thread)
 export async function downloadOpfsFile(fileName: string): Promise<void> {
   if (typeof document === "undefined") {
     throw new Error("downloadOpfsFile só pode ser executado na Main Thread (onde 'document' existe).");
@@ -187,86 +296,6 @@ export async function downloadOpfsFile(fileName: string): Promise<void> {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/utils/fake-opfs.ts`
-
-```ts
-export class FakeOPFSFileHandle {
-  public kind: "file" | "directory" = "file";
-
-  constructor(
-    private name: string,
-    private storage: Map<string, string>
-  ) {}
-
-  async createWritable() {
-    const self = this;
-    let content = "";
-    return {
-      async write(data: string) {
-        content = data;
-      },
-      async close() {
-        self.storage.set(self.name, content);
-      }
-    };
-  }
-
-  async getFile() {
-    const content = this.storage.get(this.name);
-    if (content === undefined) {
-      throw new Error(`File ${this.name} not found in Fake OPFS`);
-    }
-    return {
-      async text() {
-        return content;
-      }
-    };
-  }
-}
-
-export class FakeOPFSDirectory {
-  private static sharedStorage = new Map<string, string>();
-
-  async getFileHandle(name: string, options?: { create?: boolean }) {
-    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(name)) {
-      throw new Error(`File ${name} not found in Fake OPFS`);
-    }
-    return new FakeOPFSFileHandle(name, FakeOPFSDirectory.sharedStorage);
-  }
-
-  async removeEntry(name: string) {
-    FakeOPFSDirectory.sharedStorage.delete(name);
-  }
-
-  // Iterador apenas das chaves (nomes dos arquivos)
-  async *keys() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      yield key;
-    }
-  }
-
-  // Iterador completo devolvendo [nome, handle] (Espelha a API Nativa)
-  async *entries() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
-    }
-  }
-
-  // Iterador devolvendo apenas as instâncias (handles)
-  async *values() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
-    }
-  }
-
-  static clear() {
-    FakeOPFSDirectory.sharedStorage.clear();
-  }
 }
 ```
 
@@ -517,201 +546,6 @@ function createScopedLs(prefix = "") {
 export const ls = Object.assign(
   (prefix = "") => createScopedLs(prefix),
   createScopedLs()
-);
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/mod.ts`
-
-```ts
-// mod.ts
-import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
-import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs } from "./utils/opfs_utils.ts";
-import { ls } from "./ls.ts";
-
-// Exportando os utilitários de OPFS para uso fácil na Main Thread
-export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, type WithId };
-
-let workerInstance: Worker | null = null;
-let currentWorkerPath: string | URL = "./worker-db.js";
-const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
-
-function getWorker(workerPath?: string | URL): Worker {
-  if (workerPath) {
-    currentWorkerPath = workerPath;
-  }
-  
-  if (!workerInstance) {
-    const workerUrl = typeof currentWorkerPath === "string" 
-      ? new URL(currentWorkerPath, import.meta.url) 
-      : currentWorkerPath;
-
-    workerInstance = new Worker(workerUrl, { type: "module" });
-
-    workerInstance.onmessage = (e: MessageEvent) => {
-      const { requestId, success, result, error } = e.data;
-      const promise = pendingRequests.get(requestId);
-      
-      if (promise) {
-        if (success) promise.resolve(result);
-        else promise.reject(new Error(error));
-        pendingRequests.delete(requestId);
-      }
-    };
-
-    workerInstance.onerror = (event) => {
-      console.error("⚠️ Falha crítica no Web Worker:", event.message);
-      pendingRequests.forEach(({ reject }) => reject(new Error("Worker crashed")));
-      pendingRequests.clear();
-      restartWorker();
-    };
-  }
-  return workerInstance;
-}
-
-function restartWorker() {
-  if (workerInstance) {
-    workerInstance.terminate();
-    workerInstance = null;
-  }
-  pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
-  pendingRequests.clear();
-  getWorker(); 
-}
-
-function terminateWorker() {
-  if (workerInstance) {
-    workerInstance.terminate();
-    workerInstance = null;
-  }
-}
-
-function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const requestId = crypto.randomUUID();
-    pendingRequests.set(requestId, { resolve, reject });
-    
-    try {
-      getWorker().postMessage({ requestId, command, args });
-    } catch (err) {
-      pendingRequests.delete(requestId);
-      reject(err);
-    }
-  });
-}
-
-export interface DbStoreOptions {
-  dbName?: string;
-  storeName?: string;
-  prefix?: string;
-}
-
-const globalDbAPI = {
-  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
-  
-  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
-    if (typeof keyOrVal !== "string") {
-      const options = opts || (val as DbStoreOptions) || {};
-      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
-    }
-    return exec<string>("SET", { key: keyOrVal, val, ...opts });
-  },
-  
-  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
-    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
-    const newVal = updater(currentVal);
-    await exec<void>("SET", { key, val: newVal, ...opts });
-  },
-
-  patch: <T extends Record<string, any>, C = any>(
-    key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions
-  ): Promise<WithId<T>> => {
-    const isFn = typeof patchOrFn === "function";
-    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
-  },
-
-  delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
-
-  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
-  setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
-  deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
-
-  keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
-  values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
-  entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
-  clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
-
-  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => 
-    exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
-
-  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => 
-    exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
-
-  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => 
-    exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
-
-  setSome: <T, C = any>(
-    selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], 
-    updateFn: (item: WithId<T>, ctx: C) => WithId<T>, 
-    context?: C, 
-    opts?: DbStoreOptions
-  ): Promise<void> => exec<void>("SET_SOME", { 
-    selectFnStr: selectFn.toString(), 
-    updateFnStr: updateFn.toString(), 
-    context, 
-    ...opts 
-  }),
-
-  exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
-  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
-
-  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
-  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
-
-  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
-  restart: () => restartWorker(),
-  terminate: () => terminateWorker(),
-};
-
-function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
-  const opts: DbStoreOptions = { dbName, storeName, prefix };
-
-  return {
-    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
-    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
-    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
-    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
-    delete: (key: string) => globalDbAPI.delete(key, opts),
-    
-    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
-    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
-    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
-    
-    keys: () => globalDbAPI.keys(opts),
-    values: <T>() => globalDbAPI.values<T>(opts),
-    entries: <T>() => globalDbAPI.entries<T>(opts),
-    clear: () => globalDbAPI.clear(opts), 
-    
-    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
-    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
-    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
-    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
-      
-    exportDB: () => globalDbAPI.exportDB(opts),
-    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
-
-    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
-    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
-    
-    gerarId,
-    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
-  };
-}
-
-export const db = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
-  globalDbAPI
 );
 ```
 
@@ -1061,6 +895,201 @@ if (!_self.navigator.storage.getDirectory) {
 // importamos a lógica real do banco de dados. O db.ts vai rodar
 // achando que está em um browser de verdade!
 import "./db.ts";
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/mod.ts`
+
+```ts
+// mod.ts
+import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
+import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "./utils/opfs_utils.ts";
+import { ls } from "./ls.ts";
+
+// Exportando os utilitários de OPFS para uso fácil na Main Thread
+export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs, type WithId };
+
+let workerInstance: Worker | null = null;
+let currentWorkerPath: string | URL = "./worker-db.js";
+const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
+
+function getWorker(workerPath?: string | URL): Worker {
+  if (workerPath) {
+    currentWorkerPath = workerPath;
+  }
+  
+  if (!workerInstance) {
+    const workerUrl = typeof currentWorkerPath === "string" 
+      ? new URL(currentWorkerPath, import.meta.url) 
+      : currentWorkerPath;
+
+    workerInstance = new Worker(workerUrl, { type: "module" });
+
+    workerInstance.onmessage = (e: MessageEvent) => {
+      const { requestId, success, result, error } = e.data;
+      const promise = pendingRequests.get(requestId);
+      
+      if (promise) {
+        if (success) promise.resolve(result);
+        else promise.reject(new Error(error));
+        pendingRequests.delete(requestId);
+      }
+    };
+
+    workerInstance.onerror = (event) => {
+      console.error("⚠️ Falha crítica no Web Worker:", event.message);
+      pendingRequests.forEach(({ reject }) => reject(new Error("Worker crashed")));
+      pendingRequests.clear();
+      restartWorker();
+    };
+  }
+  return workerInstance;
+}
+
+function restartWorker() {
+  if (workerInstance) {
+    workerInstance.terminate();
+    workerInstance = null;
+  }
+  pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
+  pendingRequests.clear();
+  getWorker(); 
+}
+
+function terminateWorker() {
+  if (workerInstance) {
+    workerInstance.terminate();
+    workerInstance = null;
+  }
+}
+
+function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const requestId = gerarId();
+    pendingRequests.set(requestId, { resolve, reject });
+    
+    try {
+      getWorker().postMessage({ requestId, command, args });
+    } catch (err) {
+      pendingRequests.delete(requestId);
+      reject(err);
+    }
+  });
+}
+
+export interface DbStoreOptions {
+  dbName?: string;
+  storeName?: string;
+  prefix?: string;
+}
+
+const globalDbAPI = {
+  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
+  
+  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
+    if (typeof keyOrVal !== "string") {
+      const options = opts || (val as DbStoreOptions) || {};
+      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
+    }
+    return exec<string>("SET", { key: keyOrVal, val, ...opts });
+  },
+  
+  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
+    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
+    const newVal = updater(currentVal);
+    await exec<void>("SET", { key, val: newVal, ...opts });
+  },
+
+  patch: <T extends Record<string, any>, C = any>(
+    key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions
+  ): Promise<WithId<T>> => {
+    const isFn = typeof patchOrFn === "function";
+    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
+  },
+
+  delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
+
+  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
+  setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
+  deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
+
+  keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
+  values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
+  entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
+  clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
+
+  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => 
+    exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
+
+  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => 
+    exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
+
+  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => 
+    exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
+
+  setSome: <T, C = any>(
+    selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], 
+    updateFn: (item: WithId<T>, ctx: C) => WithId<T>, 
+    context?: C, 
+    opts?: DbStoreOptions
+  ): Promise<void> => exec<void>("SET_SOME", { 
+    selectFnStr: selectFn.toString(), 
+    updateFnStr: updateFn.toString(), 
+    context, 
+    ...opts 
+  }),
+
+  exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
+  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
+
+  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
+  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
+
+  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
+  restart: () => restartWorker(),
+  terminate: () => terminateWorker(),
+};
+
+function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
+  const opts: DbStoreOptions = { dbName, storeName, prefix };
+
+  return {
+    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
+    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
+    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
+    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
+    delete: (key: string) => globalDbAPI.delete(key, opts),
+    
+    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
+    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
+    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
+    
+    keys: () => globalDbAPI.keys(opts),
+    values: <T>() => globalDbAPI.values<T>(opts),
+    entries: <T>() => globalDbAPI.entries<T>(opts),
+    clear: () => globalDbAPI.clear(opts), 
+    
+    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
+    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
+    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
+    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
+      
+    exportDB: () => globalDbAPI.exportDB(opts),
+    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
+
+    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
+    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
+    
+    gerarId,
+    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
+  };
+}
+
+export const db = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
+  globalDbAPI
+);
 ```
 
 ---
@@ -1959,104 +1988,6 @@ Deno.serve({ port: 9000 }, (req) => {
 
 ---
 
-## Arquivo: `monorepo/worker-db/example/main.ts`
-
-```ts
-import { db, ls } from "../src/mod.ts";
-
-// Utilitário simples para printar os resultados visualmente na interface HTML
-const logElement = document.getElementById("log-output");
-
-function log(msg: string, data?: any) {
-  const dataStr = data ? `\n  ↳ ${JSON.stringify(data, null, 2)}` : "";
-  const fullText = `${msg}${dataStr}\n`;
-  
-  if (logElement) {
-    if (logElement.innerText.includes("Aguardando execução")) {
-      logElement.innerText = ""; // Limpa a tela inicial
-    }
-    logElement.innerText += fullText;
-  }
-  console.log(msg, data || "");
-}
-
-async function runRealWorldTests() {
-  log("🚀 INICIANDO TESTES DO LOCO PWA (AMBIENTE REAL)\n");
-  
-  // ==========================================
-  // 1. TESTE LOCALSTORAGE
-  // ==========================================
-  log("--- TESTANDO LOCALSTORAGE (ls) ---");
-  const local = ls("test_");
-  local.clear();
-  
-  local.set("session", { active: true, device: "desktop" });
-  const sess = local.get("session");
-  log("✅ LocalStorage gravou e recuperou com prefixo 'test_':", sess);
-  
-  // ==========================================
-  // 2. TESTE WORKER DB (INDEXEDDB)
-  // ==========================================
-  log("\n--- TESTANDO INDEXEDDB VIA WORKER (db) ---");
-  
-  // Inicia explicitamente o Worker (instancia usando o default './worker-db.js')
-  db.init();
-
-  // Escopo definido pela instrução do TODO
-  const store = db("db_test", "test", "demo_");
-  await store.clear();
-  log("🧹 Banco de dados 'db_test' (store: test) limpo com sucesso.");
-
-  // Teste de CRUD Simples
-  log("\n[ CRUD Simples ]");
-  const userId = await store.set("user_1", { nome: "Satoshi Nakamoto", privacy: "high" });
-  log(`✅ Registro salvo via set(). Chave gerada: ${userId}`);
-
-  const user = await store.get("user_1");
-  log("✅ Leitura realizada com get():", user);
-
-  await store.patch("user_1", { status: "online" });
-  const updatedUser = await store.get("user_1");
-  log("✅ Atualização parcial via patch() finalizada:", updatedUser);
-
-  // ==========================================
-  // 3. TESTE FUNÇÕES AVANÇADAS NO WORKER
-  // ==========================================
-  log("\n[ Mutação em Massa e Processamento em Background ]");
-  
-  await store.setMany([
-    ["msg_1", { txt: "Hello PWA", read: true }],
-    ["msg_2", { txt: "E2EE is awesome", read: false }],
-    ["msg_3", { txt: "Offline First!", read: false }],
-  ]);
-  log("✅ setMany() inseriu 3 registros de uma vez.");
-
-  // Executa contagem diretamente na thread do worker para não bloquear a UI!
-  const unreadCount = await store.query<any, number>((items) => {
-    return items.filter(i => i.read === false).length;
-  });
-  log(`✅ query() executada remotamente. Total de msgs não lidas: ${unreadCount}`);
-
-  // Marca todas as não lidas como lidas de uma só vez (no worker!)
-  await store.setSome<any>(
-    (items) => items.filter(i => i.read === false),
-    (item) => ({ ...item, read: true })
-  );
-  
-  const finalMessages = await store.values();
-  log("✅ Estado final do banco após setSome() (todas lidas):", finalMessages);
-
-  log("\n🏁 TODOS OS TESTES PASSARAM COM SUCESSO!");
-}
-
-// Inicia os testes no frontend
-runRealWorldTests().catch((err) => {
-  log("❌ OCORREU UM ERRO FATAL:", err.message);
-});
-```
-
----
-
 ## Arquivo: `monorepo/worker-db/example/demo.ts`
 
 ```ts
@@ -2072,44 +2003,67 @@ interface LocoMessage {
   timestamp: number;
 }
 
-interface UserPreferences {
-  theme: "dark" | "light";
-  notificationsEnabled: boolean;
-  activeChatId: string | null;
-}
-
 async function runLocoDbDemo() {
   console.log("🚀 [Loco PWA] Iniciando demonstração do WORKER-DB...\n");
 
-  // -------------------------------------------------------------
-  // 1. GERENCIAMENTO DE PREFERÊNCIAS DE UI (LocalStorage Scoped)
-  // -------------------------------------------------------------
-  console.log("📦 1. Configurando Preferências do Usuário (LS)...");
-  const prefsStore = ls("LOCO_PREF_");
-  prefsStore.clear();
-
-  prefsStore.set<UserPreferences>("config", {
-    theme: "dark",
-    notificationsEnabled: true,
-    activeChatId: "chat_123",
-  });
-
-  const currentPrefs = prefsStore.get<UserPreferences>("config");
-  console.log("   --> Preferências salvas:", currentPrefs);
+  // Garante que o ambiente inicie limpo para a demonstração
+  ls().clear();
 
   // -------------------------------------------------------------
-  // 2. FILA DE MENSAGENS OFFLINE (IndexedDB via Web Worker)
+  // 1. LOCALSTORAGE: Geração Automática de IDs (_id: "auto")
   // -------------------------------------------------------------
-  console.log("\n💬 2. Enfileirando Mensagens Offline (DB Worker)...");
+  console.log("📦 1. LocalStorage - Criando itens com _id 'auto'...");
+  const prefStore = ls("LOCO_PREF_");
+
+  const autoKey1 = prefStore.set({ _id: "auto", theme: "dark", notifications: true });
+  const autoKey2 = prefStore.set({ _id: "auto", theme: "light", notifications: false });
+
+  console.log(`   --> Item 1 gerado: Chave = ${autoKey1}`);
+  console.log(`   --> Recuperando Item 1 (notem que '_id' volta limpo):`, prefStore.get(autoKey1));
+  console.log(`   --> Recuperando Item 2:`, prefStore.get(autoKey2));
+
+
+  // -------------------------------------------------------------
+  // 2. LOCALSTORAGE: Isolamento de Escopos por Prefixo
+  // -------------------------------------------------------------
+  console.log("\n🔒 2. LocalStorage - Testando Isolamento de Prefixos...");
+  const authStore = ls("LOCO_AUTH_");
+  
+  // Gravando uma chave fixa (ex: sessão)
+  authStore.set("session_token", { token: "abc-123", active: true });
+  
+  console.log(`   --> Total de itens em LOCO_PREF_ (Preferências): ${prefStore.keys().length}`);
+  console.log(`   --> Total de itens em LOCO_AUTH_ (Autenticação): ${authStore.keys().length}`);
+
+
+  // -------------------------------------------------------------
+  // 3. LOCALSTORAGE: Consulta Global (Prefixo nulo)
+  // -------------------------------------------------------------
+  console.log("\n🌍 3. LocalStorage - Visão Global (Sem prefixo)...");
+  
+  // Instanciando o `ls` sem parâmetros nos dá acesso a TODO o localStorage
+  const globalStore = ls(); 
+  const allKeys = globalStore.keys();
+  
+  console.log(`   --> Total de itens armazenados em TODA a aplicação: ${allKeys.length}`);
+  console.log(`   --> Chaves globais detectadas:`, allKeys);
+  console.log(`   --> Realizando leitura global do token:`, globalStore.get("LOCO_AUTH_session_token"));
+
+
+  // -------------------------------------------------------------
+  // 4. WORKER DB: Fila de Mensagens Offline com Geração de ID
+  // -------------------------------------------------------------
+  console.log("\n💬 4. IndexedDB Worker - Enfileirando Mensagens Offline...");
+  
+  // Lembrete: O DB() roda em background assíncrono (Web Worker)
   const msgStore = db("LOCO_DATA", "messages", "MSG_");
   await msgStore.clear();
 
-  // Inserção com geração automática de ID (_id: "auto")
   const msgId1 = await msgStore.set<LocoMessage>({
     _id: "auto",
     senderId: "user_alice",
     recipientId: "user_bob",
-    content: "Olá! Esta mensagem foi gravada offline.",
+    content: "Olá! Esta mensagem foi enfileirada offline.",
     status: "pending",
     timestamp: Date.now(),
   });
@@ -2118,40 +2072,222 @@ async function runLocoDbDemo() {
     _id: "auto",
     senderId: "user_alice",
     recipientId: "user_bob",
-    content: "Segunda mensagem na fila de sincronização.",
+    content: "Esperando o Handshake com o servidor...",
     status: "pending",
     timestamp: Date.now() + 1000,
   });
 
-  console.log(`   --> Mensagens enfileiradas. Keys: ${msgId1}, ${msgId2}`);
+  console.log(`   --> Mensagens injetadas no IndexedDB. Keys geradas: ${msgId1}, ${msgId2}`);
+
 
   // -------------------------------------------------------------
-  // 3. CONSULTAS E MUTAÇÕES AVANÇADAS NO WORKER (query & setSome)
+  // 5. WORKER DB: Consultas Avançadas (Background Processing)
   // -------------------------------------------------------------
-  console.log("\n⚙️ 3. Processando Fila de Mensagens no Worker...");
+  console.log("\n⚙️ 5. IndexedDB Worker - Mutações Assíncronas...");
 
-  // Consulta agregada executada dentro da thread do Worker
+  // Contagem feita DIRETAMENTE na thread do Worker, sem trafegar o array gigante para a Main Thread
   const pendingCount = await msgStore.query<LocoMessage, number>((items) => {
     return items.filter((m) => m.status === "pending").length;
   });
-  console.log(`   --> Mensagens pendentes para envio: ${pendingCount}`);
+  console.log(`   --> Total pendente (calculado remotamente): ${pendingCount}`);
 
-  // Transição de estado: Marcar todas as mensagens de 'pending' para 'sent'
+  // Atualização em massa: simula o Service Worker alterando tudo após conectar na rede
   await msgStore.setSome<LocoMessage>(
     (items) => items.filter((m) => m.status === "pending"),
     (item) => ({ ...item, status: "sent" })
   );
 
   const updatedMessages = await msgStore.values<LocoMessage>();
-  console.log("   --> Estado das mensagens após envio:", updatedMessages);
+  console.log("   --> Estado das mensagens após envio simulado:", updatedMessages);
 
-  // Limpa o ambiente antes de fechar
+  // Limpa o ambiente antes de fechar para garantir finalização limpa do processo Deno
   db.terminate();
   console.log("\n✅ Demonstração finalizada. Worker encerrado.");
 }
 
 // Executar
 runLocoDbDemo();
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/example/main.ts`
+
+```ts
+import { db, ls, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "../src/mod.ts";
+
+// Tipagem dos modelos de domínio do Loco PWA
+interface LocoMessage {
+  _id?: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  status: "pending" | "sent" | "delivered" | "read";
+  priority: number;
+  timestamp: number;
+}
+
+interface UserPreferences {
+  theme: "dark" | "light";
+  notificationsEnabled: boolean;
+  activeChatId: string | null;
+}
+
+// Elementos da interface HTML
+const appElement = document.getElementById("app");
+const logElement = document.getElementById("log-output");
+
+function log(msg: string, data?: any) {
+  const dataStr = data ? `\n  ↳ ${JSON.stringify(data, null, 2)}` : "";
+  const fullText = `${msg}${dataStr}\n`;
+  
+  if (logElement) {
+    if (logElement.innerText.includes("Aguardando execução")) {
+      logElement.innerText = ""; // Limpa a tela inicial
+    }
+    logElement.innerText += fullText;
+  }
+  console.log(msg, data || ""); // Mantém no console do DevTools também
+}
+
+async function runRealWorldTests() {
+  log("🚀 INICIANDO DEMONSTRAÇÃO AVANÇADA DO LOCO PWA (AMBIENTE REAL)\n");
+  
+  // Limpeza global
+  ls().clear();
+  db.init(); // Inicia o Worker do IndexedDB
+
+  // -------------------------------------------------------------
+  // 1. LOCALSTORAGE: Isolamento e Visão Global
+  // -------------------------------------------------------------
+  log("📦 1. LocalStorage - Escopos e Prefixos...");
+  const prefStore = ls("LOCO_PREF_");
+  const authStore = ls("LOCO_AUTH_");
+  
+  prefStore.set<UserPreferences>({ _id: "auto", theme: "dark", notificationsEnabled: true, activeChatId: "chat_1" });
+  authStore.set("session_token", { token: "abc-123-xyz", active: true });
+  
+  const globalStore = ls(); 
+  log(`   --> Total de chaves isoladas de Preferências: ${prefStore.keys().length}`);
+  log(`   --> Visão Global da Aplicação (todas as chaves):`, globalStore.keys());
+
+  // -------------------------------------------------------------
+  // 2. WORKER DB: Carga de Dados Massiva
+  // -------------------------------------------------------------
+  log("\n💬 2. IndexedDB Worker - Populando Fila de Mensagens...");
+  const msgStore = db("LOCO_DATA", "messages", "MSG_");
+  await msgStore.clear();
+
+  const now = Date.now();
+  await msgStore.setMany([
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Oi!", status: "delivered", priority: 1, timestamp: now - 5000 }],
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Tudo bem?", status: "pending", priority: 1, timestamp: now - 4000 }],
+    ["auto", { senderId: "bob", recipientId: "alice", content: "ALERTA URGENTE", status: "pending", priority: 5, timestamp: now - 3000 }],
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Foto.jpg", status: "read", priority: 1, timestamp: now - 10000 }],
+  ]);
+
+  log(`   --> Banco populado via "auto" explícito nas chaves.`);
+  log(`   --> Total de mensagens injetadas com UUIDs gerados com sucesso: ${(await msgStore.keys()).length}`);
+
+  // -------------------------------------------------------------
+  // 3. WORKER DB: Consultas Analíticas (Agregações remotas)
+  // -------------------------------------------------------------
+  log("\n📊 3. IndexedDB Worker - Análises e Agregações Remotas (query)...");
+  
+  const stats = await msgStore.query<LocoMessage, any>((items) => {
+    return {
+      totalPending: items.filter(i => i.status === "pending").length,
+      highestPriorityPending: items
+        .filter(i => i.status === "pending")
+        .toSorted((a, b) => b.priority - a.priority)[0],
+      hasUrgent: items.some(i => i.priority >= 5),
+      oldestMessage: items.reduce((oldest, current) => current.timestamp < oldest.timestamp ? current : oldest)
+    };
+  });
+  
+  log(`   --> Estatísticas processadas no Worker:`, stats);
+
+  // -------------------------------------------------------------
+  // 4. WORKER DB: Mutações Condicionais Complexas
+  // -------------------------------------------------------------
+  log("\n⚙️ 4. IndexedDB Worker - Transformações Assíncronas (setSome)...");
+
+  await msgStore.setSome<LocoMessage>(
+    (items) => items.filter((m) => m.status === "pending"),
+    (item) => ({ 
+      ...item, 
+      status: "sent",
+      content: `[ENCRIPTADO] ${item.content.length} bytes` 
+    })
+  );
+
+  const updatedMessages = await msgStore.getSome<LocoMessage>((items) => items.filter(m => m.status === "sent"));
+  log("   --> Mensagens atualizadas condicionalmente:", updatedMessages);
+
+  // -------------------------------------------------------------
+  // 5. WORKER DB: Deleção em Lote Segura (Garbage Collection)
+  // -------------------------------------------------------------
+  log("\n🧹 5. IndexedDB Worker - Limpeza Condicional (delSome)...");
+
+  await msgStore.delSome<LocoMessage>((items) => items.filter(m => m.status === "read"));
+  log(`   --> Mensagens "read" deletadas. Restantes no DB: ${(await msgStore.keys()).length}`);
+
+  // -------------------------------------------------------------
+  // 6. OPFS NATIVO: Backup Assíncrono e Download de Múltiplos Arquivos
+  // -------------------------------------------------------------
+  log("\n💾 6. Origin Private File System (OPFS) - Backup Nativo e Resgate...");
+  
+  const oldFiles = await listOpfsFiles();
+  for (const f of oldFiles) await deleteFromOpfs(f);
+
+  // Gerando os dois backups
+  await msgStore.backupToOpfs("mensagens_v1.json");
+  await msgStore.set("auto", { senderId: "admin", recipientId: "all", content: "Aviso importante!", status: "delivered", priority: 10, timestamp: Date.now() });
+  const finalBackupName = await msgStore.backupToOpfs("mensagens_v2_final.json");
+
+  const storedFiles = await listOpfsFiles();
+  log(`   --> Backups gerados com sucesso na pasta interna '/backup'.`);
+  log(`   --> Arquivos fisicamente encontrados na pasta:`, storedFiles);
+
+  // Criando a UI interativa de Downloads fora do <pre> para o innerText do log() não esmagá-los
+  if (appElement && storedFiles.length > 0) {
+    const downloadContainer = document.createElement("div");
+    downloadContainer.style.marginTop = "24px";
+    downloadContainer.style.padding = "16px";
+    downloadContainer.style.backgroundColor = "var(--md-sys-color-surface)";
+    downloadContainer.style.borderRadius = "12px";
+    downloadContainer.style.boxShadow = "0 4px 6px rgba(0,0,0,0.3)";
+
+    let linksHTML = `<h3 style="margin-top: 0; color: var(--md-sys-color-primary);">🗂️ Arquivos de Backup (OPFS)</h3>`;
+    linksHTML += `<div style="display: flex; flex-direction: column; gap: 12px;">`;
+    
+    for (const fileName of storedFiles) {
+      const fileBlob = await getFileFromOpfs(fileName);
+      const objectUrl = URL.createObjectURL(fileBlob);
+      linksHTML += `<a href="${objectUrl}" download="${fileName}" style="color: #1a1c19; background: #9edeb6; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; width: fit-content; font-size: 14px;">📥 Baixar: ${fileName}</a>`;
+    }
+    
+    linksHTML += `</div>`;
+    downloadContainer.innerHTML = linksHTML;
+    appElement.appendChild(downloadContainer); // Adiciona na página de forma segura
+    log(`   --> Links de download renderizados na interface gráfica com sucesso!`);
+  }
+
+  // Restauração do sistema
+  await msgStore.clear();
+  log(`   --> IndexedDB completamente apagado. Chaves: ${(await msgStore.keys()).length}`);
+  
+  await msgStore.restoreFromOpfs(finalBackupName);
+  log(`   --> Banco restaurado do disco (OPFS: ${finalBackupName}). Chaves recuperadas: ${(await msgStore.keys()).length}`);
+
+  db.terminate();
+  log("\n✅ Demonstração Completa Finalizada! Ambiente de dados totalmente operacional.");
+}
+
+// Inicia os testes no frontend
+runRealWorldTests().catch((err) => {
+  log("❌ OCORREU UM ERRO FATAL:", err.message);
+});
 ```
 
 ---

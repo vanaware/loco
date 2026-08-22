@@ -1,10 +1,10 @@
 // mod.ts
 import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
-import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs } from "./utils/opfs_utils.ts";
+import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "./utils/opfs_utils.ts";
 import { ls } from "./ls.ts";
 
 // Exportando os utilitários de OPFS para uso fácil na Main Thread
-export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, type WithId };
+export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs, type WithId };
 
 let workerInstance: Worker | null = null;
 let currentWorkerPath: string | URL = "./worker-db.js";
@@ -62,7 +62,6 @@ function terminateWorker() {
 
 function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
   return new Promise((resolve, reject) => {
-    // Utilizando o nosso utilitário seguro ao invés de crypto.randomUUID direto
     const requestId = gerarId();
     pendingRequests.set(requestId, { resolve, reject });
     

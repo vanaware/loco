@@ -2,7 +2,7 @@ export class FakeOPFSFileHandle {
   public kind: "file" | "directory" = "file";
 
   constructor(
-    private name: string,
+    private fullPath: string,
     private storage: Map<string, string>
   ) {}
 
@@ -14,15 +14,15 @@ export class FakeOPFSFileHandle {
         content = data;
       },
       async close() {
-        self.storage.set(self.name, content);
+        self.storage.set(self.fullPath, content);
       }
     };
   }
 
   async getFile() {
-    const content = this.storage.get(this.name);
+    const content = this.storage.get(this.fullPath);
     if (content === undefined) {
-      throw new Error(`File ${this.name} not found in Fake OPFS`);
+      throw new Error(`File ${this.fullPath} not found in Fake OPFS`);
     }
     return {
       async text() {
@@ -35,35 +35,56 @@ export class FakeOPFSFileHandle {
 export class FakeOPFSDirectory {
   private static sharedStorage = new Map<string, string>();
 
+  constructor(private path: string = "") {}
+
+  async getDirectoryHandle(name: string, options?: { create?: boolean }) {
+    // Simula a criação/retorno de um subdiretório
+    return new FakeOPFSDirectory(this.path ? `${this.path}/${name}` : name);
+  }
+
   async getFileHandle(name: string, options?: { create?: boolean }) {
-    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(name)) {
-      throw new Error(`File ${name} not found in Fake OPFS`);
+    const fullPath = this.path ? `${this.path}/${name}` : name;
+    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(fullPath)) {
+      throw new Error(`File ${fullPath} not found in Fake OPFS`);
     }
-    return new FakeOPFSFileHandle(name, FakeOPFSDirectory.sharedStorage);
+    return new FakeOPFSFileHandle(fullPath, FakeOPFSDirectory.sharedStorage);
   }
 
   async removeEntry(name: string) {
-    FakeOPFSDirectory.sharedStorage.delete(name);
+    const fullPath = this.path ? `${this.path}/${name}` : name;
+    FakeOPFSDirectory.sharedStorage.delete(fullPath);
   }
 
-  // Iterador apenas das chaves (nomes dos arquivos)
   async *keys() {
     for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      yield key;
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield localName;
+      } else if (!this.path && !key.includes("/")) {
+         yield key;
+      }
     }
   }
 
-  // Iterador completo devolvendo [nome, handle] (Espelha a API Nativa)
   async *entries() {
     for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield [localName, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      } else if (!this.path && !key.includes("/")) {
+         yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      }
     }
   }
 
-  // Iterador devolvendo apenas as instâncias (handles)
   async *values() {
     for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      } else if (!this.path && !key.includes("/")) {
+         yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      }
     }
   }
 

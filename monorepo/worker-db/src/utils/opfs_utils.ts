@@ -4,9 +4,9 @@ export interface OpfsResolveOptions {
   prefix?: string;
 }
 
-// Resolve o nome do arquivo dinamicamente (ex: db_LOJA_produtos_PROD__meu_backup.json)
+// Resolve o nome do arquivo dinamicamente
 export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: OpfsResolveOptions): string {
-  const parts: string[] = [type]; // CORREÇÃO: tipagem explícita adicionada aqui
+  const parts: string[] = [type]; 
   if (type === "db") {
     if (opts?.dbName) parts.push(opts.dbName);
     if (opts?.storeName) parts.push(opts.storeName);
@@ -17,9 +17,15 @@ export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: 
   return parts.join("_");
 }
 
-export async function writeJsonToOpfs(fileName: string, data: any): Promise<string> {
+// Utilitário interno para garantir que sempre operemos na pasta 'backup'
+async function getBackupDir() {
   const root = await navigator.storage.getDirectory();
-  const fileHandle = await root.getFileHandle(fileName, { create: true });
+  return await root.getDirectoryHandle("backup", { create: true });
+}
+
+export async function writeJsonToOpfs(fileName: string, data: any): Promise<string> {
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(JSON.stringify(data));
   await writable.close();
@@ -27,35 +33,34 @@ export async function writeJsonToOpfs(fileName: string, data: any): Promise<stri
 }
 
 export async function readJsonFromOpfs(fileName: string): Promise<any> {
-  const root = await navigator.storage.getDirectory();
-  const fileHandle = await root.getFileHandle(fileName);
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName);
   const file = await fileHandle.getFile();
   const text = await file.text();
   return JSON.parse(text);
 }
 
 export async function deleteFromOpfs(fileName: string): Promise<void> {
-  const root = await navigator.storage.getDirectory();
-  await root.removeEntry(fileName);
+  const backupDir = await getBackupDir();
+  await backupDir.removeEntry(fileName);
 }
 
 export async function getFileFromOpfs(fileName: string): Promise<File> {
-  const root = await navigator.storage.getDirectory();
-  const fileHandle = await root.getFileHandle(fileName);
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName);
   return await fileHandle.getFile();
 }
 
 export async function listOpfsFiles(): Promise<string[]> {
-  const root = await navigator.storage.getDirectory();
+  const backupDir = await getBackupDir();
   const files: string[] = [];
   // @ts-ignore: async iterator support
-  for await (const [name, handle] of root.entries()) {
+  for await (const [name, handle] of backupDir.entries()) {
     if (handle.kind === "file") files.push(name);
   }
   return files;
 }
 
-// Dispara o download nativo do arquivo no navegador (Apenas Main Thread)
 export async function downloadOpfsFile(fileName: string): Promise<void> {
   if (typeof document === "undefined") {
     throw new Error("downloadOpfsFile só pode ser executado na Main Thread (onde 'document' existe).");
