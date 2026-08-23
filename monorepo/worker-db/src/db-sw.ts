@@ -1,34 +1,37 @@
 // db-sw.ts
 // ⚠️ ESTE MÓDULO É DE USO EXCLUSIVO DO SERVICE WORKER OU AMBIENTES QUE JÁ RODAM EM BACKGROUND.
-// Ele executa o IndexedDB DIRETAMENTE na thread atual, não utilizando postMessage/WebWorkers.
-
 import { 
   get, set, del, keys, clear, getMany, setMany, delMany, 
   values, entries, createStore, type UseStore
 } from "idb-keyval";
+import { zipSync, unzipSync } from "fflate";
 
 import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
 import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
-import type { DbStoreOptions } from "./mod.ts";
+import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./mod.ts";
 
 const storeCache = new Map<string, UseStore>();
 
 function getCustomStore(dbName?: string, storeName = "keyval"): UseStore | undefined {
   if (!dbName) return undefined; 
-  
   const cacheKey = `${dbName}:${storeName}`;
-  if (!storeCache.has(cacheKey)) {
-    storeCache.set(cacheKey, createStore(dbName, storeName));
-  }
+  if (!storeCache.has(cacheKey)) storeCache.set(cacheKey, createStore(dbName, storeName));
   return storeCache.get(cacheKey);
 }
 
 function formatDbEntries(rawEntries: [IDBValidKey, any][], prefix?: string) {
   let items = rawEntries;
-  if (prefix) {
-    items = items.filter(([k]) => typeof k === "string" && k.startsWith(prefix));
-  }
+  if (prefix) items = items.filter(([k]) => typeof k === "string" && k.startsWith(prefix));
   return items.map(([k, v]) => formatDbItem(k, v, prefix));
+}
+
+async function getRecordDir(basePath = "", rawKey: string, create = false): Promise<FileSystemDirectoryHandle> {
+  const root = await navigator.storage.getDirectory();
+  const fullPath = basePath ? `${basePath}/${rawKey}` : rawKey;
+  const parts = fullPath.split('/').filter(Boolean);
+  let curr = root;
+  for (const p of parts) curr = await curr.getDirectoryHandle(p, { create });
+  return curr;
 }
 
 const globalSwDbAPI = {
@@ -43,7 +46,6 @@ const globalSwDbAPI = {
     let keyToSave: string | undefined;
     let valToSave: any;
     let options: DbStoreOptions = opts || {};
-
     if (typeof keyOrVal !== "string") {
       keyToSave = undefined;
       valToSave = keyOrVal;
@@ -52,7 +54,6 @@ const globalSwDbAPI = {
       keyToSave = keyOrVal;
       valToSave = val;
     }
-
     const store = getCustomStore(options.dbName, options.storeName);
     const { key, cleanVal } = prepareForSave(keyToSave, valToSave, options.prefix);
     await set(key, cleanVal, store);
@@ -78,7 +79,6 @@ const globalSwDbAPI = {
     } else {
       updated = Object.assign({}, current, patchOrFn);
     }
-
     const { key: finalKey, cleanVal } = prepareForSave(rawKey, updated, opts?.prefix);
     await set(finalKey, cleanVal, store);
     return formatDbItem(finalKey, cleanVal, opts?.prefix);
@@ -232,44 +232,183 @@ const globalSwDbAPI = {
   },
 };
 
+const globalSwOpfsAPI = {
+  ...globalSwDbAPI,
+
+  listFiles: async (key: string, opts?: OpfsStoreOptions): Promise<OpfsFileInfo[]> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, true);
+    const filesList = [];
+    // @ts-ignore
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === "file") {
+        const file = await handle.getFile();
+        filesList.push({ name, size: file.size, type: file.type, lastModified: file.lastModified, file });
+      }
+    }
+    return filesList;
+  },
+
+  addFile: async (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, true);
+    const fh = await dir.getFileHandle(fileName, { create: true });
+    const w = await fh.createWritable();
+    await w.write(new Blob([await file.arrayBuffer()]));
+    await w.close();
+  },
+
+  delFile: async (key: string, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    await dir.removeEntry(fileName);
+  },
+
+  renFile: async (key: string, oldName: string, newName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const oldFile = await dir.getFileHandle(oldName);
+    const fileData = await oldFile.getFile();
+    const newFile = await dir.getFileHandle(newName, { create: true });
+    const w = await newFile.createWritable();
+    await w.write(new Blob([await fileData.arrayBuffer()]));
+    await w.close();
+    await dir.removeEntry(oldName);
+  },
+
+  mvFile: async (key: string, fileName: string, newKey: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const fileHandle = await dir.getFileHandle(fileName);
+    const fileData = await fileHandle.getFile();
+    
+    const rawNewKey = opts?.prefix && !newKey.startsWith(opts.prefix) ? `${opts.prefix}${newKey}` : newKey;
+    const targetDir = await getRecordDir(opts?.basePath, rawNewKey, true);
+    
+    const newFile = await targetDir.getFileHandle(fileName, { create: true });
+    const w = await newFile.createWritable();
+    await w.write(new Blob([await fileData.arrayBuffer()]));
+    await w.close();
+    await dir.removeEntry(fileName);
+  },
+
+  zip: async (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const filesRecord: Record<string, Uint8Array> = {};
+    
+    // @ts-ignore
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === "file" && (!filesToZip || filesToZip.includes(name))) {
+        const f = await handle.getFile();
+        filesRecord[name] = new Uint8Array(await f.arrayBuffer());
+      }
+    }
+
+    const zippedData = zipSync(filesRecord);
+    const zipFileHandle = await dir.getFileHandle(zipName, { create: true });
+    const w = await zipFileHandle.createWritable();
+    await w.write(new Blob([zippedData as any])); // Cast para contornar TS2322
+    await w.close();
+
+    if (deleteOriginals) {
+      for (const name of Object.keys(filesRecord)) await dir.removeEntry(name);
+    }
+  },
+
+  unzip: async (key: string, zipName: string, deleteZip = false, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const zipFileHandle = await dir.getFileHandle(zipName);
+    const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
+    
+    const unzipped = unzipSync(zipBuffer);
+    for (const [name, data] of Object.entries(unzipped)) {
+      if (!name.includes('/')) {
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(new Blob([data as any])); // Cast para contornar TS2322
+        await w.close();
+      }
+    }
+
+    if (deleteZip) await dir.removeEntry(zipName);
+  },
+
+  addZip: async (key: string, zipName: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const zipFileHandle = await dir.getFileHandle(zipName);
+    const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
+    const currentZipData = unzipSync(zipBuffer);
+    
+    currentZipData[fileName] = new Uint8Array(await file.arrayBuffer());
+    
+    const newZippedData = zipSync(currentZipData);
+    const w = await zipFileHandle.createWritable();
+    await w.write(new Blob([newZippedData as any])); // Cast para contornar TS2322
+    await w.close();
+  },
+
+  delZip: async (key: string, zipName: string, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const zipFileHandle = await dir.getFileHandle(zipName);
+    const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
+    const currentZipData = unzipSync(zipBuffer);
+    
+    delete currentZipData[fileName];
+    
+    const newZippedData = zipSync(currentZipData);
+    const w = await zipFileHandle.createWritable();
+    await w.write(new Blob([newZippedData as any])); // Cast para contornar TS2322
+    await w.close();
+  }
+};
+
 export function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
   const opts: DbStoreOptions = { dbName, storeName, prefix };
-
   return {
     get: <T>(key: string) => globalSwDbAPI.get<T>(key, opts),
     set: <T>(keyOrVal: string | T, val?: T) => globalSwDbAPI.set<T>(keyOrVal as any, val as any, opts),
     update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalSwDbAPI.update<T>(key, updater, opts),
     patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx?: C) => T | Partial<T>), context?: C) => globalSwDbAPI.patch<T, C>(key, patchOrFn, context, opts),
     delete: (key: string) => globalSwDbAPI.delete(key, opts),
-    
     getMany: <T>(keys: string[]) => globalSwDbAPI.getMany<T>(keys, opts),
     setMany: (entries: [string, any][]) => globalSwDbAPI.setMany(entries, opts),
     deleteMany: (keys: string[]) => globalSwDbAPI.deleteMany(keys, opts),
-    
     keys: () => globalSwDbAPI.keys(opts),
     values: <T>() => globalSwDbAPI.values<T>(opts),
     entries: <T>() => globalSwDbAPI.entries<T>(opts),
     clear: () => globalSwDbAPI.clear(opts), 
-    
     query: <T, R, C = any>(fn: (items: WithId<T>[], ctx?: C) => R, context?: C) => globalSwDbAPI.query<T, R, C>(fn, context, opts),
     getSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C) => globalSwDbAPI.getSome<T, C>(fn, context, opts),
     delSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C) => globalSwDbAPI.delSome<T, C>(fn, context, opts),
     setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx?: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx?: C) => WithId<T>, context?: C) => globalSwDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
-      
     exportDB: () => globalSwDbAPI.exportDB(opts),
     importDB: (data: Record<string, any>, clearFirst = false) => globalSwDbAPI.importDB(data, clearFirst, opts),
-
     backupToOpfs: (fileName?: string) => globalSwDbAPI.backupToOpfs(fileName, opts),
     restoreFromOpfs: (fileName: string, clearFirst = false) => globalSwDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
-    
     gerarId,
     gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
   };
 }
 
-// A exportação principal. Importe isso no seu sw.ts!
-export const db = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
-  globalSwDbAPI
-);
+export function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
+  const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
+  return {
+    ...createScopedDb(dbName, storeName, prefix),
+    listFiles: (key: string) => globalSwOpfsAPI.listFiles(key, opts),
+    addFile: (key: string, file: File | Blob, fileName: string) => globalSwOpfsAPI.addFile(key, file, fileName, opts),
+    delFile: (key: string, fileName: string) => globalSwOpfsAPI.delFile(key, fileName, opts),
+    renFile: (key: string, oldName: string, newName: string) => globalSwOpfsAPI.renFile(key, oldName, newName, opts),
+    mvFile: (key: string, fileName: string, newKey: string) => globalSwOpfsAPI.mvFile(key, fileName, newKey, opts),
+    zip: (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false) => globalSwOpfsAPI.zip(key, zipName, filesToZip, deleteOriginals, opts),
+    unzip: (key: string, zipName: string, deleteZip = false) => globalSwOpfsAPI.unzip(key, zipName, deleteZip, opts),
+    addZip: (key: string, zipName: string, file: File | Blob, fileName: string) => globalSwOpfsAPI.addZip(key, zipName, file, fileName, opts),
+    delZip: (key: string, zipName: string, fileName: string) => globalSwOpfsAPI.delZip(key, zipName, fileName, opts)
+  };
+}
 
+export const db = Object.assign((dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix), globalSwDbAPI);
+export const opfs = Object.assign((dbName?: string, storeName?: string, prefix?: string, basePath = "") => createScopedOpfs(dbName, storeName, prefix, basePath), globalSwOpfsAPI);

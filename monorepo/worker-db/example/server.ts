@@ -17,9 +17,8 @@ async function prepareAndBuild() {
   console.log("🔨 [DEV SERVER] Preparando ambiente...");
   await clean();
 
-  // 1. Faz o bundle do index.html (Main Thread)
   console.log("📦 [DEV SERVER] Fazendo bundle do index.html...");
-  // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime.
+  // @ts-ignore: Deno.bundle API interna
   const result_html = await Deno.bundle({
     entrypoints: ["./example/index.html"],
     outputDir: "./build",
@@ -36,9 +35,8 @@ async function prepareAndBuild() {
 
   if (!result_html.success) throw new Error("Falha ao gerar bundle do HTML.");
 
-  // 2. Compilação do Worker da aplicação (Web Worker)
   console.log("⚙️ Gerando bundle do Worker DB...");
-  // @ts-ignore
+  // @ts-ignore: Deno.bundle API interna
   const result_worker = await Deno.bundle({
     entrypoints: ["./src/db.ts"],
     outputPath: "./build/worker-db.js",
@@ -55,12 +53,11 @@ async function prepareAndBuild() {
 
   if (!result_worker.success) throw new Error("Falha ao gerar bundle do Worker.");
 
-  // 3. Compilação do Service Worker (Sincronização / Background)
   console.log("🔄 Gerando bundle do Service Worker...");
-  // @ts-ignore
+  // @ts-ignore: Deno.bundle API interna
   const result_sw = await Deno.bundle({
     entrypoints: ["./example/sw.ts"],
-    outputPath: "./build/sw.js", // Fica na raiz do servidor para controlar todas as rotas
+    outputPath: "./build/sw.js", 
     platform: "browser",
     format: "esm", 
     packages: "external",

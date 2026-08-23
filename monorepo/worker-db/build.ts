@@ -19,17 +19,15 @@ const build = async () => {
   const startTime = performance.now();
 
   try {
-    // 1. Garante que a pasta de destino exista
     await clean();
 
-    // 2. Compilação do Worker da aplicação
     console.log("⚙️ Gerando bundle do Worker...");
-    // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime deste projeto.
+    // @ts-ignore: Deno.bundle API interna operacional no runtime
     const result = await Deno.bundle({
       entrypoints: ["./src/db.ts"],
       outputPath: "../server/build/dist/worker-db.js",
       platform: "browser",
-      format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
+      format: "esm", 
       packages: "external",
       keepnames: true,
       inlineImports: true,

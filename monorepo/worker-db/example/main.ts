@@ -11,7 +11,7 @@ interface LocoMessage {
 }
 
 interface UserPreferences {
-  _id?: string; 
+  _id?: string; // Permitindo o ID automático via interface
   theme: "dark" | "light";
   notificationsEnabled: boolean;
   activeChatId: string | null;
@@ -68,23 +68,17 @@ async function runRealWorldTests() {
   const storedFiles = await listOpfsFiles();
   log(`   --> Backups gerados com sucesso na pasta interna '/backup'.`);
 
-  // -------------------------------------------------------------
-  // 5. SERVICE WORKER: Comunicação e Uso do db-sw.ts
-  // -------------------------------------------------------------
   log("\n🤖 5. Service Worker - Interação em Background (db-sw.ts)...");
   
   if ("serviceWorker" in navigator) {
     try {
-      // Registra o SW na raiz
       await navigator.serviceWorker.register("/sw.js", { type: "module" });
       
-      // Checa se o SW já assumiu o controle da página
       if (!navigator.serviceWorker.controller) {
         log(`   --> ⚠️ O Service Worker foi instalado. Pressione F5 (recarregar) para que ele assuma o controle da página.`);
       } else {
         log(`   --> Service Worker ativo e controlando a página! Solicitando operação remota...`);
         
-        // Promessa para encapsular a resposta do Service Worker via MessageChannel
         const runSwTask = () => new Promise((resolve, reject) => {
           const channel = new MessageChannel();
           channel.port1.onmessage = (e) => {
@@ -102,7 +96,6 @@ async function runRealWorldTests() {
     }
   }
 
-  // Cria Links de Download na UI para OPFS
   const finalStoredFiles = await listOpfsFiles();
   if (appElement && finalStoredFiles.length > 0) {
     const downloadContainer = document.createElement("div");

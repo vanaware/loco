@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/22/2026, 9:49:52 PM
+Gerado automaticamente em: 8/23/2026, 9:57:04 AM
 
 ---
 
@@ -234,477 +234,6 @@ export const ls = Object.assign(
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/db.ts`
-
-```ts
-// db.ts
-import { 
-  get, set, del, keys, clear, getMany, setMany, delMany, 
-  values, entries, createStore, type UseStore
-} from "idb-keyval";
-
-import { formatDbItem, prepareForSave } from "./utils/id-utils.ts";
-import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
-
-const storeCache = new Map<string, UseStore>();
-
-function getCustomStore(dbName?: string, storeName = "keyval"): UseStore | undefined {
-  if (!dbName) return undefined; 
-  
-  const cacheKey = `${dbName}:${storeName}`;
-  if (!storeCache.has(cacheKey)) {
-    storeCache.set(cacheKey, createStore(dbName, storeName));
-  }
-  return storeCache.get(cacheKey);
-}
-
-function formatDbEntries(rawEntries: [IDBValidKey, any][], prefix?: string) {
-  let items = rawEntries;
-  if (prefix) {
-    items = items.filter(([k]) => typeof k === "string" && k.startsWith(prefix));
-  }
-  return items.map(([k, v]) => formatDbItem(k, v, prefix));
-}
-
-self.onmessage = async (e: MessageEvent) => {
-  const { requestId, command, args } = e.data;
-
-  try {
-    const store = getCustomStore(args.dbName, args.storeName);
-    let result;
-
-    switch (command) {
-      case "GET": {
-        const rawKey = args.key ? (args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key) : args.key;
-        const val = await get(rawKey, store);
-        result = val !== undefined ? formatDbItem(rawKey, val, args.prefix) : undefined;
-        break;
-      }
-
-      case "SET": {
-        const { key, cleanVal } = prepareForSave(args.key, args.val, args.prefix);
-        await set(key, cleanVal, store);
-        result = key;
-        break;
-      }
-
-      case "DELETE": {
-        const rawKey = args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key;
-        result = await del(rawKey, store);
-        break;
-      }
-
-      case "GET_MANY": {
-        const fullKeys = args.keys.map((k: string) => args.prefix && !k.startsWith(args.prefix) ? `${args.prefix}${k}` : k);
-        const rawValues = await getMany(fullKeys, store);
-        result = rawValues.map((val, idx) => val !== undefined ? formatDbItem(fullKeys[idx]!, val, args.prefix) : undefined);
-        break;
-      }
-
-      case "SET_MANY": {
-        const entriesToSet: [string, any][] = args.entries.map(([k, v]: [string, any]) => {
-          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
-          return [key, cleanVal];
-        });
-        result = await setMany(entriesToSet, store);
-        break;
-      }
-
-      case "DEL_MANY": {
-        const fullKeys = args.keys.map((k: string) => args.prefix && !k.startsWith(args.prefix) ? `${args.prefix}${k}` : k);
-        result = await delMany(fullKeys, store);
-        break;
-      }
-
-      case "KEYS": {
-        const allKeys = await keys(store);
-        result = args.prefix ? allKeys.filter(k => typeof k === "string" && k.startsWith(args.prefix)) : allKeys;
-        break;
-      }
-
-      case "VALUES": {
-        const allEntries = await entries(store);
-        const formattedItems = formatDbEntries(allEntries, args.prefix);
-        result = formattedItems; 
-        break;
-      }
-
-      case "ENTRIES": {
-        const allEntries = await entries(store);
-        result = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
-        break;
-      }
-
-      case "CLEAR": {
-        if (args.prefix) {
-          const allKeys = await keys(store);
-          const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
-          await delMany(keysToDelete, store);
-        } else {
-          await clear(store);
-        }
-        break;
-      }
-
-      case "PATCH": {
-        const rawKey = args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key;
-        const current = (await get(rawKey, store)) || {};
-        let updated: any;
-
-        if (args.fnStr) {
-          const runner = new Function("prev", "ctx", `return (${args.fnStr})(prev, ctx);`);
-          updated = runner(formatDbItem(rawKey, current, args.prefix), args.context);
-        } else {
-          updated = Object.assign({}, current, args.patch);
-        }
-
-        const { key, cleanVal } = prepareForSave(rawKey, updated, args.prefix);
-        await set(key, cleanVal, store);
-        result = formatDbItem(key, cleanVal, args.prefix);
-        break;
-      }
-
-      case "QUERY": {
-        const rawEntries = await entries(store);
-        const formattedItems = formatDbEntries(rawEntries, args.prefix);
-        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
-        result = runner(formattedItems, args.context);
-        break;
-      }
-
-      case "GET_SOME": {
-        const rawEntries = await entries(store);
-        const formattedItems = formatDbEntries(rawEntries, args.prefix);
-        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
-        const selectedItems = runner(formattedItems, args.context);
-        
-        if (!Array.isArray(selectedItems)) {
-          throw new Error("A função injetada em GET_SOME deve retornar um Array.");
-        }
-        
-        result = selectedItems;
-        break;
-      }
-
-      case "DEL_SOME": {
-        const rawEntries = await entries(store);
-        const formattedItems = formatDbEntries(rawEntries, args.prefix);
-        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
-        const selectedItems = runner(formattedItems, args.context);
-        
-        if (!Array.isArray(selectedItems)) {
-          throw new Error("A função injetada em DEL_SOME deve retornar um Array.");
-        }
-        
-        const keysToDelete: string[] = selectedItems.map((item: any) => {
-          if (!item || item._id === undefined) {
-            throw new Error("Os itens retornados em DEL_SOME precisam conter a propriedade '_id'.");
-          }
-          return args.prefix && !item._id.startsWith(args.prefix) ? `${args.prefix}${item._id}` : item._id;
-        });
-          
-        result = await delMany(keysToDelete, store);
-        break;
-      }
-
-      case "SET_SOME": {
-        const rawEntries = await entries(store);
-        const formattedItems = formatDbEntries(rawEntries, args.prefix);
-        
-        const selectRunner = new Function("items", "ctx", `return (${args.selectFnStr})(items, ctx);`);
-        const updateRunner = new Function("item", "ctx", `return (${args.updateFnStr})(item, ctx);`);
-        
-        const selectedItems = selectRunner(formattedItems, args.context);
-        
-        if (!Array.isArray(selectedItems)) {
-          throw new Error("A função de seleção em SET_SOME deve retornar um Array.");
-        }
-        
-        const entriesToSet: [string, any][] = selectedItems.map((item: any) => {
-          if (!item || item._id === undefined) {
-             throw new Error("Os itens selecionados no SET_SOME precisam conter a propriedade '_id'.");
-          }
-          
-          const updatedItem = updateRunner(item, args.context);
-          const { key, cleanVal } = prepareForSave(undefined, updatedItem, args.prefix);
-          return [key, cleanVal];
-        });
-        
-        result = await setMany(entriesToSet, store);
-        break;
-      }
-
-      case "EXPORT": {
-        const allEntries = await entries(store);
-        const filtered = args.prefix 
-          ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) 
-          : allEntries;
-        result = Object.fromEntries(filtered);
-        break;
-      }
-
-      case "IMPORT": {
-        if (args.clearFirst) {
-          if (args.prefix) {
-            const allKeys = await keys(store);
-            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
-            await delMany(keysToDelete, store);
-          } else {
-            await clear(store);
-          }
-        }
-        const entriesToImport: [string, any][] = Object.entries(args.data).map(([k, v]) => {
-          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
-          return [key, cleanVal];
-        });
-        result = await setMany(entriesToImport, store);
-        break;
-      }
-
-      case "BACKUP_OPFS": {
-        const allEntries = await entries(store);
-        const filtered = args.prefix 
-          ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) 
-          : allEntries;
-        const data = Object.fromEntries(filtered);
-        
-        const fileName = resolveOpfsFileName("db", args.fileName || "backup.json", {
-          dbName: args.dbName,
-          storeName: args.storeName,
-          prefix: args.prefix
-        });
-        result = await writeJsonToOpfs(fileName, data);
-        break;
-      }
-
-      case "RESTORE_OPFS": {
-        const data = await readJsonFromOpfs(args.fileName);
-        if (args.clearFirst) {
-          if (args.prefix) {
-            const allKeys = await keys(store);
-            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
-            await delMany(keysToDelete, store);
-          } else {
-            await clear(store);
-          }
-        }
-        
-        const entriesToImport: [string, any][] = Object.entries(data).map(([k, v]) => {
-          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
-          return [key, cleanVal];
-        });
-        result = await setMany(entriesToImport, store);
-        break;
-      }
-      
-      default: 
-        throw new Error(`Comando desconhecido: ${command}`);
-    }
-    
-    self.postMessage({ requestId, success: true, result });
-  } catch (error) {
-    self.postMessage({ requestId, success: false, error: (error as Error).message });
-  }
-};
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/mod.ts`
-
-```ts
-// mod.ts
-import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
-import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "./utils/opfs_utils.ts";
-import { ls } from "./ls.ts";
-
-// Exportando os utilitários de OPFS para uso fácil na Main Thread
-export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs, type WithId };
-
-let workerInstance: Worker | null = null;
-let currentWorkerPath: string | URL = "./worker-db.js";
-const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
-
-function getWorker(workerPath?: string | URL): Worker {
-  if (workerPath) {
-    currentWorkerPath = workerPath;
-  }
-  
-  if (!workerInstance) {
-    const workerUrl = typeof currentWorkerPath === "string" 
-      ? new URL(currentWorkerPath, import.meta.url) 
-      : currentWorkerPath;
-
-    workerInstance = new Worker(workerUrl, { type: "module" });
-
-    workerInstance.onmessage = (e: MessageEvent) => {
-      const { requestId, success, result, error } = e.data;
-      const promise = pendingRequests.get(requestId);
-      
-      if (promise) {
-        if (success) promise.resolve(result);
-        else promise.reject(new Error(error));
-        pendingRequests.delete(requestId);
-      }
-    };
-
-    workerInstance.onerror = (event) => {
-      console.error("⚠️ Falha crítica no Web Worker:", event.message);
-      pendingRequests.forEach(({ reject }) => reject(new Error("Worker crashed")));
-      pendingRequests.clear();
-      restartWorker();
-    };
-  }
-  return workerInstance;
-}
-
-function restartWorker() {
-  if (workerInstance) {
-    workerInstance.terminate();
-    workerInstance = null;
-  }
-  pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
-  pendingRequests.clear();
-  getWorker(); 
-}
-
-function terminateWorker() {
-  if (workerInstance) {
-    workerInstance.terminate();
-    workerInstance = null;
-  }
-}
-
-function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const requestId = gerarId();
-    pendingRequests.set(requestId, { resolve, reject });
-    
-    try {
-      getWorker().postMessage({ requestId, command, args });
-    } catch (err) {
-      pendingRequests.delete(requestId);
-      reject(err);
-    }
-  });
-}
-
-export interface DbStoreOptions {
-  dbName?: string;
-  storeName?: string;
-  prefix?: string;
-}
-
-const globalDbAPI = {
-  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
-  
-  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
-    if (typeof keyOrVal !== "string") {
-      const options = opts || (val as DbStoreOptions) || {};
-      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
-    }
-    return exec<string>("SET", { key: keyOrVal, val, ...opts });
-  },
-  
-  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
-    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
-    const newVal = updater(currentVal);
-    await exec<void>("SET", { key, val: newVal, ...opts });
-  },
-
-  patch: <T extends Record<string, any>, C = any>(
-    key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions
-  ): Promise<WithId<T>> => {
-    const isFn = typeof patchOrFn === "function";
-    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
-  },
-
-  delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
-
-  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
-  setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
-  deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
-
-  keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
-  values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
-  entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
-  clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
-
-  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => 
-    exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
-
-  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => 
-    exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
-
-  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => 
-    exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
-
-  setSome: <T, C = any>(
-    selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], 
-    updateFn: (item: WithId<T>, ctx: C) => WithId<T>, 
-    context?: C, 
-    opts?: DbStoreOptions
-  ): Promise<void> => exec<void>("SET_SOME", { 
-    selectFnStr: selectFn.toString(), 
-    updateFnStr: updateFn.toString(), 
-    context, 
-    ...opts 
-  }),
-
-  exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
-  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
-
-  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
-  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
-
-  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
-  restart: () => restartWorker(),
-  terminate: () => terminateWorker(),
-};
-
-function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
-  const opts: DbStoreOptions = { dbName, storeName, prefix };
-
-  return {
-    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
-    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
-    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
-    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
-    delete: (key: string) => globalDbAPI.delete(key, opts),
-    
-    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
-    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
-    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
-    
-    keys: () => globalDbAPI.keys(opts),
-    values: <T>() => globalDbAPI.values<T>(opts),
-    entries: <T>() => globalDbAPI.entries<T>(opts),
-    clear: () => globalDbAPI.clear(opts), 
-    
-    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
-    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
-    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
-    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
-      
-    exportDB: () => globalDbAPI.exportDB(opts),
-    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
-
-    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
-    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
-    
-    gerarId,
-    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
-  };
-}
-
-export const db = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
-  globalDbAPI
-);
-```
-
----
-
 ## Arquivo: `monorepo/worker-db/src/fake/fake-local-storage.ts`
 
 ```ts
@@ -733,107 +262,6 @@ export class FakeLocalStorage {
 
   key(index: number): string | null {
     return Array.from(this.store.keys())[index] ?? null;
-  }
-}
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/fake/fake-opfs.ts`
-
-```ts
-export class FakeOPFSFileHandle {
-  public kind: "file" | "directory" = "file";
-
-  constructor(
-    private fullPath: string,
-    private storage: Map<string, string>
-  ) {}
-
-  async createWritable() {
-    const self = this;
-    let content = "";
-    return {
-      async write(data: string) {
-        content = data;
-      },
-      async close() {
-        self.storage.set(self.fullPath, content);
-      }
-    };
-  }
-
-  async getFile() {
-    const content = this.storage.get(this.fullPath);
-    if (content === undefined) {
-      throw new Error(`File ${this.fullPath} not found in Fake OPFS`);
-    }
-    return {
-      async text() {
-        return content;
-      }
-    };
-  }
-}
-
-export class FakeOPFSDirectory {
-  private static sharedStorage = new Map<string, string>();
-
-  constructor(private path: string = "") {}
-
-  async getDirectoryHandle(name: string, options?: { create?: boolean }) {
-    // Simula a criação/retorno de um subdiretório
-    return new FakeOPFSDirectory(this.path ? `${this.path}/${name}` : name);
-  }
-
-  async getFileHandle(name: string, options?: { create?: boolean }) {
-    const fullPath = this.path ? `${this.path}/${name}` : name;
-    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(fullPath)) {
-      throw new Error(`File ${fullPath} not found in Fake OPFS`);
-    }
-    return new FakeOPFSFileHandle(fullPath, FakeOPFSDirectory.sharedStorage);
-  }
-
-  async removeEntry(name: string) {
-    const fullPath = this.path ? `${this.path}/${name}` : name;
-    FakeOPFSDirectory.sharedStorage.delete(fullPath);
-  }
-
-  async *keys() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      if (this.path && key.startsWith(`${this.path}/`)) {
-         const localName = key.slice(this.path.length + 1);
-         if (!localName.includes("/")) yield localName;
-      } else if (!this.path && !key.includes("/")) {
-         yield key;
-      }
-    }
-  }
-
-  async *entries() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      if (this.path && key.startsWith(`${this.path}/`)) {
-         const localName = key.slice(this.path.length + 1);
-         if (!localName.includes("/")) yield [localName, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
-      } else if (!this.path && !key.includes("/")) {
-         yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
-      }
-    }
-  }
-
-  async *values() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      if (this.path && key.startsWith(`${this.path}/`)) {
-         const localName = key.slice(this.path.length + 1);
-         if (!localName.includes("/")) yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
-      } else if (!this.path && !key.includes("/")) {
-         yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
-      }
-    }
-  }
-
-  static clear() {
-    FakeOPFSDirectory.sharedStorage.clear();
   }
 }
 ```
@@ -908,6 +336,111 @@ export * from "../mod.ts";
 import { db } from "../mod.ts";
 const fakeWorkerUrl = new URL("./fake-db.ts", import.meta.url);
 db.init(fakeWorkerUrl);
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/fake/fake-opfs.ts`
+
+```ts
+export class FakeOPFSFileHandle {
+  public kind: "file" | "directory" = "file";
+
+  constructor(
+    private fullPath: string,
+    private storage: Map<string, Uint8Array>
+  ) {}
+
+  async createWritable() {
+    const self = this;
+    let content: Uint8Array = new Uint8Array();
+    return {
+      async write(data: Uint8Array | string | Blob | ArrayBuffer) {
+        if (data instanceof Uint8Array) {
+          content = data;
+        } else if (data instanceof ArrayBuffer) {
+          content = new Uint8Array(data);
+        } else if (data instanceof Blob) {
+          content = new Uint8Array(await data.arrayBuffer());
+        } else {
+          content = new TextEncoder().encode(String(data));
+        }
+      },
+      async close() {
+        self.storage.set(self.fullPath, content);
+      }
+    };
+  }
+
+  async getFile(): Promise<File> {
+    const content = this.storage.get(this.fullPath);
+    if (content === undefined) {
+      throw new Error(`File ${this.fullPath} not found in Fake OPFS`);
+    }
+    const fileName = this.fullPath.split('/').pop() || "file";
+    return new File([content as any], fileName, { type: "application/octet-stream", lastModified: Date.now() });
+  }
+}
+
+export class FakeOPFSDirectory {
+  private static sharedStorage = new Map<string, Uint8Array>();
+
+  constructor(private path: string = "") {}
+
+  async getDirectoryHandle(name: string, options?: { create?: boolean }) {
+    return new FakeOPFSDirectory(this.path ? `${this.path}/${name}` : name);
+  }
+
+  async getFileHandle(name: string, options?: { create?: boolean }) {
+    const fullPath = this.path ? `${this.path}/${name}` : name;
+    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(fullPath)) {
+      throw new Error(`File ${fullPath} not found in Fake OPFS`);
+    }
+    return new FakeOPFSFileHandle(fullPath, FakeOPFSDirectory.sharedStorage);
+  }
+
+  async removeEntry(name: string) {
+    const fullPath = this.path ? `${this.path}/${name}` : name;
+    FakeOPFSDirectory.sharedStorage.delete(fullPath);
+  }
+
+  async *keys() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield localName;
+      } else if (!this.path && !key.includes("/")) {
+         yield key;
+      }
+    }
+  }
+
+  async *entries() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield [localName, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      } else if (!this.path && !key.includes("/")) {
+         yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      }
+    }
+  }
+
+  async *values() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      } else if (!this.path && !key.includes("/")) {
+         yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      }
+    }
+  }
+
+  static clear() {
+    FakeOPFSDirectory.sharedStorage.clear();
+  }
+}
 ```
 
 ---
@@ -1066,27 +599,229 @@ export async function downloadOpfsFile(fileName: string): Promise<void> {
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/db-sw.ts`
+## Arquivo: `monorepo/worker-db/src/mod.ts`
 
 ```ts
-// db-sw.ts
-// ⚠️ ESTE MÓDULO É DE USO EXCLUSIVO DO SERVICE WORKER OU AMBIENTES QUE JÁ RODAM EM BACKGROUND.
-// Ele executa o IndexedDB DIRETAMENTE na thread atual, não utilizando postMessage/WebWorkers.
+// mod.ts
+import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
+import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "./utils/opfs_utils.ts";
+import { ls } from "./ls.ts";
 
+export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs, type WithId };
+
+let workerInstance: Worker | null = null;
+let currentWorkerPath: string | URL = "./worker-db.js";
+const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
+
+function getWorker(workerPath?: string | URL): Worker {
+  if (workerPath) {
+    currentWorkerPath = workerPath;
+  }
+  
+  if (!workerInstance) {
+    const workerUrl = typeof currentWorkerPath === "string" ? new URL(currentWorkerPath, import.meta.url) : currentWorkerPath;
+    workerInstance = new Worker(workerUrl, { type: "module" });
+
+    workerInstance.onmessage = (e: MessageEvent) => {
+      const { requestId, success, result, error } = e.data;
+      const promise = pendingRequests.get(requestId);
+      if (promise) {
+        if (success) promise.resolve(result);
+        else promise.reject(new Error(error));
+        pendingRequests.delete(requestId);
+      }
+    };
+
+    workerInstance.onerror = (event) => {
+      console.error("⚠️ Falha crítica no Web Worker:", event.message);
+      pendingRequests.forEach(({ reject }) => reject(new Error("Worker crashed")));
+      pendingRequests.clear();
+      restartWorker();
+    };
+  }
+  return workerInstance;
+}
+
+function restartWorker() {
+  if (workerInstance) {
+    workerInstance.terminate();
+    workerInstance = null;
+  }
+  pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
+  pendingRequests.clear();
+  getWorker(); 
+}
+
+function terminateWorker() {
+  if (workerInstance) {
+    workerInstance.terminate();
+    workerInstance = null;
+  }
+}
+
+function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const requestId = gerarId();
+    pendingRequests.set(requestId, { resolve, reject });
+    try {
+      getWorker().postMessage({ requestId, command, args });
+    } catch (err) {
+      pendingRequests.delete(requestId);
+      reject(err);
+    }
+  });
+}
+
+export interface DbStoreOptions {
+  dbName?: string;
+  storeName?: string;
+  prefix?: string;
+}
+
+export interface OpfsStoreOptions extends DbStoreOptions {
+  basePath?: string;
+}
+
+// Interface auxiliar para os arquivos retornados do OPFS
+export interface OpfsFileInfo {
+  name: string;
+  size: number;
+  type: string;
+  lastModified: number;
+  file: File; 
+}
+
+const globalDbAPI = {
+  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
+  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
+    if (typeof keyOrVal !== "string") {
+      const options = opts || (val as DbStoreOptions) || {};
+      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
+    }
+    return exec<string>("SET", { key: keyOrVal, val, ...opts });
+  },
+  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
+    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
+    const newVal = updater(currentVal);
+    await exec<void>("SET", { key, val: newVal, ...opts });
+  },
+  patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions): Promise<WithId<T>> => {
+    const isFn = typeof patchOrFn === "function";
+    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
+  },
+  delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
+  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
+  setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
+  deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
+  keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
+  values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
+  entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
+  clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
+  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
+  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
+  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
+  setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C, opts?: DbStoreOptions): Promise<void> => exec<void>("SET_SOME", { selectFnStr: selectFn.toString(), updateFnStr: updateFn.toString(), context, ...opts }),
+  exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
+  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
+  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
+  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
+
+  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
+  restart: () => restartWorker(),
+  terminate: () => terminateWorker(),
+};
+
+function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
+  const opts: DbStoreOptions = { dbName, storeName, prefix };
+  return {
+    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
+    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
+    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
+    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
+    delete: (key: string) => globalDbAPI.delete(key, opts),
+    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
+    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
+    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
+    keys: () => globalDbAPI.keys(opts),
+    values: <T>() => globalDbAPI.values<T>(opts),
+    entries: <T>() => globalDbAPI.entries<T>(opts),
+    clear: () => globalDbAPI.clear(opts), 
+    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
+    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
+    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
+    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
+    exportDB: () => globalDbAPI.exportDB(opts),
+    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
+    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
+    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
+    gerarId,
+    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
+  };
+}
+
+export const db = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
+  globalDbAPI
+);
+
+// ==========================================
+// OPFS EXTENSION (Pastas associadas a Registros)
+// ==========================================
+
+const globalOpfsAPI = {
+  ...globalDbAPI,
+  listFiles: (key: string, opts?: OpfsStoreOptions) => exec<OpfsFileInfo[]>("OPFS_LIST", { key, ...opts }),
+  addFile: (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_ADD", { key, file, fileName, ...opts }),
+  delFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_DEL", { key, fileName, ...opts }),
+  renFile: (key: string, oldName: string, newName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_REN", { key, oldName, newName, ...opts }),
+  mvFile: (key: string, fileName: string, newKey: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_MV", { key, fileName, newKey, ...opts }),
+  zip: (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false, opts?: OpfsStoreOptions) => exec<void>("OPFS_ZIP", { key, zipName, filesToZip, deleteOriginals, ...opts }),
+  unzip: (key: string, zipName: string, deleteZip = false, opts?: OpfsStoreOptions) => exec<void>("OPFS_UNZIP", { key, zipName, deleteZip, ...opts }),
+  addZip: (key: string, zipName: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_ADDZIP", { key, zipName, file, fileName, ...opts }),
+  delZip: (key: string, zipName: string, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_DELZIP", { key, zipName, fileName, ...opts })
+};
+
+function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
+  const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
+  return {
+    ...createScopedDb(dbName, storeName, prefix), // Herda a manipulação de metadados no IndexedDB
+    listFiles: (key: string) => globalOpfsAPI.listFiles(key, opts),
+    addFile: (key: string, file: File | Blob, fileName: string) => globalOpfsAPI.addFile(key, file, fileName, opts),
+    delFile: (key: string, fileName: string) => globalOpfsAPI.delFile(key, fileName, opts),
+    renFile: (key: string, oldName: string, newName: string) => globalOpfsAPI.renFile(key, oldName, newName, opts),
+    mvFile: (key: string, fileName: string, newKey: string) => globalOpfsAPI.mvFile(key, fileName, newKey, opts),
+    zip: (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false) => globalOpfsAPI.zip(key, zipName, filesToZip, deleteOriginals, opts),
+    unzip: (key: string, zipName: string, deleteZip = false) => globalOpfsAPI.unzip(key, zipName, deleteZip, opts),
+    addZip: (key: string, zipName: string, file: File | Blob, fileName: string) => globalOpfsAPI.addZip(key, zipName, file, fileName, opts),
+    delZip: (key: string, zipName: string, fileName: string) => globalOpfsAPI.delZip(key, zipName, fileName, opts)
+  };
+}
+
+export const opfs = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string, basePath = "") => createScopedOpfs(dbName, storeName, prefix, basePath),
+  globalOpfsAPI
+);
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/db.ts`
+
+```ts
+// db.ts
 import { 
   get, set, del, keys, clear, getMany, setMany, delMany, 
   values, entries, createStore, type UseStore
 } from "idb-keyval";
+import { zipSync, unzipSync } from "fflate"; 
 
-import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
+import { formatDbItem, prepareForSave } from "./utils/id-utils.ts";
 import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
-import type { DbStoreOptions } from "./mod.ts";
 
 const storeCache = new Map<string, UseStore>();
 
 function getCustomStore(dbName?: string, storeName = "keyval"): UseStore | undefined {
   if (!dbName) return undefined; 
-  
   const cacheKey = `${dbName}:${storeName}`;
   if (!storeCache.has(cacheKey)) {
     storeCache.set(cacheKey, createStore(dbName, storeName));
@@ -1096,10 +831,365 @@ function getCustomStore(dbName?: string, storeName = "keyval"): UseStore | undef
 
 function formatDbEntries(rawEntries: [IDBValidKey, any][], prefix?: string) {
   let items = rawEntries;
-  if (prefix) {
-    items = items.filter(([k]) => typeof k === "string" && k.startsWith(prefix));
-  }
+  if (prefix) items = items.filter(([k]) => typeof k === "string" && k.startsWith(prefix));
   return items.map(([k, v]) => formatDbItem(k, v, prefix));
+}
+
+async function getRecordDir(basePath = "", rawKey: string, create = false): Promise<FileSystemDirectoryHandle> {
+  const root = await navigator.storage.getDirectory();
+  const fullPath = basePath ? `${basePath}/${rawKey}` : rawKey;
+  const parts = fullPath.split('/').filter(Boolean);
+  let curr = root;
+  for (const p of parts) {
+    curr = await curr.getDirectoryHandle(p, { create });
+  }
+  return curr;
+}
+
+self.onmessage = async (e: MessageEvent) => {
+  const { requestId, command, args } = e.data;
+
+  try {
+    const store = getCustomStore(args.dbName, args.storeName);
+    const rawKey = args.key && args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key;
+    let result;
+
+    switch (command) {
+      case "GET": {
+        const val = await get(rawKey, store);
+        result = val !== undefined ? formatDbItem(rawKey, val, args.prefix) : undefined;
+        break;
+      }
+      case "SET": {
+        const { key, cleanVal } = prepareForSave(args.key, args.val, args.prefix);
+        await set(key, cleanVal, store);
+        result = key;
+        break;
+      }
+      case "DELETE": {
+        result = await del(rawKey, store);
+        break;
+      }
+      case "GET_MANY": {
+        const fullKeys = args.keys.map((k: string) => args.prefix && !k.startsWith(args.prefix) ? `${args.prefix}${k}` : k);
+        const rawValues = await getMany(fullKeys, store);
+        result = rawValues.map((val, idx) => val !== undefined ? formatDbItem(fullKeys[idx]!, val, args.prefix) : undefined);
+        break;
+      }
+      case "SET_MANY": {
+        const entriesToSet: [string, any][] = args.entries.map(([k, v]: [string, any]) => {
+          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
+          return [key, cleanVal];
+        });
+        result = await setMany(entriesToSet, store);
+        break;
+      }
+      case "DEL_MANY": {
+        const fullKeys = args.keys.map((k: string) => args.prefix && !k.startsWith(args.prefix) ? `${args.prefix}${k}` : k);
+        result = await delMany(fullKeys, store);
+        break;
+      }
+      case "KEYS": {
+        const allKeys = await keys(store);
+        result = args.prefix ? allKeys.filter(k => typeof k === "string" && k.startsWith(args.prefix)) : allKeys;
+        break;
+      }
+      case "VALUES": {
+        const allEntries = await entries(store);
+        result = formatDbEntries(allEntries, args.prefix); 
+        break;
+      }
+      case "ENTRIES": {
+        const allEntries = await entries(store);
+        result = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
+        break;
+      }
+      case "CLEAR": {
+        if (args.prefix) {
+          const allKeys = await keys(store);
+          const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+          await delMany(keysToDelete, store);
+        } else {
+          await clear(store);
+        }
+        break;
+      }
+      case "PATCH": {
+        const current = (await get(rawKey, store)) || {};
+        let updated: any;
+        if (args.fnStr) {
+          const runner = new Function("prev", "ctx", `return (${args.fnStr})(prev, ctx);`);
+          updated = runner(formatDbItem(rawKey, current, args.prefix), args.context);
+        } else {
+          updated = Object.assign({}, current, args.patch);
+        }
+        const { key, cleanVal } = prepareForSave(rawKey, updated, args.prefix);
+        await set(key, cleanVal, store);
+        result = formatDbItem(key, cleanVal, args.prefix);
+        break;
+      }
+      case "QUERY": {
+        const rawEntries = await entries(store);
+        const formattedItems = formatDbEntries(rawEntries, args.prefix);
+        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
+        result = runner(formattedItems, args.context);
+        break;
+      }
+      case "GET_SOME": {
+        const rawEntries = await entries(store);
+        const formattedItems = formatDbEntries(rawEntries, args.prefix);
+        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
+        const selectedItems = runner(formattedItems, args.context);
+        if (!Array.isArray(selectedItems)) throw new Error("GET_SOME deve retornar Array.");
+        result = selectedItems;
+        break;
+      }
+      case "DEL_SOME": {
+        const rawEntries = await entries(store);
+        const formattedItems = formatDbEntries(rawEntries, args.prefix);
+        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
+        const selectedItems = runner(formattedItems, args.context);
+        if (!Array.isArray(selectedItems)) throw new Error("DEL_SOME deve retornar Array.");
+        const keysToDelete: string[] = selectedItems.map((item: any) => args.prefix && !item._id.startsWith(args.prefix) ? `${args.prefix}${item._id}` : item._id);
+        result = await delMany(keysToDelete, store);
+        break;
+      }
+      case "SET_SOME": {
+        const rawEntries = await entries(store);
+        const formattedItems = formatDbEntries(rawEntries, args.prefix);
+        const selectRunner = new Function("items", "ctx", `return (${args.selectFnStr})(items, ctx);`);
+        const updateRunner = new Function("item", "ctx", `return (${args.updateFnStr})(item, ctx);`);
+        const selectedItems = selectRunner(formattedItems, args.context);
+        if (!Array.isArray(selectedItems)) throw new Error("SET_SOME selecao deve retornar Array.");
+        const entriesToSet: [string, any][] = selectedItems.map((item: any) => {
+          const updatedItem = updateRunner(item, args.context);
+          const { key, cleanVal } = prepareForSave(undefined, updatedItem, args.prefix);
+          return [key, cleanVal];
+        });
+        result = await setMany(entriesToSet, store);
+        break;
+      }
+      case "EXPORT": {
+        const allEntries = await entries(store);
+        const filtered = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
+        result = Object.fromEntries(filtered);
+        break;
+      }
+      case "IMPORT": {
+        if (args.clearFirst) {
+          if (args.prefix) {
+            const allKeys = await keys(store);
+            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+            await delMany(keysToDelete, store);
+          } else await clear(store);
+        }
+        const entriesToImport: [string, any][] = Object.entries(args.data).map(([k, v]) => {
+          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
+          return [key, cleanVal];
+        });
+        result = await setMany(entriesToImport, store);
+        break;
+      }
+      case "BACKUP_OPFS": {
+        const allEntries = await entries(store);
+        const filtered = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
+        const data = Object.fromEntries(filtered);
+        const fileName = resolveOpfsFileName("db", args.fileName || "backup.json", { dbName: args.dbName, storeName: args.storeName, prefix: args.prefix });
+        result = await writeJsonToOpfs(fileName, data);
+        break;
+      }
+      case "RESTORE_OPFS": {
+        const data = await readJsonFromOpfs(args.fileName);
+        if (args.clearFirst) {
+          if (args.prefix) {
+            const allKeys = await keys(store);
+            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
+            await delMany(keysToDelete, store);
+          } else await clear(store);
+        }
+        const entriesToImport: [string, any][] = Object.entries(data).map(([k, v]) => {
+          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
+          return [key, cleanVal];
+        });
+        result = await setMany(entriesToImport, store);
+        break;
+      }
+
+      // ==== OPFS EXTENSION ====
+      case "OPFS_LIST": {
+        const dir = await getRecordDir(args.basePath, rawKey, true);
+        const filesList = [];
+        // @ts-ignore
+        for await (const [name, handle] of dir.entries()) {
+          if (handle.kind === "file") {
+            const file = await handle.getFile();
+            filesList.push({ name, size: file.size, type: file.type, lastModified: file.lastModified, file });
+          }
+        }
+        result = filesList;
+        break;
+      }
+      case "OPFS_ADD": {
+        const dir = await getRecordDir(args.basePath, rawKey, true);
+        const fh = await dir.getFileHandle(args.fileName, { create: true });
+        const w = await fh.createWritable();
+        const buffer = await (args.file as Blob).arrayBuffer();
+        await w.write(new Blob([buffer])); // Seguro em todos os compiladores
+        await w.close();
+        break;
+      }
+      case "OPFS_DEL": {
+        const dir = await getRecordDir(args.basePath, rawKey, false);
+        await dir.removeEntry(args.fileName);
+        break;
+      }
+      case "OPFS_REN": {
+        const dir = await getRecordDir(args.basePath, rawKey, false);
+        const oldFile = await dir.getFileHandle(args.oldName);
+        const fileData = await oldFile.getFile();
+        const newFile = await dir.getFileHandle(args.newName, { create: true });
+        const w = await newFile.createWritable();
+        await w.write(new Blob([await fileData.arrayBuffer()]));
+        await w.close();
+        await dir.removeEntry(args.oldName);
+        break;
+      }
+      case "OPFS_MV": {
+        const dir = await getRecordDir(args.basePath, rawKey, false);
+        const fileHandle = await dir.getFileHandle(args.fileName);
+        const fileData = await fileHandle.getFile();
+        
+        const rawNewKey = args.prefix && !args.newKey.startsWith(args.prefix) ? `${args.prefix}${args.newKey}` : args.newKey;
+        const targetDir = await getRecordDir(args.basePath, rawNewKey, true);
+        
+        const newFile = await targetDir.getFileHandle(args.fileName, { create: true });
+        const w = await newFile.createWritable();
+        await w.write(new Blob([await fileData.arrayBuffer()]));
+        await w.close();
+        await dir.removeEntry(args.fileName);
+        break;
+      }
+      case "OPFS_ZIP": {
+        const dir = await getRecordDir(args.basePath, rawKey, false);
+        const filesToZip: Record<string, Uint8Array> = {};
+        
+        // @ts-ignore
+        for await (const [name, handle] of dir.entries()) {
+          if (handle.kind === "file" && (!args.filesToZip || args.filesToZip.includes(name))) {
+            const f = await handle.getFile();
+            filesToZip[name] = new Uint8Array(await f.arrayBuffer());
+          }
+        }
+
+        const zippedData = zipSync(filesToZip);
+        const zipFileHandle = await dir.getFileHandle(args.zipName, { create: true });
+        const w = await zipFileHandle.createWritable();
+        await w.write(new Blob([zippedData])); // Uso seguro para write
+        await w.close();
+
+        if (args.deleteOriginals) {
+          for (const name of Object.keys(filesToZip)) await dir.removeEntry(name);
+        }
+        break;
+      }
+      case "OPFS_UNZIP": {
+        const dir = await getRecordDir(args.basePath, rawKey, false);
+        const zipFileHandle = await dir.getFileHandle(args.zipName);
+        const zipFile = await zipFileHandle.getFile();
+        const zipBuffer = new Uint8Array(await zipFile.arrayBuffer());
+        
+        const unzipped = unzipSync(zipBuffer);
+        for (const [name, data] of Object.entries(unzipped)) {
+          if (!name.includes('/')) {
+            const fh = await dir.getFileHandle(name, { create: true });
+            const w = await fh.createWritable();
+            await w.write(new Blob([data]));
+            await w.close();
+          }
+        }
+
+        if (args.deleteZip) await dir.removeEntry(args.zipName);
+        break;
+      }
+      case "OPFS_ADDZIP": {
+        const dir = await getRecordDir(args.basePath, rawKey, false);
+        const zipFileHandle = await dir.getFileHandle(args.zipName);
+        const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
+        const currentZipData = unzipSync(zipBuffer);
+        
+        currentZipData[args.fileName] = new Uint8Array(await (args.file as Blob).arrayBuffer());
+        
+        const newZippedData = zipSync(currentZipData);
+        const w = await zipFileHandle.createWritable();
+        await w.write(new Blob([newZippedData]));
+        await w.close();
+        break;
+      }
+      case "OPFS_DELZIP": {
+        const dir = await getRecordDir(args.basePath, rawKey, false);
+        const zipFileHandle = await dir.getFileHandle(args.zipName);
+        const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
+        const currentZipData = unzipSync(zipBuffer);
+        
+        delete currentZipData[args.fileName]; 
+        
+        const newZippedData = zipSync(currentZipData);
+        const w = await zipFileHandle.createWritable();
+        await w.write(new Blob([newZippedData]));
+        await w.close();
+        break;
+      }
+      
+      default: 
+        throw new Error(`Comando desconhecido: ${command}`);
+    }
+    
+    self.postMessage({ requestId, success: true, result });
+  } catch (error) {
+    self.postMessage({ requestId, success: false, error: (error as Error).message });
+  }
+};
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/db-sw.ts`
+
+```ts
+// db-sw.ts
+// ⚠️ ESTE MÓDULO É DE USO EXCLUSIVO DO SERVICE WORKER OU AMBIENTES QUE JÁ RODAM EM BACKGROUND.
+import { 
+  get, set, del, keys, clear, getMany, setMany, delMany, 
+  values, entries, createStore, type UseStore
+} from "idb-keyval";
+import { zipSync, unzipSync } from "fflate";
+
+import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
+import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
+import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./mod.ts";
+
+const storeCache = new Map<string, UseStore>();
+
+function getCustomStore(dbName?: string, storeName = "keyval"): UseStore | undefined {
+  if (!dbName) return undefined; 
+  const cacheKey = `${dbName}:${storeName}`;
+  if (!storeCache.has(cacheKey)) storeCache.set(cacheKey, createStore(dbName, storeName));
+  return storeCache.get(cacheKey);
+}
+
+function formatDbEntries(rawEntries: [IDBValidKey, any][], prefix?: string) {
+  let items = rawEntries;
+  if (prefix) items = items.filter(([k]) => typeof k === "string" && k.startsWith(prefix));
+  return items.map(([k, v]) => formatDbItem(k, v, prefix));
+}
+
+async function getRecordDir(basePath = "", rawKey: string, create = false): Promise<FileSystemDirectoryHandle> {
+  const root = await navigator.storage.getDirectory();
+  const fullPath = basePath ? `${basePath}/${rawKey}` : rawKey;
+  const parts = fullPath.split('/').filter(Boolean);
+  let curr = root;
+  for (const p of parts) curr = await curr.getDirectoryHandle(p, { create });
+  return curr;
 }
 
 const globalSwDbAPI = {
@@ -1114,7 +1204,6 @@ const globalSwDbAPI = {
     let keyToSave: string | undefined;
     let valToSave: any;
     let options: DbStoreOptions = opts || {};
-
     if (typeof keyOrVal !== "string") {
       keyToSave = undefined;
       valToSave = keyOrVal;
@@ -1123,7 +1212,6 @@ const globalSwDbAPI = {
       keyToSave = keyOrVal;
       valToSave = val;
     }
-
     const store = getCustomStore(options.dbName, options.storeName);
     const { key, cleanVal } = prepareForSave(keyToSave, valToSave, options.prefix);
     await set(key, cleanVal, store);
@@ -1149,7 +1237,6 @@ const globalSwDbAPI = {
     } else {
       updated = Object.assign({}, current, patchOrFn);
     }
-
     const { key: finalKey, cleanVal } = prepareForSave(rawKey, updated, opts?.prefix);
     await set(finalKey, cleanVal, store);
     return formatDbItem(finalKey, cleanVal, opts?.prefix);
@@ -1303,48 +1390,186 @@ const globalSwDbAPI = {
   },
 };
 
+const globalSwOpfsAPI = {
+  ...globalSwDbAPI,
+
+  listFiles: async (key: string, opts?: OpfsStoreOptions): Promise<OpfsFileInfo[]> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, true);
+    const filesList = [];
+    // @ts-ignore
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === "file") {
+        const file = await handle.getFile();
+        filesList.push({ name, size: file.size, type: file.type, lastModified: file.lastModified, file });
+      }
+    }
+    return filesList;
+  },
+
+  addFile: async (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, true);
+    const fh = await dir.getFileHandle(fileName, { create: true });
+    const w = await fh.createWritable();
+    await w.write(new Blob([await file.arrayBuffer()]));
+    await w.close();
+  },
+
+  delFile: async (key: string, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    await dir.removeEntry(fileName);
+  },
+
+  renFile: async (key: string, oldName: string, newName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const oldFile = await dir.getFileHandle(oldName);
+    const fileData = await oldFile.getFile();
+    const newFile = await dir.getFileHandle(newName, { create: true });
+    const w = await newFile.createWritable();
+    await w.write(new Blob([await fileData.arrayBuffer()]));
+    await w.close();
+    await dir.removeEntry(oldName);
+  },
+
+  mvFile: async (key: string, fileName: string, newKey: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const fileHandle = await dir.getFileHandle(fileName);
+    const fileData = await fileHandle.getFile();
+    
+    const rawNewKey = opts?.prefix && !newKey.startsWith(opts.prefix) ? `${opts.prefix}${newKey}` : newKey;
+    const targetDir = await getRecordDir(opts?.basePath, rawNewKey, true);
+    
+    const newFile = await targetDir.getFileHandle(fileName, { create: true });
+    const w = await newFile.createWritable();
+    await w.write(new Blob([await fileData.arrayBuffer()]));
+    await w.close();
+    await dir.removeEntry(fileName);
+  },
+
+  zip: async (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const filesRecord: Record<string, Uint8Array> = {};
+    
+    // @ts-ignore
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === "file" && (!filesToZip || filesToZip.includes(name))) {
+        const f = await handle.getFile();
+        filesRecord[name] = new Uint8Array(await f.arrayBuffer());
+      }
+    }
+
+    const zippedData = zipSync(filesRecord);
+    const zipFileHandle = await dir.getFileHandle(zipName, { create: true });
+    const w = await zipFileHandle.createWritable();
+    await w.write(new Blob([zippedData]));
+    await w.close();
+
+    if (deleteOriginals) {
+      for (const name of Object.keys(filesRecord)) await dir.removeEntry(name);
+    }
+  },
+
+  unzip: async (key: string, zipName: string, deleteZip = false, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const zipFileHandle = await dir.getFileHandle(zipName);
+    const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
+    
+    const unzipped = unzipSync(zipBuffer);
+    for (const [name, data] of Object.entries(unzipped)) {
+      if (!name.includes('/')) {
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(new Blob([data]));
+        await w.close();
+      }
+    }
+
+    if (deleteZip) await dir.removeEntry(zipName);
+  },
+
+  addZip: async (key: string, zipName: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const zipFileHandle = await dir.getFileHandle(zipName);
+    const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
+    const currentZipData = unzipSync(zipBuffer);
+    
+    currentZipData[fileName] = new Uint8Array(await file.arrayBuffer());
+    
+    const newZippedData = zipSync(currentZipData);
+    const w = await zipFileHandle.createWritable();
+    await w.write(new Blob([newZippedData]));
+    await w.close();
+  },
+
+  delZip: async (key: string, zipName: string, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const zipFileHandle = await dir.getFileHandle(zipName);
+    const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
+    const currentZipData = unzipSync(zipBuffer);
+    
+    delete currentZipData[fileName];
+    
+    const newZippedData = zipSync(currentZipData);
+    const w = await zipFileHandle.createWritable();
+    await w.write(new Blob([newZippedData]));
+    await w.close();
+  }
+};
+
 export function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
   const opts: DbStoreOptions = { dbName, storeName, prefix };
-
   return {
     get: <T>(key: string) => globalSwDbAPI.get<T>(key, opts),
     set: <T>(keyOrVal: string | T, val?: T) => globalSwDbAPI.set<T>(keyOrVal as any, val as any, opts),
     update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalSwDbAPI.update<T>(key, updater, opts),
     patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx?: C) => T | Partial<T>), context?: C) => globalSwDbAPI.patch<T, C>(key, patchOrFn, context, opts),
     delete: (key: string) => globalSwDbAPI.delete(key, opts),
-    
     getMany: <T>(keys: string[]) => globalSwDbAPI.getMany<T>(keys, opts),
     setMany: (entries: [string, any][]) => globalSwDbAPI.setMany(entries, opts),
     deleteMany: (keys: string[]) => globalSwDbAPI.deleteMany(keys, opts),
-    
     keys: () => globalSwDbAPI.keys(opts),
     values: <T>() => globalSwDbAPI.values<T>(opts),
     entries: <T>() => globalSwDbAPI.entries<T>(opts),
     clear: () => globalSwDbAPI.clear(opts), 
-    
     query: <T, R, C = any>(fn: (items: WithId<T>[], ctx?: C) => R, context?: C) => globalSwDbAPI.query<T, R, C>(fn, context, opts),
     getSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C) => globalSwDbAPI.getSome<T, C>(fn, context, opts),
     delSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C) => globalSwDbAPI.delSome<T, C>(fn, context, opts),
     setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx?: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx?: C) => WithId<T>, context?: C) => globalSwDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
-      
     exportDB: () => globalSwDbAPI.exportDB(opts),
     importDB: (data: Record<string, any>, clearFirst = false) => globalSwDbAPI.importDB(data, clearFirst, opts),
-
     backupToOpfs: (fileName?: string) => globalSwDbAPI.backupToOpfs(fileName, opts),
     restoreFromOpfs: (fileName: string, clearFirst = false) => globalSwDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
-    
     gerarId,
     gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
   };
 }
 
-// A exportação principal. Importe isso no seu sw.ts!
-export const db = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
-  globalSwDbAPI
-);
+export function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
+  const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
+  return {
+    ...createScopedDb(dbName, storeName, prefix),
+    listFiles: (key: string) => globalSwOpfsAPI.listFiles(key, opts),
+    addFile: (key: string, file: File | Blob, fileName: string) => globalSwOpfsAPI.addFile(key, file, fileName, opts),
+    delFile: (key: string, fileName: string) => globalSwOpfsAPI.delFile(key, fileName, opts),
+    renFile: (key: string, oldName: string, newName: string) => globalSwOpfsAPI.renFile(key, oldName, newName, opts),
+    mvFile: (key: string, fileName: string, newKey: string) => globalSwOpfsAPI.mvFile(key, fileName, newKey, opts),
+    zip: (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false) => globalSwOpfsAPI.zip(key, zipName, filesToZip, deleteOriginals, opts),
+    unzip: (key: string, zipName: string, deleteZip = false) => globalSwOpfsAPI.unzip(key, zipName, deleteZip, opts),
+    addZip: (key: string, zipName: string, file: File | Blob, fileName: string) => globalSwOpfsAPI.addZip(key, zipName, file, fileName, opts),
+    delZip: (key: string, zipName: string, fileName: string) => globalSwOpfsAPI.delZip(key, zipName, fileName, opts)
+  };
+}
 
-
+export const db = Object.assign((dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix), globalSwDbAPI);
+export const opfs = Object.assign((dbName?: string, storeName?: string, prefix?: string, basePath = "") => createScopedOpfs(dbName, storeName, prefix, basePath), globalSwOpfsAPI);
 ```
 
 ---
@@ -2052,125 +2277,103 @@ Deno.test({
 
 ---
 
-## Arquivo: `monorepo/worker-db/example/demo.ts`
+## Arquivo: `monorepo/worker-db/tests/db_opfs_extension_test.ts`
 
 ```ts
-import { db, ls } from "../src/fake/fake-mod.ts";
+import { assertEquals, assert } from "@std/assert";
+import { opfs } from "../src/fake/fake-mod.ts";
+import { FakeOPFSDirectory } from "../src/fake/fake-opfs.ts";
 
-// Tipagem dos modelos de domínio do Loco PWA
-interface LocoMessage {
-  _id?: string;
-  senderId: string;
-  recipientId: string;
-  content: string;
-  status: "pending" | "sent" | "delivered";
-  timestamp: number;
-}
+const drive = opfs("P2P_DRIVE", "files", "FL_", "meus_compartilhamentos");
 
-async function runLocoDbDemo() {
-  console.log("🚀 [Loco PWA] Iniciando demonstração do WORKER-DB...\n");
+Deno.test({
+  name: "OPFS Ext - Manipulação Básica de Arquivos e Metadados",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    FakeOPFSDirectory.clear();
+    await drive.clear();
 
-  // Garante que o ambiente inicie limpo para a demonstração
-  ls().clear();
+    const folderKey = await drive.set("auto", { owner: "Satoshi", permissions: "read-only", seeders: 5 });
 
-  // -------------------------------------------------------------
-  // 1. LOCALSTORAGE: Geração Automática de IDs (_id: "auto")
-  // -------------------------------------------------------------
-  console.log("📦 1. LocalStorage - Criando itens com _id 'auto'...");
-  const prefStore = ls("LOCO_PREF_");
+    const encoder = new TextEncoder();
+    const file1 = new Blob([encoder.encode("Loco PWA Rocks!")], { type: "text/plain" });
+    const file2 = new Blob([encoder.encode("Offline First")], { type: "text/plain" });
 
-  const autoKey1 = prefStore.set({ _id: "auto", theme: "dark", notifications: true });
-  const autoKey2 = prefStore.set({ _id: "auto", theme: "light", notifications: false });
+    await drive.addFile(folderKey, file1, "doc1.txt");
+    await drive.addFile(folderKey, file2, "doc2.txt");
 
-  console.log(`   --> Item 1 gerado: Chave = ${autoKey1}`);
-  console.log(`   --> Recuperando Item 1 (notem que '_id' volta limpo):`, prefStore.get(autoKey1));
-  console.log(`   --> Recuperando Item 2:`, prefStore.get(autoKey2));
+    let files = await drive.listFiles(folderKey);
+    assertEquals(files.length, 2);
+    assert(files.some(f => f.name === "doc1.txt"));
+    
+    await drive.renFile(folderKey, "doc1.txt", "doc_renomeado.txt");
+    await drive.delFile(folderKey, "doc2.txt");
 
+    files = await drive.listFiles(folderKey);
+    assertEquals(files.length, 1);
+    assertEquals(files[0]?.name, "doc_renomeado.txt");
+  }
+});
 
-  // -------------------------------------------------------------
-  // 2. LOCALSTORAGE: Isolamento de Escopos por Prefixo
-  // -------------------------------------------------------------
-  console.log("\n🔒 2. LocalStorage - Testando Isolamento de Prefixos...");
-  const authStore = ls("LOCO_AUTH_");
-  
-  // Gravando uma chave fixa (ex: sessão)
-  authStore.set("session_token", { token: "abc-123", active: true });
-  
-  console.log(`   --> Total de itens em LOCO_PREF_ (Preferências): ${prefStore.keys().length}`);
-  console.log(`   --> Total de itens em LOCO_AUTH_ (Autenticação): ${authStore.keys().length}`);
+Deno.test({
+  name: "OPFS Ext - Compressão e Descompressão ZIP (fflate)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    FakeOPFSDirectory.clear();
+    await drive.clear();
 
+    const folderKey = await drive.set("auto", { description: "Album de Fotos" });
 
-  // -------------------------------------------------------------
-  // 3. LOCALSTORAGE: Consulta Global (Prefixo nulo)
-  // -------------------------------------------------------------
-  console.log("\n🌍 3. LocalStorage - Visão Global (Sem prefixo)...");
-  
-  // Instanciando o `ls` sem parâmetros nos dá acesso a TODO o localStorage
-  const globalStore = ls(); 
-  const allKeys = globalStore.keys();
-  
-  console.log(`   --> Total de itens armazenados em TODA a aplicação: ${allKeys.length}`);
-  console.log(`   --> Chaves globais detectadas:`, allKeys);
-  console.log(`   --> Realizando leitura global do token:`, globalStore.get("LOCO_AUTH_session_token"));
+    const img1 = new Blob([new Uint8Array([255, 0, 150])]); 
+    const img2 = new Blob([new Uint8Array([10, 20, 30])]);
 
+    await drive.addFile(folderKey, img1, "foto1.png");
+    await drive.addFile(folderKey, img2, "foto2.png");
 
-  // -------------------------------------------------------------
-  // 4. WORKER DB: Fila de Mensagens Offline com Geração de ID
-  // -------------------------------------------------------------
-  console.log("\n💬 4. IndexedDB Worker - Enfileirando Mensagens Offline...");
-  
-  // Lembrete: O DB() roda em background assíncrono (Web Worker)
-  const msgStore = db("LOCO_DATA", "messages", "MSG_");
-  await msgStore.clear();
+    await drive.zip(folderKey, "album.zip", undefined, true);
+    
+    let files = await drive.listFiles(folderKey);
+    assertEquals(files.length, 1);
+    assertEquals(files[0]?.name, "album.zip");
 
-  const msgId1 = await msgStore.set<LocoMessage>({
-    _id: "auto",
-    senderId: "user_alice",
-    recipientId: "user_bob",
-    content: "Olá! Esta mensagem foi enfileirada offline.",
-    status: "pending",
-    timestamp: Date.now(),
-  });
+    const img3 = new Blob([new Uint8Array([99, 99])]);
+    await drive.addZip(folderKey, "album.zip", img3, "foto3.png");
 
-  const msgId2 = await msgStore.set<LocoMessage>({
-    _id: "auto",
-    senderId: "user_alice",
-    recipientId: "user_bob",
-    content: "Esperando o Handshake com o servidor...",
-    status: "pending",
-    timestamp: Date.now() + 1000,
-  });
+    await drive.delZip(folderKey, "album.zip", "foto1.png");
 
-  console.log(`   --> Mensagens injetadas no IndexedDB. Keys geradas: ${msgId1}, ${msgId2}`);
+    await drive.unzip(folderKey, "album.zip", true);
 
+    files = await drive.listFiles(folderKey);
+    assertEquals(files.length, 2); 
+    assert(files.some(f => f.name === "foto2.png"));
+    assert(files.some(f => f.name === "foto3.png"));
+  }
+});
 
-  // -------------------------------------------------------------
-  // 5. WORKER DB: Consultas Avançadas (Background Processing)
-  // -------------------------------------------------------------
-  console.log("\n⚙️ 5. IndexedDB Worker - Mutações Assíncronas...");
+Deno.test({
+  name: "OPFS Ext - Movendo arquivos entre registros (Pastas)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    FakeOPFSDirectory.clear();
+    await drive.clear();
 
-  // Contagem feita DIRETAMENTE na thread do Worker, sem trafegar o array gigante para a Main Thread
-  const pendingCount = await msgStore.query<LocoMessage, number>((items) => {
-    return items.filter((m) => m.status === "pending").length;
-  });
-  console.log(`   --> Total pendente (calculado remotamente): ${pendingCount}`);
+    const folderA = await drive.set("auto", { type: "inbox" });
+    const folderB = await drive.set("auto", { type: "archive" });
 
-  // Atualização em massa: simula o Service Worker alterando tudo após conectar na rede
-  await msgStore.setSome<LocoMessage>(
-    (items) => items.filter((m) => m.status === "pending"),
-    (item) => ({ ...item, status: "sent" })
-  );
+    await drive.addFile(folderA, new Blob(["Move me"]), "target.txt");
+    await drive.mvFile(folderA, "target.txt", folderB);
 
-  const updatedMessages = await msgStore.values<LocoMessage>();
-  console.log("   --> Estado das mensagens após envio simulado:", updatedMessages);
+    const filesA = await drive.listFiles(folderA);
+    const filesB = await drive.listFiles(folderB);
 
-  // Limpa o ambiente antes de fechar para garantir finalização limpa do processo Deno
-  db.terminate();
-  console.log("\n✅ Demonstração finalizada. Worker encerrado.");
-}
-
-// Executar
-runLocoDbDemo();
+    assertEquals(filesA.length, 0);
+    assertEquals(filesB.length, 1);
+    assertEquals(filesB[0]?.name, "target.txt");
+  }
+});
 ```
 
 ---
@@ -2333,9 +2536,8 @@ async function prepareAndBuild() {
   console.log("🔨 [DEV SERVER] Preparando ambiente...");
   await clean();
 
-  // 1. Faz o bundle do index.html (Main Thread)
   console.log("📦 [DEV SERVER] Fazendo bundle do index.html...");
-  // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime.
+  // @ts-ignore: Deno.bundle API interna
   const result_html = await Deno.bundle({
     entrypoints: ["./example/index.html"],
     outputDir: "./build",
@@ -2352,9 +2554,8 @@ async function prepareAndBuild() {
 
   if (!result_html.success) throw new Error("Falha ao gerar bundle do HTML.");
 
-  // 2. Compilação do Worker da aplicação (Web Worker)
   console.log("⚙️ Gerando bundle do Worker DB...");
-  // @ts-ignore
+  // @ts-ignore: Deno.bundle API interna
   const result_worker = await Deno.bundle({
     entrypoints: ["./src/db.ts"],
     outputPath: "./build/worker-db.js",
@@ -2371,12 +2572,11 @@ async function prepareAndBuild() {
 
   if (!result_worker.success) throw new Error("Falha ao gerar bundle do Worker.");
 
-  // 3. Compilação do Service Worker (Sincronização / Background)
   console.log("🔄 Gerando bundle do Service Worker...");
-  // @ts-ignore
+  // @ts-ignore: Deno.bundle API interna
   const result_sw = await Deno.bundle({
     entrypoints: ["./example/sw.ts"],
-    outputPath: "./build/sw.js", // Fica na raiz do servidor para controlar todas as rotas
+    outputPath: "./build/sw.js", 
     platform: "browser",
     format: "esm", 
     packages: "external",
@@ -2426,7 +2626,7 @@ interface LocoMessage {
 }
 
 interface UserPreferences {
-  _id?: string; 
+  _id?: string; // Permitindo o ID automático via interface
   theme: "dark" | "light";
   notificationsEnabled: boolean;
   activeChatId: string | null;
@@ -2483,23 +2683,17 @@ async function runRealWorldTests() {
   const storedFiles = await listOpfsFiles();
   log(`   --> Backups gerados com sucesso na pasta interna '/backup'.`);
 
-  // -------------------------------------------------------------
-  // 5. SERVICE WORKER: Comunicação e Uso do db-sw.ts
-  // -------------------------------------------------------------
   log("\n🤖 5. Service Worker - Interação em Background (db-sw.ts)...");
   
   if ("serviceWorker" in navigator) {
     try {
-      // Registra o SW na raiz
       await navigator.serviceWorker.register("/sw.js", { type: "module" });
       
-      // Checa se o SW já assumiu o controle da página
       if (!navigator.serviceWorker.controller) {
         log(`   --> ⚠️ O Service Worker foi instalado. Pressione F5 (recarregar) para que ele assuma o controle da página.`);
       } else {
         log(`   --> Service Worker ativo e controlando a página! Solicitando operação remota...`);
         
-        // Promessa para encapsular a resposta do Service Worker via MessageChannel
         const runSwTask = () => new Promise((resolve, reject) => {
           const channel = new MessageChannel();
           channel.port1.onmessage = (e) => {
@@ -2517,7 +2711,6 @@ async function runRealWorldTests() {
     }
   }
 
-  // Cria Links de Download na UI para OPFS
   const finalStoredFiles = await listOpfsFiles();
   if (appElement && finalStoredFiles.length > 0) {
     const downloadContainer = document.createElement("div");
@@ -2550,6 +2743,91 @@ runRealWorldTests().catch((err) => {
 
 ---
 
+## Arquivo: `monorepo/worker-db/example/demo.ts`
+
+```ts
+import { db, ls } from "../src/fake/fake-mod.ts";
+
+interface LocoMessage {
+  _id?: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  status: "pending" | "sent" | "delivered";
+  timestamp: number;
+}
+
+interface UserPreferences {
+  _id?: string; // Corrigindo a tipagem aqui também
+  theme: "dark" | "light";
+  notificationsEnabled: boolean;
+  activeChatId: string | null;
+}
+
+async function runLocoDbDemo() {
+  console.log("🚀 [Loco PWA] Iniciando demonstração do WORKER-DB...\n");
+  ls().clear();
+
+  console.log("📦 1. LocalStorage - Criando itens com _id 'auto'...");
+  const prefStore = ls("LOCO_PREF_");
+
+  const autoKey1 = prefStore.set<UserPreferences>({ _id: "auto", theme: "dark", notificationsEnabled: true, activeChatId: "chat_1" });
+  const autoKey2 = prefStore.set<UserPreferences>({ _id: "auto", theme: "light", notificationsEnabled: false, activeChatId: null });
+
+  console.log(`   --> Item 1 gerado: Chave = ${autoKey1}`);
+  console.log(`   --> Recuperando Item 1 (notem que '_id' volta limpo):`, prefStore.get(autoKey1));
+  console.log(`   --> Recuperando Item 2:`, prefStore.get(autoKey2));
+
+  console.log("\n🔒 2. LocalStorage - Testando Isolamento de Prefixos...");
+  const authStore = ls("LOCO_AUTH_");
+  authStore.set("session_token", { token: "abc-123", active: true });
+  console.log(`   --> Total de itens em LOCO_PREF_ (Preferências): ${prefStore.keys().length}`);
+  console.log(`   --> Total de itens em LOCO_AUTH_ (Autenticação): ${authStore.keys().length}`);
+
+  console.log("\n🌍 3. LocalStorage - Visão Global (Sem prefixo)...");
+  const globalStore = ls(); 
+  const allKeys = globalStore.keys();
+  console.log(`   --> Total de itens armazenados em TODA a aplicação: ${allKeys.length}`);
+  console.log(`   --> Realizando leitura global do token:`, globalStore.get("LOCO_AUTH_session_token"));
+
+  console.log("\n💬 4. IndexedDB Worker - Enfileirando Mensagens Offline...");
+  const msgStore = db("LOCO_DATA", "messages", "MSG_");
+  await msgStore.clear();
+
+  const msgId1 = await msgStore.set<LocoMessage>({
+    _id: "auto",
+    senderId: "user_alice",
+    recipientId: "user_bob",
+    content: "Olá! Esta mensagem foi enfileirada offline.",
+    status: "pending",
+    timestamp: Date.now(),
+  });
+
+  console.log(`   --> Mensagens injetadas no IndexedDB. Keys geradas: ${msgId1}`);
+
+  console.log("\n⚙️ 5. IndexedDB Worker - Mutações Assíncronas...");
+  const pendingCount = await msgStore.query<LocoMessage, number>((items) => {
+    return items.filter((m) => m.status === "pending").length;
+  });
+  console.log(`   --> Total pendente (calculado remotamente): ${pendingCount}`);
+
+  await msgStore.setSome<LocoMessage>(
+    (items) => items.filter((m) => m.status === "pending"),
+    (item) => ({ ...item, status: "sent" })
+  );
+
+  const updatedMessages = await msgStore.values<LocoMessage>();
+  console.log("   --> Estado das mensagens após envio simulado:", updatedMessages);
+
+  db.terminate();
+  console.log("\n✅ Demonstração finalizada. Worker encerrado.");
+}
+
+runLocoDbDemo();
+```
+
+---
+
 ## Arquivo: `monorepo/worker-db/deno.jsonc`
 
 ```json
@@ -2564,6 +2842,7 @@ runRealWorldTests().catch((err) => {
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
     "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle&target=es2022",
     "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
+    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022",
 
     "@std/assert": "jsr:@std/assert",
     "@std/fs": "jsr:@std/fs",
@@ -2607,17 +2886,15 @@ const build = async () => {
   const startTime = performance.now();
 
   try {
-    // 1. Garante que a pasta de destino exista
     await clean();
 
-    // 2. Compilação do Worker da aplicação
     console.log("⚙️ Gerando bundle do Worker...");
-    // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime deste projeto.
+    // @ts-ignore: Deno.bundle API interna operacional no runtime
     const result = await Deno.bundle({
       entrypoints: ["./src/db.ts"],
       outputPath: "../server/build/dist/worker-db.js",
       platform: "browser",
-      format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
+      format: "esm", 
       packages: "external",
       keepnames: true,
       inlineImports: true,

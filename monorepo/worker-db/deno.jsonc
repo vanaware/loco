@@ -9,6 +9,7 @@
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
     "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle&target=es2022",
     "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
+    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022",
 
     "@std/assert": "jsr:@std/assert",
     "@std/fs": "jsr:@std/fs",

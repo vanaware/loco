@@ -3,15 +3,23 @@ export class FakeOPFSFileHandle {
 
   constructor(
     private fullPath: string,
-    private storage: Map<string, string>
+    private storage: Map<string, Uint8Array>
   ) {}
 
   async createWritable() {
     const self = this;
-    let content = "";
+    let content: Uint8Array = new Uint8Array();
     return {
-      async write(data: string) {
-        content = data;
+      async write(data: Uint8Array | string | Blob | ArrayBuffer) {
+        if (data instanceof Uint8Array) {
+          content = data;
+        } else if (data instanceof ArrayBuffer) {
+          content = new Uint8Array(data);
+        } else if (data instanceof Blob) {
+          content = new Uint8Array(await data.arrayBuffer());
+        } else {
+          content = new TextEncoder().encode(String(data));
+        }
       },
       async close() {
         self.storage.set(self.fullPath, content);
@@ -19,26 +27,22 @@ export class FakeOPFSFileHandle {
     };
   }
 
-  async getFile() {
+  async getFile(): Promise<File> {
     const content = this.storage.get(this.fullPath);
     if (content === undefined) {
       throw new Error(`File ${this.fullPath} not found in Fake OPFS`);
     }
-    return {
-      async text() {
-        return content;
-      }
-    };
+    const fileName = this.fullPath.split('/').pop() || "file";
+    return new File([content as any], fileName, { type: "application/octet-stream", lastModified: Date.now() });
   }
 }
 
 export class FakeOPFSDirectory {
-  private static sharedStorage = new Map<string, string>();
+  private static sharedStorage = new Map<string, Uint8Array>();
 
   constructor(private path: string = "") {}
 
   async getDirectoryHandle(name: string, options?: { create?: boolean }) {
-    // Simula a criação/retorno de um subdiretório
     return new FakeOPFSDirectory(this.path ? `${this.path}/${name}` : name);
   }
 
