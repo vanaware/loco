@@ -1,4 +1,4 @@
-import { db, ls, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "../src/mod.ts";
+import { db, ls, listOpfsFiles, deleteFromOpfs, getFileFromOpfs, opfs } from "../src/mod.ts";
 
 interface LocoMessage {
   _id?: string;
@@ -121,6 +121,158 @@ async function runRealWorldTests() {
   log("\n✅ Demonstração Completa Finalizada!");
 }
 
-runRealWorldTests().catch((err) => {
-  log("❌ OCORREU UM ERRO FATAL:", err.message);
-});
+// ==========================================
+// SEÇÃO INTERATIVA: GERENCIADOR OPFS UI
+// ==========================================
+function setupInteractiveOpfsUI() {
+  if (!appElement) return;
+
+  const container = document.createElement("div");
+  container.style.marginTop = "32px";
+  container.style.padding = "24px";
+  container.style.backgroundColor = "var(--md-sys-color-surface)";
+  container.style.borderRadius = "12px";
+  container.style.border = "1px solid var(--md-sys-color-primary)";
+
+  const title = document.createElement("h2");
+  title.style.color = "var(--md-sys-color-primary)";
+  title.style.marginTop = "0";
+  title.innerText = "📁 Gerenciador Interativo OPFS (Isolado)";
+
+  const desc = document.createElement("p");
+  desc.innerText = "Selecione múltiplos arquivos para fazer upload nativo pelo Worker-DB. Eles serão persistidos no Origin Private File System do seu navegador.";
+
+  const inputWrapper = document.createElement("div");
+  inputWrapper.style.marginBottom = "24px";
+  
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.style.display = "block";
+  input.style.padding = "8px 0";
+  input.style.color = "var(--md-sys-color-on-background)";
+
+  const fileListContainer = document.createElement("div");
+  fileListContainer.style.display = "flex";
+  fileListContainer.style.flexDirection = "column";
+  fileListContainer.style.gap = "8px";
+
+  inputWrapper.appendChild(input);
+  container.appendChild(title);
+  container.appendChild(desc);
+  container.appendChild(inputWrapper);
+  container.appendChild(fileListContainer);
+  appElement.appendChild(container);
+
+  // Instância de testes do OPFS para a interface
+  // Mesmo chamando db.terminate() antes, o worker reinicia sozinho ao enviarmos novos comandos!
+  const userDrive = opfs("INTERACTIVE_DB", "files", "INT_", "ui_uploads");
+  const FOLDER_KEY = "pasta_do_usuario"; 
+
+  // Registra a pasta principal invisivelmente no IndexedDB
+  userDrive.set(FOLDER_KEY, { created: Date.now(), type: "interactive_test" }).catch(console.error);
+
+  const renderFiles = async () => {
+    fileListContainer.innerHTML = "<p>Carregando arquivos...</p>";
+    try {
+      const files = await userDrive.listFiles(FOLDER_KEY);
+      fileListContainer.innerHTML = "";
+
+      if (files.length === 0) {
+        fileListContainer.innerHTML = "<p style='color: #888;'>Nenhum arquivo nesta pasta. Faça um upload acima!</p>";
+        return;
+      }
+
+      for (const f of files) {
+        const item = document.createElement("div");
+        item.style.display = "flex";
+        item.style.justifyContent = "space-between";
+        item.style.alignItems = "center";
+        item.style.background = "#1a1c19";
+        item.style.padding = "12px 16px";
+        item.style.borderRadius = "8px";
+
+        const name = document.createElement("span");
+        name.innerText = `${f.name} - ${(f.size / 1024).toFixed(1)} KB`;
+        
+        const actions = document.createElement("div");
+        actions.style.display = "flex";
+        actions.style.gap = "8px";
+
+        const btnDownload = document.createElement("button");
+        btnDownload.innerText = "Baixar";
+        btnDownload.style.cursor = "pointer";
+        btnDownload.style.background = "var(--md-sys-color-primary)";
+        btnDownload.style.color = "#1a1c19";
+        btnDownload.style.border = "none";
+        btnDownload.style.fontWeight = "bold";
+        btnDownload.style.borderRadius = "4px";
+        btnDownload.style.padding = "6px 12px";
+        
+        btnDownload.onclick = () => {
+          const url = URL.createObjectURL(f.file);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = f.name;
+          a.click();
+          URL.revokeObjectURL(url); // Previne vazamento de memória
+        };
+
+        const btnDelete = document.createElement("button");
+        btnDelete.innerText = "Excluir";
+        btnDelete.style.cursor = "pointer";
+        btnDelete.style.background = "#ff5252";
+        btnDelete.style.color = "white";
+        btnDelete.style.border = "none";
+        btnDelete.style.fontWeight = "bold";
+        btnDelete.style.borderRadius = "4px";
+        btnDelete.style.padding = "6px 12px";
+        
+        btnDelete.onclick = async () => {
+          btnDelete.disabled = true;
+          btnDelete.innerText = "Excluindo...";
+          await userDrive.delFile(FOLDER_KEY, f.name);
+          await renderFiles();
+        };
+
+        actions.appendChild(btnDownload);
+        actions.appendChild(btnDelete);
+
+        item.appendChild(name);
+        item.appendChild(actions);
+        fileListContainer.appendChild(item);
+      }
+    } catch (err) {
+      fileListContainer.innerHTML = `<p style="color: #ff5252;">Erro ao listar: ${(err as Error).message}</p>`;
+    }
+  };
+
+  input.onchange = async () => {
+    if (!input.files || input.files.length === 0) return;
+    
+    input.disabled = true;
+    
+    try {
+      // Como o addFile passa pelo Worker, podemos iterar sem travar a main thread
+      for (const file of Array.from(input.files)) {
+        await userDrive.addFile(FOLDER_KEY, file, file.name);
+      }
+    } catch (err) {
+      console.error("Erro ao subir arquivo:", err);
+    } finally {
+      input.disabled = false;
+      input.value = ""; // Limpa o input para novos envios
+      await renderFiles();
+    }
+  };
+
+  // Primeira listagem ao carregar a interface
+  renderFiles();
+}
+
+// Inicia as demonstrações de backend e, em seguida, anexa a UI iterativa.
+runRealWorldTests()
+  .then(() => setupInteractiveOpfsUI())
+  .catch((err) => {
+    log("❌ OCORREU UM ERRO FATAL:", err.message);
+  });
