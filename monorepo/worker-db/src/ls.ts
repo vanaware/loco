@@ -1,5 +1,6 @@
+// ## Arquivo: monorepo/worker-db/src/ls.ts
 import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
-import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
+import { opfs } from "./mod.ts"; // 💎 Proxy Worker-DB: Ponto de acesso unificado e assíncrono
 
 export interface LsStoreOptions {
   prefix?: string;
@@ -190,14 +191,24 @@ function createScopedLs(prefix = "") {
       Object.entries(data).forEach(([k, v]) => api.set(k, v));
     },
 
-    backupToOpfs: async (fileName = "backup.json"): Promise<string> => {
+    backupToOpfs: async (recordKey: string, fileName = "backup.json"): Promise<string> => {
       const data = Object.fromEntries(getAllPrefixedEntries(prefix));
-      const finalName = resolveOpfsFileName("ls", fileName, { prefix });
-      return await writeJsonToOpfs(finalName, data);
+      const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+      
+      // Instancia o drive OPFS via worker apontando para a pasta física /backup
+      const drive = opfs("LS_SYS", "ls_store", prefix, "backup");
+      await drive.addFile(recordKey, blob, fileName);
+      
+      return `${recordKey}/${fileName}`;
     },
 
-    restoreFromOpfs: async (fileName: string, clearFirst = false): Promise<void> => {
-      const data = await readJsonFromOpfs(fileName);
+    restoreFromOpfs: async (recordKey: string, fileName: string, clearFirst = false): Promise<void> => {
+      // Instancia o drive OPFS via worker para leitura da pasta /backup
+      const drive = opfs("LS_SYS", "ls_store", prefix, "backup");
+      
+      const fileBlob = await drive.getFile(recordKey, fileName);
+      const data = JSON.parse(await fileBlob.text());
+      
       const api = createScopedLs(prefix);
       if (clearFirst) api.clear();
       Object.entries(data).forEach(([k, v]) => api.set(k, v));

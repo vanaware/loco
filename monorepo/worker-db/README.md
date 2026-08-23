@@ -1,166 +1,163 @@
-# 📦 Loco PWA - Worker DB (Data Layer)
+# 🗄️ Loco PWA - Worker-DB
 
-O **Worker DB** é o coração da persistência de dados *Offline-First* do Loco PWA. Ele provê uma interface unificada, escalável e de altíssima performance para acessar o **IndexedDB**, **LocalStorage** e **OPFS** (Origin Private File System), garantindo que a Interface de Usuário (UI) nunca seja bloqueada por operações pesadas de leitura/escrita.
+O **Worker-DB** é o coração da arquitetura *Offline-First* do Loco PWA. Ele provê uma interface unificada, tipada e de altíssima performance para interagir com as APIs de persistência nativas dos navegadores modernos (`IndexedDB`, `LocalStorage` e `Origin Private File System - OPFS`).
 
-## 🏗️ Arquitetura e Conceitos Core
-
-1. **Multithreading (Web Workers):** Operações no IndexedDB na Main Thread podem causar *jank* (quedas de FPS) na UI do Preact ao lidar com arrays gigantes de mensagens. O pacote principal atua como uma ponte (Proxy) via `postMessage`, enviando todo o trabalho pesado de I/O e processamento de arrays para um Web Worker dedicado (`worker-db.js`).
-2. **Isolamento por Prefixos:** Diferentes módulos do PWA podem compartilhar a mesma Object Store ou LocalStorage sem colidir, utilizando o conceito de instâncias com prefixo (ex: `LOCO_AUTH_` vs `LOCO_PREF_`).
-3. **Geração Automática de IDs:** Delegação total da criação de chaves UUID e Hashes diretamente para a engine de banco de dados, suportando o comando explícito `_id: "auto"` dentro do objeto ou como chave primária `set("auto", {...})`.
+Para garantir que a interface de usuário (UI) nunca congele, mesmo durante operações massivas de criptografia E2EE ou I/O de arquivos pesados, **todo o processamento de banco de dados e arquivos ocorre em uma thread separada (Web Worker)**.
 
 ---
 
-## 🚀 Como Utilizar nos Diferentes Ambientes
+## ✨ Principais Funcionalidades
 
-A principal regra arquitetural deste módulo é **utilizar o import correto para o ambiente em que o código está rodando**.
+- 🧵 **Non-Blocking UI:** Proxy transparente via `postMessage`. A Thread Principal apenas despacha comandos; o Worker faz o trabalho pesado.
+- 🛡️ **Isolamento por Escopos:** Bancos e *Stores* são isolados. Além disso, suportamos `prefixos` dinâmicos para isolar chaves no mesmo store (ex: `MSG_`, `CONFIG_`).
+- 🔑 **Gestão Automática de IDs:** Suporte para inserção usando `_id: "auto"`, convertendo automaticamente para UUIDs curtos e limpando prefixos nos retornos.
+- 🚀 **High Performance OPFS:** Manipulação nativa de arquivos no disco do dispositivo com recuperação estrita sob demanda (evitando vazamentos de memória).
+- 🗜️ **Compressão Nativa (ZIP):** Empacotamento e descompactação de pastas e arquivos no OPFS utilizando a engine `fflate` em background.
 
-### 1. No Frontend (Browser / Main Thread)
-Para componentes da UI, páginas e rotinas normais do navegador, importe os utilitários de `src/mod.ts`. Ele garante que tudo rode no Web Worker.
+---
 
-> 💡 **Exemplo prático:** Veja o arquivo `example/main.ts` para uma demonstração interativa completa rodando no navegador.
+## 📦 1. Módulo: `db()` (IndexedDB)
+
+O `db()` é a fábrica principal para salvar objetos e metadados persistentes de forma assíncrona. Ideal para Fila de Mensagens, Contatos, e Logs E2EE.
 
 ```ts
-import { db, ls } from "@loco/worker-db/mod.ts";
+import { db } from "./mod.ts";
 
-// 1. Inicializa a conexão com o Web Worker (obrigatório na carga do app)
+// Inicializa o Worker Global
 db.init();
 
-// 2. Instancia Storages isolados
-const prefStore = ls("LOCO_PREF_"); // Síncrono (LocalStorage)
-const msgStore = db("LOCO_DATA", "messages", "MSG_"); // Assíncrono (IndexedDB via Worker)
+// Cria uma instância focada (Database, Store, Prefixo)
+const msgStore = db("LOCO_DATA", "messages", "MSG_");
 
-// 3. Operações de CRUD com ID automático
-const newKey = await msgStore.set("auto", { content: "Olá Mundo!", status: "pending" });
-const myMsg = await msgStore.get(newKey);
+// CRUD Básico
+const id = await msgStore.set("auto", { text: "Olá", status: "pending" }); // Retorna MSG_xxx
+const msg = await msgStore.get(id); 
+await msgStore.patch(id, { status: "sent" });
+await msgStore.delete(id);
 
-```
-
-### 2. No Service Worker (Background Sync / Handshakes)
-
-O Service Worker **já é uma background thread** e não pode instanciar Web Workers filhos. Para interagir com o IndexedDB mantendo a mesma API e regras de negócio, utilize o `src/db-sw.ts`.
-
-```ts
-// ⚠️ Uso EXCLUSIVO dentro do sw.ts (Service Worker)
-import { db } from "@loco/worker-db/db-sw.ts";
-
-self.addEventListener('sync', async (event) => {
-  if (event.tag === 'sync-messages') {
-    const msgStore = db("LOCO_DATA", "messages", "MSG_");
-    const pendentes = await msgStore.getSome(items => items.filter(i => i.status === "pending"));
-    // Realiza o Handshake com o servidor...
-  }
-});
-
-```
-
-### 3. Nos Testes Unitários e CI/CD (Deno)
-
-O ambiente nativo do Deno (terminal) não possui IndexedDB ou OPFS. Para rodar testes automatizados simulando a memória real do navegador com fidelidade, utilize o `src/fake/fake-mod.ts`.
-
-```ts
-import { db, ls } from "../src/fake/fake-mod.ts";
-import { assertEquals } from "@std/assert";
-
-Deno.test("Deve isolar instâncias por prefixo", async () => {
-  const storeA = db("SHARED", "keyval", "APP_A_");
-  const storeB = db("SHARED", "keyval", "APP_B_");
-  await storeA.set("config", { theme: "dark" });
-  await storeB.set("config", { theme: "light" });
-  // storeA não enxerga os dados de storeB!
-});
-
-```
-
----
-
-## 🧠 Funções Avançadas e Computação Remota
-
-O verdadeiro diferencial arquitetural do Worker DB reside na capacidade de realizar **computação na borda da memória do banco**. Evitamos o imenso custo de "clonar" (Structured Clone) milhares de registros da thread do Worker para a Main Thread apenas para contar, ordenar ou filtrar itens.
-
-### 1. `query(fn)` - Análises e Agregações Remotas
-
-Executa o callback injetado *dentro* da thread do Worker (ou SW). Retorna apenas o resultado final computado, zerando gargalos de transferência de memória.
-
-* **Diferencial:** Permite usar funções nativas de Array JS (`reduce`, `toSorted`, `findLast`) diretamente nos dados brutos.
-
-```ts
-// Exemplo real retirado de testes avançados:
-const stats = await msgStore.query((items) => {
-  return {
-    totalPending: items.filter(i => i.status === "pending").length,
-    highestPriorityPending: items
-      .filter(i => i.status === "pending")
-      .toSorted((a, b) => b.priority - a.priority)[0], // toSorted do ES2023 no Worker!
-    hasUrgent: items.some(i => i.priority >= 5),
-    oldestMessage: items.reduce((oldest, curr) => curr.timestamp < oldest.timestamp ? curr : oldest)
-  };
-});
-
-```
-
-### 2. `setSome(selectFn, updateFn)` - Mutações em Lote Condicionais
-
-Busca, altera e salva múltiplos registros baseados em uma condição lógica com uma única chamada, sem transitar arrays pela ponte de comunicação.
-
-* **Diferencial:** Excelente para transições de Máquina de Estados (ex: marcar de `pending` para `sent` em lote) e para Ofuscação/Criptografia massiva.
-
-```ts
-// Altera mensagens pendentes: sobe o status e simula uma encriptação
+// Operações em Lote e Consultas Remotas no Worker
 await msgStore.setSome(
-  (items) => items.filter((m) => m.status === "pending"),
-  (item) => ({ 
-    ...item, 
-    status: "sent",
-    content: `[ENCRIPTADO_E2EE]` 
-  })
+  (items) => items.filter(i => i.status === "pending"),
+  (item) => ({ ...item, status: "sent" })
 );
 
-```
-
-### 3. `delSome(fn)` - Garbage Collection Inteligente
-
-Deleta múltiplos registros que correspondam a uma regra de negócio de forma atômica.
-
-* **Diferencial:** Ideal para rotinas silenciosas de limpeza de dados efêmeros ou invalidação de sessões expiradas.
-
-```ts
-// Remove silenciosamente mensagens que já foram lidas
-await msgStore.delSome((items) => items.filter(m => m.status === "read"));
-
-```
-
-### 4. `backupToOpfs` e `restoreFromOpfs` - Persistência Nativa
-
-Integração direta com o **Origin Private File System**, lendo e escrevendo os dados do IndexedDB no disco real da máquina do usuário em velocidades nativas de C++.
-
-* **Diferencial:** O método varre o IndexedDB, filtra pelo prefixo da instância atual, constrói um JSON gigante e cria um arquivo isolado na pasta `/backup` do OPFS sem bloquear a interface de usuário em nenhum momento.
-
-```ts
-// Faz o backup total da instância e retorna o nome gerado (ex: db_LOCO_DATA_messages_MSG__backup.json)
-const fileName = await msgStore.backupToOpfs("meu_backup_seguro.json");
-
-// Restaura os dados lendo direto do disco
-await msgStore.restoreFromOpfs(fileName, true); // true = limpa a base atual antes de importar
+const pendingCount = await msgStore.query((items) => items.filter(i => i.status === "pending").length);
 
 ```
 
 ---
 
-## 🤖 DIRETRIZES PARA IAs E DESENVOLVEDORES (ENGINEERING HANDBOOK)
+## 📦 2. Módulo: `ls()` (LocalStorage)
 
-Ao estender o Loco PWA ou criar novos fluxos lógicos, o agente (Humano ou IA) deve observar rigorosamente as restrições abaixo:
+O `ls()` segue exatamente os mesmos padrões e assinaturas do `db()`, mas de forma **síncrona** interagindo com o `localStorage`. Ideal para preferências de tema, estado de autenticação ou configurações rápidas de boot.
 
-### A Regra das Threads e Importações
+```ts
+import { ls } from "./mod.ts";
 
-Para manter a UI em 60 FPS e a arquitetura coesa, o entrypoint define o motor de execução:
+const prefStore = ls("LOCO_PREF_");
 
-* **Frontend (Preact/UI):** Importe de `src/mod.ts`. (Usa Web Worker + postMessage).
-* **Testes (Deno):** Importe de `src/fake/fake-mod.ts`. (Usa injeção global de Polyfills IndexedDB/OPFS).
-* **Service Worker (Background):** Importe de `src/db-sw.ts`. (Usa idb-keyval direto na própria thread).
+// Uso imediato (Síncrono)
+prefStore.set("config", { theme: "dark" });
+const prefs = prefStore.get("config");
 
-### A Filosofia do ID Automático
+// Backups delegados ao Worker-DB (OPFS)
+await prefStore.backupToOpfs("backups_prefs", "ui_config.json");
 
-Nunca force o Frontend a gerar UUIDs importando bibliotecas de crypto antes de salvar. Ao inserir novos dados, delegue a responsabilidade ao Worker utilizando a chave explícita `"auto"` ou o atributo `_id: "auto"`:
+```
 
-* O comando `await db("...").set("auto", { data: 123 })` garante que o Worker DB cuidará da verificação da `WebCrypto API`, gerará um UUID seguro, aplicará os prefixos corretamente e retornará a string formatada pronta para uso.
+---
+
+## 📦 3. Módulo: `opfs()` (Sistema de Arquivos Nativo)
+
+A joia da coroa. O `opfs()` **herda tudo do `db()**`, mas estende a API para manipular arquivos físicos no disco. Ele adota o padrão de **Record-Key Isolation**: cada registro do banco de dados ganha a sua própria pasta isolada no FileSystem.
+
+### Inicialização
+
+```ts
+import { opfs } from "./mod.ts";
+
+// Parâmetros: DB, Store, Prefixo de ID, Sub-pasta OPFS base
+const drive = opfs("LOCO_FILES", "attachments", "ATT_", "chats");
+
+```
+
+### Upload e Listagem Leve
+
+Para não sobrecarregar a RAM (caso uma pasta tenha dezenas de arquivos gigantes), o `listFiles` retorna apenas **metadados leves**.
+
+```ts
+const pastaMsgId = "msg_12345";
+
+// Salvando o arquivo no Worker
+await drive.addFile(pastaMsgId, fileInput.files[0], "foto.png");
+
+// Listagem super rápida (apenas name, size, type, lastModified)
+const files = await drive.listFiles(pastaMsgId);
+files.forEach(f => console.log(`${f.name} - ${f.size} bytes`));
+
+```
+
+### Download / Leitura Sob Demanda
+
+O arquivo em si (o `Blob`/`File`) só cruza a ponte do Worker para a Main Thread no momento exato em que for ser exibido ou baixado pelo usuário.
+
+```ts
+const rawFile = await drive.getFile(pastaMsgId, "foto.png");
+const objectUrl = URL.createObjectURL(rawFile);
+
+```
+
+### Gestão e Manipulação
+
+```ts
+await drive.renFile(pastaMsgId, "foto.png", "avatar.png");
+await drive.delFile(pastaMsgId, "avatar.png");
+await drive.mvFile(pastaMsgId, "arquivo.txt", "outra_pasta_destino");
+
+```
+
+---
+
+## 🗜️ 4. API de Compressão ZIP Integrada
+
+Ferramentas nativas do `opfs()` para compactação pesada rodando fora da UI, essencial para rotinas de exportação massiva ou agrupamento de mídias criptografadas E2EE.
+
+```ts
+// 1. Zipar todos (ou alguns) arquivos de um registro (apagando os originais)
+await drive.zip(pastaMsgId, "album.zip", ["foto1.png", "foto2.png"], true);
+
+// 2. Extrair um ZIP já existente na pasta do registro
+await drive.unzip(pastaMsgId, "album.zip");
+
+// 3. Adicionar ou Excluir arquivos de dentro de um ZIP (Mutações sem extração total visível)
+await drive.addZip(pastaMsgId, "album.zip", novoBlob, "foto3.png");
+await drive.delZip(pastaMsgId, "album.zip", "foto1.png");
+
+```
+
+---
+
+## 🔄 5. Backups Automáticos e Recuperação
+
+O sistema possui uma engine unificada para fazer *dump* de stores inteiros (tanto do IndexedDB quanto do LocalStorage) e arquivá-los em segurança no OPFS, em uma pasta global chamada `/backup`.
+
+```ts
+// Gera um snapshot e joga no disco nativo (OPFS) na subpasta /backup/minha_conta
+await msgStore.backupToOpfs("minha_conta", "bkp_v1.json");
+
+// Lê do disco nativo, trunca o banco atual, e insere os dados restaurados
+await msgStore.restoreFromOpfs("minha_conta", "bkp_v1.json", true);
+
+```
+
+---
+
+## 🚧 Roadmap da Camada de Banco
+
+* [x] Abstração de IDB em Web Worker
+* [x] Sincronia de IDs (Prefixo dinâmico, interceptação "auto")
+* [x] Query, SetSome, DelSome (Cálculos de Array isolados no Worker)
+* [x] OPFS Integration (Manipulação de Blobs direto para o FileSystem Nativo)
+* [x] OPFS Zip Compression (Integração com `fflate`)
+* [x] Otimização de Performance OPFS (`listFiles` Metadata-only vs `getFile` sob demanda)
 

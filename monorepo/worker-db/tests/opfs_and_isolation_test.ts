@@ -62,7 +62,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "OPFS - Fluxo completo de Backup e Restore (DB e LS) usando record-keys",
+  name: "OPFS - Fluxo completo de Backup e Restore (INDEXED-DB) usando record-keys",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -70,26 +70,70 @@ Deno.test({
     const store = db("OPFS_DB", "test", "BACKUP_");
     await store.clear();
 
-    await store.set("k1", { text: "Hello OPFS" });
+    await store.set("k1", { text: "Hello OPFS DB" });
     await store.set("k2", { text: "Loco PWA" });
 
-    const recordKey = "meus_snapshots";
-    const fileNamePath = await store.backupToOpfs(recordKey, "meu_backup.json");
+    const recordKey = "meus_snapshots_db";
+    const fileNamePath = await store.backupToOpfs(recordKey, "meu_backup_db.json");
     
     assert(fileNamePath.includes("BACKUP_")); 
     assert(fileNamePath.includes(recordKey));
-    assert(fileNamePath.includes("meu_backup.json"));
+    assert(fileNamePath.includes("meu_backup_db.json"));
 
     await store.clear();
     assertEquals((await store.keys()).length, 0);
 
     // Restore indicando a recordKey isolada
-    await store.restoreFromOpfs(recordKey, "meu_backup.json");
+    await store.restoreFromOpfs(recordKey, "meu_backup_db.json");
     const restored = await store.values<any>();
     assertEquals(restored.length, 2);
     
     const k1 = await store.get<any>("k1");
-    assertEquals(k1?.text, "Hello OPFS");
+    assertEquals(k1?.text, "Hello OPFS DB");
+    
+    FakeOPFSDirectory.clear();
+  }
+});
+
+Deno.test({
+  name: "OPFS - Fluxo completo de Backup e Restore (LOCAL-STORAGE) usando record-keys e proxy opfs()",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    FakeOPFSDirectory.clear();
+    const store = ls("LS_BKP_SYS_");
+    store.clear();
+
+    // 1. Popula o LocalStorage de forma síncrona
+    store.set("config", { theme: "dark", notifications: true });
+    store.set("perfil", { alias: "Satoshi", status: "online" });
+    assertEquals(store.keys().length, 2);
+
+    // 2. Realiza o backup assíncrono delegando para o Worker-DB via opfs()
+    const recordKey = "ls_snapshots";
+    const fileNamePath = await store.backupToOpfs(recordKey, "ls_backup.json");
+    
+    // Verifica se a rota de retorno seguiu a padronização das keys
+    assert(fileNamePath.includes(recordKey));
+    assert(fileNamePath.includes("ls_backup.json"));
+
+    // 3. Limpa o LocalStorage simulando uma perda de dados local ou troca de dispositivo
+    store.clear();
+    assertEquals(store.keys().length, 0);
+
+    // 4. Executa o Restore assíncrono puxando o binário via Worker e regravando no LS
+    await store.restoreFromOpfs(recordKey, "ls_backup.json", true);
+    
+    // 5. Valida a integridade dos dados resgatados
+    const restoredKeys = store.keys();
+    assertEquals(restoredKeys.length, 2);
+    
+    const config = store.get<any>("config");
+    assertEquals(config?.theme, "dark");
+    assertEquals(config?.notifications, true);
+
+    const perfil = store.get<any>("perfil");
+    assertEquals(perfil?.alias, "Satoshi");
     
     FakeOPFSDirectory.clear();
   }
