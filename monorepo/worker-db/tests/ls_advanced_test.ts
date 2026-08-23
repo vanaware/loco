@@ -1,5 +1,5 @@
 import { assertEquals, assert, assertThrows, assertNotEquals } from "@std/assert";
-import { ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { ls } from "../src/fake/fake-mod.ts";
 
 Deno.test({
   name: "LS Advanced - Execução de Métodos Modernos de Array JS (query, getSome)",

@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { db } from "../src/fake/fake-mod.ts";
 
 const isFake = true;
 

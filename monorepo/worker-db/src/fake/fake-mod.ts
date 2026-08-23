@@ -1,10 +1,10 @@
-// monorepo/worker-db/src/fake-mod.ts
+// monorepo/worker-db/src/fake/fake-mod.ts
 
 // 1. Injeta o IndexedDB Fake globalmente (Main Thread)
 import "fake-indexeddb/auto";
 
-import { FakeOPFSDirectory } from "./utils/fake-opfs.ts";
-import { FakeLocalStorage } from "./utils/fake-local-storage.ts";
+import { FakeOPFSDirectory } from "./fake-opfs.ts";
+import { FakeLocalStorage } from "./fake-local-storage.ts";
 
 const _global = globalThis as any;
 
@@ -29,10 +29,10 @@ if (!_global.localStorage || _global.localStorage.constructor.name !== "FakeLoca
 }
 
 // 4. Exportamos tudo do módulo principal para que o demo.ts consuma
-export * from "./mod.ts";
+export * from "../mod.ts";
 
 // 5. O PULO DO GATO: Forçamos a inicialização do módulo para usar o Worker Fake.
 // O Deno resolve arquivos .ts nativamente em Workers usando import.meta.url
-import { db } from "./mod.ts";
+import { db } from "../mod.ts";
 const fakeWorkerUrl = new URL("./fake-db.ts", import.meta.url);
 db.init(fakeWorkerUrl);

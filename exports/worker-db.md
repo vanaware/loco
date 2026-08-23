@@ -8,324 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/22/2026, 7:15:07 PM
-
----
-
-## Arquivo: `monorepo/worker-db/src/utils/fake-local-storage.ts`
-
-```ts
-export class FakeLocalStorage {
-  private store = new Map<string, string>();
-
-  getItem(key: string): string | null {
-    return this.store.get(key) ?? null;
-  }
-
-  setItem(key: string, value: string): void {
-    this.store.set(key, String(value));
-  }
-
-  removeItem(key: string): void {
-    this.store.delete(key);
-  }
-
-  clear(): void {
-    this.store.clear();
-  }
-
-  get length(): number {
-    return this.store.size;
-  }
-
-  key(index: number): string | null {
-    return Array.from(this.store.keys())[index] ?? null;
-  }
-}
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/utils/id-utils.ts`
-
-```ts
-export type WithId<T> = T & { _id: string };
-
-export function gerarId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
-}
-
-export function gerarIdComPrefixo(prefix: string): string {
-  return `${prefix}${gerarId()}`;
-}
-
-export function validarId(id: string): boolean {
-  return typeof id === "string" && id.length > 0;
-}
-
-// Injeta dinamicamente o '_id' sem o prefixo ao LER do banco/localStorage
-export function formatDbItem(key: IDBValidKey, val: any, prefix = ""): any {
-  if (!val || typeof val !== "object" || Array.isArray(val)) return val;
-  const keyStr = String(key);
-  const _id = prefix && keyStr.startsWith(prefix) ? keyStr.slice(prefix.length) : keyStr;
-  return { _id, ...val };
-}
-
-// Prepara a chave final e limpa o '_id' do objeto gravado
-export function prepareForSave(key: string | undefined | null, val: any, prefix = ""): { key: string; cleanVal: any } {
-  let rawId = val && typeof val === "object" ? val._id : undefined;
-  
-  if (rawId === "auto") {
-    rawId = gerarId();
-  }
-
-  // Intercepta a chave informada como "auto" via parâmetro direto ou tupla do setMany
-  let processKey = key === "auto" ? gerarId() : key;
-
-  let finalKey = processKey || "";
-
-  if (rawId) {
-    if (prefix && rawId.startsWith(prefix)) {
-      finalKey = rawId;
-    } else {
-      finalKey = prefix ? `${prefix}${rawId}` : rawId;
-    }
-  } else if (processKey) {
-    if (prefix && processKey.startsWith(prefix)) {
-      finalKey = processKey;
-    } else {
-      finalKey = prefix ? `${prefix}${processKey}` : processKey;
-    }
-  }
-
-  if (!finalKey) {
-    throw new Error("Uma chave (key) ou um atributo '_id' no objeto deve ser fornecido.");
-  }
-
-  if (val && typeof val === "object" && !Array.isArray(val) && "_id" in val) {
-    const { _id: _, ...cleanVal } = val;
-    return { key: finalKey, cleanVal };
-  }
-
-  return { key: finalKey, cleanVal: val };
-}
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/utils/fake-opfs.ts`
-
-```ts
-export class FakeOPFSFileHandle {
-  public kind: "file" | "directory" = "file";
-
-  constructor(
-    private fullPath: string,
-    private storage: Map<string, string>
-  ) {}
-
-  async createWritable() {
-    const self = this;
-    let content = "";
-    return {
-      async write(data: string) {
-        content = data;
-      },
-      async close() {
-        self.storage.set(self.fullPath, content);
-      }
-    };
-  }
-
-  async getFile() {
-    const content = this.storage.get(this.fullPath);
-    if (content === undefined) {
-      throw new Error(`File ${this.fullPath} not found in Fake OPFS`);
-    }
-    return {
-      async text() {
-        return content;
-      }
-    };
-  }
-}
-
-export class FakeOPFSDirectory {
-  private static sharedStorage = new Map<string, string>();
-
-  constructor(private path: string = "") {}
-
-  async getDirectoryHandle(name: string, options?: { create?: boolean }) {
-    // Simula a criação/retorno de um subdiretório
-    return new FakeOPFSDirectory(this.path ? `${this.path}/${name}` : name);
-  }
-
-  async getFileHandle(name: string, options?: { create?: boolean }) {
-    const fullPath = this.path ? `${this.path}/${name}` : name;
-    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(fullPath)) {
-      throw new Error(`File ${fullPath} not found in Fake OPFS`);
-    }
-    return new FakeOPFSFileHandle(fullPath, FakeOPFSDirectory.sharedStorage);
-  }
-
-  async removeEntry(name: string) {
-    const fullPath = this.path ? `${this.path}/${name}` : name;
-    FakeOPFSDirectory.sharedStorage.delete(fullPath);
-  }
-
-  async *keys() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      if (this.path && key.startsWith(`${this.path}/`)) {
-         const localName = key.slice(this.path.length + 1);
-         if (!localName.includes("/")) yield localName;
-      } else if (!this.path && !key.includes("/")) {
-         yield key;
-      }
-    }
-  }
-
-  async *entries() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      if (this.path && key.startsWith(`${this.path}/`)) {
-         const localName = key.slice(this.path.length + 1);
-         if (!localName.includes("/")) yield [localName, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
-      } else if (!this.path && !key.includes("/")) {
-         yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
-      }
-    }
-  }
-
-  async *values() {
-    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
-      if (this.path && key.startsWith(`${this.path}/`)) {
-         const localName = key.slice(this.path.length + 1);
-         if (!localName.includes("/")) yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
-      } else if (!this.path && !key.includes("/")) {
-         yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
-      }
-    }
-  }
-
-  static clear() {
-    FakeOPFSDirectory.sharedStorage.clear();
-  }
-}
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/utils/opfs_utils.ts`
-
-```ts
-export interface OpfsResolveOptions {
-  dbName?: string;
-  storeName?: string;
-  prefix?: string;
-}
-
-// Resolve o nome do arquivo dinamicamente
-export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: OpfsResolveOptions): string {
-  const parts: string[] = [type]; 
-  if (type === "db") {
-    if (opts?.dbName) parts.push(opts.dbName);
-    if (opts?.storeName) parts.push(opts.storeName);
-  }
-  if (opts?.prefix) parts.push(opts.prefix);
-  
-  parts.push(fileName);
-  return parts.join("_");
-}
-
-// Utilitário interno para garantir que sempre operemos na pasta 'backup'
-async function getBackupDir() {
-  const root = await navigator.storage.getDirectory();
-  return await root.getDirectoryHandle("backup", { create: true });
-}
-
-export async function writeJsonToOpfs(fileName: string, data: any): Promise<string> {
-  const backupDir = await getBackupDir();
-  const fileHandle = await backupDir.getFileHandle(fileName, { create: true });
-  const writable = await fileHandle.createWritable();
-  await writable.write(JSON.stringify(data));
-  await writable.close();
-  return fileName;
-}
-
-export async function readJsonFromOpfs(fileName: string): Promise<any> {
-  const backupDir = await getBackupDir();
-  const fileHandle = await backupDir.getFileHandle(fileName);
-  const file = await fileHandle.getFile();
-  const text = await file.text();
-  return JSON.parse(text);
-}
-
-export async function deleteFromOpfs(fileName: string): Promise<void> {
-  const backupDir = await getBackupDir();
-  await backupDir.removeEntry(fileName);
-}
-
-export async function getFileFromOpfs(fileName: string): Promise<File> {
-  const backupDir = await getBackupDir();
-  const fileHandle = await backupDir.getFileHandle(fileName);
-  return await fileHandle.getFile();
-}
-
-export async function listOpfsFiles(): Promise<string[]> {
-  const backupDir = await getBackupDir();
-  const files: string[] = [];
-  // @ts-ignore: async iterator support
-  for await (const [name, handle] of backupDir.entries()) {
-    if (handle.kind === "file") files.push(name);
-  }
-  return files;
-}
-
-export async function downloadOpfsFile(fileName: string): Promise<void> {
-  if (typeof document === "undefined") {
-    throw new Error("downloadOpfsFile só pode ser executado na Main Thread (onde 'document' existe).");
-  }
-  const file = await getFileFromOpfs(fileName);
-  const url = URL.createObjectURL(file);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/config.ts`
-
-```ts
-// config.ts
-const checkEnv = (key: string): boolean | undefined => {
-  try {
-    if (typeof Deno !== "undefined") {
-      const envVal = Deno.env.get(key);
-      if (envVal !== undefined) return envVal === "true";
-    }
-  } catch {
-    // Caso a flag --allow-env não tenha sido passada
-    console.warn(`Não foi possível acessar a variável de ambiente ${key}.`);
-  }
-  return undefined;
-};
-
-const getUseFake = (): boolean => checkEnv("USE_FAKE") ?? false;
-
-export const APP_CONFIG = {
-  USE_FAKE: getUseFake(),
-  APP_VERSION: "1.0.0-beta",
-  LOG_LEVEL: "debug",
-};
-```
+Gerado automaticamente em: 8/22/2026, 9:16:29 PM
 
 ---
 
@@ -827,78 +510,6 @@ self.onmessage = async (e: MessageEvent) => {
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/fake-mod.ts`
-
-```ts
-// monorepo/worker-db/src/fake-mod.ts
-
-// 1. Injeta o IndexedDB Fake globalmente (Main Thread)
-import "fake-indexeddb/auto";
-
-import { FakeOPFSDirectory } from "./utils/fake-opfs.ts";
-import { FakeLocalStorage } from "./utils/fake-local-storage.ts";
-
-const _global = globalThis as any;
-
-// 2. Injeta OPFS Fake (Main Thread)
-if (!_global.navigator) _global.navigator = {};
-if (!_global.navigator.storage) _global.navigator.storage = {};
-if (!_global.navigator.storage.getDirectory) {
-  _global.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
-}
-
-// 3. Injeta LocalStorage Fake (Main Thread)
-if (!_global.localStorage || _global.localStorage.constructor.name !== "FakeLocalStorage") {
-  try {
-    Object.defineProperty(_global, "localStorage", {
-      value: new FakeLocalStorage(),
-      writable: true,
-      configurable: true
-    });
-  } catch {
-    _global.localStorage = new FakeLocalStorage();
-  }
-}
-
-// 4. Exportamos tudo do módulo principal para que o demo.ts consuma
-export * from "./mod.ts";
-
-// 5. O PULO DO GATO: Forçamos a inicialização do módulo para usar o Worker Fake.
-// O Deno resolve arquivos .ts nativamente em Workers usando import.meta.url
-import { db } from "./mod.ts";
-const fakeWorkerUrl = new URL("./fake-db.ts", import.meta.url);
-db.init(fakeWorkerUrl);
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/fake-db.ts`
-
-```ts
-// monorepo/worker-db/src/fake-db.ts
-
-// 1. Injeta o IndexedDB Fake no escopo global (self) do Worker
-import "fake-indexeddb/auto";
-
-import { FakeOPFSDirectory } from "./utils/fake-opfs.ts";
-
-const _self = self as any;
-
-// 2. Injeta OPFS Fake no escopo do Worker
-if (!_self.navigator) _self.navigator = {};
-if (!_self.navigator.storage) _self.navigator.storage = {};
-if (!_self.navigator.storage.getDirectory) {
-  _self.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
-}
-
-// 3. Agora que o ambiente do Worker está perfeitamente simulado,
-// importamos a lógica real do banco de dados. O db.ts vai rodar
-// achando que está em um browser de verdade!
-import "./db.ts";
-```
-
----
-
 ## Arquivo: `monorepo/worker-db/src/mod.ts`
 
 ```ts
@@ -1094,12 +705,373 @@ export const db = Object.assign(
 
 ---
 
+## Arquivo: `monorepo/worker-db/src/fake/fake-local-storage.ts`
+
+```ts
+export class FakeLocalStorage {
+  private store = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+
+  get length(): number {
+    return this.store.size;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.store.keys())[index] ?? null;
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/fake/fake-opfs.ts`
+
+```ts
+export class FakeOPFSFileHandle {
+  public kind: "file" | "directory" = "file";
+
+  constructor(
+    private fullPath: string,
+    private storage: Map<string, string>
+  ) {}
+
+  async createWritable() {
+    const self = this;
+    let content = "";
+    return {
+      async write(data: string) {
+        content = data;
+      },
+      async close() {
+        self.storage.set(self.fullPath, content);
+      }
+    };
+  }
+
+  async getFile() {
+    const content = this.storage.get(this.fullPath);
+    if (content === undefined) {
+      throw new Error(`File ${this.fullPath} not found in Fake OPFS`);
+    }
+    return {
+      async text() {
+        return content;
+      }
+    };
+  }
+}
+
+export class FakeOPFSDirectory {
+  private static sharedStorage = new Map<string, string>();
+
+  constructor(private path: string = "") {}
+
+  async getDirectoryHandle(name: string, options?: { create?: boolean }) {
+    // Simula a criação/retorno de um subdiretório
+    return new FakeOPFSDirectory(this.path ? `${this.path}/${name}` : name);
+  }
+
+  async getFileHandle(name: string, options?: { create?: boolean }) {
+    const fullPath = this.path ? `${this.path}/${name}` : name;
+    if (!options?.create && !FakeOPFSDirectory.sharedStorage.has(fullPath)) {
+      throw new Error(`File ${fullPath} not found in Fake OPFS`);
+    }
+    return new FakeOPFSFileHandle(fullPath, FakeOPFSDirectory.sharedStorage);
+  }
+
+  async removeEntry(name: string) {
+    const fullPath = this.path ? `${this.path}/${name}` : name;
+    FakeOPFSDirectory.sharedStorage.delete(fullPath);
+  }
+
+  async *keys() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield localName;
+      } else if (!this.path && !key.includes("/")) {
+         yield key;
+      }
+    }
+  }
+
+  async *entries() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield [localName, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      } else if (!this.path && !key.includes("/")) {
+         yield [key, new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage)] as const;
+      }
+    }
+  }
+
+  async *values() {
+    for (const key of FakeOPFSDirectory.sharedStorage.keys()) {
+      if (this.path && key.startsWith(`${this.path}/`)) {
+         const localName = key.slice(this.path.length + 1);
+         if (!localName.includes("/")) yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      } else if (!this.path && !key.includes("/")) {
+         yield new FakeOPFSFileHandle(key, FakeOPFSDirectory.sharedStorage);
+      }
+    }
+  }
+
+  static clear() {
+    FakeOPFSDirectory.sharedStorage.clear();
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/fake/fake-db.ts`
+
+```ts
+// monorepo/worker-db/src/fake/fake-db.ts
+
+// 1. Injeta o IndexedDB Fake no escopo global (self) do Worker
+import "fake-indexeddb/auto";
+
+import { FakeOPFSDirectory } from "./fake-opfs.ts";
+
+const _self = self as any;
+
+// 2. Injeta OPFS Fake no escopo do Worker
+if (!_self.navigator) _self.navigator = {};
+if (!_self.navigator.storage) _self.navigator.storage = {};
+if (!_self.navigator.storage.getDirectory) {
+  _self.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
+}
+
+// 3. Agora que o ambiente do Worker está perfeitamente simulado,
+// importamos a lógica real do banco de dados. O db.ts vai rodar
+// achando que está em um browser de verdade!
+import "../db.ts";
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/fake/fake-mod.ts`
+
+```ts
+// monorepo/worker-db/src/fake/fake-mod.ts
+
+// 1. Injeta o IndexedDB Fake globalmente (Main Thread)
+import "fake-indexeddb/auto";
+
+import { FakeOPFSDirectory } from "./fake-opfs.ts";
+import { FakeLocalStorage } from "./fake-local-storage.ts";
+
+const _global = globalThis as any;
+
+// 2. Injeta OPFS Fake (Main Thread)
+if (!_global.navigator) _global.navigator = {};
+if (!_global.navigator.storage) _global.navigator.storage = {};
+if (!_global.navigator.storage.getDirectory) {
+  _global.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
+}
+
+// 3. Injeta LocalStorage Fake (Main Thread)
+if (!_global.localStorage || _global.localStorage.constructor.name !== "FakeLocalStorage") {
+  try {
+    Object.defineProperty(_global, "localStorage", {
+      value: new FakeLocalStorage(),
+      writable: true,
+      configurable: true
+    });
+  } catch {
+    _global.localStorage = new FakeLocalStorage();
+  }
+}
+
+// 4. Exportamos tudo do módulo principal para que o demo.ts consuma
+export * from "../mod.ts";
+
+// 5. O PULO DO GATO: Forçamos a inicialização do módulo para usar o Worker Fake.
+// O Deno resolve arquivos .ts nativamente em Workers usando import.meta.url
+import { db } from "../mod.ts";
+const fakeWorkerUrl = new URL("./fake-db.ts", import.meta.url);
+db.init(fakeWorkerUrl);
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/id-utils.ts`
+
+```ts
+export type WithId<T> = T & { _id: string };
+
+export function gerarId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
+}
+
+export function gerarIdComPrefixo(prefix: string): string {
+  return `${prefix}${gerarId()}`;
+}
+
+export function validarId(id: string): boolean {
+  return typeof id === "string" && id.length > 0;
+}
+
+// Injeta dinamicamente o '_id' sem o prefixo ao LER do banco/localStorage
+export function formatDbItem(key: IDBValidKey, val: any, prefix = ""): any {
+  if (!val || typeof val !== "object" || Array.isArray(val)) return val;
+  const keyStr = String(key);
+  const _id = prefix && keyStr.startsWith(prefix) ? keyStr.slice(prefix.length) : keyStr;
+  return { _id, ...val };
+}
+
+// Prepara a chave final e limpa o '_id' do objeto gravado
+export function prepareForSave(key: string | undefined | null, val: any, prefix = ""): { key: string; cleanVal: any } {
+  let rawId = val && typeof val === "object" ? val._id : undefined;
+  
+  if (rawId === "auto") {
+    rawId = gerarId();
+  }
+
+  // Intercepta a chave informada como "auto" via parâmetro direto ou tupla do setMany
+  let processKey = key === "auto" ? gerarId() : key;
+
+  let finalKey = processKey || "";
+
+  if (rawId) {
+    if (prefix && rawId.startsWith(prefix)) {
+      finalKey = rawId;
+    } else {
+      finalKey = prefix ? `${prefix}${rawId}` : rawId;
+    }
+  } else if (processKey) {
+    if (prefix && processKey.startsWith(prefix)) {
+      finalKey = processKey;
+    } else {
+      finalKey = prefix ? `${prefix}${processKey}` : processKey;
+    }
+  }
+
+  if (!finalKey) {
+    throw new Error("Uma chave (key) ou um atributo '_id' no objeto deve ser fornecido.");
+  }
+
+  if (val && typeof val === "object" && !Array.isArray(val) && "_id" in val) {
+    const { _id: _, ...cleanVal } = val;
+    return { key: finalKey, cleanVal };
+  }
+
+  return { key: finalKey, cleanVal: val };
+}
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/opfs_utils.ts`
+
+```ts
+export interface OpfsResolveOptions {
+  dbName?: string;
+  storeName?: string;
+  prefix?: string;
+}
+
+// Resolve o nome do arquivo dinamicamente
+export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: OpfsResolveOptions): string {
+  const parts: string[] = [type]; 
+  if (type === "db") {
+    if (opts?.dbName) parts.push(opts.dbName);
+    if (opts?.storeName) parts.push(opts.storeName);
+  }
+  if (opts?.prefix) parts.push(opts.prefix);
+  
+  parts.push(fileName);
+  return parts.join("_");
+}
+
+// Utilitário interno para garantir que sempre operemos na pasta 'backup'
+async function getBackupDir() {
+  const root = await navigator.storage.getDirectory();
+  return await root.getDirectoryHandle("backup", { create: true });
+}
+
+export async function writeJsonToOpfs(fileName: string, data: any): Promise<string> {
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(JSON.stringify(data));
+  await writable.close();
+  return fileName;
+}
+
+export async function readJsonFromOpfs(fileName: string): Promise<any> {
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName);
+  const file = await fileHandle.getFile();
+  const text = await file.text();
+  return JSON.parse(text);
+}
+
+export async function deleteFromOpfs(fileName: string): Promise<void> {
+  const backupDir = await getBackupDir();
+  await backupDir.removeEntry(fileName);
+}
+
+export async function getFileFromOpfs(fileName: string): Promise<File> {
+  const backupDir = await getBackupDir();
+  const fileHandle = await backupDir.getFileHandle(fileName);
+  return await fileHandle.getFile();
+}
+
+export async function listOpfsFiles(): Promise<string[]> {
+  const backupDir = await getBackupDir();
+  const files: string[] = [];
+  // @ts-ignore: async iterator support
+  for await (const [name, handle] of backupDir.entries()) {
+    if (handle.kind === "file") files.push(name);
+  }
+  return files;
+}
+
+export async function downloadOpfsFile(fileName: string): Promise<void> {
+  if (typeof document === "undefined") {
+    throw new Error("downloadOpfsFile só pode ser executado na Main Thread (onde 'document' existe).");
+  }
+  const file = await getFileFromOpfs(fileName);
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+```
+
+---
+
 ## Arquivo: `monorepo/worker-db/tests/db_simple_test.ts`
 
 ```ts
 import { assertEquals, assert, assertNotEquals } from "@std/assert";
 
-import { db, listOpfsFiles } from "../src/fake-mod.ts";
+import { db } from "../src/fake/fake-mod.ts";
 
 Deno.test({
   name: "DB Simple - Tratamento de _id ('auto', '0990', com prefixo)",
@@ -1200,7 +1172,7 @@ Deno.test({
 ```ts
 import { assertEquals, assert, assertRejects, assertNotEquals } from "@std/assert";
 
-import { db, listOpfsFiles } from "../src/fake-mod.ts";
+import { db } from "../src/fake/fake-mod.ts";
 
 Deno.test({
   name: "DB Advanced - Execução de Métodos de Array no Worker (query, getSome)",
@@ -1345,7 +1317,7 @@ Deno.test({
 
 ```ts
 import { assertEquals, assert, assertThrows, assertNotEquals } from "@std/assert";
-import { ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { ls } from "../src/fake/fake-mod.ts";
 
 Deno.test({
   name: "LS Advanced - Execução de Métodos Modernos de Array JS (query, getSome)",
@@ -1490,7 +1462,7 @@ Deno.test({
 
 ```ts
 import { assertEquals, assert, assertNotEquals } from "@std/assert";
-import { ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { ls } from "../src/fake/fake-mod.ts";
 
 Deno.test({
   name: "LS Simple - Gestão de _id ('auto', '0990', com prefixo)",
@@ -1615,8 +1587,8 @@ Deno.test({
 ```ts
 import { assertEquals, assert } from "@std/assert";
 
-import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
-import { FakeOPFSDirectory } from "../src/utils/fake-opfs.ts";
+import { db, ls } from "../src/fake/fake-mod.ts";
+import { FakeOPFSDirectory } from "../src/fake/fake-opfs.ts";
 
 Deno.test({
   name: "ISOLATION - LS: Garantir que instâncias com prefixos diferentes não colidam",
@@ -1713,7 +1685,7 @@ Deno.test({
 ```ts
 import { assertEquals, assert } from "@std/assert";
 import { gerarId, validarId } from "../src/utils/id-utils.ts";
-import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { db, ls } from "../src/fake/fake-mod.ts";
 
 Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () => {
   const id = gerarId();
@@ -1736,7 +1708,7 @@ Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () =
 
 ```ts
 import { assertEquals } from "@std/assert";
-import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { db } from "../src/fake/fake-mod.ts";
 
 const isFake = true;
 
@@ -1805,16 +1777,19 @@ import { ensureDir } from "@std/fs";
 
 const clean = async () => {
   try {
-    await Deno.remove("./build", { recursive: true });
-    console.log("📁 Arquivos anteriores excluídos");
+    await Promise.all([
+      Deno.remove("../server/build/dist/worker-db.js"),
+      Deno.remove("../server/build/dist/worker-db.js.map")
+    ]);
+    console.log("📁 Arquivo anterior excluído");
   } catch {
     // diretório não existe, ok
   }
-  await ensureDir("./build");
+  await ensureDir("../server/build/dist");
 };
 
 const build = async () => {
-  console.log("🚀 Iniciando build do Loco PWA...");
+  console.log("🚀 Iniciando build do Worker DB ...");
   const startTime = performance.now();
 
   try {
@@ -1825,7 +1800,7 @@ const build = async () => {
     console.log("⚙️ Gerando bundle do Worker...");
     const result = await Deno.bundle({
       entrypoints: ["./src/db.ts"],
-      outputPath: "./build/worker-db.js",
+      outputPath: "../server/build/dist/worker-db.js",
       platform: "browser",
       format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
       packages: "external",
@@ -1848,7 +1823,7 @@ const build = async () => {
 
     const endTime = performance.now();
     console.log(`✅ Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
-    console.log("📁 Saída gerada no diretório: ./build/");
+    console.log("📁 Saída gerada no diretório: ../server/build/dist/");
   } catch (error) {
     console.error("❌ Erro fatal durante o processo de build:");
     console.error(error);
@@ -1868,16 +1843,27 @@ import { serveDir } from "@std/http/file-server";
 import { copy, ensureDir } from "@std/fs";
 import { join } from "@std/path";
 
+const clean = async () => {
+  try {
+    await Deno.remove("./build", { recursive: true });
+    console.log("📁 Arquivos anteriores excluídos");
+  } catch {
+    // diretório não existe, ok
+  }
+  await ensureDir("./build");
+};
+
+
 async function prepareAndBuild() {
   const startTime = performance.now();
+  
   console.log("🔨 [DEV SERVER] Preparando ambiente...");
+  // 1. Limpa e cria diretório
+  await clean();
 
-  // 2. Garante a existência do diretório
-  await ensureDir("./build");
-
-  // 3. Faz o bundle do index.html do exemplo para ser servido no navegador
+  // 2. Faz o bundle do index.html do exemplo para ser servido no navegador
   console.log("📦 [DEV SERVER] Fazendo bundle do index.html...");
-  const result = await Deno.bundle({
+  const result_html = await Deno.bundle({
     entrypoints: [
       "./example/index.html"
     ],
@@ -1893,14 +1879,39 @@ async function prepareAndBuild() {
     write: true,
   });
 
-  if (!result.success) {
-    console.error(result.errors);
+  if (!result_html.success) {
+    console.error(result_html.errors);
     throw new Error("Falha ao gerar bundle pelo compilador interno.");
   }
 
-  for (const warning of result.warnings || []) {
+  for (const warning of result_html.warnings || []) {
     console.warn(warning);
   }
+
+  // 3. Compilação do Worker da aplicação
+    console.log("⚙️ Gerando bundle do Worker...");
+    const result_worker = await Deno.bundle({
+      entrypoints: ["./src/db.ts"],
+      outputPath: "./build/worker-db.js",
+      platform: "browser",
+      format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
+      packages: "external",
+      keepnames: true,
+      inlineImports: true,
+      codeSplitting: false,
+      minify: false,
+      sourcemap: "linked",
+      write: true,
+    });
+
+    if (!result_worker.success) {
+      console.error(result_worker.errors);
+      throw new Error("Falha ao gerar bundle pelo compilador interno.");
+    }
+
+    for (const warning of result_worker.warnings || []) {
+      console.warn(warning);
+    }
 
   const endTime = performance.now();
   console.log(`✅ [DEV SERVER] Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
@@ -1926,7 +1937,7 @@ Deno.serve({ port: 9000 }, (req) => {
 ## Arquivo: `monorepo/worker-db/example/demo.ts`
 
 ```ts
-import { db, ls } from "../src/fake-mod.ts";
+import { db, ls } from "../src/fake/fake-mod.ts";
 
 // Tipagem dos modelos de domínio do Loco PWA
 interface LocoMessage {
@@ -2318,10 +2329,10 @@ runRealWorldTests().catch((err) => {
   },
   "tasks": {
     "build": "deno run -A --unstable-bundle build.ts",
-    "test": "deno task build && deno test --allow-env --allow-net --allow-read tests/",
-    "check": "deno check build.ts src/**/*.ts src/**/*.tsx",
+    "test": "deno test --allow-env --allow-net --allow-read tests/",
+    "check": "deno check build.ts src/**/*.ts src/**/*.tsx example/**/*.ts tests/**/*.ts",
     "demo": "deno run --allow-env --allow-read --allow-net ./example/demo.ts",
-    "example": "deno task build && deno run -A --unstable-bundle ./example/server.ts"
+    "example": "deno run -A --unstable-bundle ./example/server.ts"
   }
 }
 ```

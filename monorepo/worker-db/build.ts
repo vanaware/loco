@@ -3,16 +3,19 @@ import { ensureDir } from "@std/fs";
 
 const clean = async () => {
   try {
-    await Deno.remove("./build", { recursive: true });
-    console.log("📁 Arquivos anteriores excluídos");
+    await Promise.all([
+      Deno.remove("../server/build/dist/worker-db.js"),
+      Deno.remove("../server/build/dist/worker-db.js.map")
+    ]);
+    console.log("📁 Arquivo anterior excluído");
   } catch {
     // diretório não existe, ok
   }
-  await ensureDir("./build");
+  await ensureDir("../server/build/dist");
 };
 
 const build = async () => {
-  console.log("🚀 Iniciando build do Loco PWA...");
+  console.log("🚀 Iniciando build do Worker DB ...");
   const startTime = performance.now();
 
   try {
@@ -21,9 +24,10 @@ const build = async () => {
 
     // 2. Compilação do Worker da aplicação
     console.log("⚙️ Gerando bundle do Worker...");
+    // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime deste projeto.
     const result = await Deno.bundle({
       entrypoints: ["./src/db.ts"],
-      outputPath: "./build/worker-db.js",
+      outputPath: "../server/build/dist/worker-db.js",
       platform: "browser",
       format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
       packages: "external",
@@ -46,7 +50,7 @@ const build = async () => {
 
     const endTime = performance.now();
     console.log(`✅ Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
-    console.log("📁 Saída gerada no diretório: ./build/");
+    console.log("📁 Saída gerada no diretório: ../server/build/dist/");
   } catch (error) {
     console.error("❌ Erro fatal durante o processo de build:");
     console.error(error);

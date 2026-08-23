@@ -1,6 +1,6 @@
 import { assertEquals, assert, assertRejects, assertNotEquals } from "@std/assert";
 
-import { db, listOpfsFiles } from "../src/fake-mod.ts";
+import { db } from "../src/fake/fake-mod.ts";
 
 Deno.test({
   name: "DB Advanced - Execução de Métodos de Array no Worker (query, getSome)",

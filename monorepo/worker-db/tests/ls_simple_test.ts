@@ -1,5 +1,5 @@
 import { assertEquals, assert, assertNotEquals } from "@std/assert";
-import { ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { ls } from "../src/fake/fake-mod.ts";
 
 Deno.test({
   name: "LS Simple - Gestão de _id ('auto', '0990', com prefixo)",

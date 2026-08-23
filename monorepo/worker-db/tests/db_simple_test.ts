@@ -1,6 +1,6 @@
 import { assertEquals, assert, assertNotEquals } from "@std/assert";
 
-import { db, listOpfsFiles } from "../src/fake-mod.ts";
+import { db } from "../src/fake/fake-mod.ts";
 
 Deno.test({
   name: "DB Simple - Tratamento de _id ('auto', '0990', com prefixo)",

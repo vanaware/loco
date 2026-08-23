@@ -1,4 +1,4 @@
-import { db, ls } from "../src/fake-mod.ts";
+import { db, ls } from "../src/fake/fake-mod.ts";
 
 // Tipagem dos modelos de domínio do Loco PWA
 interface LocoMessage {

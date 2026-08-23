@@ -2,16 +2,27 @@ import { serveDir } from "@std/http/file-server";
 import { copy, ensureDir } from "@std/fs";
 import { join } from "@std/path";
 
+const clean = async () => {
+  try {
+    await Deno.remove("./build", { recursive: true });
+    console.log("📁 Arquivos anteriores excluídos");
+  } catch {
+    // diretório não existe, ok
+  }
+  await ensureDir("./build");
+};
+
 async function prepareAndBuild() {
   const startTime = performance.now();
+  
   console.log("🔨 [DEV SERVER] Preparando ambiente...");
+  // 1. Limpa e cria diretório
+  await clean();
 
-  // 2. Garante a existência do diretório
-  await ensureDir("./build");
-
-  // 3. Faz o bundle do index.html do exemplo para ser servido no navegador
+  // 2. Faz o bundle do index.html do exemplo para ser servido no navegador
   console.log("📦 [DEV SERVER] Fazendo bundle do index.html...");
-  const result = await Deno.bundle({
+  // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime.
+  const result_html = await Deno.bundle({
     entrypoints: [
       "./example/index.html"
     ],
@@ -27,12 +38,38 @@ async function prepareAndBuild() {
     write: true,
   });
 
-  if (!result.success) {
-    console.error(result.errors);
+  if (!result_html.success) {
+    console.error(result_html.errors);
     throw new Error("Falha ao gerar bundle pelo compilador interno.");
   }
 
-  for (const warning of result.warnings || []) {
+  for (const warning of result_html.warnings || []) {
+    console.warn(warning);
+  }
+
+  // 3. Compilação do Worker da aplicação
+  console.log("⚙️ Gerando bundle do Worker...");
+  // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime.
+  const result_worker = await Deno.bundle({
+    entrypoints: ["./src/db.ts"],
+    outputPath: "./build/worker-db.js",
+    platform: "browser",
+    format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
+    packages: "external",
+    keepnames: true,
+    inlineImports: true,
+    codeSplitting: false,
+    minify: false,
+    sourcemap: "linked",
+    write: true,
+  });
+
+  if (!result_worker.success) {
+    console.error(result_worker.errors);
+    throw new Error("Falha ao gerar bundle pelo compilador interno.");
+  }
+
+  for (const warning of result_worker.warnings || []) {
     console.warn(warning);
   }
 

@@ -1,6 +1,6 @@
 import { assertEquals, assert } from "@std/assert";
 import { gerarId, validarId } from "../src/utils/id-utils.ts";
-import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
+import { db, ls } from "../src/fake/fake-mod.ts";
 
 Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () => {
   const id = gerarId();

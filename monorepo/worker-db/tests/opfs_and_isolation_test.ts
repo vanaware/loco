@@ -1,7 +1,7 @@
 import { assertEquals, assert } from "@std/assert";
 
-import { db, ls, listOpfsFiles } from "../src/fake-mod.ts";
-import { FakeOPFSDirectory } from "../src/utils/fake-opfs.ts";
+import { db, ls } from "../src/fake/fake-mod.ts";
+import { FakeOPFSDirectory } from "../src/fake/fake-opfs.ts";
 
 Deno.test({
   name: "ISOLATION - LS: Garantir que instâncias com prefixos diferentes não colidam",

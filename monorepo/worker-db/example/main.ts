@@ -12,6 +12,7 @@ interface LocoMessage {
 }
 
 interface UserPreferences {
+  _id?: string; // Correção: Permite a injeção do ID automático
   theme: "dark" | "light";
   notificationsEnabled: boolean;
   activeChatId: string | null;
