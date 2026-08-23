@@ -1,18 +1,32 @@
+// src/utils/id-utils.ts
+
 export type WithId<T> = T & { _id: string };
 
+/**
+ * Gera um identificador único curto seguro.
+ * Utiliza Web Crypto API se disponível, senão cai no fallback matemático.
+ * @returns {string} ID gerado
+ */
 export function gerarId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint8Array(12);
+    crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('').substring(0, 12);
   }
-  return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+}
+
+/**
+ * Valida se a string tem formato aceitável de ID.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function validarId(id: string): boolean {
+  return typeof id === 'string' && id.length > 0 && id.length <= 24;
 }
 
 export function gerarIdComPrefixo(prefix: string): string {
   return `${prefix}${gerarId()}`;
-}
-
-export function validarId(id: string): boolean {
-  return typeof id === "string" && id.length > 0;
 }
 
 // Injeta dinamicamente o '_id' sem o prefixo ao LER do banco/localStorage

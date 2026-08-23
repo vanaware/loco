@@ -1,3 +1,4 @@
+// ## Arquivo: monorepo/worker-db/tests/opfs_and_isolation_test.ts
 import { assertEquals, assert } from "@std/assert";
 
 import { db, ls } from "../src/fake/fake-mod.ts";
@@ -61,7 +62,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "OPFS - Fluxo completo de Backup e Restore (DB e LS)",
+  name: "OPFS - Fluxo completo de Backup e Restore (DB e LS) usando record-keys",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -72,14 +73,18 @@ Deno.test({
     await store.set("k1", { text: "Hello OPFS" });
     await store.set("k2", { text: "Loco PWA" });
 
-    const fileName = await store.backupToOpfs("meu_backup.json");
-    assert(fileName.includes("BACKUP_")); 
-    assert(fileName.includes("meu_backup.json"));
+    const recordKey = "meus_snapshots";
+    const fileNamePath = await store.backupToOpfs(recordKey, "meu_backup.json");
+    
+    assert(fileNamePath.includes("BACKUP_")); 
+    assert(fileNamePath.includes(recordKey));
+    assert(fileNamePath.includes("meu_backup.json"));
 
     await store.clear();
     assertEquals((await store.keys()).length, 0);
 
-    await store.restoreFromOpfs(fileName);
+    // Restore indicando a recordKey isolada
+    await store.restoreFromOpfs(recordKey, "meu_backup.json");
     const restored = await store.values<any>();
     assertEquals(restored.length, 2);
     

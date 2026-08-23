@@ -1,4 +1,5 @@
-import { db, ls, listOpfsFiles, deleteFromOpfs, getFileFromOpfs, opfs } from "../src/mod.ts";
+// ## Arquivo: monorepo/worker-db/example/main.ts
+import { db, ls, opfs } from "../src/mod.ts";
 
 interface LocoMessage {
   _id?: string;
@@ -11,7 +12,7 @@ interface LocoMessage {
 }
 
 interface UserPreferences {
-  _id?: string; // Permitindo o ID automático via interface
+  _id?: string;
   theme: "dark" | "light";
   notificationsEnabled: boolean;
   activeChatId: string | null;
@@ -61,12 +62,22 @@ async function runRealWorldTests() {
   }));
   log(`   --> Estatísticas processadas no Worker:`, stats);
 
-  log("\n💾 4. Origin Private File System (OPFS) - Backup Nativo e Resgate...");
-  const oldFiles = await listOpfsFiles();
-  for (const f of oldFiles) await deleteFromOpfs(f);
-  await msgStore.backupToOpfs("mensagens_v1.json");
-  const storedFiles = await listOpfsFiles();
-  log(`   --> Backups gerados com sucesso na pasta interna '/backup'.`);
+  log("\n💾 4. Origin Private File System (OPFS) - Backup via opfs() com basePath 'backup'...");
+  
+  // Instância OPFS dedicada exclusivamente a gerenciar a pasta física global '/backup'
+  const backupDrive = opfs("LOCO_DATA", "messages", "MSG_", "backup");
+  const RECORD_BACKUP_KEY = "mensagens_app";
+
+  // Limpa arquivos antigos da record-key de backup usando a API unificada do OPFS
+  const oldBackupFiles = await backupDrive.listFiles(RECORD_BACKUP_KEY);
+  for (const f of oldBackupFiles) {
+    await backupDrive.delFile(RECORD_BACKUP_KEY, f.name);
+  }
+  
+  // Realiza o backup utilizando a record-key isolada
+  await backupDrive.backupToOpfs(RECORD_BACKUP_KEY, "mensagens_v1.json");
+  const storedFiles = await backupDrive.listFiles(RECORD_BACKUP_KEY);
+  log(`   --> Backups gerados com sucesso. Arquivos na record-key '${RECORD_BACKUP_KEY}':`, storedFiles.map(f => f.name));
 
   log("\n🤖 5. Service Worker - Interação em Background (db-sw.ts)...");
   
@@ -96,7 +107,8 @@ async function runRealWorldTests() {
     }
   }
 
-  const finalStoredFiles = await listOpfsFiles();
+  // Renderiza a listagem de backups utilizando o opfs() em vez de funções soltas
+  const finalStoredFiles = await backupDrive.listFiles(RECORD_BACKUP_KEY);
   if (appElement && finalStoredFiles.length > 0) {
     const downloadContainer = document.createElement("div");
     downloadContainer.style.marginTop = "24px";
@@ -104,17 +116,38 @@ async function runRealWorldTests() {
     downloadContainer.style.backgroundColor = "var(--md-sys-color-surface)";
     downloadContainer.style.borderRadius = "12px";
 
-    let linksHTML = `<h3 style="margin-top: 0; color: var(--md-sys-color-primary);">🗂️ Arquivos OPFS (Inclui backups do SW)</h3>`;
+    let linksHTML = `<h3 style="margin-top: 0; color: var(--md-sys-color-primary);">🗂️ Backups OPFS Gerados via opfs()</h3>`;
     linksHTML += `<div style="display: flex; flex-direction: column; gap: 12px;">`;
     
-    for (const fileName of finalStoredFiles) {
-      const fileBlob = await getFileFromOpfs(fileName);
-      const objectUrl = URL.createObjectURL(fileBlob);
-      linksHTML += `<a href="${objectUrl}" download="${fileName}" style="color: #1a1c19; background: #9edeb6; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; width: fit-content; font-size: 14px;">📥 Baixar: ${fileName}</a>`;
+    for (const f of finalStoredFiles) {
+      linksHTML += `
+      <div style="display: flex; justify-content: space-between; align-items: center; background: #1a1c19; padding: 12px 16px; border-radius: 8px;">
+        <span>📁 ${f.name} - ${(f.size / 1024).toFixed(1)} KB</span>
+        <button id="dl_${f.name.replace(/\./g, '_')}" style="cursor: pointer; background: var(--md-sys-color-primary); color: #1a1c19; border: none; font-weight: bold; border-radius: 4px; padding: 6px 12px;">
+          Baixar Backup
+        </button>
+      </div>`;
     }
     
     downloadContainer.innerHTML = linksHTML + `</div>`;
     appElement.appendChild(downloadContainer);
+
+    setTimeout(() => {
+      for (const f of finalStoredFiles) {
+        const btn = document.getElementById(`dl_${f.name.replace(/\./g, '_')}`);
+        if (btn) {
+          btn.onclick = async () => {
+            const fileBlob = await backupDrive.getFile(RECORD_BACKUP_KEY, f.name);
+            const objectUrl = URL.createObjectURL(fileBlob);
+            const a = document.createElement("a");
+            a.href = objectUrl;
+            a.download = f.name;
+            a.click();
+            URL.revokeObjectURL(objectUrl);
+          };
+        }
+      }
+    }, 100);
   }
 
   db.terminate();
@@ -140,7 +173,7 @@ function setupInteractiveOpfsUI() {
   title.innerText = "📁 Gerenciador Interativo OPFS (Isolado)";
 
   const desc = document.createElement("p");
-  desc.innerText = "Selecione múltiplos arquivos para fazer upload nativo pelo Worker-DB. Eles serão persistidos no Origin Private File System do seu navegador.";
+  desc.innerText = "Envie múltiplos arquivos para a pasta 'ui_uploads' utilizando o wrapper unificado opfs().";
 
   const inputWrapper = document.createElement("div");
   inputWrapper.style.marginBottom = "24px";
@@ -164,12 +197,9 @@ function setupInteractiveOpfsUI() {
   container.appendChild(fileListContainer);
   appElement.appendChild(container);
 
-  // Instância de testes do OPFS para a interface
-  // Mesmo chamando db.terminate() antes, o worker reinicia sozinho ao enviarmos novos comandos!
   const userDrive = opfs("INTERACTIVE_DB", "files", "INT_", "ui_uploads");
   const FOLDER_KEY = "pasta_do_usuario"; 
 
-  // Registra a pasta principal invisivelmente no IndexedDB
   userDrive.set(FOLDER_KEY, { created: Date.now(), type: "interactive_test" }).catch(console.error);
 
   const renderFiles = async () => {
@@ -209,13 +239,27 @@ function setupInteractiveOpfsUI() {
         btnDownload.style.borderRadius = "4px";
         btnDownload.style.padding = "6px 12px";
         
-        btnDownload.onclick = () => {
-          const url = URL.createObjectURL(f.file);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = f.name;
-          a.click();
-          URL.revokeObjectURL(url); // Previne vazamento de memória
+        btnDownload.onclick = async () => {
+          try {
+            const btnOriginalText = btnDownload.innerText;
+            btnDownload.innerText = "Baixando...";
+            btnDownload.disabled = true;
+
+            const fileBlob = await userDrive.getFile(FOLDER_KEY, f.name);
+            
+            const url = URL.createObjectURL(fileBlob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = f.name;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            btnDownload.innerText = btnOriginalText;
+            btnDownload.disabled = false;
+          } catch (err) {
+            console.error("Erro no download:", err);
+            btnDownload.innerText = "Erro!";
+          }
         };
 
         const btnDelete = document.createElement("button");
@@ -253,7 +297,6 @@ function setupInteractiveOpfsUI() {
     input.disabled = true;
     
     try {
-      // Como o addFile passa pelo Worker, podemos iterar sem travar a main thread
       for (const file of Array.from(input.files)) {
         await userDrive.addFile(FOLDER_KEY, file, file.name);
       }
@@ -261,16 +304,14 @@ function setupInteractiveOpfsUI() {
       console.error("Erro ao subir arquivo:", err);
     } finally {
       input.disabled = false;
-      input.value = ""; // Limpa o input para novos envios
+      input.value = "";
       await renderFiles();
     }
   };
 
-  // Primeira listagem ao carregar a interface
   renderFiles();
 }
 
-// Inicia as demonstrações de backend e, em seguida, anexa a UI iterativa.
 runRealWorldTests()
   .then(() => setupInteractiveOpfsUI())
   .catch((err) => {

@@ -1,5 +1,5 @@
-// db-sw.ts
-// ⚠️ ESTE MÓDULO É DE USO EXCLUSIVO DO SERVICE WORKER OU AMBIENTES QUE JÁ RODAM EM BACKGROUND.
+// ## Arquivo: monorepo/worker-db/src/db-sw.ts
+// ⚠️ MÓDULO CENTRAL DO BANCO DE DADOS: Ponto único de verdade para manipulação do IDB e OPFS.
 import { 
   get, set, del, keys, clear, getMany, setMany, delMany, 
   values, entries, createStore, type UseStore
@@ -7,8 +7,27 @@ import {
 import { zipSync, unzipSync } from "fflate";
 
 import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
-import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
-import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./mod.ts";
+
+// ============================================================================
+// DEFINIÇÕES DE TIPOS (Single Source of Truth)
+// ============================================================================
+export interface DbStoreOptions {
+  dbName?: string;
+  storeName?: string;
+  prefix?: string;
+}
+
+export interface OpfsStoreOptions extends DbStoreOptions {
+  basePath?: string;
+}
+
+export interface OpfsFileInfo {
+  name: string;
+  size: number;
+  type: string;
+  lastModified: number;
+}
+// ============================================================================
 
 const storeCache = new Map<string, UseStore>();
 
@@ -34,7 +53,7 @@ async function getRecordDir(basePath = "", rawKey: string, create = false): Prom
   return curr;
 }
 
-const globalSwDbAPI = {
+export const globalSwDbAPI = {
   get: async <T>(key: string, opts?: DbStoreOptions): Promise<WithId<T> | undefined> => {
     const store = getCustomStore(opts?.dbName, opts?.storeName);
     const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
@@ -207,21 +226,35 @@ const globalSwDbAPI = {
     await setMany(entriesToImport, store);
   },
 
-  backupToOpfs: async (fileName?: string, opts?: DbStoreOptions): Promise<string> => {
+  backupToOpfs: async (key: string, fileName?: string, opts?: DbStoreOptions): Promise<string> => {
     const store = getCustomStore(opts?.dbName, opts?.storeName);
     const allEntries = await entries(store);
     const filtered = opts?.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(opts.prefix!)) : allEntries;
     const data = Object.fromEntries(filtered);
     
-    const finalName = resolveOpfsFileName("db", fileName || "backup.json", {
-      dbName: opts?.dbName, storeName: opts?.storeName, prefix: opts?.prefix
-    });
-    return await writeJsonToOpfs(finalName, data);
+    const finalName = fileName || "backup.json";
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    
+    const dir = await getRecordDir("backup", rawKey, true);
+    const fileHandle = await dir.getFileHandle(finalName, { create: true });
+    const w = await fileHandle.createWritable();
+    await w.write(new Blob([JSON.stringify(data)], { type: "application/json" }));
+    await w.close();
+
+    return `${rawKey}/${finalName}`; 
   },
 
-  restoreFromOpfs: async (fileName: string, clearFirst = false, opts?: DbStoreOptions): Promise<void> => {
+  restoreFromOpfs: async (key: string, fileName: string, clearFirst = false, opts?: DbStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir("backup", rawKey, false);
+
+    const finalName = fileName.includes("/") ? fileName.split("/").pop()! : fileName;
+
+    const fileHandle = await dir.getFileHandle(finalName);
+    const file = await fileHandle.getFile();
+    const data = JSON.parse(await file.text());
+
     const store = getCustomStore(opts?.dbName, opts?.storeName);
-    const data = await readJsonFromOpfs(fileName);
     if (clearFirst) await globalSwDbAPI.clear(opts);
     
     const entriesToImport: [string, any][] = Object.entries(data).map(([k, v]) => {
@@ -232,7 +265,7 @@ const globalSwDbAPI = {
   },
 };
 
-const globalSwOpfsAPI = {
+export const globalSwOpfsAPI = {
   ...globalSwDbAPI,
 
   listFiles: async (key: string, opts?: OpfsStoreOptions): Promise<OpfsFileInfo[]> => {
@@ -243,10 +276,17 @@ const globalSwOpfsAPI = {
     for await (const [name, handle] of dir.entries()) {
       if (handle.kind === "file") {
         const file = await handle.getFile();
-        filesList.push({ name, size: file.size, type: file.type, lastModified: file.lastModified, file });
+        filesList.push({ name, size: file.size, type: file.type, lastModified: file.lastModified });
       }
     }
     return filesList;
+  },
+
+  getFile: async (key: string, fileName: string, opts?: OpfsStoreOptions): Promise<File> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const fileHandle = await dir.getFileHandle(fileName);
+    return await fileHandle.getFile();
   },
 
   addFile: async (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
@@ -308,7 +348,7 @@ const globalSwOpfsAPI = {
     const zippedData = zipSync(filesRecord);
     const zipFileHandle = await dir.getFileHandle(zipName, { create: true });
     const w = await zipFileHandle.createWritable();
-    await w.write(new Blob([zippedData as any])); // Cast para contornar TS2322
+    await w.write(new Blob([zippedData as any])); 
     await w.close();
 
     if (deleteOriginals) {
@@ -327,7 +367,7 @@ const globalSwOpfsAPI = {
       if (!name.includes('/')) {
         const fh = await dir.getFileHandle(name, { create: true });
         const w = await fh.createWritable();
-        await w.write(new Blob([data as any])); // Cast para contornar TS2322
+        await w.write(new Blob([data as any]));
         await w.close();
       }
     }
@@ -346,7 +386,7 @@ const globalSwOpfsAPI = {
     
     const newZippedData = zipSync(currentZipData);
     const w = await zipFileHandle.createWritable();
-    await w.write(new Blob([newZippedData as any])); // Cast para contornar TS2322
+    await w.write(new Blob([newZippedData as any])); 
     await w.close();
   },
 
@@ -361,10 +401,13 @@ const globalSwOpfsAPI = {
     
     const newZippedData = zipSync(currentZipData);
     const w = await zipFileHandle.createWritable();
-    await w.write(new Blob([newZippedData as any])); // Cast para contornar TS2322
+    await w.write(new Blob([newZippedData as any])); 
     await w.close();
   }
 };
+
+// 💎 EXPORTA A API INTERNA PARA SER CONSUMIDA PELO PROXY (db.ts)
+export const internalAPI = globalSwOpfsAPI;
 
 export function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
   const opts: DbStoreOptions = { dbName, storeName, prefix };
@@ -387,8 +430,8 @@ export function createScopedDb(dbName?: string, storeName = "keyval", prefix = "
     setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx?: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx?: C) => WithId<T>, context?: C) => globalSwDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
     exportDB: () => globalSwDbAPI.exportDB(opts),
     importDB: (data: Record<string, any>, clearFirst = false) => globalSwDbAPI.importDB(data, clearFirst, opts),
-    backupToOpfs: (fileName?: string) => globalSwDbAPI.backupToOpfs(fileName, opts),
-    restoreFromOpfs: (fileName: string, clearFirst = false) => globalSwDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
+    backupToOpfs: (key: string, fileName?: string) => globalSwDbAPI.backupToOpfs(key, fileName, opts),
+    restoreFromOpfs: (key: string, fileName: string, clearFirst = false) => globalSwDbAPI.restoreFromOpfs(key, fileName, clearFirst, opts),
     gerarId,
     gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
   };
@@ -397,8 +440,9 @@ export function createScopedDb(dbName?: string, storeName = "keyval", prefix = "
 export function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
   const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
   return {
-    ...createScopedDb(dbName, storeName, prefix),
+    ...createScopedDb(dbName, storeName, prefix), 
     listFiles: (key: string) => globalSwOpfsAPI.listFiles(key, opts),
+    getFile: (key: string, fileName: string) => globalSwOpfsAPI.getFile(key, fileName, opts),
     addFile: (key: string, file: File | Blob, fileName: string) => globalSwOpfsAPI.addFile(key, file, fileName, opts),
     delFile: (key: string, fileName: string) => globalSwOpfsAPI.delFile(key, fileName, opts),
     renFile: (key: string, oldName: string, newName: string) => globalSwOpfsAPI.renFile(key, oldName, newName, opts),

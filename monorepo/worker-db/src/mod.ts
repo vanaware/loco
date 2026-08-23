@@ -1,9 +1,7 @@
-// mod.ts
-import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
-import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "./utils/opfs_utils.ts";
+// ## Arquivo: monorepo/worker-db/src/mod.ts
+import { gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
 import { ls } from "./ls.ts";
-
-export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs, type WithId };
+import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./db-sw.ts";
 
 let workerInstance: Worker | null = null;
 let currentWorkerPath: string | URL = "./worker-db.js";
@@ -68,25 +66,6 @@ function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
   });
 }
 
-export interface DbStoreOptions {
-  dbName?: string;
-  storeName?: string;
-  prefix?: string;
-}
-
-export interface OpfsStoreOptions extends DbStoreOptions {
-  basePath?: string;
-}
-
-// Interface auxiliar para os arquivos retornados do OPFS
-export interface OpfsFileInfo {
-  name: string;
-  size: number;
-  type: string;
-  lastModified: number;
-  file: File; 
-}
-
 const globalDbAPI = {
   get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
   set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
@@ -119,8 +98,8 @@ const globalDbAPI = {
   setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C, opts?: DbStoreOptions): Promise<void> => exec<void>("SET_SOME", { selectFnStr: selectFn.toString(), updateFnStr: updateFn.toString(), context, ...opts }),
   exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
   importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
-  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
-  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
+  backupToOpfs: (key: string, fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { key, fileName, ...opts }),
+  restoreFromOpfs: (key: string, fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { key, fileName, clearFirst, ...opts }),
 
   init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
   restart: () => restartWorker(),
@@ -148,25 +127,17 @@ function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
     setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
     exportDB: () => globalDbAPI.exportDB(opts),
     importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
-    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
-    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
+    backupToOpfs: (key: string, fileName?: string) => globalDbAPI.backupToOpfs(key, fileName, opts),
+    restoreFromOpfs: (key: string, fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(key, fileName, clearFirst, opts),
     gerarId,
     gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
   };
 }
 
-export const db = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
-  globalDbAPI
-);
-
-// ==========================================
-// OPFS EXTENSION (Pastas associadas a Registros)
-// ==========================================
-
 const globalOpfsAPI = {
   ...globalDbAPI,
   listFiles: (key: string, opts?: OpfsStoreOptions) => exec<OpfsFileInfo[]>("OPFS_LIST", { key, ...opts }),
+  getFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<File>("OPFS_GET", { key, fileName, ...opts }),
   addFile: (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_ADD", { key, file, fileName, ...opts }),
   delFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_DEL", { key, fileName, ...opts }),
   renFile: (key: string, oldName: string, newName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_REN", { key, oldName, newName, ...opts }),
@@ -180,8 +151,9 @@ const globalOpfsAPI = {
 function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
   const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
   return {
-    ...createScopedDb(dbName, storeName, prefix), // Herda a manipulação de metadados no IndexedDB
+    ...createScopedDb(dbName, storeName, prefix), 
     listFiles: (key: string) => globalOpfsAPI.listFiles(key, opts),
+    getFile: (key: string, fileName: string) => globalOpfsAPI.getFile(key, fileName, opts),
     addFile: (key: string, file: File | Blob, fileName: string) => globalOpfsAPI.addFile(key, file, fileName, opts),
     delFile: (key: string, fileName: string) => globalOpfsAPI.delFile(key, fileName, opts),
     renFile: (key: string, oldName: string, newName: string) => globalOpfsAPI.renFile(key, oldName, newName, opts),
@@ -192,6 +164,13 @@ function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", ba
     delZip: (key: string, zipName: string, fileName: string) => globalOpfsAPI.delZip(key, zipName, fileName, opts)
   };
 }
+
+export { ls };
+
+export const db = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
+  globalDbAPI
+);
 
 export const opfs = Object.assign(
   (dbName?: string, storeName?: string, prefix?: string, basePath = "") => createScopedOpfs(dbName, storeName, prefix, basePath),

@@ -8,16 +8,15 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/23/2026, 10:18:04 AM
+Gerado automaticamente em: 8/23/2026, 4:50:14 PM
 
 ---
 
 ## Arquivo: `monorepo/worker-db/src/ls.ts`
 
 ```ts
-import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo } from "./utils/id-utils.ts";
+import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
 import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
-import type { WithId } from "./mod.ts";
 
 export interface LsStoreOptions {
   prefix?: string;
@@ -448,21 +447,35 @@ export class FakeOPFSDirectory {
 ## Arquivo: `monorepo/worker-db/src/utils/id-utils.ts`
 
 ```ts
+// src/utils/id-utils.ts
+
 export type WithId<T> = T & { _id: string };
 
+/**
+ * Gera um identificador único curto seguro.
+ * Utiliza Web Crypto API se disponível, senão cai no fallback matemático.
+ * @returns {string} ID gerado
+ */
 export function gerarId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint8Array(12);
+    crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('').substring(0, 12);
   }
-  return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+}
+
+/**
+ * Valida se a string tem formato aceitável de ID.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function validarId(id: string): boolean {
+  return typeof id === 'string' && id.length > 0 && id.length <= 24;
 }
 
 export function gerarIdComPrefixo(prefix: string): string {
   return `${prefix}${gerarId()}`;
-}
-
-export function validarId(id: string): boolean {
-  return typeof id === "string" && id.length > 0;
 }
 
 // Injeta dinamicamente o '_id' sem o prefixo ao LER do banco/localStorage
@@ -518,13 +531,13 @@ export function prepareForSave(key: string | undefined | null, val: any, prefix 
 ## Arquivo: `monorepo/worker-db/src/utils/opfs_utils.ts`
 
 ```ts
+// ## Arquivo: monorepo/worker-db/src/utils/opfs_utils.ts
 export interface OpfsResolveOptions {
   dbName?: string;
   storeName?: string;
   prefix?: string;
 }
 
-// Resolve o nome do arquivo dinamicamente
 export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: OpfsResolveOptions): string {
   const parts: string[] = [type]; 
   if (type === "db") {
@@ -537,46 +550,63 @@ export function resolveOpfsFileName(type: "db" | "ls", fileName: string, opts?: 
   return parts.join("_");
 }
 
-// Utilitário interno para garantir que sempre operemos na pasta 'backup'
 async function getBackupDir() {
   const root = await navigator.storage.getDirectory();
   return await root.getDirectoryHandle("backup", { create: true });
 }
 
-export async function writeJsonToOpfs(fileName: string, data: any): Promise<string> {
+// Navega e cria (se necessário) o caminho completo baseado em strings com '/'
+async function resolvePath(filePath: string, create = false) {
   const backupDir = await getBackupDir();
-  const fileHandle = await backupDir.getFileHandle(fileName, { create: true });
+  const parts = filePath.split('/');
+  const fileName = parts.pop()!;
+  let curr = backupDir;
+  for (const p of parts) {
+    curr = await curr.getDirectoryHandle(p, { create });
+  }
+  return { dir: curr, fileName };
+}
+
+export async function writeJsonToOpfs(filePath: string, data: any): Promise<string> {
+  const { dir, fileName } = await resolvePath(filePath, true);
+  const fileHandle = await dir.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(JSON.stringify(data));
   await writable.close();
-  return fileName;
+  return filePath;
 }
 
-export async function readJsonFromOpfs(fileName: string): Promise<any> {
-  const backupDir = await getBackupDir();
-  const fileHandle = await backupDir.getFileHandle(fileName);
+export async function readJsonFromOpfs(filePath: string): Promise<any> {
+  const { dir, fileName } = await resolvePath(filePath, false);
+  const fileHandle = await dir.getFileHandle(fileName);
   const file = await fileHandle.getFile();
   const text = await file.text();
   return JSON.parse(text);
 }
 
-export async function deleteFromOpfs(fileName: string): Promise<void> {
-  const backupDir = await getBackupDir();
-  await backupDir.removeEntry(fileName);
+export async function deleteFromOpfs(filePath: string): Promise<void> {
+  const { dir, fileName } = await resolvePath(filePath, false);
+  await dir.removeEntry(fileName);
 }
 
-export async function getFileFromOpfs(fileName: string): Promise<File> {
-  const backupDir = await getBackupDir();
-  const fileHandle = await backupDir.getFileHandle(fileName);
+export async function getFileFromOpfs(filePath: string): Promise<File> {
+  const { dir, fileName } = await resolvePath(filePath, false);
+  const fileHandle = await dir.getFileHandle(fileName);
   return await fileHandle.getFile();
 }
 
-export async function listOpfsFiles(): Promise<string[]> {
-  const backupDir = await getBackupDir();
-  const files: string[] = [];
+// Lista recursivamente arquivos mantendo o path relativo (ex: "MINHA_KEY/backup.json")
+export async function listOpfsFiles(dirHandle?: FileSystemDirectoryHandle, path = ""): Promise<string[]> {
+  const dir = dirHandle || await getBackupDir();
+  let files: string[] = [];
   // @ts-ignore: async iterator support
-  for await (const [name, handle] of backupDir.entries()) {
-    if (handle.kind === "file") files.push(name);
+  for await (const [name, handle] of dir.entries()) {
+    if (handle.kind === "file") {
+      files.push(path ? `${path}/${name}` : name);
+    } else if (handle.kind === "directory") {
+      const subFiles = await listOpfsFiles(handle, path ? `${path}/${name}` : name);
+      files = files.concat(subFiles);
+    }
   }
   return files;
 }
@@ -589,7 +619,7 @@ export async function downloadOpfsFile(fileName: string): Promise<void> {
   const url = URL.createObjectURL(file);
   const a = document.createElement("a");
   a.href = url;
-  a.download = fileName;
+  a.download = fileName.split('/').pop()!; // Download sempre usa apenas o nome do arquivo final
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -599,15 +629,161 @@ export async function downloadOpfsFile(fileName: string): Promise<void> {
 
 ---
 
+## Arquivo: `monorepo/worker-db/src/db.ts`
+
+```ts
+// ## Arquivo: monorepo/worker-db/src/db.ts
+import { internalAPI } from "./db-sw.ts";
+import type { DbStoreOptions, OpfsStoreOptions } from "./db-sw.ts";
+
+self.onmessage = async (e: MessageEvent) => {
+  const { requestId, command, args } = e.data;
+
+  try {
+    const dbOpts: DbStoreOptions = { 
+      dbName: args.dbName, 
+      storeName: args.storeName, 
+      prefix: args.prefix 
+    };
+    
+    const opfsOpts: OpfsStoreOptions = { 
+      ...dbOpts, 
+      basePath: args.basePath 
+    };
+
+    let result;
+
+    switch (command) {
+      case "GET":
+        result = await internalAPI.get(args.key, dbOpts);
+        break;
+      case "SET":
+        if (args.key !== undefined) {
+          result = await internalAPI.set(args.key, args.val, dbOpts);
+        } else {
+          result = await internalAPI.set(args.val, dbOpts);
+        }
+        break;
+      case "DELETE":
+        result = await internalAPI.delete(args.key, dbOpts);
+        break;
+      case "GET_MANY":
+        result = await internalAPI.getMany(args.keys, dbOpts);
+        break;
+      case "SET_MANY":
+        result = await internalAPI.setMany(args.entries, dbOpts);
+        break;
+      case "DEL_MANY":
+        result = await internalAPI.deleteMany(args.keys, dbOpts);
+        break;
+      case "KEYS":
+        result = await internalAPI.keys(dbOpts);
+        break;
+      case "VALUES":
+        result = await internalAPI.values(dbOpts);
+        break;
+      case "ENTRIES":
+        result = await internalAPI.entries(dbOpts);
+        break;
+      case "CLEAR":
+        result = await internalAPI.clear(dbOpts);
+        break;
+      case "PATCH": {
+        let patchOrFn;
+        if (args.fnStr) {
+          patchOrFn = new Function("prev", "ctx", `return (${args.fnStr})(prev, ctx);`) as any;
+        } else {
+          patchOrFn = args.patch;
+        }
+        result = await internalAPI.patch(args.key, patchOrFn, args.context, dbOpts);
+        break;
+      }
+      case "QUERY": {
+        const fn = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`) as any;
+        result = await internalAPI.query(fn, args.context, dbOpts);
+        break;
+      }
+      case "GET_SOME": {
+        const fn = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`) as any;
+        result = await internalAPI.getSome(fn, args.context, dbOpts);
+        break;
+      }
+      case "DEL_SOME": {
+        const fn = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`) as any;
+        result = await internalAPI.delSome(fn, args.context, dbOpts);
+        break;
+      }
+      case "SET_SOME": {
+        const selectFn = new Function("items", "ctx", `return (${args.selectFnStr})(items, ctx);`) as any;
+        const updateFn = new Function("item", "ctx", `return (${args.updateFnStr})(item, ctx);`) as any;
+        result = await internalAPI.setSome(selectFn, updateFn, args.context, dbOpts);
+        break;
+      }
+      case "EXPORT":
+        result = await internalAPI.exportDB(dbOpts);
+        break;
+      case "IMPORT":
+        result = await internalAPI.importDB(args.data, args.clearFirst, dbOpts);
+        break;
+      case "BACKUP_OPFS":
+        result = await internalAPI.backupToOpfs(args.key, args.fileName, dbOpts);
+        break;
+      case "RESTORE_OPFS":
+        result = await internalAPI.restoreFromOpfs(args.key, args.fileName, args.clearFirst, dbOpts);
+        break;
+
+      // ==== OPFS EXTENSION ====
+      case "OPFS_LIST":
+        result = await internalAPI.listFiles(args.key, opfsOpts);
+        break;
+      case "OPFS_GET":
+        result = await internalAPI.getFile(args.key, args.fileName, opfsOpts);
+        break;
+      case "OPFS_ADD":
+        result = await internalAPI.addFile(args.key, args.file, args.fileName, opfsOpts);
+        break;
+      case "OPFS_DEL":
+        result = await internalAPI.delFile(args.key, args.fileName, opfsOpts);
+        break;
+      case "OPFS_REN":
+        result = await internalAPI.renFile(args.key, args.oldName, args.newName, opfsOpts);
+        break;
+      case "OPFS_MV":
+        result = await internalAPI.mvFile(args.key, args.fileName, args.newKey, opfsOpts);
+        break;
+      case "OPFS_ZIP":
+        result = await internalAPI.zip(args.key, args.zipName, args.filesToZip, args.deleteOriginals, opfsOpts);
+        break;
+      case "OPFS_UNZIP":
+        result = await internalAPI.unzip(args.key, args.zipName, args.deleteZip, opfsOpts);
+        break;
+      case "OPFS_ADDZIP":
+        result = await internalAPI.addZip(args.key, args.zipName, args.file, args.fileName, opfsOpts);
+        break;
+      case "OPFS_DELZIP":
+        result = await internalAPI.delZip(args.key, args.zipName, args.fileName, opfsOpts);
+        break;
+      
+      default: 
+        throw new Error(`Comando desconhecido: ${command}`);
+    }
+    
+    self.postMessage({ requestId, success: true, result });
+  } catch (error) {
+    self.postMessage({ requestId, success: false, error: (error as Error).message });
+  }
+};
+```
+
+---
+
 ## Arquivo: `monorepo/worker-db/src/mod.ts`
 
 ```ts
-// mod.ts
-import { gerarId, gerarIdComPrefixo, validarId, type WithId } from "./utils/id-utils.ts";
-import { downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "./utils/opfs_utils.ts";
+// ## Arquivo: monorepo/worker-db/src/mod.ts
+import { gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
 import { ls } from "./ls.ts";
-
-export { gerarId, gerarIdComPrefixo, validarId, ls, downloadOpfsFile, listOpfsFiles, deleteFromOpfs, getFileFromOpfs, type WithId };
+import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./db-sw.ts";
 
 let workerInstance: Worker | null = null;
 let currentWorkerPath: string | URL = "./worker-db.js";
@@ -672,25 +848,6 @@ function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
   });
 }
 
-export interface DbStoreOptions {
-  dbName?: string;
-  storeName?: string;
-  prefix?: string;
-}
-
-export interface OpfsStoreOptions extends DbStoreOptions {
-  basePath?: string;
-}
-
-// Interface auxiliar para os arquivos retornados do OPFS
-export interface OpfsFileInfo {
-  name: string;
-  size: number;
-  type: string;
-  lastModified: number;
-  file: File; 
-}
-
 const globalDbAPI = {
   get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
   set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
@@ -723,8 +880,8 @@ const globalDbAPI = {
   setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C, opts?: DbStoreOptions): Promise<void> => exec<void>("SET_SOME", { selectFnStr: selectFn.toString(), updateFnStr: updateFn.toString(), context, ...opts }),
   exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
   importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
-  backupToOpfs: (fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { fileName, ...opts }),
-  restoreFromOpfs: (fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { fileName, clearFirst, ...opts }),
+  backupToOpfs: (key: string, fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { key, fileName, ...opts }),
+  restoreFromOpfs: (key: string, fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { key, fileName, clearFirst, ...opts }),
 
   init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
   restart: () => restartWorker(),
@@ -752,25 +909,17 @@ function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
     setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
     exportDB: () => globalDbAPI.exportDB(opts),
     importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
-    backupToOpfs: (fileName?: string) => globalDbAPI.backupToOpfs(fileName, opts),
-    restoreFromOpfs: (fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
+    backupToOpfs: (key: string, fileName?: string) => globalDbAPI.backupToOpfs(key, fileName, opts),
+    restoreFromOpfs: (key: string, fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(key, fileName, clearFirst, opts),
     gerarId,
     gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
   };
 }
 
-export const db = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
-  globalDbAPI
-);
-
-// ==========================================
-// OPFS EXTENSION (Pastas associadas a Registros)
-// ==========================================
-
 const globalOpfsAPI = {
   ...globalDbAPI,
   listFiles: (key: string, opts?: OpfsStoreOptions) => exec<OpfsFileInfo[]>("OPFS_LIST", { key, ...opts }),
+  getFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<File>("OPFS_GET", { key, fileName, ...opts }),
   addFile: (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_ADD", { key, file, fileName, ...opts }),
   delFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_DEL", { key, fileName, ...opts }),
   renFile: (key: string, oldName: string, newName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_REN", { key, oldName, newName, ...opts }),
@@ -784,8 +933,9 @@ const globalOpfsAPI = {
 function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
   const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
   return {
-    ...createScopedDb(dbName, storeName, prefix), // Herda a manipulação de metadados no IndexedDB
+    ...createScopedDb(dbName, storeName, prefix), 
     listFiles: (key: string) => globalOpfsAPI.listFiles(key, opts),
+    getFile: (key: string, fileName: string) => globalOpfsAPI.getFile(key, fileName, opts),
     addFile: (key: string, file: File | Blob, fileName: string) => globalOpfsAPI.addFile(key, file, fileName, opts),
     delFile: (key: string, fileName: string) => globalOpfsAPI.delFile(key, fileName, opts),
     renFile: (key: string, oldName: string, newName: string) => globalOpfsAPI.renFile(key, oldName, newName, opts),
@@ -796,6 +946,13 @@ function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", ba
     delZip: (key: string, zipName: string, fileName: string) => globalOpfsAPI.delZip(key, zipName, fileName, opts)
   };
 }
+
+export { ls };
+
+export const db = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
+  globalDbAPI
+);
 
 export const opfs = Object.assign(
   (dbName?: string, storeName?: string, prefix?: string, basePath = "") => createScopedOpfs(dbName, storeName, prefix, basePath),
@@ -808,8 +965,8 @@ export const opfs = Object.assign(
 ## Arquivo: `monorepo/worker-db/src/db-sw.ts`
 
 ```ts
-// db-sw.ts
-// ⚠️ ESTE MÓDULO É DE USO EXCLUSIVO DO SERVICE WORKER OU AMBIENTES QUE JÁ RODAM EM BACKGROUND.
+// ## Arquivo: monorepo/worker-db/src/db-sw.ts
+// ⚠️ MÓDULO CENTRAL DO BANCO DE DADOS: Ponto único de verdade para manipulação do IDB e OPFS.
 import { 
   get, set, del, keys, clear, getMany, setMany, delMany, 
   values, entries, createStore, type UseStore
@@ -817,8 +974,27 @@ import {
 import { zipSync, unzipSync } from "fflate";
 
 import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
-import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
-import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./mod.ts";
+
+// ============================================================================
+// DEFINIÇÕES DE TIPOS (Single Source of Truth)
+// ============================================================================
+export interface DbStoreOptions {
+  dbName?: string;
+  storeName?: string;
+  prefix?: string;
+}
+
+export interface OpfsStoreOptions extends DbStoreOptions {
+  basePath?: string;
+}
+
+export interface OpfsFileInfo {
+  name: string;
+  size: number;
+  type: string;
+  lastModified: number;
+}
+// ============================================================================
 
 const storeCache = new Map<string, UseStore>();
 
@@ -844,7 +1020,7 @@ async function getRecordDir(basePath = "", rawKey: string, create = false): Prom
   return curr;
 }
 
-const globalSwDbAPI = {
+export const globalSwDbAPI = {
   get: async <T>(key: string, opts?: DbStoreOptions): Promise<WithId<T> | undefined> => {
     const store = getCustomStore(opts?.dbName, opts?.storeName);
     const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
@@ -1017,21 +1193,35 @@ const globalSwDbAPI = {
     await setMany(entriesToImport, store);
   },
 
-  backupToOpfs: async (fileName?: string, opts?: DbStoreOptions): Promise<string> => {
+  backupToOpfs: async (key: string, fileName?: string, opts?: DbStoreOptions): Promise<string> => {
     const store = getCustomStore(opts?.dbName, opts?.storeName);
     const allEntries = await entries(store);
     const filtered = opts?.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(opts.prefix!)) : allEntries;
     const data = Object.fromEntries(filtered);
     
-    const finalName = resolveOpfsFileName("db", fileName || "backup.json", {
-      dbName: opts?.dbName, storeName: opts?.storeName, prefix: opts?.prefix
-    });
-    return await writeJsonToOpfs(finalName, data);
+    const finalName = fileName || "backup.json";
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    
+    const dir = await getRecordDir("backup", rawKey, true);
+    const fileHandle = await dir.getFileHandle(finalName, { create: true });
+    const w = await fileHandle.createWritable();
+    await w.write(new Blob([JSON.stringify(data)], { type: "application/json" }));
+    await w.close();
+
+    return `${rawKey}/${finalName}`; 
   },
 
-  restoreFromOpfs: async (fileName: string, clearFirst = false, opts?: DbStoreOptions): Promise<void> => {
+  restoreFromOpfs: async (key: string, fileName: string, clearFirst = false, opts?: DbStoreOptions): Promise<void> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir("backup", rawKey, false);
+
+    const finalName = fileName.includes("/") ? fileName.split("/").pop()! : fileName;
+
+    const fileHandle = await dir.getFileHandle(finalName);
+    const file = await fileHandle.getFile();
+    const data = JSON.parse(await file.text());
+
     const store = getCustomStore(opts?.dbName, opts?.storeName);
-    const data = await readJsonFromOpfs(fileName);
     if (clearFirst) await globalSwDbAPI.clear(opts);
     
     const entriesToImport: [string, any][] = Object.entries(data).map(([k, v]) => {
@@ -1042,7 +1232,7 @@ const globalSwDbAPI = {
   },
 };
 
-const globalSwOpfsAPI = {
+export const globalSwOpfsAPI = {
   ...globalSwDbAPI,
 
   listFiles: async (key: string, opts?: OpfsStoreOptions): Promise<OpfsFileInfo[]> => {
@@ -1053,10 +1243,17 @@ const globalSwOpfsAPI = {
     for await (const [name, handle] of dir.entries()) {
       if (handle.kind === "file") {
         const file = await handle.getFile();
-        filesList.push({ name, size: file.size, type: file.type, lastModified: file.lastModified, file });
+        filesList.push({ name, size: file.size, type: file.type, lastModified: file.lastModified });
       }
     }
     return filesList;
+  },
+
+  getFile: async (key: string, fileName: string, opts?: OpfsStoreOptions): Promise<File> => {
+    const rawKey = opts?.prefix && !key.startsWith(opts.prefix) ? `${opts.prefix}${key}` : key;
+    const dir = await getRecordDir(opts?.basePath, rawKey, false);
+    const fileHandle = await dir.getFileHandle(fileName);
+    return await fileHandle.getFile();
   },
 
   addFile: async (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions): Promise<void> => {
@@ -1118,7 +1315,7 @@ const globalSwOpfsAPI = {
     const zippedData = zipSync(filesRecord);
     const zipFileHandle = await dir.getFileHandle(zipName, { create: true });
     const w = await zipFileHandle.createWritable();
-    await w.write(new Blob([zippedData as any])); // Cast para contornar TS2322
+    await w.write(new Blob([zippedData as any])); 
     await w.close();
 
     if (deleteOriginals) {
@@ -1137,7 +1334,7 @@ const globalSwOpfsAPI = {
       if (!name.includes('/')) {
         const fh = await dir.getFileHandle(name, { create: true });
         const w = await fh.createWritable();
-        await w.write(new Blob([data as any])); // Cast para contornar TS2322
+        await w.write(new Blob([data as any]));
         await w.close();
       }
     }
@@ -1156,7 +1353,7 @@ const globalSwOpfsAPI = {
     
     const newZippedData = zipSync(currentZipData);
     const w = await zipFileHandle.createWritable();
-    await w.write(new Blob([newZippedData as any])); // Cast para contornar TS2322
+    await w.write(new Blob([newZippedData as any])); 
     await w.close();
   },
 
@@ -1171,10 +1368,13 @@ const globalSwOpfsAPI = {
     
     const newZippedData = zipSync(currentZipData);
     const w = await zipFileHandle.createWritable();
-    await w.write(new Blob([newZippedData as any])); // Cast para contornar TS2322
+    await w.write(new Blob([newZippedData as any])); 
     await w.close();
   }
 };
+
+// 💎 EXPORTA A API INTERNA PARA SER CONSUMIDA PELO PROXY (db.ts)
+export const internalAPI = globalSwOpfsAPI;
 
 export function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
   const opts: DbStoreOptions = { dbName, storeName, prefix };
@@ -1197,8 +1397,8 @@ export function createScopedDb(dbName?: string, storeName = "keyval", prefix = "
     setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx?: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx?: C) => WithId<T>, context?: C) => globalSwDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
     exportDB: () => globalSwDbAPI.exportDB(opts),
     importDB: (data: Record<string, any>, clearFirst = false) => globalSwDbAPI.importDB(data, clearFirst, opts),
-    backupToOpfs: (fileName?: string) => globalSwDbAPI.backupToOpfs(fileName, opts),
-    restoreFromOpfs: (fileName: string, clearFirst = false) => globalSwDbAPI.restoreFromOpfs(fileName, clearFirst, opts),
+    backupToOpfs: (key: string, fileName?: string) => globalSwDbAPI.backupToOpfs(key, fileName, opts),
+    restoreFromOpfs: (key: string, fileName: string, clearFirst = false) => globalSwDbAPI.restoreFromOpfs(key, fileName, clearFirst, opts),
     gerarId,
     gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
   };
@@ -1207,8 +1407,9 @@ export function createScopedDb(dbName?: string, storeName = "keyval", prefix = "
 export function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
   const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
   return {
-    ...createScopedDb(dbName, storeName, prefix),
+    ...createScopedDb(dbName, storeName, prefix), 
     listFiles: (key: string) => globalSwOpfsAPI.listFiles(key, opts),
+    getFile: (key: string, fileName: string) => globalSwOpfsAPI.getFile(key, fileName, opts),
     addFile: (key: string, file: File | Blob, fileName: string) => globalSwOpfsAPI.addFile(key, file, fileName, opts),
     delFile: (key: string, fileName: string) => globalSwOpfsAPI.delFile(key, fileName, opts),
     renFile: (key: string, oldName: string, newName: string) => globalSwOpfsAPI.renFile(key, oldName, newName, opts),
@@ -1222,354 +1423,6 @@ export function createScopedOpfs(dbName?: string, storeName = "keyval", prefix =
 
 export const db = Object.assign((dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix), globalSwDbAPI);
 export const opfs = Object.assign((dbName?: string, storeName?: string, prefix?: string, basePath = "") => createScopedOpfs(dbName, storeName, prefix, basePath), globalSwOpfsAPI);
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/db.ts`
-
-```ts
-// db.ts
-import { 
-  get, set, del, keys, clear, getMany, setMany, delMany, 
-  values, entries, createStore, type UseStore
-} from "idb-keyval";
-import { zipSync, unzipSync } from "fflate"; 
-
-import { formatDbItem, prepareForSave } from "./utils/id-utils.ts";
-import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
-
-const storeCache = new Map<string, UseStore>();
-
-function getCustomStore(dbName?: string, storeName = "keyval"): UseStore | undefined {
-  if (!dbName) return undefined; 
-  const cacheKey = `${dbName}:${storeName}`;
-  if (!storeCache.has(cacheKey)) {
-    storeCache.set(cacheKey, createStore(dbName, storeName));
-  }
-  return storeCache.get(cacheKey);
-}
-
-function formatDbEntries(rawEntries: [IDBValidKey, any][], prefix?: string) {
-  let items = rawEntries;
-  if (prefix) items = items.filter(([k]) => typeof k === "string" && k.startsWith(prefix));
-  return items.map(([k, v]) => formatDbItem(k, v, prefix));
-}
-
-async function getRecordDir(basePath = "", rawKey: string, create = false): Promise<FileSystemDirectoryHandle> {
-  const root = await navigator.storage.getDirectory();
-  const fullPath = basePath ? `${basePath}/${rawKey}` : rawKey;
-  const parts = fullPath.split('/').filter(Boolean);
-  let curr = root;
-  for (const p of parts) {
-    curr = await curr.getDirectoryHandle(p, { create });
-  }
-  return curr;
-}
-
-self.onmessage = async (e: MessageEvent) => {
-  const { requestId, command, args } = e.data;
-
-  try {
-    const store = getCustomStore(args.dbName, args.storeName);
-    const rawKey = args.key && args.prefix && !args.key.startsWith(args.prefix) ? `${args.prefix}${args.key}` : args.key;
-    let result;
-
-    switch (command) {
-      case "GET": {
-        const val = await get(rawKey, store);
-        result = val !== undefined ? formatDbItem(rawKey, val, args.prefix) : undefined;
-        break;
-      }
-      case "SET": {
-        const { key, cleanVal } = prepareForSave(args.key, args.val, args.prefix);
-        await set(key, cleanVal, store);
-        result = key;
-        break;
-      }
-      case "DELETE": {
-        result = await del(rawKey, store);
-        break;
-      }
-      case "GET_MANY": {
-        const fullKeys = args.keys.map((k: string) => args.prefix && !k.startsWith(args.prefix) ? `${args.prefix}${k}` : k);
-        const rawValues = await getMany(fullKeys, store);
-        result = rawValues.map((val, idx) => val !== undefined ? formatDbItem(fullKeys[idx]!, val, args.prefix) : undefined);
-        break;
-      }
-      case "SET_MANY": {
-        const entriesToSet: [string, any][] = args.entries.map(([k, v]: [string, any]) => {
-          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
-          return [key, cleanVal];
-        });
-        result = await setMany(entriesToSet, store);
-        break;
-      }
-      case "DEL_MANY": {
-        const fullKeys = args.keys.map((k: string) => args.prefix && !k.startsWith(args.prefix) ? `${args.prefix}${k}` : k);
-        result = await delMany(fullKeys, store);
-        break;
-      }
-      case "KEYS": {
-        const allKeys = await keys(store);
-        result = args.prefix ? allKeys.filter(k => typeof k === "string" && k.startsWith(args.prefix)) : allKeys;
-        break;
-      }
-      case "VALUES": {
-        const allEntries = await entries(store);
-        result = formatDbEntries(allEntries, args.prefix); 
-        break;
-      }
-      case "ENTRIES": {
-        const allEntries = await entries(store);
-        result = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
-        break;
-      }
-      case "CLEAR": {
-        if (args.prefix) {
-          const allKeys = await keys(store);
-          const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
-          await delMany(keysToDelete, store);
-        } else {
-          await clear(store);
-        }
-        break;
-      }
-      case "PATCH": {
-        const current = (await get(rawKey, store)) || {};
-        let updated: any;
-        if (args.fnStr) {
-          const runner = new Function("prev", "ctx", `return (${args.fnStr})(prev, ctx);`);
-          updated = runner(formatDbItem(rawKey, current, args.prefix), args.context);
-        } else {
-          updated = Object.assign({}, current, args.patch);
-        }
-        const { key, cleanVal } = prepareForSave(rawKey, updated, args.prefix);
-        await set(key, cleanVal, store);
-        result = formatDbItem(key, cleanVal, args.prefix);
-        break;
-      }
-      case "QUERY": {
-        const rawEntries = await entries(store);
-        const formattedItems = formatDbEntries(rawEntries, args.prefix);
-        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
-        result = runner(formattedItems, args.context);
-        break;
-      }
-      case "GET_SOME": {
-        const rawEntries = await entries(store);
-        const formattedItems = formatDbEntries(rawEntries, args.prefix);
-        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
-        const selectedItems = runner(formattedItems, args.context);
-        if (!Array.isArray(selectedItems)) throw new Error("A função injetada em GET_SOME deve retornar um Array.");
-        result = selectedItems;
-        break;
-      }
-      case "DEL_SOME": {
-        const rawEntries = await entries(store);
-        const formattedItems = formatDbEntries(rawEntries, args.prefix);
-        const runner = new Function("items", "ctx", `return (${args.fnStr})(items, ctx);`);
-        const selectedItems = runner(formattedItems, args.context);
-        if (!Array.isArray(selectedItems)) throw new Error("A função injetada em DEL_SOME deve retornar um Array.");
-        const keysToDelete: string[] = selectedItems.map((item: any) => args.prefix && !item._id.startsWith(args.prefix) ? `${args.prefix}${item._id}` : item._id);
-        result = await delMany(keysToDelete, store);
-        break;
-      }
-      case "SET_SOME": {
-        const rawEntries = await entries(store);
-        const formattedItems = formatDbEntries(rawEntries, args.prefix);
-        const selectRunner = new Function("items", "ctx", `return (${args.selectFnStr})(items, ctx);`);
-        const updateRunner = new Function("item", "ctx", `return (${args.updateFnStr})(item, ctx);`);
-        const selectedItems = selectRunner(formattedItems, args.context);
-        if (!Array.isArray(selectedItems)) throw new Error("A função de seleção em SET_SOME deve retornar um Array.");
-        const entriesToSet: [string, any][] = selectedItems.map((item: any) => {
-          const updatedItem = updateRunner(item, args.context);
-          const { key, cleanVal } = prepareForSave(undefined, updatedItem, args.prefix);
-          return [key, cleanVal];
-        });
-        result = await setMany(entriesToSet, store);
-        break;
-      }
-      case "EXPORT": {
-        const allEntries = await entries(store);
-        const filtered = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
-        result = Object.fromEntries(filtered);
-        break;
-      }
-      case "IMPORT": {
-        if (args.clearFirst) {
-          if (args.prefix) {
-            const allKeys = await keys(store);
-            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
-            await delMany(keysToDelete, store);
-          } else await clear(store);
-        }
-        const entriesToImport: [string, any][] = Object.entries(args.data).map(([k, v]) => {
-          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
-          return [key, cleanVal];
-        });
-        result = await setMany(entriesToImport, store);
-        break;
-      }
-      case "BACKUP_OPFS": {
-        const allEntries = await entries(store);
-        const filtered = args.prefix ? allEntries.filter(([k]) => typeof k === "string" && k.startsWith(args.prefix)) : allEntries;
-        const data = Object.fromEntries(filtered);
-        const fileName = resolveOpfsFileName("db", args.fileName || "backup.json", { dbName: args.dbName, storeName: args.storeName, prefix: args.prefix });
-        result = await writeJsonToOpfs(fileName, data);
-        break;
-      }
-      case "RESTORE_OPFS": {
-        const data = await readJsonFromOpfs(args.fileName);
-        if (args.clearFirst) {
-          if (args.prefix) {
-            const allKeys = await keys(store);
-            const keysToDelete = allKeys.filter((k) => typeof k === "string" && k.startsWith(args.prefix));
-            await delMany(keysToDelete, store);
-          } else await clear(store);
-        }
-        const entriesToImport: [string, any][] = Object.entries(data).map(([k, v]) => {
-          const { key, cleanVal } = prepareForSave(k, v, args.prefix);
-          return [key, cleanVal];
-        });
-        result = await setMany(entriesToImport, store);
-        break;
-      }
-
-      // ==== OPFS EXTENSION ====
-      case "OPFS_LIST": {
-        const dir = await getRecordDir(args.basePath, rawKey, true);
-        const filesList = [];
-        // @ts-ignore
-        for await (const [name, handle] of dir.entries()) {
-          if (handle.kind === "file") {
-            const file = await handle.getFile();
-            filesList.push({ name, size: file.size, type: file.type, lastModified: file.lastModified, file });
-          }
-        }
-        result = filesList;
-        break;
-      }
-      case "OPFS_ADD": {
-        const dir = await getRecordDir(args.basePath, rawKey, true);
-        const fh = await dir.getFileHandle(args.fileName, { create: true });
-        const w = await fh.createWritable();
-        const buffer = await (args.file as Blob).arrayBuffer();
-        await w.write(new Blob([buffer]));
-        await w.close();
-        break;
-      }
-      case "OPFS_DEL": {
-        const dir = await getRecordDir(args.basePath, rawKey, false);
-        await dir.removeEntry(args.fileName);
-        break;
-      }
-      case "OPFS_REN": {
-        const dir = await getRecordDir(args.basePath, rawKey, false);
-        const oldFile = await dir.getFileHandle(args.oldName);
-        const fileData = await oldFile.getFile();
-        const newFile = await dir.getFileHandle(args.newName, { create: true });
-        const w = await newFile.createWritable();
-        await w.write(new Blob([await fileData.arrayBuffer()]));
-        await w.close();
-        await dir.removeEntry(args.oldName);
-        break;
-      }
-      case "OPFS_MV": {
-        const dir = await getRecordDir(args.basePath, rawKey, false);
-        const fileHandle = await dir.getFileHandle(args.fileName);
-        const fileData = await fileHandle.getFile();
-        
-        const rawNewKey = args.prefix && !args.newKey.startsWith(args.prefix) ? `${args.prefix}${args.newKey}` : args.newKey;
-        const targetDir = await getRecordDir(args.basePath, rawNewKey, true);
-        
-        const newFile = await targetDir.getFileHandle(args.fileName, { create: true });
-        const w = await newFile.createWritable();
-        await w.write(new Blob([await fileData.arrayBuffer()]));
-        await w.close();
-        await dir.removeEntry(args.fileName);
-        break;
-      }
-      case "OPFS_ZIP": {
-        const dir = await getRecordDir(args.basePath, rawKey, false);
-        const filesToZip: Record<string, Uint8Array> = {};
-        
-        // @ts-ignore
-        for await (const [name, handle] of dir.entries()) {
-          if (handle.kind === "file" && (!args.filesToZip || args.filesToZip.includes(name))) {
-            const f = await handle.getFile();
-            filesToZip[name] = new Uint8Array(await f.arrayBuffer());
-          }
-        }
-
-        const zippedData = zipSync(filesToZip);
-        const zipFileHandle = await dir.getFileHandle(args.zipName, { create: true });
-        const w = await zipFileHandle.createWritable();
-        await w.write(new Blob([zippedData as any]));
-        await w.close();
-
-        if (args.deleteOriginals) {
-          for (const name of Object.keys(filesToZip)) await dir.removeEntry(name);
-        }
-        break;
-      }
-      case "OPFS_UNZIP": {
-        const dir = await getRecordDir(args.basePath, rawKey, false);
-        const zipFileHandle = await dir.getFileHandle(args.zipName);
-        const zipFile = await zipFileHandle.getFile();
-        const zipBuffer = new Uint8Array(await zipFile.arrayBuffer());
-        
-        const unzipped = unzipSync(zipBuffer);
-        for (const [name, data] of Object.entries(unzipped)) {
-          if (!name.includes('/')) {
-            const fh = await dir.getFileHandle(name, { create: true });
-            const w = await fh.createWritable();
-            await w.write(new Blob([data as any])); 
-            await w.close();
-          }
-        }
-
-        if (args.deleteZip) await dir.removeEntry(args.zipName);
-        break;
-      }
-      case "OPFS_ADDZIP": {
-        const dir = await getRecordDir(args.basePath, rawKey, false);
-        const zipFileHandle = await dir.getFileHandle(args.zipName);
-        const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
-        const currentZipData = unzipSync(zipBuffer);
-        
-        currentZipData[args.fileName] = new Uint8Array(await (args.file as Blob).arrayBuffer());
-        
-        const newZippedData = zipSync(currentZipData);
-        const w = await zipFileHandle.createWritable();
-        await w.write(new Blob([newZippedData as any]));
-        await w.close();
-        break;
-      }
-      case "OPFS_DELZIP": {
-        const dir = await getRecordDir(args.basePath, rawKey, false);
-        const zipFileHandle = await dir.getFileHandle(args.zipName);
-        const zipBuffer = new Uint8Array(await (await zipFileHandle.getFile()).arrayBuffer());
-        const currentZipData = unzipSync(zipBuffer);
-        
-        delete currentZipData[args.fileName]; 
-        
-        const newZippedData = zipSync(currentZipData);
-        const w = await zipFileHandle.createWritable();
-        await w.write(new Blob([newZippedData as any]));
-        await w.close();
-        break;
-      }
-      
-      default: 
-        throw new Error(`Comando desconhecido: ${command}`);
-    }
-    
-    self.postMessage({ requestId, success: true, result });
-  } catch (error) {
-    self.postMessage({ requestId, success: false, error: (error as Error).message });
-  }
-};
 ```
 
 ---
@@ -2090,104 +1943,6 @@ Deno.test({
 
 ---
 
-## Arquivo: `monorepo/worker-db/tests/opfs_and_isolation_test.ts`
-
-```ts
-import { assertEquals, assert } from "@std/assert";
-
-import { db, ls } from "../src/fake/fake-mod.ts";
-import { FakeOPFSDirectory } from "../src/fake/fake-opfs.ts";
-
-Deno.test({
-  name: "ISOLATION - LS: Garantir que instâncias com prefixos diferentes não colidam",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  fn() {
-    const storeA = ls("APP_A_");
-    const storeB = ls("APP_B_");
-    
-    storeA.clear();
-    storeB.clear();
-
-    storeA.set("1", { data: "from A" });
-    storeB.set("1", { data: "from B" });
-
-    assertEquals(storeA.get<any>("1")?.data, "from A");
-    assertEquals(storeB.get<any>("1")?.data, "from B");
-
-    storeA.clear();
-    assertEquals(storeA.keys().length, 0);
-    assertEquals(storeB.keys().length, 1);
-    assertEquals(storeB.get<any>("1")?.data, "from B");
-  }
-});
-
-db.init(new URL("../build/worker-db.js", import.meta.url));
-
-Deno.test({
-  name: "ISOLATION - DB: Garantir que instâncias no mesmo Store, com prefixos diferentes, são isoladas",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const dbApp1 = db("SHARED_DB", "keyval", "APP_1_");
-    const dbApp2 = db("SHARED_DB", "keyval", "APP_2_");
-
-    await dbApp1.clear();
-    await dbApp2.clear();
-
-    await dbApp1.set("config", { theme: "dark" });
-    await dbApp2.set("config", { theme: "light" });
-
-    const app1Vals = await dbApp1.values<any>();
-    assertEquals(app1Vals.length, 1);
-    assertEquals(app1Vals[0].theme, "dark");
-
-    const exportApp2 = await dbApp2.exportDB();
-    assert(Object.keys(exportApp2).includes("APP_2_config"));
-    assert(!Object.keys(exportApp2).includes("APP_1_config"));
-
-    await dbApp1.clear();
-    assertEquals((await dbApp1.keys()).length, 0);
-    
-    const app2Keys = await dbApp2.keys();
-    assertEquals(app2Keys.length, 1);
-    assertEquals(app2Keys[0], "APP_2_config");
-  }
-});
-
-Deno.test({
-  name: "OPFS - Fluxo completo de Backup e Restore (DB e LS)",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    FakeOPFSDirectory.clear();
-    const store = db("OPFS_DB", "test", "BACKUP_");
-    await store.clear();
-
-    await store.set("k1", { text: "Hello OPFS" });
-    await store.set("k2", { text: "Loco PWA" });
-
-    const fileName = await store.backupToOpfs("meu_backup.json");
-    assert(fileName.includes("BACKUP_")); 
-    assert(fileName.includes("meu_backup.json"));
-
-    await store.clear();
-    assertEquals((await store.keys()).length, 0);
-
-    await store.restoreFromOpfs(fileName);
-    const restored = await store.values<any>();
-    assertEquals(restored.length, 2);
-    
-    const k1 = await store.get<any>("k1");
-    assertEquals(k1?.text, "Hello OPFS");
-    
-    FakeOPFSDirectory.clear();
-  }
-});
-```
-
----
-
 ## Arquivo: `monorepo/worker-db/tests/main.test.ts`
 
 ```ts
@@ -2378,6 +2133,109 @@ Deno.test({
 
 ---
 
+## Arquivo: `monorepo/worker-db/tests/opfs_and_isolation_test.ts`
+
+```ts
+// ## Arquivo: monorepo/worker-db/tests/opfs_and_isolation_test.ts
+import { assertEquals, assert } from "@std/assert";
+
+import { db, ls } from "../src/fake/fake-mod.ts";
+import { FakeOPFSDirectory } from "../src/fake/fake-opfs.ts";
+
+Deno.test({
+  name: "ISOLATION - LS: Garantir que instâncias com prefixos diferentes não colidam",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn() {
+    const storeA = ls("APP_A_");
+    const storeB = ls("APP_B_");
+    
+    storeA.clear();
+    storeB.clear();
+
+    storeA.set("1", { data: "from A" });
+    storeB.set("1", { data: "from B" });
+
+    assertEquals(storeA.get<any>("1")?.data, "from A");
+    assertEquals(storeB.get<any>("1")?.data, "from B");
+
+    storeA.clear();
+    assertEquals(storeA.keys().length, 0);
+    assertEquals(storeB.keys().length, 1);
+    assertEquals(storeB.get<any>("1")?.data, "from B");
+  }
+});
+
+db.init(new URL("../build/worker-db.js", import.meta.url));
+
+Deno.test({
+  name: "ISOLATION - DB: Garantir que instâncias no mesmo Store, com prefixos diferentes, são isoladas",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const dbApp1 = db("SHARED_DB", "keyval", "APP_1_");
+    const dbApp2 = db("SHARED_DB", "keyval", "APP_2_");
+
+    await dbApp1.clear();
+    await dbApp2.clear();
+
+    await dbApp1.set("config", { theme: "dark" });
+    await dbApp2.set("config", { theme: "light" });
+
+    const app1Vals = await dbApp1.values<any>();
+    assertEquals(app1Vals.length, 1);
+    assertEquals(app1Vals[0].theme, "dark");
+
+    const exportApp2 = await dbApp2.exportDB();
+    assert(Object.keys(exportApp2).includes("APP_2_config"));
+    assert(!Object.keys(exportApp2).includes("APP_1_config"));
+
+    await dbApp1.clear();
+    assertEquals((await dbApp1.keys()).length, 0);
+    
+    const app2Keys = await dbApp2.keys();
+    assertEquals(app2Keys.length, 1);
+    assertEquals(app2Keys[0], "APP_2_config");
+  }
+});
+
+Deno.test({
+  name: "OPFS - Fluxo completo de Backup e Restore (DB e LS) usando record-keys",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    FakeOPFSDirectory.clear();
+    const store = db("OPFS_DB", "test", "BACKUP_");
+    await store.clear();
+
+    await store.set("k1", { text: "Hello OPFS" });
+    await store.set("k2", { text: "Loco PWA" });
+
+    const recordKey = "meus_snapshots";
+    const fileNamePath = await store.backupToOpfs(recordKey, "meu_backup.json");
+    
+    assert(fileNamePath.includes("BACKUP_")); 
+    assert(fileNamePath.includes(recordKey));
+    assert(fileNamePath.includes("meu_backup.json"));
+
+    await store.clear();
+    assertEquals((await store.keys()).length, 0);
+
+    // Restore indicando a recordKey isolada
+    await store.restoreFromOpfs(recordKey, "meu_backup.json");
+    const restored = await store.values<any>();
+    assertEquals(restored.length, 2);
+    
+    const k1 = await store.get<any>("k1");
+    assertEquals(k1?.text, "Hello OPFS");
+    
+    FakeOPFSDirectory.clear();
+  }
+});
+```
+
+---
+
 ## Arquivo: `monorepo/worker-db/example/index.html`
 
 ```html
@@ -2443,73 +2301,6 @@ Deno.test({
   <script type="module" src="./main.js"></script>
 </body>
 </html>
-```
-
----
-
-## Arquivo: `monorepo/worker-db/example/sw.ts`
-
-```ts
-/// <reference lib="webworker" />
-
-// ⚠️ IMPORTANTE: Importamos exclusivamente de db-sw.ts para não invocar Web Workers secundários!
-import { db } from "../src/db-sw.ts";
-import { listOpfsFiles } from "../src/utils/opfs_utils.ts";
-
-const sw = self as unknown as ServiceWorkerGlobalScope;
-
-// Força a instalação imediata do SW
-sw.addEventListener("install", (event) => {
-  sw.skipWaiting();
-});
-
-// Assume o controle de todas as páginas abertas imediatamente
-sw.addEventListener("activate", (event) => {
-  event.waitUntil(sw.clients.claim());
-});
-
-// Escuta comandos vindos da Main Thread (main.ts)
-sw.addEventListener("message", async (event) => {
-  if (event.data && event.data.type === "RUN_SW_DEMO") {
-    try {
-      // 1. Instancia o banco diretamente na thread do SW
-      const msgStore = db("LOCO_DATA", "messages", "MSG_");
-
-      // 2. Insere um dado no IndexedDB
-      const insertedId = await msgStore.set("auto", {
-        senderId: "system_sw",
-        recipientId: "all",
-        content: "Mensagem gravada diretamente pelo Service Worker!",
-        status: "delivered",
-        priority: 99,
-        timestamp: Date.now()
-      });
-
-      // 3. Realiza a contagem dos dados
-      const allMessages = await msgStore.values();
-
-      // 4. Executa um Backup OPFS na pasta /backup
-      const backupName = await msgStore.backupToOpfs("sw_auto_backup.json");
-      const opfsFiles = await listOpfsFiles();
-
-      // 5. Devolve a resposta para a Main Thread via MessageChannel
-      event.ports[0]?.postMessage({
-        success: true,
-        payload: {
-          insertedId,
-          totalMessages: allMessages.length,
-          backupName,
-          opfsFiles
-        }
-      });
-    } catch (error) {
-      event.ports[0]?.postMessage({
-        success: false,
-        error: (error as Error).message
-      });
-    }
-  }
-});
 ```
 
 ---
@@ -2610,139 +2401,6 @@ Deno.serve({ port: 9000 }, (req) => {
 
 ---
 
-## Arquivo: `monorepo/worker-db/example/main.ts`
-
-```ts
-import { db, ls, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "../src/mod.ts";
-
-interface LocoMessage {
-  _id?: string;
-  senderId: string;
-  recipientId: string;
-  content: string;
-  status: "pending" | "sent" | "delivered" | "read";
-  priority: number;
-  timestamp: number;
-}
-
-interface UserPreferences {
-  _id?: string; // Permitindo o ID automático via interface
-  theme: "dark" | "light";
-  notificationsEnabled: boolean;
-  activeChatId: string | null;
-}
-
-const appElement = document.getElementById("app");
-const logElement = document.getElementById("log-output");
-
-function log(msg: string, data?: any) {
-  const dataStr = data ? `\n  ↳ ${JSON.stringify(data, null, 2)}` : "";
-  const fullText = `${msg}${dataStr}\n`;
-  
-  if (logElement) {
-    if (logElement.innerText.includes("Aguardando execução")) {
-      logElement.innerText = "";
-    }
-    logElement.innerText += fullText;
-  }
-  console.log(msg, data || ""); 
-}
-
-async function runRealWorldTests() {
-  log("🚀 INICIANDO DEMONSTRAÇÃO AVANÇADA DO LOCO PWA (AMBIENTE REAL)\n");
-  
-  ls().clear();
-  db.init();
-
-  log("📦 1. LocalStorage - Escopos e Prefixos...");
-  const prefStore = ls("LOCO_PREF_");
-  prefStore.set<UserPreferences>({ _id: "auto", theme: "dark", notificationsEnabled: true, activeChatId: "chat_1" });
-  log(`   --> Total de chaves isoladas de Preferências: ${prefStore.keys().length}`);
-
-  log("\n💬 2. IndexedDB Worker - Populando Fila de Mensagens...");
-  const msgStore = db("LOCO_DATA", "messages", "MSG_");
-  await msgStore.clear();
-
-  const now = Date.now();
-  await msgStore.setMany([
-    ["auto", { senderId: "alice", recipientId: "bob", content: "Oi!", status: "delivered", priority: 1, timestamp: now - 5000 }],
-    ["auto", { senderId: "alice", recipientId: "bob", content: "Tudo bem?", status: "pending", priority: 1, timestamp: now - 4000 }],
-  ]);
-  log(`   --> Total de mensagens injetadas com UUIDs gerados com sucesso: ${(await msgStore.keys()).length}`);
-
-  log("\n📊 3. IndexedDB Worker - Análises e Agregações Remotas (query)...");
-  const stats = await msgStore.query<LocoMessage, any>((items) => ({
-    totalPending: items.filter(i => i.status === "pending").length,
-  }));
-  log(`   --> Estatísticas processadas no Worker:`, stats);
-
-  log("\n💾 4. Origin Private File System (OPFS) - Backup Nativo e Resgate...");
-  const oldFiles = await listOpfsFiles();
-  for (const f of oldFiles) await deleteFromOpfs(f);
-  await msgStore.backupToOpfs("mensagens_v1.json");
-  const storedFiles = await listOpfsFiles();
-  log(`   --> Backups gerados com sucesso na pasta interna '/backup'.`);
-
-  log("\n🤖 5. Service Worker - Interação em Background (db-sw.ts)...");
-  
-  if ("serviceWorker" in navigator) {
-    try {
-      await navigator.serviceWorker.register("/sw.js", { type: "module" });
-      
-      if (!navigator.serviceWorker.controller) {
-        log(`   --> ⚠️ O Service Worker foi instalado. Pressione F5 (recarregar) para que ele assuma o controle da página.`);
-      } else {
-        log(`   --> Service Worker ativo e controlando a página! Solicitando operação remota...`);
-        
-        const runSwTask = () => new Promise((resolve, reject) => {
-          const channel = new MessageChannel();
-          channel.port1.onmessage = (e) => {
-            if (e.data.success) resolve(e.data.payload);
-            else reject(new Error(e.data.error));
-          };
-          navigator.serviceWorker.controller!.postMessage({ type: "RUN_SW_DEMO" }, [channel.port2]);
-        });
-
-        const swResult = await runSwTask();
-        log(`   --> ✅ Resultado retornado pelo Service Worker:`, swResult);
-      }
-    } catch (err) {
-      log(`   ❌ Falha ao registrar o Service Worker:`, err);
-    }
-  }
-
-  const finalStoredFiles = await listOpfsFiles();
-  if (appElement && finalStoredFiles.length > 0) {
-    const downloadContainer = document.createElement("div");
-    downloadContainer.style.marginTop = "24px";
-    downloadContainer.style.padding = "16px";
-    downloadContainer.style.backgroundColor = "var(--md-sys-color-surface)";
-    downloadContainer.style.borderRadius = "12px";
-
-    let linksHTML = `<h3 style="margin-top: 0; color: var(--md-sys-color-primary);">🗂️ Arquivos OPFS (Inclui backups do SW)</h3>`;
-    linksHTML += `<div style="display: flex; flex-direction: column; gap: 12px;">`;
-    
-    for (const fileName of finalStoredFiles) {
-      const fileBlob = await getFileFromOpfs(fileName);
-      const objectUrl = URL.createObjectURL(fileBlob);
-      linksHTML += `<a href="${objectUrl}" download="${fileName}" style="color: #1a1c19; background: #9edeb6; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; width: fit-content; font-size: 14px;">📥 Baixar: ${fileName}</a>`;
-    }
-    
-    downloadContainer.innerHTML = linksHTML + `</div>`;
-    appElement.appendChild(downloadContainer);
-  }
-
-  db.terminate();
-  log("\n✅ Demonstração Completa Finalizada!");
-}
-
-runRealWorldTests().catch((err) => {
-  log("❌ OCORREU UM ERRO FATAL:", err.message);
-});
-```
-
----
-
 ## Arquivo: `monorepo/worker-db/example/demo.ts`
 
 ```ts
@@ -2824,6 +2482,392 @@ async function runLocoDbDemo() {
 }
 
 runLocoDbDemo();
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/example/sw.ts`
+
+```ts
+// ## Arquivo: monorepo/worker-db/example/sw.ts
+/// <reference lib="webworker" />
+
+import { db } from "../src/db-sw.ts";
+import { listOpfsFiles } from "../src/utils/opfs_utils.ts";
+
+const sw = self as unknown as ServiceWorkerGlobalScope;
+
+sw.addEventListener("install", (event) => {
+  sw.skipWaiting();
+});
+
+sw.addEventListener("activate", (event) => {
+  event.waitUntil(sw.clients.claim());
+});
+
+sw.addEventListener("message", async (event) => {
+  if (event.data && event.data.type === "RUN_SW_DEMO") {
+    try {
+      const msgStore = db("LOCO_DATA", "messages", "MSG_");
+
+      const insertedId = await msgStore.set("auto", {
+        senderId: "system_sw",
+        recipientId: "all",
+        content: "Mensagem gravada diretamente pelo Service Worker!",
+        status: "delivered",
+        priority: 99,
+        timestamp: Date.now()
+      });
+
+      const allMessages = await msgStore.values();
+
+      // Utilizando o padrão Record-Key ("auto_backups") dentro da pasta física global /backup
+      const backupName = await msgStore.backupToOpfs("auto_backups", "sw_auto_backup.json");
+      const opfsFiles = await listOpfsFiles();
+
+      event.ports[0]?.postMessage({
+        success: true,
+        payload: {
+          insertedId,
+          totalMessages: allMessages.length,
+          backupName,
+          opfsFiles
+        }
+      });
+    } catch (error) {
+      event.ports[0]?.postMessage({
+        success: false,
+        error: (error as Error).message
+      });
+    }
+  }
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/example/main.ts`
+
+```ts
+// ## Arquivo: monorepo/worker-db/example/main.ts
+import { db, ls, opfs } from "../src/mod.ts";
+
+interface LocoMessage {
+  _id?: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  status: "pending" | "sent" | "delivered" | "read";
+  priority: number;
+  timestamp: number;
+}
+
+interface UserPreferences {
+  _id?: string;
+  theme: "dark" | "light";
+  notificationsEnabled: boolean;
+  activeChatId: string | null;
+}
+
+const appElement = document.getElementById("app");
+const logElement = document.getElementById("log-output");
+
+function log(msg: string, data?: any) {
+  const dataStr = data ? `\n  ↳ ${JSON.stringify(data, null, 2)}` : "";
+  const fullText = `${msg}${dataStr}\n`;
+  
+  if (logElement) {
+    if (logElement.innerText.includes("Aguardando execução")) {
+      logElement.innerText = "";
+    }
+    logElement.innerText += fullText;
+  }
+  console.log(msg, data || ""); 
+}
+
+async function runRealWorldTests() {
+  log("🚀 INICIANDO DEMONSTRAÇÃO AVANÇADA DO LOCO PWA (AMBIENTE REAL)\n");
+  
+  ls().clear();
+  db.init();
+
+  log("📦 1. LocalStorage - Escopos e Prefixos...");
+  const prefStore = ls("LOCO_PREF_");
+  prefStore.set<UserPreferences>({ _id: "auto", theme: "dark", notificationsEnabled: true, activeChatId: "chat_1" });
+  log(`   --> Total de chaves isoladas de Preferências: ${prefStore.keys().length}`);
+
+  log("\n💬 2. IndexedDB Worker - Populando Fila de Mensagens...");
+  const msgStore = db("LOCO_DATA", "messages", "MSG_");
+  await msgStore.clear();
+
+  const now = Date.now();
+  await msgStore.setMany([
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Oi!", status: "delivered", priority: 1, timestamp: now - 5000 }],
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Tudo bem?", status: "pending", priority: 1, timestamp: now - 4000 }],
+  ]);
+  log(`   --> Total de mensagens injetadas com UUIDs gerados com sucesso: ${(await msgStore.keys()).length}`);
+
+  log("\n📊 3. IndexedDB Worker - Análises e Agregações Remotas (query)...");
+  const stats = await msgStore.query<LocoMessage, any>((items) => ({
+    totalPending: items.filter(i => i.status === "pending").length,
+  }));
+  log(`   --> Estatísticas processadas no Worker:`, stats);
+
+  log("\n💾 4. Origin Private File System (OPFS) - Backup via opfs() com basePath 'backup'...");
+  
+  // Instância OPFS dedicada exclusivamente a gerenciar a pasta física global '/backup'
+  const backupDrive = opfs("LOCO_DATA", "messages", "MSG_", "backup");
+  const RECORD_BACKUP_KEY = "mensagens_app";
+
+  // Limpa arquivos antigos da record-key de backup usando a API unificada do OPFS
+  const oldBackupFiles = await backupDrive.listFiles(RECORD_BACKUP_KEY);
+  for (const f of oldBackupFiles) {
+    await backupDrive.delFile(RECORD_BACKUP_KEY, f.name);
+  }
+  
+  // Realiza o backup utilizando a record-key isolada
+  await backupDrive.backupToOpfs(RECORD_BACKUP_KEY, "mensagens_v1.json");
+  const storedFiles = await backupDrive.listFiles(RECORD_BACKUP_KEY);
+  log(`   --> Backups gerados com sucesso. Arquivos na record-key '${RECORD_BACKUP_KEY}':`, storedFiles.map(f => f.name));
+
+  log("\n🤖 5. Service Worker - Interação em Background (db-sw.ts)...");
+  
+  if ("serviceWorker" in navigator) {
+    try {
+      await navigator.serviceWorker.register("/sw.js", { type: "module" });
+      
+      if (!navigator.serviceWorker.controller) {
+        log(`   --> ⚠️ O Service Worker foi instalado. Pressione F5 (recarregar) para que ele assuma o controle da página.`);
+      } else {
+        log(`   --> Service Worker ativo e controlando a página! Solicitando operação remota...`);
+        
+        const runSwTask = () => new Promise((resolve, reject) => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = (e) => {
+            if (e.data.success) resolve(e.data.payload);
+            else reject(new Error(e.data.error));
+          };
+          navigator.serviceWorker.controller!.postMessage({ type: "RUN_SW_DEMO" }, [channel.port2]);
+        });
+
+        const swResult = await runSwTask();
+        log(`   --> ✅ Resultado retornado pelo Service Worker:`, swResult);
+      }
+    } catch (err) {
+      log(`   ❌ Falha ao registrar o Service Worker:`, err);
+    }
+  }
+
+  // Renderiza a listagem de backups utilizando o opfs() em vez de funções soltas
+  const finalStoredFiles = await backupDrive.listFiles(RECORD_BACKUP_KEY);
+  if (appElement && finalStoredFiles.length > 0) {
+    const downloadContainer = document.createElement("div");
+    downloadContainer.style.marginTop = "24px";
+    downloadContainer.style.padding = "16px";
+    downloadContainer.style.backgroundColor = "var(--md-sys-color-surface)";
+    downloadContainer.style.borderRadius = "12px";
+
+    let linksHTML = `<h3 style="margin-top: 0; color: var(--md-sys-color-primary);">🗂️ Backups OPFS Gerados via opfs()</h3>`;
+    linksHTML += `<div style="display: flex; flex-direction: column; gap: 12px;">`;
+    
+    for (const f of finalStoredFiles) {
+      linksHTML += `
+      <div style="display: flex; justify-content: space-between; align-items: center; background: #1a1c19; padding: 12px 16px; border-radius: 8px;">
+        <span>📁 ${f.name} - ${(f.size / 1024).toFixed(1)} KB</span>
+        <button id="dl_${f.name.replace(/\./g, '_')}" style="cursor: pointer; background: var(--md-sys-color-primary); color: #1a1c19; border: none; font-weight: bold; border-radius: 4px; padding: 6px 12px;">
+          Baixar Backup
+        </button>
+      </div>`;
+    }
+    
+    downloadContainer.innerHTML = linksHTML + `</div>`;
+    appElement.appendChild(downloadContainer);
+
+    setTimeout(() => {
+      for (const f of finalStoredFiles) {
+        const btn = document.getElementById(`dl_${f.name.replace(/\./g, '_')}`);
+        if (btn) {
+          btn.onclick = async () => {
+            const fileBlob = await backupDrive.getFile(RECORD_BACKUP_KEY, f.name);
+            const objectUrl = URL.createObjectURL(fileBlob);
+            const a = document.createElement("a");
+            a.href = objectUrl;
+            a.download = f.name;
+            a.click();
+            URL.revokeObjectURL(objectUrl);
+          };
+        }
+      }
+    }, 100);
+  }
+
+  db.terminate();
+  log("\n✅ Demonstração Completa Finalizada!");
+}
+
+// ==========================================
+// SEÇÃO INTERATIVA: GERENCIADOR OPFS UI
+// ==========================================
+function setupInteractiveOpfsUI() {
+  if (!appElement) return;
+
+  const container = document.createElement("div");
+  container.style.marginTop = "32px";
+  container.style.padding = "24px";
+  container.style.backgroundColor = "var(--md-sys-color-surface)";
+  container.style.borderRadius = "12px";
+  container.style.border = "1px solid var(--md-sys-color-primary)";
+
+  const title = document.createElement("h2");
+  title.style.color = "var(--md-sys-color-primary)";
+  title.style.marginTop = "0";
+  title.innerText = "📁 Gerenciador Interativo OPFS (Isolado)";
+
+  const desc = document.createElement("p");
+  desc.innerText = "Envie múltiplos arquivos para a pasta 'ui_uploads' utilizando o wrapper unificado opfs().";
+
+  const inputWrapper = document.createElement("div");
+  inputWrapper.style.marginBottom = "24px";
+  
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.style.display = "block";
+  input.style.padding = "8px 0";
+  input.style.color = "var(--md-sys-color-on-background)";
+
+  const fileListContainer = document.createElement("div");
+  fileListContainer.style.display = "flex";
+  fileListContainer.style.flexDirection = "column";
+  fileListContainer.style.gap = "8px";
+
+  inputWrapper.appendChild(input);
+  container.appendChild(title);
+  container.appendChild(desc);
+  container.appendChild(inputWrapper);
+  container.appendChild(fileListContainer);
+  appElement.appendChild(container);
+
+  const userDrive = opfs("INTERACTIVE_DB", "files", "INT_", "ui_uploads");
+  const FOLDER_KEY = "pasta_do_usuario"; 
+
+  userDrive.set(FOLDER_KEY, { created: Date.now(), type: "interactive_test" }).catch(console.error);
+
+  const renderFiles = async () => {
+    fileListContainer.innerHTML = "<p>Carregando arquivos...</p>";
+    try {
+      const files = await userDrive.listFiles(FOLDER_KEY);
+      fileListContainer.innerHTML = "";
+
+      if (files.length === 0) {
+        fileListContainer.innerHTML = "<p style='color: #888;'>Nenhum arquivo nesta pasta. Faça um upload acima!</p>";
+        return;
+      }
+
+      for (const f of files) {
+        const item = document.createElement("div");
+        item.style.display = "flex";
+        item.style.justifyContent = "space-between";
+        item.style.alignItems = "center";
+        item.style.background = "#1a1c19";
+        item.style.padding = "12px 16px";
+        item.style.borderRadius = "8px";
+
+        const name = document.createElement("span");
+        name.innerText = `${f.name} - ${(f.size / 1024).toFixed(1)} KB`;
+        
+        const actions = document.createElement("div");
+        actions.style.display = "flex";
+        actions.style.gap = "8px";
+
+        const btnDownload = document.createElement("button");
+        btnDownload.innerText = "Baixar";
+        btnDownload.style.cursor = "pointer";
+        btnDownload.style.background = "var(--md-sys-color-primary)";
+        btnDownload.style.color = "#1a1c19";
+        btnDownload.style.border = "none";
+        btnDownload.style.fontWeight = "bold";
+        btnDownload.style.borderRadius = "4px";
+        btnDownload.style.padding = "6px 12px";
+        
+        btnDownload.onclick = async () => {
+          try {
+            const btnOriginalText = btnDownload.innerText;
+            btnDownload.innerText = "Baixando...";
+            btnDownload.disabled = true;
+
+            const fileBlob = await userDrive.getFile(FOLDER_KEY, f.name);
+            
+            const url = URL.createObjectURL(fileBlob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = f.name;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            btnDownload.innerText = btnOriginalText;
+            btnDownload.disabled = false;
+          } catch (err) {
+            console.error("Erro no download:", err);
+            btnDownload.innerText = "Erro!";
+          }
+        };
+
+        const btnDelete = document.createElement("button");
+        btnDelete.innerText = "Excluir";
+        btnDelete.style.cursor = "pointer";
+        btnDelete.style.background = "#ff5252";
+        btnDelete.style.color = "white";
+        btnDelete.style.border = "none";
+        btnDelete.style.fontWeight = "bold";
+        btnDelete.style.borderRadius = "4px";
+        btnDelete.style.padding = "6px 12px";
+        
+        btnDelete.onclick = async () => {
+          btnDelete.disabled = true;
+          btnDelete.innerText = "Excluindo...";
+          await userDrive.delFile(FOLDER_KEY, f.name);
+          await renderFiles();
+        };
+
+        actions.appendChild(btnDownload);
+        actions.appendChild(btnDelete);
+
+        item.appendChild(name);
+        item.appendChild(actions);
+        fileListContainer.appendChild(item);
+      }
+    } catch (err) {
+      fileListContainer.innerHTML = `<p style="color: #ff5252;">Erro ao listar: ${(err as Error).message}</p>`;
+    }
+  };
+
+  input.onchange = async () => {
+    if (!input.files || input.files.length === 0) return;
+    
+    input.disabled = true;
+    
+    try {
+      for (const file of Array.from(input.files)) {
+        await userDrive.addFile(FOLDER_KEY, file, file.name);
+      }
+    } catch (err) {
+      console.error("Erro ao subir arquivo:", err);
+    } finally {
+      input.disabled = false;
+      input.value = "";
+      await renderFiles();
+    }
+  };
+
+  renderFiles();
+}
+
+runRealWorldTests()
+  .then(() => setupInteractiveOpfsUI())
+  .catch((err) => {
+    log("❌ OCORREU UM ERRO FATAL:", err.message);
+  });
 ```
 
 ---

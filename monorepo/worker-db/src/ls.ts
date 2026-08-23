@@ -1,6 +1,5 @@
-import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo } from "./utils/id-utils.ts";
+import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
 import { writeJsonToOpfs, readJsonFromOpfs, resolveOpfsFileName } from "./utils/opfs_utils.ts";
-import type { WithId } from "./mod.ts";
 
 export interface LsStoreOptions {
   prefix?: string;
