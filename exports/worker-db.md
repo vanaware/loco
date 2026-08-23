@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/22/2026, 9:41:08 PM
+Gerado automaticamente em: 8/22/2026, 9:49:52 PM
 
 ---
 
@@ -2244,183 +2244,68 @@ runLocoDbDemo();
 
 ---
 
-## Arquivo: `monorepo/worker-db/example/main.ts`
+## Arquivo: `monorepo/worker-db/example/sw.ts`
 
 ```ts
-import { db, ls, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "../src/mod.ts";
+/// <reference lib="webworker" />
 
-// Tipagem dos modelos de domínio do Loco PWA
-interface LocoMessage {
-  _id?: string;
-  senderId: string;
-  recipientId: string;
-  content: string;
-  status: "pending" | "sent" | "delivered" | "read";
-  priority: number;
-  timestamp: number;
-}
+// ⚠️ IMPORTANTE: Importamos exclusivamente de db-sw.ts para não invocar Web Workers secundários!
+import { db } from "../src/db-sw.ts";
+import { listOpfsFiles } from "../src/utils/opfs_utils.ts";
 
-interface UserPreferences {
-  _id?: string; // Correção: Permite a injeção do ID automático
-  theme: "dark" | "light";
-  notificationsEnabled: boolean;
-  activeChatId: string | null;
-}
+const sw = self as unknown as ServiceWorkerGlobalScope;
 
-// Elementos da interface HTML
-const appElement = document.getElementById("app");
-const logElement = document.getElementById("log-output");
+// Força a instalação imediata do SW
+sw.addEventListener("install", (event) => {
+  sw.skipWaiting();
+});
 
-function log(msg: string, data?: any) {
-  const dataStr = data ? `\n  ↳ ${JSON.stringify(data, null, 2)}` : "";
-  const fullText = `${msg}${dataStr}\n`;
-  
-  if (logElement) {
-    if (logElement.innerText.includes("Aguardando execução")) {
-      logElement.innerText = ""; // Limpa a tela inicial
+// Assume o controle de todas as páginas abertas imediatamente
+sw.addEventListener("activate", (event) => {
+  event.waitUntil(sw.clients.claim());
+});
+
+// Escuta comandos vindos da Main Thread (main.ts)
+sw.addEventListener("message", async (event) => {
+  if (event.data && event.data.type === "RUN_SW_DEMO") {
+    try {
+      // 1. Instancia o banco diretamente na thread do SW
+      const msgStore = db("LOCO_DATA", "messages", "MSG_");
+
+      // 2. Insere um dado no IndexedDB
+      const insertedId = await msgStore.set("auto", {
+        senderId: "system_sw",
+        recipientId: "all",
+        content: "Mensagem gravada diretamente pelo Service Worker!",
+        status: "delivered",
+        priority: 99,
+        timestamp: Date.now()
+      });
+
+      // 3. Realiza a contagem dos dados
+      const allMessages = await msgStore.values();
+
+      // 4. Executa um Backup OPFS na pasta /backup
+      const backupName = await msgStore.backupToOpfs("sw_auto_backup.json");
+      const opfsFiles = await listOpfsFiles();
+
+      // 5. Devolve a resposta para a Main Thread via MessageChannel
+      event.ports[0]?.postMessage({
+        success: true,
+        payload: {
+          insertedId,
+          totalMessages: allMessages.length,
+          backupName,
+          opfsFiles
+        }
+      });
+    } catch (error) {
+      event.ports[0]?.postMessage({
+        success: false,
+        error: (error as Error).message
+      });
     }
-    logElement.innerText += fullText;
   }
-  console.log(msg, data || ""); // Mantém no console do DevTools também
-}
-
-async function runRealWorldTests() {
-  log("🚀 INICIANDO DEMONSTRAÇÃO AVANÇADA DO LOCO PWA (AMBIENTE REAL)\n");
-  
-  // Limpeza global
-  ls().clear();
-  db.init(); // Inicia o Worker do IndexedDB
-
-  // -------------------------------------------------------------
-  // 1. LOCALSTORAGE: Isolamento e Visão Global
-  // -------------------------------------------------------------
-  log("📦 1. LocalStorage - Escopos e Prefixos...");
-  const prefStore = ls("LOCO_PREF_");
-  const authStore = ls("LOCO_AUTH_");
-  
-  prefStore.set<UserPreferences>({ _id: "auto", theme: "dark", notificationsEnabled: true, activeChatId: "chat_1" });
-  authStore.set("session_token", { token: "abc-123-xyz", active: true });
-  
-  const globalStore = ls(); 
-  log(`   --> Total de chaves isoladas de Preferências: ${prefStore.keys().length}`);
-  log(`   --> Visão Global da Aplicação (todas as chaves):`, globalStore.keys());
-
-  // -------------------------------------------------------------
-  // 2. WORKER DB: Carga de Dados Massiva
-  // -------------------------------------------------------------
-  log("\n💬 2. IndexedDB Worker - Populando Fila de Mensagens...");
-  const msgStore = db("LOCO_DATA", "messages", "MSG_");
-  await msgStore.clear();
-
-  const now = Date.now();
-  await msgStore.setMany([
-    ["auto", { senderId: "alice", recipientId: "bob", content: "Oi!", status: "delivered", priority: 1, timestamp: now - 5000 }],
-    ["auto", { senderId: "alice", recipientId: "bob", content: "Tudo bem?", status: "pending", priority: 1, timestamp: now - 4000 }],
-    ["auto", { senderId: "bob", recipientId: "alice", content: "ALERTA URGENTE", status: "pending", priority: 5, timestamp: now - 3000 }],
-    ["auto", { senderId: "alice", recipientId: "bob", content: "Foto.jpg", status: "read", priority: 1, timestamp: now - 10000 }],
-  ]);
-
-  log(`   --> Banco populado via "auto" explícito nas chaves.`);
-  log(`   --> Total de mensagens injetadas com UUIDs gerados com sucesso: ${(await msgStore.keys()).length}`);
-
-  // -------------------------------------------------------------
-  // 3. WORKER DB: Consultas Analíticas (Agregações remotas)
-  // -------------------------------------------------------------
-  log("\n📊 3. IndexedDB Worker - Análises e Agregações Remotas (query)...");
-  
-  const stats = await msgStore.query<LocoMessage, any>((items) => {
-    return {
-      totalPending: items.filter(i => i.status === "pending").length,
-      highestPriorityPending: items
-        .filter(i => i.status === "pending")
-        .toSorted((a, b) => b.priority - a.priority)[0],
-      hasUrgent: items.some(i => i.priority >= 5),
-      oldestMessage: items.reduce((oldest, current) => current.timestamp < oldest.timestamp ? current : oldest)
-    };
-  });
-  
-  log(`   --> Estatísticas processadas no Worker:`, stats);
-
-  // -------------------------------------------------------------
-  // 4. WORKER DB: Mutações Condicionais Complexas
-  // -------------------------------------------------------------
-  log("\n⚙️ 4. IndexedDB Worker - Transformações Assíncronas (setSome)...");
-
-  await msgStore.setSome<LocoMessage>(
-    (items) => items.filter((m) => m.status === "pending"),
-    (item) => ({ 
-      ...item, 
-      status: "sent",
-      content: `[ENCRIPTADO] ${item.content.length} bytes` 
-    })
-  );
-
-  const updatedMessages = await msgStore.getSome<LocoMessage>((items) => items.filter(m => m.status === "sent"));
-  log("   --> Mensagens atualizadas condicionalmente:", updatedMessages);
-
-  // -------------------------------------------------------------
-  // 5. WORKER DB: Deleção em Lote Segura (Garbage Collection)
-  // -------------------------------------------------------------
-  log("\n🧹 5. IndexedDB Worker - Limpeza Condicional (delSome)...");
-
-  await msgStore.delSome<LocoMessage>((items) => items.filter(m => m.status === "read"));
-  log(`   --> Mensagens "read" deletadas. Restantes no DB: ${(await msgStore.keys()).length}`);
-
-  // -------------------------------------------------------------
-  // 6. OPFS NATIVO: Backup Assíncrono e Download de Múltiplos Arquivos
-  // -------------------------------------------------------------
-  log("\n💾 6. Origin Private File System (OPFS) - Backup Nativo e Resgate...");
-  
-  const oldFiles = await listOpfsFiles();
-  for (const f of oldFiles) await deleteFromOpfs(f);
-
-  // Gerando os dois backups
-  await msgStore.backupToOpfs("mensagens_v1.json");
-  await msgStore.set("auto", { senderId: "admin", recipientId: "all", content: "Aviso importante!", status: "delivered", priority: 10, timestamp: Date.now() });
-  const finalBackupName = await msgStore.backupToOpfs("mensagens_v2_final.json");
-
-  const storedFiles = await listOpfsFiles();
-  log(`   --> Backups gerados com sucesso na pasta interna '/backup'.`);
-  log(`   --> Arquivos fisicamente encontrados na pasta:`, storedFiles);
-
-  // Criando a UI interativa de Downloads fora do <pre> para o innerText do log() não esmagá-los
-  if (appElement && storedFiles.length > 0) {
-    const downloadContainer = document.createElement("div");
-    downloadContainer.style.marginTop = "24px";
-    downloadContainer.style.padding = "16px";
-    downloadContainer.style.backgroundColor = "var(--md-sys-color-surface)";
-    downloadContainer.style.borderRadius = "12px";
-    downloadContainer.style.boxShadow = "0 4px 6px rgba(0,0,0,0.3)";
-
-    let linksHTML = `<h3 style="margin-top: 0; color: var(--md-sys-color-primary);">🗂️ Arquivos de Backup (OPFS)</h3>`;
-    linksHTML += `<div style="display: flex; flex-direction: column; gap: 12px;">`;
-    
-    for (const fileName of storedFiles) {
-      const fileBlob = await getFileFromOpfs(fileName);
-      const objectUrl = URL.createObjectURL(fileBlob);
-      linksHTML += `<a href="${objectUrl}" download="${fileName}" style="color: #1a1c19; background: #9edeb6; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; width: fit-content; font-size: 14px;">📥 Baixar: ${fileName}</a>`;
-    }
-    
-    linksHTML += `</div>`;
-    downloadContainer.innerHTML = linksHTML;
-    appElement.appendChild(downloadContainer); // Adiciona na página de forma segura
-    log(`   --> Links de download renderizados na interface gráfica com sucesso!`);
-  }
-
-  // Restauração do sistema
-  await msgStore.clear();
-  log(`   --> IndexedDB completamente apagado. Chaves: ${(await msgStore.keys()).length}`);
-  
-  await msgStore.restoreFromOpfs(finalBackupName);
-  log(`   --> Banco restaurado do disco (OPFS: ${finalBackupName}). Chaves recuperadas: ${(await msgStore.keys()).length}`);
-
-  db.terminate();
-  log("\n✅ Demonstração Completa Finalizada! Ambiente de dados totalmente operacional.");
-}
-
-// Inicia os testes no frontend
-runRealWorldTests().catch((err) => {
-  log("❌ OCORREU UM ERRO FATAL:", err.message);
 });
 ```
 
@@ -2430,8 +2315,7 @@ runRealWorldTests().catch((err) => {
 
 ```ts
 import { serveDir } from "@std/http/file-server";
-import { copy, ensureDir } from "@std/fs";
-import { join } from "@std/path";
+import { ensureDir } from "@std/fs";
 
 const clean = async () => {
   try {
@@ -2447,16 +2331,13 @@ async function prepareAndBuild() {
   const startTime = performance.now();
   
   console.log("🔨 [DEV SERVER] Preparando ambiente...");
-  // 1. Limpa e cria diretório
   await clean();
 
-  // 2. Faz o bundle do index.html do exemplo para ser servido no navegador
+  // 1. Faz o bundle do index.html (Main Thread)
   console.log("📦 [DEV SERVER] Fazendo bundle do index.html...");
   // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime.
   const result_html = await Deno.bundle({
-    entrypoints: [
-      "./example/index.html"
-    ],
+    entrypoints: ["./example/index.html"],
     outputDir: "./build",
     platform: "browser",
     format: "esm",
@@ -2469,23 +2350,16 @@ async function prepareAndBuild() {
     write: true,
   });
 
-  if (!result_html.success) {
-    console.error(result_html.errors);
-    throw new Error("Falha ao gerar bundle pelo compilador interno.");
-  }
+  if (!result_html.success) throw new Error("Falha ao gerar bundle do HTML.");
 
-  for (const warning of result_html.warnings || []) {
-    console.warn(warning);
-  }
-
-  // 3. Compilação do Worker da aplicação
-  console.log("⚙️ Gerando bundle do Worker...");
-  // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime.
+  // 2. Compilação do Worker da aplicação (Web Worker)
+  console.log("⚙️ Gerando bundle do Worker DB...");
+  // @ts-ignore
   const result_worker = await Deno.bundle({
     entrypoints: ["./src/db.ts"],
     outputPath: "./build/worker-db.js",
     platform: "browser",
-    format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
+    format: "esm", 
     packages: "external",
     keepnames: true,
     inlineImports: true,
@@ -2495,20 +2369,31 @@ async function prepareAndBuild() {
     write: true,
   });
 
-  if (!result_worker.success) {
-    console.error(result_worker.errors);
-    throw new Error("Falha ao gerar bundle pelo compilador interno.");
-  }
+  if (!result_worker.success) throw new Error("Falha ao gerar bundle do Worker.");
 
-  for (const warning of result_worker.warnings || []) {
-    console.warn(warning);
-  }
+  // 3. Compilação do Service Worker (Sincronização / Background)
+  console.log("🔄 Gerando bundle do Service Worker...");
+  // @ts-ignore
+  const result_sw = await Deno.bundle({
+    entrypoints: ["./example/sw.ts"],
+    outputPath: "./build/sw.js", // Fica na raiz do servidor para controlar todas as rotas
+    platform: "browser",
+    format: "esm", 
+    packages: "external",
+    keepnames: true,
+    inlineImports: true,
+    codeSplitting: false,
+    minify: false,
+    sourcemap: "linked",
+    write: true,
+  });
+
+  if (!result_sw.success) throw new Error("Falha ao gerar bundle do Service Worker.");
 
   const endTime = performance.now();
   console.log(`✅ [DEV SERVER] Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
 }
 
-// Inicia o processo de build e depois sobe o servidor HTTP
 await prepareAndBuild();
 
 console.log(`\n🚀 Servidor estático rodando em: http://localhost:9000`);
@@ -2520,6 +2405,146 @@ Deno.serve({ port: 9000 }, (req) => {
     showDirListing: true,
     enableCors: true,
   });
+});
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/example/main.ts`
+
+```ts
+import { db, ls, listOpfsFiles, deleteFromOpfs, getFileFromOpfs } from "../src/mod.ts";
+
+interface LocoMessage {
+  _id?: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  status: "pending" | "sent" | "delivered" | "read";
+  priority: number;
+  timestamp: number;
+}
+
+interface UserPreferences {
+  _id?: string; 
+  theme: "dark" | "light";
+  notificationsEnabled: boolean;
+  activeChatId: string | null;
+}
+
+const appElement = document.getElementById("app");
+const logElement = document.getElementById("log-output");
+
+function log(msg: string, data?: any) {
+  const dataStr = data ? `\n  ↳ ${JSON.stringify(data, null, 2)}` : "";
+  const fullText = `${msg}${dataStr}\n`;
+  
+  if (logElement) {
+    if (logElement.innerText.includes("Aguardando execução")) {
+      logElement.innerText = "";
+    }
+    logElement.innerText += fullText;
+  }
+  console.log(msg, data || ""); 
+}
+
+async function runRealWorldTests() {
+  log("🚀 INICIANDO DEMONSTRAÇÃO AVANÇADA DO LOCO PWA (AMBIENTE REAL)\n");
+  
+  ls().clear();
+  db.init();
+
+  log("📦 1. LocalStorage - Escopos e Prefixos...");
+  const prefStore = ls("LOCO_PREF_");
+  prefStore.set<UserPreferences>({ _id: "auto", theme: "dark", notificationsEnabled: true, activeChatId: "chat_1" });
+  log(`   --> Total de chaves isoladas de Preferências: ${prefStore.keys().length}`);
+
+  log("\n💬 2. IndexedDB Worker - Populando Fila de Mensagens...");
+  const msgStore = db("LOCO_DATA", "messages", "MSG_");
+  await msgStore.clear();
+
+  const now = Date.now();
+  await msgStore.setMany([
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Oi!", status: "delivered", priority: 1, timestamp: now - 5000 }],
+    ["auto", { senderId: "alice", recipientId: "bob", content: "Tudo bem?", status: "pending", priority: 1, timestamp: now - 4000 }],
+  ]);
+  log(`   --> Total de mensagens injetadas com UUIDs gerados com sucesso: ${(await msgStore.keys()).length}`);
+
+  log("\n📊 3. IndexedDB Worker - Análises e Agregações Remotas (query)...");
+  const stats = await msgStore.query<LocoMessage, any>((items) => ({
+    totalPending: items.filter(i => i.status === "pending").length,
+  }));
+  log(`   --> Estatísticas processadas no Worker:`, stats);
+
+  log("\n💾 4. Origin Private File System (OPFS) - Backup Nativo e Resgate...");
+  const oldFiles = await listOpfsFiles();
+  for (const f of oldFiles) await deleteFromOpfs(f);
+  await msgStore.backupToOpfs("mensagens_v1.json");
+  const storedFiles = await listOpfsFiles();
+  log(`   --> Backups gerados com sucesso na pasta interna '/backup'.`);
+
+  // -------------------------------------------------------------
+  // 5. SERVICE WORKER: Comunicação e Uso do db-sw.ts
+  // -------------------------------------------------------------
+  log("\n🤖 5. Service Worker - Interação em Background (db-sw.ts)...");
+  
+  if ("serviceWorker" in navigator) {
+    try {
+      // Registra o SW na raiz
+      await navigator.serviceWorker.register("/sw.js", { type: "module" });
+      
+      // Checa se o SW já assumiu o controle da página
+      if (!navigator.serviceWorker.controller) {
+        log(`   --> ⚠️ O Service Worker foi instalado. Pressione F5 (recarregar) para que ele assuma o controle da página.`);
+      } else {
+        log(`   --> Service Worker ativo e controlando a página! Solicitando operação remota...`);
+        
+        // Promessa para encapsular a resposta do Service Worker via MessageChannel
+        const runSwTask = () => new Promise((resolve, reject) => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = (e) => {
+            if (e.data.success) resolve(e.data.payload);
+            else reject(new Error(e.data.error));
+          };
+          navigator.serviceWorker.controller!.postMessage({ type: "RUN_SW_DEMO" }, [channel.port2]);
+        });
+
+        const swResult = await runSwTask();
+        log(`   --> ✅ Resultado retornado pelo Service Worker:`, swResult);
+      }
+    } catch (err) {
+      log(`   ❌ Falha ao registrar o Service Worker:`, err);
+    }
+  }
+
+  // Cria Links de Download na UI para OPFS
+  const finalStoredFiles = await listOpfsFiles();
+  if (appElement && finalStoredFiles.length > 0) {
+    const downloadContainer = document.createElement("div");
+    downloadContainer.style.marginTop = "24px";
+    downloadContainer.style.padding = "16px";
+    downloadContainer.style.backgroundColor = "var(--md-sys-color-surface)";
+    downloadContainer.style.borderRadius = "12px";
+
+    let linksHTML = `<h3 style="margin-top: 0; color: var(--md-sys-color-primary);">🗂️ Arquivos OPFS (Inclui backups do SW)</h3>`;
+    linksHTML += `<div style="display: flex; flex-direction: column; gap: 12px;">`;
+    
+    for (const fileName of finalStoredFiles) {
+      const fileBlob = await getFileFromOpfs(fileName);
+      const objectUrl = URL.createObjectURL(fileBlob);
+      linksHTML += `<a href="${objectUrl}" download="${fileName}" style="color: #1a1c19; background: #9edeb6; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; width: fit-content; font-size: 14px;">📥 Baixar: ${fileName}</a>`;
+    }
+    
+    downloadContainer.innerHTML = linksHTML + `</div>`;
+    appElement.appendChild(downloadContainer);
+  }
+
+  db.terminate();
+  log("\n✅ Demonstração Completa Finalizada!");
+}
+
+runRealWorldTests().catch((err) => {
+  log("❌ OCORREU UM ERRO FATAL:", err.message);
 });
 ```
 

@@ -1,6 +1,5 @@
 import { serveDir } from "@std/http/file-server";
-import { copy, ensureDir } from "@std/fs";
-import { join } from "@std/path";
+import { ensureDir } from "@std/fs";
 
 const clean = async () => {
   try {
@@ -16,16 +15,13 @@ async function prepareAndBuild() {
   const startTime = performance.now();
   
   console.log("🔨 [DEV SERVER] Preparando ambiente...");
-  // 1. Limpa e cria diretório
   await clean();
 
-  // 2. Faz o bundle do index.html do exemplo para ser servido no navegador
+  // 1. Faz o bundle do index.html (Main Thread)
   console.log("📦 [DEV SERVER] Fazendo bundle do index.html...");
   // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime.
   const result_html = await Deno.bundle({
-    entrypoints: [
-      "./example/index.html"
-    ],
+    entrypoints: ["./example/index.html"],
     outputDir: "./build",
     platform: "browser",
     format: "esm",
@@ -38,23 +34,16 @@ async function prepareAndBuild() {
     write: true,
   });
 
-  if (!result_html.success) {
-    console.error(result_html.errors);
-    throw new Error("Falha ao gerar bundle pelo compilador interno.");
-  }
+  if (!result_html.success) throw new Error("Falha ao gerar bundle do HTML.");
 
-  for (const warning of result_html.warnings || []) {
-    console.warn(warning);
-  }
-
-  // 3. Compilação do Worker da aplicação
-  console.log("⚙️ Gerando bundle do Worker...");
-  // @ts-ignore: A tipagem de Deno.bundle não está presente nas definições padrão, mas funciona no runtime.
+  // 2. Compilação do Worker da aplicação (Web Worker)
+  console.log("⚙️ Gerando bundle do Worker DB...");
+  // @ts-ignore
   const result_worker = await Deno.bundle({
     entrypoints: ["./src/db.ts"],
     outputPath: "./build/worker-db.js",
     platform: "browser",
-    format: "esm", // Alterado para ESM para suportar { type: "module" } no Worker
+    format: "esm", 
     packages: "external",
     keepnames: true,
     inlineImports: true,
@@ -64,20 +53,31 @@ async function prepareAndBuild() {
     write: true,
   });
 
-  if (!result_worker.success) {
-    console.error(result_worker.errors);
-    throw new Error("Falha ao gerar bundle pelo compilador interno.");
-  }
+  if (!result_worker.success) throw new Error("Falha ao gerar bundle do Worker.");
 
-  for (const warning of result_worker.warnings || []) {
-    console.warn(warning);
-  }
+  // 3. Compilação do Service Worker (Sincronização / Background)
+  console.log("🔄 Gerando bundle do Service Worker...");
+  // @ts-ignore
+  const result_sw = await Deno.bundle({
+    entrypoints: ["./example/sw.ts"],
+    outputPath: "./build/sw.js", // Fica na raiz do servidor para controlar todas as rotas
+    platform: "browser",
+    format: "esm", 
+    packages: "external",
+    keepnames: true,
+    inlineImports: true,
+    codeSplitting: false,
+    minify: false,
+    sourcemap: "linked",
+    write: true,
+  });
+
+  if (!result_sw.success) throw new Error("Falha ao gerar bundle do Service Worker.");
 
   const endTime = performance.now();
   console.log(`✅ [DEV SERVER] Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
 }
 
-// Inicia o processo de build e depois sobe o servidor HTTP
 await prepareAndBuild();
 
 console.log(`\n🚀 Servidor estático rodando em: http://localhost:9000`);
