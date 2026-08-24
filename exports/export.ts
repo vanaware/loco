@@ -15,7 +15,7 @@ import { relative } from "@std/path/relative";
 import { APP_VERSION } from "../src/constants/version.ts";
 
 // 1. Definição de Tipos e Interfaces
-type ModoExportacao = "main" | "docs" | "tests" | "server" | "playground" | "workerdb" | "utils";
+type ModoExportacao = "main" | "docs" | "tests" | "server" | "playground" | "workerdb" | "utils" | "router";
 
 interface ExportConfig {
   arquivoSaida: string;
@@ -97,6 +97,15 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "README.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/utils"
+  },
+  router: {
+    arquivoSaida: "exports/router.md",
+    extensoesPermitidas: EXTENSOES_PADRAO,
+    pastaBase: "monorepo/router",
+    subpastasPermitidas: ["src", "tests", "docs", "example"],
+    arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "README.md"],
+    incluiVersao: false,
+    instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do ROUTER @loco/router"
   }
 };
 

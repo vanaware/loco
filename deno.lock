@@ -1008,6 +1008,16 @@
           "jsr:@std/path@*"
         ]
       },
+      "monorepo/server": {
+        "dependencies": [
+          "jsr:@negrel/webpush@0.5",
+          "jsr:@std/assert@*",
+          "jsr:@std/fs@*",
+          "jsr:@std/http@*",
+          "jsr:@std/path@*",
+          "npm:wrangler@^4.123.0"
+        ]
+      },
       "monorepo/worker-db": {
         "dependencies": [
           "jsr:@std/assert@*",
