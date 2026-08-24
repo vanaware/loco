@@ -17,4 +17,4 @@ if (!_self.navigator.storage.getDirectory) {
 // 3. Agora que o ambiente do Worker está perfeitamente simulado,
 // importamos a lógica real do banco de dados. O db.ts vai rodar
 // achando que está em um browser de verdade!
-import "../db.ts";
+import "../worker.ts";

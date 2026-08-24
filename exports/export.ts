@@ -15,7 +15,7 @@ import { relative } from "@std/path/relative";
 import { APP_VERSION } from "../src/constants/version.ts";
 
 // 1. Definição de Tipos e Interfaces
-type ModoExportacao = "main" | "docs" | "tests" | "server" | "playground" | "workerdb";
+type ModoExportacao = "main" | "docs" | "tests" | "server" | "playground" | "workerdb" | "utils";
 
 interface ExportConfig {
   arquivoSaida: string;
@@ -69,7 +69,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     subpastasPermitidas: ["src", "tests","docs"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md", "minify-keys.ts", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"],
     incluiVersao: false,
-    instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR minimalista."
+    instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR @loco/server"
   },
   playground: {
     arquivoSaida: "exports/playground.md",
@@ -84,10 +84,19 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivoSaida: "exports/worker-db.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/worker-db",
-    subpastasPermitidas: ["src", "tests","docs", "example"],
+    subpastasPermitidas: ["src", "tests", "docs", "example"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md"],
     incluiVersao: false,
-    instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de WORKER-DB."
+    instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/workerdb"
+  },
+  utils: {
+    arquivoSaida: "exports/utils.md",
+    extensoesPermitidas: EXTENSOES_PADRAO,
+    pastaBase: "monorepo/utils",
+    subpastasPermitidas: ["src", "tests", "docs"],
+    arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "README.md"],
+    incluiVersao: false,
+    instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/utils"
   }
 };
 

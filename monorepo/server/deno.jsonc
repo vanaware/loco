@@ -1,4 +1,4 @@
-{
+{ "name": "@loco/server",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
     "strict": true,
@@ -25,5 +25,6 @@
     "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./src/main.ts",
     "clean": "deno clean && rm -rf ./build && mkdir -p ./build/dist",
     "deploy": "./deploy.sh"
-  }
+  },
+  "exports":"./src/worker.ts"
 }

@@ -1,0 +1,17 @@
+{ "name": "@loco/utils",
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert"
+  },
+  "tasks": {
+    "test": "deno test --allow-env --allow-net --allow-read tests/",
+    "check": "deno check src/**/*.ts src/**/*.tsx tests/**/*.ts",
+    "tests": "deno task check && deno task test"
+  },
+  "exports":"./src//mod.ts"
+}

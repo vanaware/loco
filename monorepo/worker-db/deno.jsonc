@@ -1,4 +1,4 @@
-{
+{ "name": "@loco/workerdb",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
     "strict": true,
@@ -23,5 +23,6 @@
     "tests": "deno task check && deno task test",
     "demo": "deno run --allow-env --allow-read --allow-net ./example/demo.ts",
     "example": "deno run -A --unstable-bundle ./example/server.ts"
-  }
+  },
+  "exports":"./src//mod.ts"
 }

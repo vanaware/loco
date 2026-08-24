@@ -38,7 +38,7 @@ async function prepareAndBuild() {
   console.log("⚙️ Gerando bundle do Worker DB...");
   // @ts-ignore: Deno.bundle API interna
   const result_worker = await Deno.bundle({
-    entrypoints: ["./src/db.ts"],
+    entrypoints: ["./src/worker.ts"],
     outputPath: "./build/worker-db.js",
     platform: "browser",
     format: "esm", 
