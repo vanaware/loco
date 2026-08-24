@@ -28,7 +28,7 @@ const build = async () => {
       outputPath: "../server/build/dist/worker-db.js",
       platform: "browser",
       format: "esm", 
-      packages: "external",
+      packages: "bundle",
       keepnames: true,
       inlineImports: true,
       codeSplitting: false,

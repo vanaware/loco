@@ -1,8 +1,8 @@
 
-import { sendResponse, handlePreflight } from "../shared.ts";
+import { sendResponse, handlePreflight, APP_VERSION } from "../shared.ts";
 
 export async function handlePing(request: Request, env?: any): Promise<Response> {
-  return sendResponse(request, { success: true, service: "loco-proxy", timestamp: Date.now() });
+  return sendResponse(request, { success: true, service: "loco-proxy", timestamp: Date.now(), version: APP_VERSION });
 }
 
 export const onRequestPost = async (context: any) => {

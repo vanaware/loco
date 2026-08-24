@@ -39,8 +39,8 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivoSaida: "exports/main.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "./",
-    subpastasPermitidas: ["src", "public", "server", ".github/workflows"], // Vazio = permite tudo dentro da pastaBase
-    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"],
+    subpastasPermitidas: ["src", "public", ".github/workflows"], // Vazio = permite tudo dentro da pastaBase
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc"],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de CÓDIGO FONTE principais da aplicação."
   },
@@ -49,7 +49,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: [".md", ".txt"],
     pastaBase: "./", // Base na raiz para conseguir capturar o readme e a pasta docs
     subpastasPermitidas: ["docs"],
-    arquivosRaizPermitidos: ["readme.md", "readme", "license", "license.md", "license.txt"],
+    arquivosRaizPermitidos: ["readme.md", "readme", "license", "license.md", "license.txt", ".tool-versions"],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém a DOCUMENTAÇÃO e diretrizes arquiteturais do projeto."
   },
@@ -65,10 +65,10 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
   server: {
     arquivoSaida: "exports/server.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
-    pastaBase: "server",
-    subpastasPermitidas: [],
-    arquivosRaizPermitidos: ["deno.json", "deno.jsonc"],
-    incluiVersao: true,
+    pastaBase: "monorepo/server",
+    subpastasPermitidas: ["src", "tests","docs"],
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md", "minify-keys.ts", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"],
+    incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR minimalista."
   },
   playground: {
@@ -76,7 +76,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/playground",
     subpastasPermitidas: ["src", "public", "tests","docs"],
-    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "server.ts"],
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND."
   },
@@ -85,7 +85,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/worker-db",
     subpastasPermitidas: ["src", "tests","docs", "example"],
-    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md", "LICENSE"],
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de WORKER-DB."
   }

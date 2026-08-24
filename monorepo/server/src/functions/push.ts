@@ -1,6 +1,5 @@
 // server/functions/push.ts
-import { sendResponse, handlePreflight, getOrInitServerKeys } from "../shared.ts";
-import { extrairEExpandirChavesVapid } from "../../src/utils/push-utils.ts";
+import { sendResponse, handlePreflight, getOrInitServerKeys, extrairEExpandirChavesVapid } from "../shared.ts";
 import * as webpush from "@negrel/webpush";
 
 async function sendPush(jwkKeys: any, subscription: any, payloadText: string, vapid: any) {

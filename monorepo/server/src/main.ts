@@ -23,7 +23,7 @@ Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {
     // Deixamos o serveDir processar para entregar o arquivo estático correspondente (HTML, JS, CSS, Ícones) do ./dist.
     try {
         const staticResponse = await serveDir(req, {
-            fsRoot: "./build/dist",
+            fsRoot: "../build/dist",
             showDirListing: false,
             quiet: true,
         });

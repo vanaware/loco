@@ -2,6 +2,10 @@
 import { internalAPI } from "./db-sw.ts";
 import type { DbStoreOptions, OpfsStoreOptions } from "./db-sw.ts";
 
+import { APP_VERSION } from "../../../src/constants/version.ts";
+
+console.log(`[DB] 🌌 Worker-db carregado (v${APP_VERSION}).`);
+
 self.onmessage = async (e: MessageEvent) => {
   const { requestId, command, args } = e.data;
 
@@ -20,6 +24,9 @@ self.onmessage = async (e: MessageEvent) => {
     let result;
 
     switch (command) {
+      case "VERSION":
+        result = { version: APP_VERSION };
+        break;
       case "GET":
         result = await internalAPI.get(args.key, dbOpts);
         break;

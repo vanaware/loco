@@ -3,7 +3,7 @@ import { ensureDir, copy, walk } from "@std/fs";
 import { join } from "@std/path";
 
 const DIST_DIR = "dist";
-const BUILD_DIR = "build";
+const BUILD_DIR = "monorepo/server/build";
 const SRC_DIR = "src";
 const PUBLIC_DIR = "public";
 
@@ -142,58 +142,7 @@ async function runBundle(name: string, bundleOpts: BundleOptions): Promise<Bundl
   return result;
 }
 
-async function gerarOuCarregarChavesServidor() {
-  let publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
-  let privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
-  
-  if (publicKey && privateKey) {
-    console.log("🔑 Chaves do servidor carregadas do .env");
-    return;
-  }
-  
-  console.log("🔐 Gerando novas chaves RSA do servidor (Formato Minificado Duplo)...");
-  const keyPair = await crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  
-  const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-  const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-  
-  const compactPublicJwk = {
-    n: publicJwk.n
-  };
 
-  const compactPrivateJwk = {
-    d: privateJwk.d,
-    p: privateJwk.p,
-    q: privateJwk.q,
-    dp: privateJwk.dp,
-    dq: privateJwk.dq,
-    qi: privateJwk.qi
-  };
-
-  const publicKeyStr = JSON.stringify(compactPublicJwk);
-  const privateKeyStr = JSON.stringify(compactPrivateJwk);
-  
-  Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
-  Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
-  
-  await Deno.writeTextFile(
-    '.env',
-    `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
-    `# NÃO COMMITAR ESTE ARQUIVO!\n` +
-    `SERVER_PUBLIC_KEY=${publicKeyStr}\n` +
-    `SERVER_PRIVATE_KEY=${privateKeyStr}\n`
-  );
-  console.log(`✅ Chaves do servidor salvas em .env`);
-}
 
 async function listarAssetsParaCache(): Promise<string[]> {
   const assets: string[] = [];
@@ -224,7 +173,6 @@ async function build() {
   const start = performance.now();
 
   const appVersion = await incrementVersion(skipVersionIncrement);
-  await gerarOuCarregarChavesServidor();
   await clean();
   await copyStaticAndSyncManifest(appVersion);
 
@@ -244,23 +192,6 @@ async function build() {
     jsxFactory: "h",
     jsxFragment: "Fragment",
   });
-
-  console.log("📦 Compilando Cloudflare Worker ...");
-  await runBundle("worker", {
-    entrypoints: [
-      "./server/worker.ts", 
-      "./server/functions/ping.ts",
-      "./server/functions/publickey.ts",
-      "./server/functions/push.ts",
-    ],
-    outputDir: join(BUILD_DIR),
-    platform: "browser",
-    format: "esm",
-    bundle: true,
-    minify: false,
-    write: true,
-    sourcemap: "inline",
-  }); 
 
   console.log("📦 Compilando Web Worker Dedicado (P2P)...");
   await runBundle("WebWorker", {

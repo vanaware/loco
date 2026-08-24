@@ -1,8 +1,8 @@
 // testes/federation_routing_test.ts
 
 import { assertEquals } from "@std/assert";
-import { handlePing } from "../server/functions/ping.ts";
-import { handlePush } from "../server/functions/push.ts";
+import { handlePing } from "../src/functions/ping.ts";
+import { handlePush } from "../src/functions/push.ts";
 
 Deno.test("Server - Handler /ping deve retornar HTTP 200 com status OK", async () => {
   const req = new Request("https://proxy.vanaware.com/ping", {

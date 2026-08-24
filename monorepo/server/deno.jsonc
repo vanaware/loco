@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "imports": {
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
+
+    "@std/assert": "jsr:@std/assert",
+    "@std/fs": "jsr:@std/fs",
+    "@std/http": "jsr:@std/http",
+    "@std/path": "jsr:@std/path",
+
+    
+    "wrangler": "npm:wrangler@^4.123.0"
+  },
+  "tasks": {
+    "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "test": "deno test --allow-env --allow-net --allow-read tests/",
+    "check": "deno check build.ts minify-keys.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
+    "tests": "deno task check && deno task test",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./src/main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./src/main.ts",
+    "clean": "deno clean && rm -rf ./build && mkdir -p ./build/dist",
+    "deploy": "./deploy.sh"
+  }
+}

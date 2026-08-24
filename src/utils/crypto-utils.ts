@@ -259,9 +259,9 @@ export async function exportKeyToJWK(key: CryptoKey): Promise<JsonWebKey> {
 
 export async function importJWKToKey(
   jwk: JsonWebKey,
-  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
-  extractable: boolean,
-  keyUsages: KeyUsage[]
+  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams = { name: "RSA-OAEP", hash: "SHA-256" },
+  extractable: boolean = true,
+  keyUsages: KeyUsage[] = ["decrypt"]
 ): Promise<CryptoKey> {
   try {
     const key = await crypto.subtle.importKey(

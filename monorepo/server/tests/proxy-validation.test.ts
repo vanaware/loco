@@ -2,7 +2,7 @@
 /// <reference lib="deno.ns" />
 
 import { assertEquals } from "@std/assert";
-import { handlePush } from "../../server/functions/push.ts";
+import { handlePush } from "../src/functions/push.ts";
 
 // Objeto base 100% válido para usar de modelo nos testes
 const createValidPayload = () => ({

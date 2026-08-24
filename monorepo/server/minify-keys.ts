@@ -1,7 +1,7 @@
 // minify-keys.ts
 // Script utilitário para extrair e minificar as chaves RSA do servidor.
 
-import { minifyRsaPublic, minifyRsaPrivate } from "./src/utils/crypto-utils.ts";
+import { minifyRsaPublic, minifyRsaPrivate } from "../../src/utils/crypto-utils.ts";
 
 async function executarMinificacao() {
   const targetKey = Deno.args[0]; 

@@ -4,8 +4,12 @@ import {
   expandRsaPrivate, 
   minifyRsaPublic,
   importJWKToKey
-} from "../src/utils/crypto-utils.ts";
-import { decifrarChaveVapid } from "../src/utils/push-utils.ts"; // A Nova Função
+} from "../../../src/utils/crypto-utils.ts";
+import { decifrarChaveVapid } from "../../../src/utils/push-utils.ts";
+
+export { APP_VERSION } from "../../../src/constants/version.ts";
+
+export { extrairEExpandirChavesVapid } from "../../../src/utils/push-utils.ts";
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;

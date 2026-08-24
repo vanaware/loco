@@ -9,9 +9,9 @@ import {
   minifyRsaPublic, 
   minifyRsaPrivate,
   expandRsaPublic // <-- Importação adicionada para reconstruir a chave minificada!
-} from "../../src/utils/crypto-utils.ts";
-import { cifrarChaveVapid } from "../../src/utils/push-utils.ts";
-import { decryptWithServerKey } from "../../server/shared.ts";
+} from "../../../src/utils/crypto-utils.ts";
+import { cifrarChaveVapid } from "../../../src/utils/push-utils.ts";
+import { decryptWithServerKey } from "../src/shared.ts";
 
 Deno.test("INTEGRAÇÃO: Pipeline Criptográfica Completa (Cliente -> PWA -> Servidor)", async () => {
   // 1. Gera chaves RSA brutas para simular um servidor novo

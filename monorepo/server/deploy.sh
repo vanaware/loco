@@ -36,7 +36,7 @@ done
 # 2. EXTRAÇÃO DINÂMICA DA VERSÃO E CONFIGURAÇÃO
 # ==============================================================================
 
-FULL_VERSION=$(grep '"version"' deno.jsonc | awk -F'"' '{print $4}')
+FULL_VERSION=$(grep '"version"' ../../deno.jsonc | awk -F'"' '{print $4}')
 MAJOR_MINOR=$(echo $FULL_VERSION | awk -F'.' '{print $1"."$2}')
 TAG_NAME="v${MAJOR_MINOR}"
 
@@ -63,7 +63,7 @@ if [ "$AT" = "github" ]; then
   # ----------------------------------------------------------------------------
   echo ""
   echo "📦 1/3 - Empacotando e enviando código fonte para o repositório..."
-  git add .
+  git add :/
   git commit -m "$MESSAGE" || true
   git push
 
