@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: ROUTER
 
-Gerado automaticamente em: 8/24/2026, 10:54:14 PM
+Gerado automaticamente em: 8/24/2026, 11:37:31 PM
 
 ---
 
@@ -59,6 +59,14 @@ interface LastBroadcast {
   senderParams: RouteParams;
 }
 
+export interface RouterOptions {
+  basePath?: string;
+  staticDir?: string | null;
+  embeddedDir?: string | null;
+  mimeTypeResolver?: MimeTypeResolver;
+  forceHttps?: boolean;
+}
+
 export class Router {
   private basePath: string;
   private httpRoutes: HttpRoute[] = [];
@@ -67,17 +75,46 @@ export class Router {
   private staticDir: string | null;
   private embeddedDir: string | null;
   private mimeTypeResolver: MimeTypeResolver;
+  
+  // ✅ NOVO: Propriedade pública para forçar HTTPS
+  public forceHttps: boolean;
 
   constructor(
-    basePath = "",
+    basePathOrOptions: string | RouterOptions = "",
     staticDir: string | null = "public",
     embeddedDir: string | null = null,
     mimeTypeResolver: MimeTypeResolver = defaultMimeTypeResolver,
+    forceHttps: boolean | undefined = undefined,
   ) {
+    // Suporta tanto a assinatura antiga quanto a nova com objeto de opções
+    let basePath: string;
+    
+    if (typeof basePathOrOptions === "object") {
+      const opts = basePathOrOptions;
+      basePath = opts.basePath ?? "";
+      this.staticDir = opts.staticDir ?? "public";
+      this.embeddedDir = opts.embeddedDir ?? null;
+      this.mimeTypeResolver = opts.mimeTypeResolver ?? defaultMimeTypeResolver;
+      this.forceHttps = opts.forceHttps ?? this.getDefaultForceHttps();
+    } else {
+      basePath = basePathOrOptions;
+      this.staticDir = staticDir;
+      this.embeddedDir = embeddedDir;
+      this.mimeTypeResolver = mimeTypeResolver;
+      this.forceHttps = forceHttps ?? this.getDefaultForceHttps();
+    }
+    
     this.basePath = this.normalizeBasePath(basePath);
-    this.staticDir = staticDir;
-    this.embeddedDir = embeddedDir;
-    this.mimeTypeResolver = mimeTypeResolver;
+  }
+
+  // ✅ NOVO: Lê variável de ambiente como fallback
+  private getDefaultForceHttps(): boolean {
+    try {
+      return Deno.env.get("FORCE_HTTPS")?.toLowerCase() === "true";
+    } catch {
+      // Se não tiver permissão para ler env, retorna false
+      return false;
+    }
   }
 
   private normalizeBasePath(p: string): string {
@@ -121,10 +158,56 @@ export class Router {
   ws(path: string, handler: WsHandler) { this.addWsRoute(path, handler); }
 
   async handleRequest(req: Request): Promise<Response> {
+    // ✅ NOVO: Verifica se deve forçar HTTPS
+    if (this.shouldForceHttps(req)) {
+      const httpsUrl = this.buildHttpsUrl(req);
+      console.log(`🔒 Redirecting to HTTPS: ${httpsUrl}`);
+      return new Response(null, {
+        status: 301,
+        headers: {
+          "Location": httpsUrl,
+          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        },
+      });
+    }
+
     if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
       return this.handleWsUpgrade(req);
     }
     return this.handleHttpRequest(req);
+  }
+
+  // ✅ NOVO: Detecta se é localhost
+  private isLocalhost(req: Request): boolean {
+    const url = new URL(req.url);
+    const hostname = url.hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  }
+
+  // ✅ NOVO: Verifica se deve forçar HTTPS
+  private shouldForceHttps(req: Request): boolean {
+    if (!this.forceHttps) return false;
+    if (this.isLocalhost(req)) return false;
+
+    const forwardedProto = req.headers.get("x-forwarded-proto");
+    if (forwardedProto === "https") return false;
+
+    const url = new URL(req.url);
+    if (url.protocol === "https:") return false;
+
+    return true;
+  }
+
+  // ✅ NOVO: Cria URL HTTPS a partir da request
+  private buildHttpsUrl(req: Request): string {
+    const url = new URL(req.url);
+    url.protocol = "https:";
+    
+    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      url.protocol = "wss:";
+    }
+    
+    return url.toString();
   }
 
   private async handleHttpRequest(req: Request): Promise<Response> {
@@ -333,8 +416,6 @@ export class WebSocketGroup {
     setTimeout(() => {
       if (ws.readyState === WebSocket.OPEN) {
         const { message, permissionFn } = broadcast;
-        // ✅ CORREÇÃO: Avalia a permissão com os parâmetros do NOVO membro (params), 
-        // não com os do remetente original.
         if (!permissionFn || permissionFn(params, message)) {
           ws.send(message);
         }
