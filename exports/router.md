@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: ROUTER
 
-Gerado automaticamente em: 8/25/2026, 7:30:10 AM
+Gerado automaticamente em: 8/25/2026, 2:31:21 PM
 
 ---
 
@@ -16,304 +16,322 @@ Gerado automaticamente em: 8/25/2026, 7:30:10 AM
 
 ```ts
 // monorepo/router/src/mod.ts
-import { contentType } from "@std/media-types";
-import { join, normalize } from "@std/path";
-
-export type RouteParams = Record<string, string | string[]>;
-
-export type HttpHandler = (
-  req: Request,
-  params: RouteParams,
-) =>
-  | { body: BodyInit; init?: ResponseInit }
-  | Promise<{ body: BodyInit; init?: ResponseInit }>;
-
-export type WsHandler = (
-  ws: WebSocket,
-  req: Request,
-  params: RouteParams,
-) => void;
-
-export type PermissionFn = (
-  receiverParams: RouteParams,
-  senderParams: RouteParams,
-  message: string,
-) => boolean;
-
-export type MimeTypeResolver = (ext: string) => string | undefined;
-
-// ✅ Constante exportada para evitar "Magic Numbers"
-export const DEFAULT_LAST_BROADCAST_DELAY = 50;
-
-export interface RouterOptions {
-  basePath?: string;
-  staticDir?: string | null;
-  embeddedDir?: string | null;
-  mimeTypeResolver?: MimeTypeResolver;
-  forceHttps?: boolean;
-  lastBroadcastDelay?: number; // ✅ Configurável
-}
-
-interface HttpRoute {
-  method: string;
-  pattern: URLPattern;
-  handler: HttpHandler;
-}
-
-interface WsRoute {
-  pattern: URLPattern;
-  handler: WsHandler;
-  group: WebSocketGroup;
-}
-
-interface LastBroadcast {
-  message: string;
-  permissionFn?: PermissionFn;
-  senderParams: RouteParams;
-}
-
-export class Router {
-  private basePath: string;
-  private httpRoutes: HttpRoute[] = [];
-  private wsRoutes: WsRoute[] = [];
-  private webSockets = new Map<WebSocket, { group: WebSocketGroup }>();
-  private staticDir: string | null;
-  private embeddedDir: string | null;
-  private mimeTypeResolver: MimeTypeResolver;
-  public forceHttps: boolean;
-  private lastBroadcastDelay: number;
-
-  constructor(
-    basePathOrOptions: string | RouterOptions = "",
-    staticDir: string | null = "public",
-    embeddedDir: string | null = null,
-    mimeTypeResolver: MimeTypeResolver = defaultMimeTypeResolver,
-    forceHttps: boolean | undefined = undefined,
-    lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY,
-  ) {
-    let basePath: string;
-    
-    if (typeof basePathOrOptions === "object") {
-      const opts = basePathOrOptions;
-      basePath = opts.basePath ?? "";
-      this.staticDir = opts.staticDir ?? "public";
-      this.embeddedDir = opts.embeddedDir ?? null;
-      this.mimeTypeResolver = opts.mimeTypeResolver ?? defaultMimeTypeResolver;
-      this.forceHttps = opts.forceHttps ?? this.getDefaultForceHttps();
-      this.lastBroadcastDelay = opts.lastBroadcastDelay ?? DEFAULT_LAST_BROADCAST_DELAY;
-    } else {
-      basePath = basePathOrOptions;
-      this.staticDir = staticDir;
-      this.embeddedDir = embeddedDir;
-      this.mimeTypeResolver = mimeTypeResolver;
-      this.forceHttps = forceHttps ?? this.getDefaultForceHttps();
-      this.lastBroadcastDelay = lastBroadcastDelay;
-    }
-    
-    this.basePath = this.normalizeBasePath(basePath);
-  }
-
-  private getDefaultForceHttps(): boolean {
-    try {
-      return Deno.env.get("FORCE_HTTPS")?.toLowerCase() === "true";
-    } catch {
-      return false;
-    }
-  }
-
-  private normalizeBasePath(p: string): string {
-    if (!p) return "";
-    return "/" + p.replace(/^\/+|\/+$/g, "");
-  }
-
-  private normalizePath(p: string): string {
-    return p.startsWith("/") ? p : "/" + p;
-  }
-
-  private stripBase(pathname: string): string {
-    if (!this.basePath) return pathname;
-    if (pathname === this.basePath) return "/";
-    if (pathname.startsWith(this.basePath + "/")) {
-      return pathname.slice(this.basePath.length);
-    }
-    return pathname;
-  }
-
-  private isLocalhost(req: Request): boolean {
-    const url = new URL(req.url);
-    const hostname = url.hostname.toLowerCase();
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-  }
-
-  private shouldForceHttps(req: Request): boolean {
-    if (!this.forceHttps) return false;
-    if (this.isLocalhost(req)) return false;
-
-    const forwardedProto = req.headers.get("x-forwarded-proto");
-    if (forwardedProto === "https") return false;
-
-    const url = new URL(req.url);
-    if (url.protocol === "https:") return false;
-
-    return true;
-  }
-
-  private buildHttpsUrl(req: Request): string {
-    const url = new URL(req.url);
-    url.protocol = "https:";
-    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      url.protocol = "wss:";
-    }
-    return url.toString();
-  }
-
-  private addHttpRoute(method: string, path: string, handler: HttpHandler) {
-    const patternPath = this.normalizePath(path);
-    const pattern = new URLPattern({ pathname: patternPath });
-    this.httpRoutes.push({ method: method.toUpperCase(), pattern, handler });
-  }
-
-  private addWsRoute(path: string, handler: WsHandler) {
-    const patternPath = this.normalizePath(path);
-    const pattern = new URLPattern({ pathname: patternPath });
-    // ✅ Passa o delay configurado para o grupo
-    const group = new WebSocketGroup(this.lastBroadcastDelay);
-    this.wsRoutes.push({ pattern, handler, group });
-  }
-
-  get(path: string, handler: HttpHandler) { this.addHttpRoute("GET", path, handler); }
-  post(path: string, handler: HttpHandler) { this.addHttpRoute("POST", path, handler); }
-  put(path: string, handler: HttpHandler) { this.addHttpRoute("PUT", path, handler); }
-  delete(path: string, handler: HttpHandler) { this.addHttpRoute("DELETE", path, handler); }
-  patch(path: string, handler: HttpHandler) { this.addHttpRoute("PATCH", path, handler); }
-  options(path: string, handler: HttpHandler) { this.addHttpRoute("OPTIONS", path, handler); }
-  head(path: string, handler: HttpHandler) { this.addHttpRoute("HEAD", path, handler); }
-  ws(path: string, handler: WsHandler) { this.addWsRoute(path, handler); }
-
-  async handleRequest(req: Request): Promise<Response> {
-    if (this.shouldForceHttps(req)) {
-      const httpsUrl = this.buildHttpsUrl(req);
-      return new Response(null, {
-        status: 301,
-        headers: {
-          "Location": httpsUrl,
-          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-        },
-      });
-    }
-
-    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      return this.handleWsUpgrade(req);
-    }
-    return this.handleHttpRequest(req);
-  }
-
-  private async handleHttpRequest(req: Request): Promise<Response> {
-    const { method } = req;
-    const adjustedUrl = new URL(req.url);
-    adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
-
-    for (const route of this.httpRoutes) {
-      if (route.method !== method.toUpperCase()) continue;
-      const match = route.pattern.exec(adjustedUrl);
-      if (match) {
-        const params = this.extractParams(match.pathname.groups);
-        
-        try {
-          const result = await route.handler(req, params);
-          const isHead = method.toUpperCase() === "HEAD";
-          const isNullBodyStatus = result.init?.status && [101, 204, 205, 304].includes(result.init.status);
-          const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
-          return new Response(finalBody, result.init);
-        } catch (error) {
-          console.error(`[Router] Error in ${method} ${route.pattern.pathname}:`, error);
-          return new Response("Internal Server Error", { status: 500 });
-        }
-      }
-    }
-    return this.handleStaticFile(req);
-  }
-
-  private async handleWsUpgrade(req: Request): Promise<Response> {
-    const adjustedUrl = new URL(req.url);
-    adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
-
-    for (const route of this.wsRoutes) {
-      const match = route.pattern.exec(adjustedUrl);
-      if (match) {
-        const { socket, response } = Deno.upgradeWebSocket(req);
-        const params = this.extractParams(match.pathname.groups);
-
-        route.group.addSocket(socket, params);
-        this.webSockets.set(socket, { group: route.group });
-        
-        route.group.sendLastBroadcastTo(socket, params);
-        
-        try {
-          route.handler(socket, req, params);
-        } catch (error) {
-          console.error(`[Router] Error in WS handler ${route.pattern.pathname}:`, error);
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.close(1011, "Internal Server Error");
-          }
-        }
-
-        socket.onclose = () => {
-          this.webSockets.delete(socket);
-          route.group.removeSocket(socket);
-        };
-        socket.onerror = (ev) => {
-          console.error(`WebSocket error:`, ev);
-          this.webSockets.delete(socket);
-          route.group.removeSocket(socket);
-        };
-        return response;
-      }
-    }
-    return new Response("WebSocket Not Found", { status: 404 });
-  }
-
-  closeAllWebSockets() {
-    for (const [socket] of this.webSockets.entries()) {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.close(1001, "Server is shutting down");
-      }
-    }
-    this.webSockets.clear();
-  }
-
-  private async handleStaticFile(req: Request): Promise<Response> {
-    if (this.staticDir === null && this.embeddedDir === null) {
-      return new Response("Not Found", { status: 404 });
-    }
-
-    const { pathname } = new URL(req.url);
-    const adjustedPathname = this.stripBase(pathname);
-    const safePath = normalize(adjustedPathname).replace(/^(\.\.[/\\])+/, "");
-
-    if (this.embeddedDir !== null) {
-      const embedded = await this.tryServeEmbedded(safePath);
-      if (embedded) return embedded;
-    }
-
-    if (this.staticDir !== null) {
-      const staticResp = await this.tryServeStatic(safePath);
-      if (staticResp) return staticResp;
-    }
-
-    return new Response("Not Found", { status: 404 });
-  }
-
+ import { join, normalize } from "@std/path";
+ export type RouteParams = Record<string, string | string[]>;
+ export type HttpHandler = (
+   req: Request,
+   params: RouteParams,
+ ) =>
+   | { body: BodyInit; init?: ResponseInit }
+   | Promise<{ body: BodyInit; init?: ResponseInit }>;
+ export type WsHandler = (
+   ws: WebSocket,
+   req: Request,
+   params: RouteParams,
+ ) => void;
+ export type PermissionFn = (
+   receiverParams: RouteParams,
+   senderParams: RouteParams,
+   message: string,
+ ) => boolean;
+ export type MimeTypeResolver = (ext: string) => string | undefined;
+ // ✅ MIDDLEWARE: Suporte a Request modificada via next(newReq)
+ // - Retorne uma Response para ABORTAR o fluxo
+ // - Chame next() para CONTINUAR (opcionalmente com nova Request)
+ export type Middleware = (
+   req: Request,
+   params: RouteParams,
+   next: (newReq?: Request) => Promise<Response>,
+ ) => Promise<Response> | Response;
+ export const DEFAULT_LAST_BROADCAST_DELAY = 50;
+ export interface RouterOptions {
+   basePath?: string;
+   staticDir?: string | null;
+   embeddedDir?: string | null;
+   mimeTypeResolver?: MimeTypeResolver;
+   forceHttps?: boolean;
+   lastBroadcastDelay?: number;
+ }
+ interface HttpRoute {
+   method: string;
+   pattern: URLPattern;
+   handler: HttpHandler;
+ }
+ interface WsRoute {
+   pattern: URLPattern;
+   handler: WsHandler;
+   group: WebSocketGroup;
+ }
+ interface LastBroadcast {
+   message: string;
+   permissionFn?: PermissionFn;
+   senderParams: RouteParams;
+ }
+ export class Router {
+   private basePath: string;
+   private httpRoutes: HttpRoute[] = [];
+   private wsRoutes: WsRoute[] = [];
+   private middlewares: Middleware[] = [];
+   private webSockets = new Map<WebSocket, { group: WebSocketGroup }>();
+   private staticDir: string | null;
+   private embeddedDir: string | null;
+   private mimeTypeResolver: MimeTypeResolver;
+   public forceHttps: boolean;
+   private lastBroadcastDelay: number;
+   constructor(
+     basePathOrOptions: string | RouterOptions = "",
+     staticDir: string | null = "public",
+     embeddedDir: string | null = null,
+     mimeTypeResolver: MimeTypeResolver = defaultMimeTypeResolver,
+     forceHttps: boolean | undefined = undefined,
+     lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY,
+   ) {
+     let basePath: string;
+     if (typeof basePathOrOptions === "object") {
+       const opts = basePathOrOptions;
+       basePath = opts.basePath ?? "";
+       this.staticDir = opts.staticDir ?? "public";
+       this.embeddedDir = opts.embeddedDir ?? null;
+       this.mimeTypeResolver = opts.mimeTypeResolver ?? defaultMimeTypeResolver;
+       this.forceHttps = opts.forceHttps ?? this.getDefaultForceHttps();
+       this.lastBroadcastDelay = opts.lastBroadcastDelay ?? DEFAULT_LAST_BROADCAST_DELAY;
+     } else {
+       basePath = basePathOrOptions;
+       this.staticDir = staticDir;
+       this.embeddedDir = embeddedDir;
+       this.mimeTypeResolver = mimeTypeResolver;
+       this.forceHttps = forceHttps ?? this.getDefaultForceHttps();
+       this.lastBroadcastDelay = lastBroadcastDelay;
+     }
+     this.basePath = this.normalizeBasePath(basePath);
+   }
+   private getDefaultForceHttps(): boolean {
+     try {
+       return Deno.env.get("FORCE_HTTPS")?.toLowerCase() === "true";
+     } catch {
+       return false;
+     }
+   }
+   private normalizeBasePath(p: string): string {
+     if (!p) return "";
+     return "/" + p.replace(/^\/+|\/+$/g, "");
+   }
+   private normalizePath(p: string): string {
+     return p.startsWith("/") ? p : "/" + p;
+   }
+   private stripBase(pathname: string): string {
+     if (!this.basePath) return pathname;
+     if (pathname === this.basePath) return "/";
+     if (pathname.startsWith(this.basePath + "/")) {
+       return pathname.slice(this.basePath.length);
+     }
+     return pathname;
+   }
+   private isLocalhost(req: Request): boolean {
+     const url = new URL(req.url);
+     const hostname = url.hostname.toLowerCase();
+     return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+   }
+   private shouldForceHttps(req: Request): boolean {
+     if (!this.forceHttps) return false;
+     if (this.isLocalhost(req)) return false;
+     
+     // ✅ CORREÇÃO TS2532: Adicionado optional chaining (?.) antes do .trim()
+     // para satisfazer o noUncheckedIndexedAccess do deno.jsonc
+     const protoHeader = req.headers.get("x-forwarded-proto");
+     const forwardedProto = protoHeader ? protoHeader.split(",")[0]?.trim() : undefined;
+     
+     if (forwardedProto === "https") return false;
+     const url = new URL(req.url);
+     if (url.protocol === "https:") return false;
+     return true;
+   }
+   private buildHttpsUrl(req: Request): string {
+     const url = new URL(req.url);
+     url.protocol = "https:";
+     if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+       url.protocol = "wss:";
+     }
+     return url.toString();
+   }
+   private addHttpRoute(method: string, path: string, handler: HttpHandler) {
+     const patternPath = this.normalizePath(path);
+     const pattern = new URLPattern({ pathname: patternPath });
+     this.httpRoutes.push({ method: method.toUpperCase(), pattern, handler });
+   }
+   private addWsRoute(path: string, handler: WsHandler) {
+     const patternPath = this.normalizePath(path);
+     const pattern = new URLPattern({ pathname: patternPath });
+     const group = new WebSocketGroup(this.lastBroadcastDelay);
+     this.wsRoutes.push({ pattern, handler, group });
+   }
+   use(middleware: Middleware) {
+     this.middlewares.push(middleware);
+   }
+   get(path: string, handler: HttpHandler) { this.addHttpRoute("GET", path, handler); }
+   post(path: string, handler: HttpHandler) { this.addHttpRoute("POST", path, handler); }
+   put(path: string, handler: HttpHandler) { this.addHttpRoute("PUT", path, handler); }
+   delete(path: string, handler: HttpHandler) { this.addHttpRoute("DELETE", path, handler); }
+   patch(path: string, handler: HttpHandler) { this.addHttpRoute("PATCH", path, handler); }
+   options(path: string, handler: HttpHandler) { this.addHttpRoute("OPTIONS", path, handler); }
+   head(path: string, handler: HttpHandler) { this.addHttpRoute("HEAD", path, handler); }
+   ws(path: string, handler: WsHandler) { this.addWsRoute(path, handler); }
+   private findHttpRoute(req: Request): { route: HttpRoute; params: RouteParams } | null {
+     const adjustedUrl = new URL(req.url);
+     adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
+     for (const route of this.httpRoutes) {
+       if (route.method !== req.method.toUpperCase()) continue;
+       const match = route.pattern.exec(adjustedUrl);
+       if (match) {
+         return { route, params: this.extractParams(match.pathname.groups) };
+       }
+     }
+     return null;
+   }
+   private findWsRoute(req: Request): { route: WsRoute; params: RouteParams } | null {
+     const adjustedUrl = new URL(req.url);
+     adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
+     for (const route of this.wsRoutes) {
+       const match = route.pattern.exec(adjustedUrl);
+       if (match) {
+         return { route, params: this.extractParams(match.pathname.groups) };
+       }
+     }
+     return null;
+   }
+   private async executeHttpHandler(
+     req: Request,
+     route: HttpRoute,
+     params: RouteParams,
+   ): Promise<Response> {
+     try {
+       const result = await route.handler(req, params);
+       const isHead = req.method.toUpperCase() === "HEAD";
+       const isNullBodyStatus = result.init?.status && [101, 204, 205, 304].includes(result.init.status);
+       const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
+       return new Response(finalBody, result.init);
+     } catch (error) {
+       console.error(`[Router] Error in ${req.method} ${route.pattern.pathname}:`, error);
+       return new Response("Internal Server Error", { status: 500 });
+     }
+   }
+   private executeWsHandler(
+     req: Request,
+     route: WsRoute,
+     params: RouteParams,
+   ): Response {
+     const { socket, response } = Deno.upgradeWebSocket(req);
+     route.group.addSocket(socket, params);
+     this.webSockets.set(socket, { group: route.group });
+     route.group.sendLastBroadcastTo(socket, params);
+     try {
+       route.handler(socket, req, params);
+     } catch (error) {
+       console.error(`[Router] Error in WS handler ${route.pattern.pathname}:`, error);
+       if (socket.readyState === WebSocket.OPEN) {
+         socket.close(1011, "Internal Server Error");
+       }
+     }
+     socket.onclose = () => {
+       this.webSockets.delete(socket);
+       route.group.removeSocket(socket);
+     };
+     socket.onerror = (ev) => {
+       console.error(`WebSocket error:`, ev);
+       this.webSockets.delete(socket);
+       route.group.removeSocket(socket);
+     };
+     return response;
+   }
+   async handleRequest(req: Request): Promise<Response> {
+     if (this.shouldForceHttps(req)) {
+       const httpsUrl = this.buildHttpsUrl(req);
+       return new Response(null, {
+         status: 301,
+         headers: {
+           "Location": httpsUrl,
+           "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+         },
+       });
+     }
+     const isWs = req.headers.get("upgrade")?.toLowerCase() === "websocket";
+     const found = isWs ? this.findWsRoute(req) : this.findHttpRoute(req);
+     let index = 0;
+     let currentReq = req;
+     const executeChain = async (): Promise<Response> => {
+       if (index < this.middlewares.length) {
+         const mw = this.middlewares[index++];
+         if (!mw) {
+           return this.executeFinalHandler(currentReq, isWs, found);
+         }
+         try {
+           let nextHasBeenCalled = false;
+           const result = await mw(currentReq, found?.params ?? {}, async (newReq?: Request) => {
+             if (nextHasBeenCalled) {
+               throw new Error("next() called multiple times in the same middleware");
+             }
+             nextHasBeenCalled = true;
+             if (newReq) currentReq = newReq;
+             return await executeChain();
+           });
+           return result;
+         } catch (error) {
+           console.error(`[Router] Middleware error:`, error);
+           return new Response("Internal Server Error", { status: 500 });
+         }
+       }
+       return this.executeFinalHandler(currentReq, isWs, found);
+     };
+     return await executeChain();
+   }
+   private async executeFinalHandler(
+     req: Request,
+     isWs: boolean,
+     found: { route: HttpRoute | WsRoute; params: RouteParams } | null,
+   ): Promise<Response> {
+     if (!found) {
+       if (isWs) return new Response("WebSocket Not Found", { status: 404 });
+       return this.handleStaticFile(req);
+     }
+     return isWs
+       ? this.executeWsHandler(req, found.route as WsRoute, found.params)
+       : await this.executeHttpHandler(req, found.route as HttpRoute, found.params);
+   }
+   closeAllWebSockets() {
+     for (const [socket] of this.webSockets.entries()) {
+       if (socket.readyState === WebSocket.OPEN) {
+         socket.close(1001, "Server is shutting down");
+       }
+     }
+     this.webSockets.clear();
+   }
+   private async handleStaticFile(req: Request): Promise<Response> {
+     if (this.staticDir === null && this.embeddedDir === null) {
+       return new Response("Not Found", { status: 404 });
+     }
+     const { pathname } = new URL(req.url);
+     const adjustedPathname = this.stripBase(pathname);
+     const safePath = normalize(adjustedPathname).replace(/^(\.\.[/\\])+/, "");
+     if (this.embeddedDir !== null) {
+       const embedded = await this.tryServeEmbedded(safePath);
+       if (embedded) return embedded;
+     }
+     if (this.staticDir !== null) {
+       const staticResp = await this.tryServeStatic(safePath);
+       if (staticResp) return staticResp;
+     }
+     return new Response("Not Found", { status: 404 });
+   }
   private async tryServeEmbedded(pathname: string): Promise<Response | null> {
     if (!this.embeddedDir) return null;
     const candidates = this.buildFileCandidates(this.embeddedDir, pathname);
     for (const candidate of candidates) {
       try {
-        const content = await Deno.readTextFile(candidate);
-        const ext = candidate.split(".").pop()?.toLowerCase() ?? "";
-        return new Response(content, {
-          headers: { "Content-Type": this.mimeTypeResolver(ext) ?? "application/octet-stream" },
-        });
+        // ✅ CORREÇÃO: Usa stat + stream para suportar binários (wasm, imagens, etc)
+        const info = await Deno.stat(candidate);
+        if (info.isFile) {
+          return this.serveFileWithMimeType(candidate);
+        }
       } catch (err) {
         if (!(err instanceof Deno.errors.NotFound)) {
           console.error(`Embedded file error: ${candidate}`, err);
@@ -323,176 +341,154 @@ export class Router {
     }
     return null;
   }
-
-  private async tryServeStatic(pathname: string): Promise<Response | null> {
-    if (!this.staticDir) return null;
-    const candidates = this.buildFileCandidates(this.staticDir, pathname);
-    for (const candidate of candidates) {
-      try {
-        const info = await Deno.stat(candidate);
-        if (info.isFile) {
-          return this.serveFileWithMimeType(candidate);
-        }
-      } catch (err) {
-        if (!(err instanceof Deno.errors.NotFound)) {
-          console.error(`Static file error: ${candidate}`, err);
-          return new Response("Internal Server Error", { status: 500 });
-        }
-      }
-    }
-    return null;
-  }
-
-  private buildFileCandidates(baseDir: string, pathname: string): string[] {
-    const fullPath = join(baseDir, pathname);
-    const candidates: string[] = [fullPath];
-
-    if (!/\.[a-zA-Z0-9]+$/.test(pathname)) {
-      candidates.push(fullPath + ".html");
-      candidates.push(fullPath + ".htm");
-    }
-
-    candidates.push(join(fullPath, "index.html"));
-    candidates.push(join(fullPath, "index.htm"));
-
-    return candidates;
-  }
-
-  private async serveFileWithMimeType(filePath: string): Promise<Response> {
-    const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-    const mimeType = this.mimeTypeResolver(ext) ?? "application/octet-stream";
-    const file = await Deno.open(filePath);
-    return new Response(file.readable, {
-      headers: { "Content-Type": mimeType },
-    });
-  }
-
-  getWsGroupByPath(pathOrPattern: string): WebSocketGroup | undefined {
-    const targetPath = this.normalizePath(pathOrPattern);
-    for (const route of this.wsRoutes) {
-      if (route.pattern.test({ pathname: targetPath })) {
-        return route.group;
-      }
-    }
-    return undefined;
-  }
-
-  closeGroupByPath(path: string): boolean {
-    const group = this.getWsGroupByPath(path);
-    if (!group) return false;
-    group.closeGroup();
-    return true;
-  }
-
-  private extractParams(groups: Record<string, string | undefined>): RouteParams {
-    const params: RouteParams = {};
-    const catches: string[] = [];
-    for (const [key, value] of Object.entries(groups)) {
-      if (value === undefined) continue;
-      if (key === "0" || /^\d+$/.test(key)) {
-        catches.push(value);
-      } else {
-        params[key] = value;
-      }
-    }
-    if (catches.length > 0) {
-      params.catch = catches;
-    }
-    return params;
-  }
-}
-
-export class WebSocketGroup {
-  private sockets = new Map<WebSocket, RouteParams>();
-  private lastBroadcast: LastBroadcast | null = null;
-  private lastBroadcastDelay: number;
-
-  // ✅ Construtor aceita o delay configurável
-  constructor(lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY) {
-    this.lastBroadcastDelay = lastBroadcastDelay;
-  }
-
-  addSocket(ws: WebSocket, params: RouteParams) {
-    this.sockets.set(ws, params);
-  }
-
-  removeSocket(ws: WebSocket) {
-    this.sockets.delete(ws);
-  }
-
-  get size(): number {
-    return this.sockets.size;
-  }
-
-  sendLastBroadcastTo(ws: WebSocket, receiverParams: RouteParams) {
-    const broadcast = this.lastBroadcast;
-    if (!broadcast) return;
-    
-    // ✅ Usa a constante/propriedade em vez do magic number
-    setTimeout(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        const { message, permissionFn, senderParams } = broadcast;
-        if (!permissionFn || permissionFn(receiverParams, senderParams, message)) {
-          ws.send(message);
-        }
-      }
-    }, this.lastBroadcastDelay);
-  }
-
-  broadcast(message: string, permissionFn?: PermissionFn, senderParams?: RouteParams) {
-    this.lastBroadcast = {
-      message,
-      permissionFn,
-      senderParams: senderParams ?? {},
-    };
-
-    for (const [socket, receiverParams] of this.sockets.entries()) {
-      if (socket.readyState !== WebSocket.OPEN) continue;
-      if (!permissionFn || permissionFn(receiverParams, senderParams ?? {}, message)) {
-        socket.send(message);
-      }
-    }
-  }
-
-  closeGroup() {
-    for (const [socket] of this.sockets.entries()) {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.close(1000, "Group is being closed");
-      }
-    }
-    this.sockets.clear();
-    this.lastBroadcast = null;
-  }
-}
-
-function defaultMimeTypeResolver(ext: string): string | undefined {
-  const map: Record<string, string> = {
-    html: "text/html; charset=utf-8",
-    htm: "text/html; charset=utf-8",
-    css: "text/css; charset=utf-8",
-    js: "application/javascript; charset=utf-8",
-    mjs: "application/javascript; charset=utf-8",
-    json: "application/json; charset=utf-8",
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    svg: "image/svg+xml",
-    ico: "image/x-icon",
-    txt: "text/plain; charset=utf-8",
-    pdf: "application/pdf",
-    xml: "application/xml",
-    woff: "font/woff",
-    woff2: "font/woff2",
-    ttf: "font/ttf",
-    otf: "font/otf",
-    mp3: "audio/mpeg",
-    mp4: "video/mp4",
-    webm: "video/webm",
-    wasm: "application/wasm",
-  };
-  return map[ext.toLowerCase()];
-}
+   private async tryServeStatic(pathname: string): Promise<Response | null> {
+     if (!this.staticDir) return null;
+     const candidates = this.buildFileCandidates(this.staticDir, pathname);
+     for (const candidate of candidates) {
+       try {
+         const info = await Deno.stat(candidate);
+         if (info.isFile) {
+           return this.serveFileWithMimeType(candidate);
+         }
+       } catch (err) {
+         if (!(err instanceof Deno.errors.NotFound)) {
+           console.error(`Static file error: ${candidate}`, err);
+           return new Response("Internal Server Error", { status: 500 });
+         }
+       }
+     }
+     return null;
+   }
+   private buildFileCandidates(baseDir: string, pathname: string): string[] {
+     const fullPath = join(baseDir, pathname);
+     const candidates: string[] = [fullPath];
+     if (!/\.[a-zA-Z0-9]+$/.test(pathname)) {
+       candidates.push(fullPath + ".html");
+       candidates.push(fullPath + ".htm");
+     }
+     candidates.push(join(fullPath, "index.html"));
+     candidates.push(join(fullPath, "index.htm"));
+     return candidates;
+   }
+   private async serveFileWithMimeType(filePath: string): Promise<Response> {
+     const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+     const mimeType = this.mimeTypeResolver(ext) ?? "application/octet-stream";
+     const file = await Deno.open(filePath);
+     return new Response(file.readable, {
+       headers: { "Content-Type": mimeType },
+     });
+   }
+   getWsGroupByPath(pathOrPattern: string): WebSocketGroup | undefined {
+     const targetPath = this.normalizePath(pathOrPattern);
+     for (const route of this.wsRoutes) {
+       if (route.pattern.test({ pathname: targetPath })) {
+         return route.group;
+       }
+     }
+     return undefined;
+   }
+   closeGroupByPath(path: string): boolean {
+     const group = this.getWsGroupByPath(path);
+     if (!group) return false;
+     group.closeGroup();
+     return true;
+   }
+   private extractParams(groups: Record<string, string | undefined>): RouteParams {
+     const params: RouteParams = {};
+     const catches: string[] = [];
+     for (const [key, value] of Object.entries(groups)) {
+       if (value === undefined) continue;
+       if (key === "0" || /^\d+$/.test(key)) {
+         catches.push(value);
+       } else {
+         params[key] = value;
+       }
+     }
+     if (catches.length > 0) {
+       params.catch = catches;
+     }
+     return params;
+   }
+ }
+ export class WebSocketGroup {
+   private sockets = new Map<WebSocket, RouteParams>();
+   private lastBroadcast: LastBroadcast | null = null;
+   private lastBroadcastDelay: number;
+   constructor(lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY) {
+     this.lastBroadcastDelay = lastBroadcastDelay;
+   }
+   addSocket(ws: WebSocket, params: RouteParams) {
+     this.sockets.set(ws, params);
+   }
+   removeSocket(ws: WebSocket) {
+     this.sockets.delete(ws);
+   }
+   get size(): number {
+     return this.sockets.size;
+   }
+   sendLastBroadcastTo(ws: WebSocket, receiverParams: RouteParams) {
+     const broadcast = this.lastBroadcast;
+     if (!broadcast) return;
+     setTimeout(() => {
+       if (ws.readyState === WebSocket.OPEN) {
+         const { message, permissionFn, senderParams } = broadcast;
+         if (!permissionFn || permissionFn(receiverParams, senderParams, message)) {
+           ws.send(message);
+         }
+       }
+     }, this.lastBroadcastDelay);
+   }
+   broadcast(message: string, permissionFn?: PermissionFn, senderParams?: RouteParams) {
+     this.lastBroadcast = {
+       message,
+       permissionFn,
+       senderParams: senderParams ?? {},
+     };
+     for (const [socket, receiverParams] of this.sockets.entries()) {
+       if (socket.readyState !== WebSocket.OPEN) continue;
+       if (!permissionFn || permissionFn(receiverParams, senderParams ?? {}, message)) {
+         socket.send(message);
+       }
+     }
+   }
+   closeGroup() {
+     for (const [socket] of this.sockets.entries()) {
+       if (socket.readyState === WebSocket.OPEN) {
+         socket.close(1000, "Group is being closed");
+       }
+     }
+     this.sockets.clear();
+     this.lastBroadcast = null;
+   }
+ }
+ function defaultMimeTypeResolver(ext: string): string | undefined {
+   const map: Record<string, string> = {
+     html: "text/html; charset=utf-8",
+     htm: "text/html; charset=utf-8",
+     css: "text/css; charset=utf-8",
+     js: "application/javascript; charset=utf-8",
+     mjs: "application/javascript; charset=utf-8",
+     json: "application/json; charset=utf-8",
+     png: "image/png",
+     jpg: "image/jpeg",
+     jpeg: "image/jpeg",
+     gif: "image/gif",
+     svg: "image/svg+xml",
+     ico: "image/x-icon",
+     txt: "text/plain; charset=utf-8",
+     pdf: "application/pdf",
+     xml: "application/xml",
+     woff: "font/woff",
+     woff2: "font/woff2",
+     ttf: "font/ttf",
+     otf: "font/otf",
+     mp3: "audio/mpeg",
+     mp4: "video/mp4",
+     webm: "video/webm",
+     wasm: "application/wasm",
+   };
+   return map[ext.toLowerCase()];
+ }
 ```
 
 ---
@@ -728,19 +724,59 @@ import { Router } from "../../src/mod.ts";
 const app = new Router("/api", "./public", null);
 
 // ============================================================
-// HTTP GET com parâmetros em cascata
+// 🛡️ MIDDLEWARES GLOBAIS (Executam antes de qualquer rota)
+// ============================================================
+
+// 1. Middleware de Log (Mede tempo de resposta)
+app.use(async (req, _params, next) => {
+  const start = Date.now();
+  const res = await next(); // Chama o próximo middleware ou a rota
+  const ms = Date.now() - start;
+  console.log(`📝 ${req.method} ${req.url} - ${res.status} (${ms}ms)`);
+  return res;
+});
+
+// 2. Middleware de CORS Global (Substitui a necessidade de app.options)
+app.use(async (req, _params, next) => {
+  // Se for preflight (OPTIONS), já responde na hora
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Max-Age": "86400",
+      },
+    });
+  }
+  
+  // Se for outra requisição, deixa passar e injeta o header na resposta
+  const res = await next();
+  res.headers.set("Access-Control-Allow-Origin", "*");
+  return res;
+});
+
+// 3. Middleware de Segurança (Ex: Bloqueia usuários banidos)
+const bannedIPs = ["192.168.1.100"];
+app.use(async (req, _params, next) => {
+  const ip = req.headers.get("x-forwarded-for") ?? "unknown";
+  if (bannedIPs.includes(ip)) {
+    return new Response("Forbidden", { status: 403 });
+  }
+  return await next();
+});
+
+// ============================================================
+// 🚀 ROTAS HTTP
 // ============================================================
 app.get("/:id/:tipo", (_req, params) => {
-  console.log("[GET] /:id/:tipo", params);
   return {
     body: JSON.stringify({ id: params.id, tipo: params.tipo }),
     init: { headers: { "Content-Type": "application/json" } },
   };
 });
 
-// ============================================================
-// HTTP POST
-// ============================================================
 app.post("/users", async (req) => {
   const body = await req.text();
   return {
@@ -750,110 +786,28 @@ app.post("/users", async (req) => {
 });
 
 // ============================================================
-// WebSocket com broadcast inteligente (DUAL PARAMS)
+// 📡 WEBSOCKET (Continua igual, pois WS tem seu próprio upgrade)
 // ============================================================
 app.ws("/chat/:room/:user", (ws, _req, params) => {
   const room = params.room as string;
   const user = params.user as string;
-  console.log(`[WS] ✅ ${user} entrou na sala ${room}`);
-
   const group = app.getWsGroupByPath("/chat/:room/:user");
-  if (!group) {
-    console.error("[WS] ❌ Grupo não encontrado!");
-    ws.close(1011, "Internal error");
-    return;
-  }
+  if (!group) return ws.close(1011, "Internal error");
 
   ws.onmessage = (event) => {
-    console.log(`[WS] 💬 ${room}/${user}: ${event.data}`);
-    
-    // ✅ DUAL PARAMS: Agora podemos filtrar por receiver E sender
     group.broadcast(
       `[${user}]: ${event.data}`,
-      (receiverParams, senderParams, _msg) => {
-        // Exemplo 1: Filtrar por sala do receiver
-        // return receiverParams.room === room;
-        
-        // Exemplo 2: Filtrar por sala do sender
-        // return senderParams.room === room;
-        
-        // Exemplo 3: Filtrar por ambos (mais seguro)
-        return receiverParams.room === senderParams.room;
-        
-        // Exemplo 4: Filtrar por conteúdo da mensagem
-        // return !_msg.includes("spam");
-        
-        // Exemplo 5: Combinar tudo
-        // return receiverParams.room === senderParams.room && !_msg.includes("spam");
-      },
-      params // senderParams
+      (receiverParams, senderParams, _msg) => receiverParams.room === senderParams.room,
+      params
     );
   };
-
-  ws.onclose = () => {
-    console.log(`[WS] ❌ ${user} saiu da sala ${room}`);
-  };
-
-  ws.onerror = (ev) => {
-    console.error(`[WS] ⚠️ erro ${room}/${user}:`, ev);
-  };
 });
 
 // ============================================================
-// Catch-all HTTP
-// ============================================================
-app.get("/subfolder/*", (_req, params) => {
-  console.log("[GET] /subfolder/*", params);
-  return {
-    body: `Catch-all: ${JSON.stringify(params.catch)}`,
-    init: { status: 200 },
-  };
-});
-
-// ============================================================
-// Catch-all WebSocket
-// ============================================================
-app.ws("/subfolder/*", (ws, _req, params) => {
-  console.log("[WS catch-all] params:", params);
-  ws.onmessage = (event) => ws.send(`Echo: ${event.data}`);
-  ws.onclose = () => console.log("[WS catch-all] closed");
-  ws.onerror = (ev) => console.error("[WS catch-all] error:", ev);
-});
-
-// ============================================================
-// Inicia o servidor
+// 🏁 Inicia o servidor
 // ============================================================
 const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 console.log("🚀 Servidor rodando em http://localhost:8000");
-console.log("📡 API:      http://localhost:8000/api");
-console.log("🔌 WS chat:  ws://localhost:8000/api/chat/:room/:user");
-console.log("📂 Estáticos: http://localhost:8000/api/index.html");
-
-// ============================================================
-// Graceful shutdown
-// ============================================================
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => {
-    console.log(`\n🛑 ${signal} recebido. Encerrando...`);
-    app.closeAllWebSockets();
-    server.shutdown().then(() => {
-      console.log("✅ Servidor encerrado.");
-      Deno.exit(0);
-    }).catch((err) => {
-      console.error("❌ Erro ao encerrar:", err);
-      Deno.exit(1);
-    });
-  });
-}
-
-// ============================================================
-// Exemplo: fechar grupo após 30s
-// ============================================================
-setTimeout(() => {
-  if (app.closeGroupByPath("/chat/:room/:user")) {
-    console.log("🔒 Grupo de chat fechado após 30s.");
-  }
-}, 30000);
 ```
 
 ---
@@ -977,7 +931,6 @@ setTimeout(() => {
 ## Arquivo: `monorepo/router/example/jwt/main.ts`
 
 ```ts
-// monorepo/router/example/jwt/main.ts
 import { Router } from "../../src/mod.ts";
 import { SignJWT, jwtVerify } from "jose";
 
@@ -986,94 +939,49 @@ const encoder = new TextEncoder();
 
 const app = new Router("/api", "./public", null);
 
-// ============================================================
-// 1. Rota HTTP para gerar o Token (Login)
-// ============================================================
-app.post("/login", async (req) => {
-  const { username, password } = await req.json();
-
-  if (username !== "admin" || password !== "123") {
-    return {
-      body: JSON.stringify({ error: "Credenciais inválidas" }),
-      init: { status: 401, headers: { "Content-Type": "application/json" } },
-    };
+// ✅ Middleware de autenticação: bloqueia ANTES do upgrade
+app.use(async (req, _params, next) => {
+  // Só aplica em rotas WebSocket
+  if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    return await next();
   }
 
-  const token = await new SignJWT({ username, role: "admin" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime("1h")
-    .sign(encoder.encode(JWT_SECRET));
-
-  return {
-    body: JSON.stringify({ token, username }),
-    init: { headers: { "Content-Type": "application/json" } },
-  };
-});
-
-// ============================================================
-// 2. Rota WebSocket Protegida por JWT via Subprotocol
-// ============================================================
-app.ws("/chat/:room", async (ws, req, params) => {
-  const room = params.room as string;
-  
-  // Extrai o token do header Sec-WebSocket-Protocol
-  const protocolHeader = req.headers.get("sec-websocket-protocol") ?? "";
-  const protocols = protocolHeader.split(",").map((p) => p.trim());
-  
+  const protocol = req.headers.get("sec-websocket-protocol") ?? "";
+  const protocols = protocol.split(",").map((p) => p.trim());
   const bearerIndex = protocols.findIndex((p) => p === "Bearer");
   const token = bearerIndex !== -1 ? protocols[bearerIndex + 1] : null;
 
   if (!token) {
-    console.error("[WS] ❌ Token ausente no subprotocol");
-    ws.close(4001, "Token de autenticação ausente");
-    return;
+    console.error("[Middleware] ❌ Token ausente");
+    return new Response("Token required", { status: 401 });
   }
 
   try {
-    const { payload } = await jwtVerify(token, encoder.encode(JWT_SECRET));
-    const user = payload.username as string;
-    const role = payload.role as string;
-    
-    console.log(`[WS] ✅ Usuário autenticado: ${user} (${role}) entrou na sala ${room}`);
-
-    const group = app.getWsGroupByPath("/chat/:room");
-    if (!group) {
-      ws.close(1011, "No group");
-      return;
-    }
-
-    // ✅ DUAL PARAMS: Exemplo de filtragem por receiver E sender
-    ws.onmessage = (event) => {
-      console.log(`[WS] 💬 ${user} em ${room}: ${event.data}`);
-      
-      group.broadcast(
-        `[${user}]: ${event.data}`,
-        // Filtra: receiver deve estar na mesma sala E sender deve ser válido
-        (receiverParams, senderParams, _msg) => {
-          return receiverParams.room === senderParams.room;
-        },
-        { ...params, user, role } // senderParams enriquecido com dados do JWT
-      );
-    };
-
-    ws.onclose = () => {
-      console.log(`[WS] ❌ ${user} saiu da sala ${room}`);
-    };
-
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("[WS] Falha na autenticação:", errorMessage);
-    ws.close(4002, "Token inválido ou expirado");
+    await jwtVerify(token, encoder.encode(JWT_SECRET));
+    console.log("[Middleware] ✅ Token válido, permitindo upgrade");
+    return await next(); // Prossegue com o upgrade
+  } catch {
+    console.error("[Middleware] ❌ Token inválido");
+    return new Response("Invalid token", { status: 403 });
   }
 });
 
-// ============================================================
-// Inicia o servidor
-// ============================================================
-const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
-console.log("🚀 Servidor rodando em http://localhost:8000");
-console.log("📡 Login:   POST http://localhost:8000/api/login");
-console.log("🔌 WS:      ws://localhost:8000/api/chat/geral (com subprotocol Bearer)");
+// Handler WS agora fica limpo — só lógica de negócio
+app.ws("/chat/:room", (ws, _req, params) => {
+  const room = params.room as string;
+  const group = app.getWsGroupByPath("/chat/:room");
+  if (!group) return;
+
+  ws.onmessage = (event) => {
+    group.broadcast(
+      `[room ${room}]: ${event.data}`,
+      (receiver, sender, _msg) => receiver.room === sender.room,
+      params,
+    );
+  };
+});
+
+Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 ```
 
 ---
@@ -2120,10 +2028,8 @@ Deno.test("Handler HTTP que lança erro retorna 500", async () => {
   app.get("/error", () => {
     throw new Error("Database connection failed");
   });
-
   const req = new Request("http://localhost/error");
   const res = await app.handleRequest(req);
-  
   assertEquals(res.status, 500);
   assertEquals(await res.text(), "Internal Server Error");
 });
@@ -2134,10 +2040,8 @@ Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
     await new Promise(r => setTimeout(r, 10));
     throw new Error("Async boom");
   });
-
   const req = new Request("http://localhost/async-error");
   const res = await app.handleRequest(req);
-  
   assertEquals(res.status, 500);
 });
 
@@ -2147,10 +2051,8 @@ Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
 Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
   const app = new Router({ basePath: "", forceHttps: true });
   app.get("/ping", () => ({ body: "pong" }));
-
   const req = new Request("http://example.com/ping");
   const res = await app.handleRequest(req);
-  
   assertEquals(res.status, 301);
   assertEquals(res.headers.get("Location"), "https://example.com/ping");
   assertEquals(res.headers.get("Strict-Transport-Security"), "max-age=31536000; includeSubDomains");
@@ -2159,10 +2061,8 @@ Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => 
 Deno.test("Force HTTPS ignora localhost", async () => {
   const app = new Router({ basePath: "", forceHttps: true });
   app.get("/ping", () => ({ body: "pong" }));
-
   const req = new Request("http://localhost:8000/ping");
   const res = await app.handleRequest(req);
-  
   assertEquals(res.status, 200);
   assertEquals(await res.text(), "pong");
 });
@@ -2170,22 +2070,18 @@ Deno.test("Force HTTPS ignora localhost", async () => {
 Deno.test("Force HTTPS ignora se já for HTTPS", async () => {
   const app = new Router({ basePath: "", forceHttps: true });
   app.get("/ping", () => ({ body: "pong" }));
-
   const req = new Request("https://example.com/ping");
   const res = await app.handleRequest(req);
-  
   assertEquals(res.status, 200);
 });
 
 Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
   const app = new Router({ basePath: "", forceHttps: true });
   app.get("/ping", () => ({ body: "pong" }));
-
   const req = new Request("http://example.com/ping", {
     headers: { "x-forwarded-proto": "https" }
   });
   const res = await app.handleRequest(req);
-  
   assertEquals(res.status, 200);
 });
 
@@ -2206,11 +2102,7 @@ class MockWebSocket {
 }
 
 Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", async () => {
-  // ✅ Podemos passar 0ms no teste para execução síncrona/imediata se quisermos, 
-  // mas aqui usamos o default e aguardamos.
   const group = new WebSocketGroup();
-  
-  // User1 na Sala A envia mensagem
   const ws1 = new MockWebSocket();
   group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
   
@@ -2220,23 +2112,18 @@ Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", asyn
     { room: "A", user: "user1" }
   );
 
-  // User2 na Sala B entra DEPOIS
   const ws2 = new MockWebSocket();
   group.addSocket(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
-  
-  // O router chama isso automaticamente no upgrade
   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
 
-  // Aguarda o setTimeout padrão (50ms) + margem
   await new Promise(r => setTimeout(r, 100));
 
-  // ✅ CORREÇÃO: O array esperado deve ser VAZIO []. A string é apenas a mensagem de erro do assert.
+  // ✅ CORREÇÃO: O array esperado é VAZIO. A string é a mensagem de erro do assert.
   assertEquals(ws2.sent, [], "User2 na sala B não deve receber broadcast da sala A");
 });
 
 Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () => {
   const group = new WebSocketGroup();
-  
   const ws1 = new MockWebSocket();
   group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
   
@@ -2251,15 +2138,11 @@ Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () 
   group.sendLastBroadcastTo(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
 
   await new Promise(r => setTimeout(r, 100));
-
   assertEquals(ws3.sent, ["Bem-vindos!"]);
 });
 
-// ✅ NOVO TESTE: Validando o delay configurável (Zero Delay para testes rápidos)
 Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
-  // Criamos um grupo com delay 0 para testes síncronos rápidos
   const group = new WebSocketGroup(0);
-  
   const ws1 = new MockWebSocket();
   group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
   group.broadcast("msg", undefined, { room: "A" });
@@ -2268,11 +2151,576 @@ Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
   group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
 
-  // Com delay 0, ainda precisamos de um tick do event loop
   await new Promise(r => setTimeout(r, 10));
-
   assertEquals(ws2.sent, ["msg"]);
 });
+```
+
+---
+
+## Arquivo: `monorepo/router/tests/middleware_test.ts`
+
+```ts
+// monorepo/router/tests/middleware_test.ts
+ import { assertEquals, assert } from "@std/assert";
+ import { Router } from "../src/mod.ts";
+ // ============================================================
+ // 1. MIDDLEWARE HTTP - BÁSICO
+ // ============================================================
+ Deno.test("Middleware HTTP: executa antes do handler", async () => {
+   const app = new Router("", null, null);
+   const calls: string[] = [];
+   app.use(async (_req, _params, next) => {
+     calls.push("middleware");
+     return await next();
+   });
+   app.get("/test", () => {
+     calls.push("handler");
+     return { body: "ok" };
+   });
+   const req = new Request("http://localhost/test");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 200);
+   assertEquals(await res.text(), "ok");
+   assertEquals(calls, ["middleware", "handler"]);
+ });
+ Deno.test("Middleware HTTP: pode abortar o fluxo (401)", async () => {
+   const app = new Router("", null, null);
+   app.use((_req, _params, _next) => {
+     return new Response("Unauthorized", { status: 401 });
+   });
+   app.get("/protected", () => ({ body: "secret" }));
+   const req = new Request("http://localhost/protected");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 401);
+   assertEquals(await res.text(), "Unauthorized");
+ });
+ Deno.test("Middleware HTTP: múltiplos middlewares em cadeia", async () => {
+   const app = new Router("", null, null);
+   const order: number[] = [];
+   app.use(async (_req, _params, next) => {
+     order.push(1);
+     const res = await next();
+     order.push(5);
+     return res;
+   });
+   app.use(async (_req, _params, next) => {
+     order.push(2);
+     const res = await next();
+     order.push(4);
+     return res;
+   });
+   app.get("/test", () => {
+     order.push(3);
+     return { body: "ok" };
+   });
+   const req = new Request("http://localhost/test");
+   await app.handleRequest(req);
+   assertEquals(order, [1, 2, 3, 4, 5]);
+ });
+ Deno.test("Middleware HTTP: modifica a resposta", async () => {
+   const app = new Router("", null, null);
+   app.use(async (_req, _params, next) => {
+     const res = await next();
+     res.headers.set("X-Middleware", "applied");
+     return res;
+   });
+   app.get("/test", () => ({ body: "ok" }));
+   const req = new Request("http://localhost/test");
+   const res = await app.handleRequest(req);
+   assertEquals(res.headers.get("X-Middleware"), "applied");
+ });
+ Deno.test("Middleware HTTP: middleware de log mede tempo", async () => {
+   const app = new Router("", null, null);
+   let measuredMs = -1;
+   app.use(async (_req, _params, next) => {
+     const start = Date.now();
+     const res = await next();
+     measuredMs = Date.now() - start;
+     return res;
+   });
+   app.get("/slow", async () => {
+     await new Promise((r) => setTimeout(r, 50));
+     return { body: "ok" };
+   });
+   const req = new Request("http://localhost/slow");
+   await app.handleRequest(req);
+   assert(measuredMs >= 45, `Tempo medido (${measuredMs}ms) deve ser >= 45ms`);
+ });
+ // ============================================================
+ // 2. MIDDLEWARE HTTP - EDGE CASES
+ // ============================================================
+ Deno.test("Middleware HTTP: executa mesmo sem rota (404)", async () => {
+   const app = new Router("", null, null);
+   let middlewareCalled = false;
+   app.use(async (_req, _params, next) => {
+     middlewareCalled = true;
+     return await next();
+   });
+   const req = new Request("http://localhost/inexistente");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 404);
+   assertEquals(middlewareCalled, true, "Middleware deve executar mesmo sem rota");
+ });
+ Deno.test("Middleware HTTP: CORS em arquivo estático", async () => {
+   const tmpDir = await Deno.makeTempDir();
+   await Deno.writeTextFile(`${tmpDir}/hello.txt`, "world");
+   const app = new Router("", tmpDir, null);
+   app.use(async (_req, _params, next) => {
+     const res = await next();
+     res.headers.set("Access-Control-Allow-Origin", "*");
+     return res;
+   });
+   const req = new Request("http://localhost/hello.txt");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 200);
+   assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
+   await Deno.remove(tmpDir, { recursive: true });
+ });
+ Deno.test("Middleware HTTP: múltiplas chamadas de next() são protegidas", async () => {
+   const app = new Router("", null, null);
+   const handlerCalls: number[] = [];
+   app.use(async (_req, _params, next) => {
+     const r1 = await next(); // 1ª chamada OK
+     // Tenta chamar de novo - deve falhar
+     try {
+       await next();
+     } catch {
+       // Ignora
+     }
+     return r1;
+   });
+   app.get("/test", () => {
+     handlerCalls.push(1);
+     return { body: "ok" };
+   });
+   const req = new Request("http://localhost/test");
+   const res = await app.handleRequest(req);
+   // Handler deve ser chamado APENAS UMA VEZ
+   assertEquals(handlerCalls, [1]);
+   assertEquals(res.status, 200);
+ });
+ // ============================================================
+ // 3. MIDDLEWARE WEBSOCKET
+ // ============================================================
+ Deno.test("Middleware WS: aborta upgrade sem token", async () => {
+   const app = new Router("", null, null);
+   app.use((req, _params, next) => {
+     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+       return next();
+     }
+     const token = req.headers.get("authorization");
+     if (!token) {
+       return new Response("Token required", { status: 401 });
+     }
+     return next();
+   });
+   app.ws("/chat", () => {});
+   // Sem token - deve retornar 401
+   const req1 = new Request("http://localhost/chat", {
+     headers: { upgrade: "websocket" },
+   });
+   const res1 = await app.handleRequest(req1);
+   assertEquals(res1.status, 401);
+   // Com token - deve permitir upgrade (101)
+   // ✅ CORREÇÃO: Deno.upgradeWebSocket exige o header 'connection: Upgrade'
+   const req2 = new Request("http://localhost/chat", {
+     headers: {
+       upgrade: "websocket",
+       connection: "Upgrade",
+       authorization: "Bearer valid-token",
+       "sec-websocket-version": "13",
+       "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+     },
+   });
+   const res2 = await app.handleRequest(req2);
+   assertEquals(res2.status, 101);
+ });
+ Deno.test("Middleware WS: não é chamado para rotas WS inexistentes", async () => {
+   const app = new Router("", null, null);
+   let middlewareCalled = false;
+   app.use(async (_req, _params, next) => {
+     middlewareCalled = true;
+     return await next();
+   });
+   // ✅ CORREÇÃO: Com o novo fluxo, middlewares EXECUTAM mesmo para 404 WS
+   const req = new Request("http://localhost/inexistente", {
+     headers: { upgrade: "websocket" },
+   });
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 404);
+   assertEquals(middlewareCalled, true, "Middleware deve executar mesmo para 404 WS");
+ });
+ Deno.test("Middleware WS: pode passar Request modificada para next()", async () => {
+   const app = new Router("", null, null);
+   app.use(async (req, _params, next) => {
+     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+       return next();
+     }
+     // Cria nova request com header injetado
+     const newHeaders = new Headers(req.headers);
+     newHeaders.set("X-User-Id", "42");
+     const newReq = new Request(req.url, {
+       method: req.method,
+       headers: newHeaders,
+     });
+     return next(newReq);
+   });
+   let receivedUserId: string | null = null;
+   app.ws("/chat", (ws, req) => {
+     receivedUserId = req.headers.get("X-User-Id");
+     ws.close(1000, "Test done");
+   });
+   // ✅ CORREÇÃO: Adicionado connection: Upgrade para satisfazer o Deno
+   const req = new Request("http://localhost/chat", {
+     headers: {
+       upgrade: "websocket",
+       connection: "Upgrade",
+       "sec-websocket-version": "13",
+       "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+     },
+   });
+   await app.handleRequest(req);
+   // Aguarda um tick para o handler executar
+   await new Promise((r) => setTimeout(r, 50));
+   assertEquals(receivedUserId, "42", "Handler deve receber a request modificada");
+ });
+ // ============================================================
+ // 4. MIDDLEWARE + ROUTES COMBINADAS
+ // ============================================================
+ Deno.test("Middleware HTTP: autenticação com rotas públicas e privadas", async () => {
+   const app = new Router("", null, null);
+   // Middleware global de autenticação
+   app.use(async (req, _params, next) => {
+     const path = new URL(req.url).pathname;
+     if (path === "/public") {
+       return await next(); // Rota pública
+     }
+     const auth = req.headers.get("authorization");
+     if (!auth || auth !== "Bearer valid") {
+       return new Response("Unauthorized", { status: 401 });
+     }
+     return await next();
+   });
+   app.get("/public", () => ({ body: "public data" }));
+   app.get("/private", () => ({ body: "private data" }));
+   // Rota pública - sem auth
+   const req1 = new Request("http://localhost/public");
+   const res1 = await app.handleRequest(req1);
+   assertEquals(res1.status, 200);
+   assertEquals(await res1.text(), "public data");
+   // Rota privada - sem auth (deve falhar)
+   const req2 = new Request("http://localhost/private");
+   const res2 = await app.handleRequest(req2);
+   assertEquals(res2.status, 401);
+   // Rota privada - com auth
+   const req3 = new Request("http://localhost/private", {
+     headers: { authorization: "Bearer valid" },
+   });
+   const res3 = await app.handleRequest(req3);
+   assertEquals(res3.status, 200);
+   assertEquals(await res3.text(), "private data");
+ });
+ Deno.test("Middleware: CORS preflight (OPTIONS) é tratado corretamente", async () => {
+   const app = new Router("", null, null);
+   app.use(async (req, _params, next) => {
+     if (req.method === "OPTIONS") {
+       return new Response(null, {
+         status: 204,
+         headers: {
+           "Access-Control-Allow-Origin": "*",
+           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+           "Access-Control-Allow-Headers": "Content-Type",
+         },
+       });
+     }
+     const res = await next();
+     res.headers.set("Access-Control-Allow-Origin", "*");
+     return res;
+   });
+   app.get("/data", () => ({ body: "ok" }));
+   // Preflight OPTIONS
+   const req1 = new Request("http://localhost/data", { method: "OPTIONS" });
+   const res1 = await app.handleRequest(req1);
+   assertEquals(res1.status, 204);
+   assertEquals(res1.headers.get("Access-Control-Allow-Origin"), "*");
+   // Request normal GET
+   const req2 = new Request("http://localhost/data");
+   const res2 = await app.handleRequest(req2);
+   assertEquals(res2.status, 200);
+   assertEquals(res2.headers.get("Access-Control-Allow-Origin"), "*");
+ });
+```
+
+---
+
+## Arquivo: `monorepo/router/tests/complementary_test.ts`
+
+```ts
+// monorepo/router/tests/complementary_test.ts
+ import { assertEquals, assert } from "@std/assert";
+ import { Router, WebSocketGroup } from "../src/mod.ts";
+ 
+ // ============================================================
+ // 1. ERROR HANDLING
+ // ============================================================
+ Deno.test("Handler HTTP que lança erro retorna 500", async () => {
+   const app = new Router("", null, null);
+   app.get("/error", () => {
+     throw new Error("Database connection failed");
+   });
+   const req = new Request("http://localhost/error");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 500);
+   assertEquals(await res.text(), "Internal Server Error");
+ });
+ 
+ Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
+   const app = new Router("", null, null);
+   app.get("/async-error", async () => {
+     await new Promise(r => setTimeout(r, 10));
+     throw new Error("Async boom");
+   });
+   const req = new Request("http://localhost/async-error");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 500);
+ });
+ 
+ // ============================================================
+ // 2. FORCE HTTPS
+ // ============================================================
+ Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
+   const app = new Router({ basePath: "", forceHttps: true });
+   app.get("/ping", () => ({ body: "pong" }));
+   const req = new Request("http://example.com/ping");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 301);
+   assertEquals(res.headers.get("Location"), "https://example.com/ping");
+   assertEquals(res.headers.get("Strict-Transport-Security"), "max-age=31536000; includeSubDomains");
+ });
+ 
+ Deno.test("Force HTTPS ignora localhost", async () => {
+   const app = new Router({ basePath: "", forceHttps: true });
+   app.get("/ping", () => ({ body: "pong" }));
+   const req = new Request("http://localhost:8000/ping");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 200);
+   assertEquals(await res.text(), "pong");
+ });
+ 
+ Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
+   const app = new Router({ basePath: "", forceHttps: true });
+   app.get("/ping", () => ({ body: "pong" }));
+   const req = new Request("http://example.com/ping", {
+     headers: { "x-forwarded-proto": "https" }
+   });
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 200);
+ });
+ 
+ // ============================================================
+ // 3. MIDDLEWARES
+ // ============================================================
+ Deno.test("Middleware HTTP: executa antes do handler e pode abortar", async () => {
+   const app = new Router("", null, null);
+   app.use((_req, _params, _next) => {
+     return new Response("Unauthorized", { status: 401 });
+   });
+   app.get("/protected", () => ({ body: "secret" }));
+   const req = new Request("http://localhost/protected");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 401);
+   assertEquals(await res.text(), "Unauthorized");
+ });
+ 
+ Deno.test("Middleware HTTP: múltiplos middlewares em cadeia", async () => {
+   const app = new Router("", null, null);
+   const order: number[] = [];
+   app.use(async (_req, _params, next) => {
+     order.push(1);
+     const res = await next();
+     order.push(4);
+     return res;
+   });
+   app.use(async (_req, _params, next) => {
+     order.push(2);
+     const res = await next();
+     order.push(3);
+     return res;
+   });
+   app.get("/test", () => {
+     return { body: "ok" };
+   });
+   const req = new Request("http://localhost/test");
+   await app.handleRequest(req);
+   assertEquals(order, [1, 2, 3, 4]);
+ });
+ 
+ Deno.test("Middleware HTTP: modifica a resposta", async () => {
+   const app = new Router("", null, null);
+   app.use(async (_req, _params, next) => {
+     const res = await next();
+     res.headers.set("X-Middleware", "applied");
+     return res;
+   });
+   app.get("/test", () => ({ body: "ok" }));
+   const req = new Request("http://localhost/test");
+   const res = await app.handleRequest(req);
+   assertEquals(res.headers.get("X-Middleware"), "applied");
+ });
+ 
+ Deno.test("Middleware HTTP: executa mesmo sem rota (404)", async () => {
+   const app = new Router("", null, null);
+   let middlewareCalled = false;
+   app.use(async (_req, _params, next) => {
+     middlewareCalled = true;
+     return await next();
+   });
+   const req = new Request("http://localhost/inexistente");
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 404);
+   assertEquals(middlewareCalled, true, "Middleware deve executar mesmo sem rota");
+ });
+ 
+ Deno.test("Middleware WS: aborta upgrade sem token", async () => {
+   const app = new Router("", null, null);
+   app.use((req, _params, next) => {
+     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+       return next();
+     }
+     const token = req.headers.get("authorization");
+     if (!token) {
+       return new Response("Token required", { status: 401 });
+     }
+     return next();
+   });
+   app.ws("/chat", () => {});
+   
+   const req1 = new Request("http://localhost/chat", {
+     headers: { upgrade: "websocket" },
+   });
+   const res1 = await app.handleRequest(req1);
+   assertEquals(res1.status, 401);
+ });
+ 
+ Deno.test("Middleware WS: não é chamado para rotas WS inexistentes", async () => {
+   const app = new Router("", null, null);
+   let middlewareCalled = false;
+   app.use(async (_req, _params, next) => {
+     middlewareCalled = true;
+     return await next();
+   });
+   const req = new Request("http://localhost/inexistente", {
+     headers: { upgrade: "websocket" },
+   });
+   const res = await app.handleRequest(req);
+   assertEquals(res.status, 404);
+   assertEquals(middlewareCalled, true, "Middleware deve executar mesmo para 404 WS");
+ });
+ 
+ Deno.test("Middleware WS: pode passar Request modificada para next()", async () => {
+   const app = new Router("", null, null);
+   app.use(async (req, _params, next) => {
+     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+       return next();
+     }
+     // Cria nova request com header injetado
+     const newHeaders = new Headers(req.headers);
+     newHeaders.set("X-User-Id", "42");
+     const newReq = new Request(req.url, {
+       method: req.method,
+       headers: newHeaders,
+     });
+     return next(newReq);
+   });
+   
+   let receivedUserId: string | null = null;
+   app.ws("/chat", (ws, req) => {
+     receivedUserId = req.headers.get("X-User-Id");
+     ws.close(1000, "Test done");
+   });
+   
+   // ✅ CORREÇÃO: Adicionado connection: Upgrade para satisfazer o Deno
+   const req = new Request("http://localhost/chat", {
+     headers: {
+       upgrade: "websocket",
+       connection: "Upgrade", // <--- Adicionado para evitar TypeError no upgradeWebSocket
+       "sec-websocket-version": "13",
+       "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+     },
+   });
+   
+   await app.handleRequest(req);
+   // Aguarda um tick para o handler executar
+   await new Promise((r) => setTimeout(r, 50));
+   assertEquals(receivedUserId, "42", "Handler deve receber a request modificada");
+ });
+ 
+ // ============================================================
+ // 4. LAST BROADCAST COM DUAL PERMISSION
+ // ============================================================
+ class MockWebSocket {
+   readyState: number = 1;
+   sent: string[] = [];
+   send(data: string | ArrayBuffer | Blob) {
+     if (typeof data === "string") {
+       this.sent.push(data);
+     }
+   }
+   close(code?: number, reason?: string) {
+     this.readyState = 3;
+   }
+ }
+ 
+ Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", async () => {
+   const group = new WebSocketGroup();
+   const ws1 = new MockWebSocket();
+   group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
+   group.broadcast(
+     "Segredo da Sala A",
+     (receiver, sender, _msg) => receiver.room === sender.room,
+     { room: "A", user: "user1" }
+   );
+   
+   const ws2 = new MockWebSocket();
+   group.addSocket(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
+   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
+   
+   await new Promise(r => setTimeout(r, 100));
+   assertEquals(ws2.sent, [], "User2 na sala B não deve receber broadcast da sala A");
+ });
+ 
+ Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () => {
+   const group = new WebSocketGroup();
+   const ws1 = new MockWebSocket();
+   group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
+   group.broadcast(
+     "Bem-vindos!",
+     (receiver, sender, _msg) => receiver.room === sender.room,
+     { room: "A", user: "user1" }
+   );
+   
+   const ws3 = new MockWebSocket();
+   group.addSocket(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
+   group.sendLastBroadcastTo(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
+   
+   await new Promise(r => setTimeout(r, 100));
+   assertEquals(ws3.sent, ["Bem-vindos!"]);
+ });
+ 
+ Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
+   const group = new WebSocketGroup(0);
+   const ws1 = new MockWebSocket();
+   group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+   group.broadcast("msg", undefined, { room: "A" });
+   
+   const ws2 = new MockWebSocket();
+   group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
+   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
+   
+   await new Promise(r => setTimeout(r, 10));
+   assertEquals(ws2.sent, ["msg"]);
+ });
 ```
 
 ---
@@ -2736,179 +3184,6 @@ Todas essas combinações são válidas e suportadas pelo router! 🚀
 
 ---
 
-## Arquivo: `monorepo/router/docs/websocket-permissions.md`
-
-````md
-# 📡 Documentação: Permissionamento Inteligente em WebSockets
-
-O `@loco/router` possui um sistema nativo e robusto de permissionamento para WebSockets, permitindo que mensagens de broadcast sejam filtradas dinamicamente com base nos **parâmetros da rota** e no **conteúdo da mensagem**. 
-
-Além disso, o sistema gerencia automaticamente o "Último Broadcast" (Last Broadcast), garantindo que novos membros de um grupo recebam o contexto histórico, respeitando as mesmas regras de permissão.
-
----
-
-## 🔑 Conceitos Fundamentais
-
-### 1. `RouteParams`
-São os parâmetros extraídos da URL quando o cliente se conecta. 
-Exemplo: Na rota `/chat/:room/:user`, se a URL for `/chat/lobby/joao`, os parâmetros serão `{ room: "lobby", user: "joao" }`.
-
-### 2. `PermissionFn` (Função de Permissão)
-É um callback opcional passado ao método `group.broadcast()`. Sua assinatura é:
-```typescript
-type PermissionFn = (params: RouteParams, message: string) => boolean;
-```
-- **`params`**: Os parâmetros da conexão do cliente que está sendo avaliado para receber a mensagem.
-- **`message`**: O conteúdo da mensagem sendo enviada.
-- **Retorno**: `true` (envia a mensagem) ou `false` (bloqueia a mensagem para este cliente específico).
-
-### 3. `senderParams`
-São os parâmetros de quem **originou** a mensagem. O router os armazena automaticamente para que, quando um novo membro entrar, o sistema possa reavaliar se aquele membro tem direito de receber o último broadcast com base no contexto original.
-
----
-
-## ⚙️ Como Funciona (Fluxo Interno)
-
-1. Um cliente envia uma mensagem via WebSocket.
-2. O handler chama `group.broadcast(mensagem, permissionFn, paramsDoSender)`.
-3. O router salva essa combinação (`mensagem` + `permissionFn` + `paramsDoSender`) como o `lastBroadcast` do grupo.
-4. O router itera sobre **todos** os sockets conectados ao grupo.
-5. Para cada socket, ele executa a `permissionFn` passando os parâmetros *desse socket específico* e a mensagem.
-6. Se a função retornar `true`, a mensagem é enviada. Se retornar `false`, o socket é ignorado.
-7. **Novos Membros**: Quando um novo socket se conecta, o router aguarda o handshake finalizar (50ms) e reexecuta a `permissionFn` do `lastBroadcast`. Se for `true`, o novo membro recebe a mensagem histórica automaticamente.
-
----
-
-## 🌍 Exemplos Práticos do Mundo Real
-
-### Cenário 1: Isolamento de Salas de Chat (O Clássico)
-**Objetivo:** Garantir que uma mensagem enviada na sala "geral" não vaze para a sala "vip".
-
-```typescript
-app.ws("/chat/:room/:user", (ws, _req, params) => {
-  const currentRoom = params.room as string;
-  const group = app.getWsGroupByPath("/chat/:room/:user");
-
-  ws.onmessage = (event) => {
-    // A função de permissão verifica se o cliente destinatário está na mesma sala do remetente
-    group.broadcast(
-      `[${params.user}]: ${event.data}`,
-      (clientParams) => clientParams.room === currentRoom,
-      params // Passamos os params do remetente para histórico
-    );
-  };
-});
-```
-
-### Cenário 2: Controle de Acesso por Nível de Usuário (RBAC)
-**Objetivo:** Em um dashboard, apenas usuários com role `admin` ou `moderator` podem receber alertas de sistema críticos.
-
-```typescript
-app.ws("/dashboard/:role/:userId", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/dashboard/:role/:userId");
-
-  // Função simulada que envia um alerta
-  function sendSystemAlert(alertMessage: string) {
-    group.broadcast(
-      `🚨 ALERTA: ${alertMessage}`,
-      (clientParams) => {
-        // Só permite a passagem se o role do destinatário for admin ou moderator
-        return clientParams.role === "admin" || clientParams.role === "moderator";
-      }
-    );
-  }
-});
-```
-
-### Cenário 3: Filtragem Baseada no Conteúdo da Mensagem
-**Objetivo:** Impedir que mensagens contendo a menção `@everyone` sejam enviadas, a menos que o remetente seja um administrador.
-
-```typescript
-app.ws("/community/:serverId/:userId", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/community/:serverId/:userId");
-
-  ws.onmessage = (event) => {
-    const message = event.data;
-
-    group.broadcast(
-      message,
-      (clientParams, msgContent) => {
-        // Se a mensagem contiver @everyone, só passa se o DESTINATÁRIO for admin 
-        // (ou você pode checar o senderParams se salvar no contexto, mas aqui filtramos o destino)
-        if (msgContent.includes("@everyone")) {
-          return clientParams.role === "admin"; 
-        }
-        return true; // Mensagens normais passam para todos
-      },
-      params
-    );
-  };
-});
-```
-
-### Cenário 4: Mensagens Diretas (DM) ou Notificações Privadas
-**Objetivo:** Enviar uma notificação apenas para o usuário específico dentro de um grupo amplo.
-
-```typescript
-app.ws("/notifications/:tenantId/:userId", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/notifications/:tenantId/:userId");
-
-  // Função chamada pelo backend quando há uma nova notificação para o user "42"
-  function notifyUser(targetUserId: string, notificationData: string) {
-    group.broadcast(
-      notificationData,
-      (clientParams) => clientParams.userId === targetUserId, // Filtra pelo ID exato
-      params
-    );
-  }
-});
-```
-
----
-
-## 💡 Recursos Avançados e "Mágica" do Last Broadcast
-
-### O Problema que isso resolve:
-Em aplicações de chat ou dashboards em tempo real, se um usuário entra em uma sala onde uma discussão já está acontecendo, ele perde o contexto. 
-
-### A Solução do `@loco/router`:
-Graças ao armazenamento do `lastBroadcast`, o sistema faz isso automaticamente:
-
-```typescript
-// 10:00:00 -> User A (room: "lobby") envia: "Olá a todos!"
-// O router salva: { message: "Olá a todos!", permissionFn: (p) => p.room === "lobby", senderParams: { room: "lobby", user: "A" } }
-
-// 10:00:05 -> User B conecta na rota /chat/lobby/userB
-// O router detecta a conexão, aguarda 50ms (para o socket ficar OPEN), 
-// reavalia a permissionFn do último broadcast e, como "lobby" === "lobby", 
-// envia "Olá a todos!" automaticamente para o User B.
-```
-
-**Nota de Segurança:** O router reavalia a permissão usando os `senderParams` originais no momento da reconexão/histórico. Isso garante que a regra de negócio original (ex: "esta mensagem era apenas para a sala X") seja respeitada, evitando que um usuário entre em uma sala diferente e receba mensagens vazadas de outro contexto.
-
----
-
-## ⚠️ Melhores Práticas e Cuidados
-
-1. **Mantenha a `PermissionFn` Leve:** 
-   A função é executada para **cada** cliente conectado no grupo. Evite operações assíncronas (como consultas ao banco de dados) dentro da `PermissionFn`. Use-a apenas para verificações síncronas de estado (strings, arrays, roles).
-
-2. **Não Confie Apenas no Frontend:** 
-   Os `RouteParams` são extraídos da URL no momento do handshake. Se a autenticação for crítica, valide o token JWT *antes* de chamar `Deno.upgradeWebSocket` ou dentro do handler do WebSocket, e injete o `role` ou `userId` validado nos parâmetros ou em um contexto seguro.
-
-3. **Use `senderParams` Corretamente:** 
-   Sempre passe o terceiro argumento `params` no `group.broadcast(msg, fn, params)`. Sem isso, o recurso de "Last Broadcast" para novos membros não terá o contexto necessário para reavaliar a permissão de forma segura.
-
-4. **Limpeza de Grupos:** 
-   Se um grupo ficar obsoleto (ex: uma sala de jogo que acabou), use `app.closeGroupByPath("/game/:roomId")` para liberar a memória e fechar os sockets pendentes, o que também limpa o `lastBroadcast`.
-
---- 
-
-*Este documento faz parte da especificação oficial do `@loco/router`. Para mais detalhes sobre a API, consulte o `README.md` principal.*
-````
-
----
-
 ## Arquivo: `monorepo/router/docs/simple-permission.md`
 
 ````md
@@ -3068,6 +3343,167 @@ Para rotas **sem parâmetros**:
 - Use o parâmetro `message` da `permissionFn` para filtrar por conteúdo
 - Use variáveis externas (closures, Maps, Sets) para estado compartilhado
 - A lógica de permissão continua sendo `(clientParams, message) => boolean`
+````
+
+---
+
+## Arquivo: `monorepo/router/docs/websocket-permissions.md`
+
+````md
+# 📡 Documentação: Permissionamento Inteligente em WebSockets (Dual Params)
+
+O `@loco/router` possui um sistema nativo e robusto de permissionamento para WebSockets, permitindo que mensagens de broadcast sejam filtradas dinamicamente com base nos **parâmetros do destinatário (receiver)**, nos **parâmetros do remetente (sender)** e no **conteúdo da mensagem**.
+
+---
+
+## 🔑 Conceitos Fundamentais
+
+### 1. `PermissionFn` (Função de Permissão Dual)
+É um callback opcional passado ao método `group.broadcast()`. Sua assinatura recebe três argumentos:
+
+```typescript
+type PermissionFn = (
+  receiverParams: RouteParams, // Parâmetros de quem VAI RECEBER a mensagem
+  senderParams: RouteParams,   // Parâmetros de quem ENVIOU a mensagem
+  message: string              // O conteúdo da mensagem
+) => boolean;
+```
+
+---
+
+## 🌍 Exemplos Práticos do Mundo Real
+
+### Cenário 1: Isolamento de Salas de Chat (O Clássico)
+**Objetivo:** Garantir que uma mensagem enviada na sala "geral" não vaze para a sala "vip".
+
+```typescript
+app.ws("/chat/:room/:user", (ws, _req, params) => {
+  const group = app.getWsGroupByPath("/chat/:room/:user");
+  
+  ws.onmessage = (event) => {
+    group.broadcast(
+      `[${params.user}]: ${event.data}`,
+      // Filtra: O receiver deve estar na mesma sala que o sender
+      (receiver, sender, _msg) => receiver.room === sender.room,
+      params // Passamos os params do remetente
+    );
+  };
+});
+```
+
+### Cenário 2: Controle de Acesso por Nível de Usuário (RBAC)
+**Objetivo:** Apenas usuários com role `admin` podem enviar alertas de sistema críticos.
+
+```typescript
+app.ws("/dashboard/:role/:userId", (ws, _req, params) => {
+  const group = app.getWsGroupByPath("/dashboard/:role/:userId");
+  
+  ws.onmessage = (event) => {
+    group.broadcast(
+      `🚨 ALERTA: ${event.data}`,
+      (_receiver, sender, _msg) => {
+        // Só permite o broadcast se o SENDER for admin
+        return sender.role === "admin";
+      },
+      params
+    );
+  };
+});
+```
+
+### Cenário 3: Filtragem Baseada no Conteúdo da Mensagem
+**Objetivo:** Impedir que mensagens contendo a palavra "spam" sejam propagadas.
+
+```typescript
+app.ws("/community/:serverId/:userId", (ws, _req, params) => {
+  const group = app.getWsGroupByPath("/community/:serverId/:userId");
+  
+  ws.onmessage = (event) => {
+    group.broadcast(
+      event.data,
+      (_receiver, _sender, msgContent) => {
+        // Bloqueia se a mensagem contiver "spam"
+        return !msgContent.toLowerCase().includes("spam");
+      },
+      params
+    );
+  };
+});
+```
+
+---
+
+## 💡 A "Mágica" do Last Broadcast com Dual Params
+
+Quando um novo membro entra na sala, o router reavalia o `lastBroadcast` usando os **Dual Params**.
+
+```typescript
+// 10:00:00 -> User A (room: "lobby") envia: "Olá a todos!"
+// O router salva: { message: "Olá...", permissionFn: (r, s) => r.room === s.room, senderParams: { room: "lobby" } }
+
+// 10:00:05 -> User B conecta na rota /chat/lobby/userB
+// O router reavalia: permissionFn({ room: "lobby" }, { room: "lobby" }, "Olá...") -> TRUE
+// User B recebe a mensagem histórica automaticamente!
+
+// 10:00:10 -> User C conecta na rota /chat/vip/userC
+// O router reavalia: permissionFn({ room: "vip" }, { room: "lobby" }, "Olá...") -> FALSE
+// User C NÃO recebe a mensagem (Segurança garantida!).
+```
+
+## ⚠️ Melhores Práticas
+
+1. **Mantenha a `PermissionFn` Leve:** Evite operações assíncronas (como consultas ao banco de dados) dentro da `PermissionFn`.
+2. **Use `senderParams` Corretamente:** Sempre passe o terceiro argumento `params` no `group.broadcast(msg, fn, params)`. Sem isso, o `senderParams` será um objeto vazio `{}` e o recurso de "Last Broadcast" não funcionará corretamente.
+```
+
+#### 📄 4. `monorepo/router/docs/simple-permission.md` (Atualizado para Dual Params)
+```markdown
+# Exemplo Simples: Rota `/sala` sem Parâmetros
+
+Quando a rota não tem parâmetros dinâmicos (ex: `/sala`), os objetos `receiverParams` e `senderParams` recebidos pela `permissionFn` serão vazios `{}`. Nesse caso, a filtragem deve ser feita com base no **conteúdo da mensagem** ou em **estado externo**.
+
+## 📄 Arquivo: `monorepo/router/example/sala/main.ts`
+
+```typescript
+import { Router } from "../../src/mod.ts";
+
+const app = new Router("/api", "./public", null);
+const bannedUsers = new Set(["spammer1", "baduser2"]);
+
+app.ws("/sala", (ws, req, _params) => {
+  const user = req.headers.get("x-user-name") ?? "anonimo";
+  const group = app.getWsGroupByPath("/sala");
+  if (!group) return;
+
+  ws.onmessage = (event) => {
+    const message = event.data;
+    
+    group.broadcast(
+      `[${user}]: ${message}`,
+      // ✅ Assinatura Dual: (receiver, sender, message)
+      (_receiver, _sender, msg) => {
+        // Regra 1: Bloquear mensagens com palavra proibida
+        if (msg.toLowerCase().includes("spam")) return false;
+        
+        // Regra 2: Bloquear mensagens de usuários banidos
+        const senderMatch = msg.match(/^\[([^\]]+)\]:/);
+        if (senderMatch && bannedUsers.has(senderMatch[1])) return false;
+        
+        return true;
+      },
+      {} // senderParams vazio, já que não temos params na rota
+    );
+  };
+});
+
+const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
+```
+
+## ✅ Resumo para Rotas sem Parâmetros
+- `receiverParams` e `senderParams` serão `{}`.
+- Use o terceiro parâmetro (`message`) da `permissionFn` para filtrar por conteúdo.
+- A lógica de permissão continua sendo `(receiver, sender, message) => boolean`.
+
 ````
 
 ---
