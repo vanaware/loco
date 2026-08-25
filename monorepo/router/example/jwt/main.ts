@@ -1,6 +1,6 @@
 // monorepo/router/example/jwt/main.ts
 import { Router } from "../../src/mod.ts";
-import { SignJWT, jwtVerify } from "https://deno.land/x/jose@v5.2.0/index.ts";
+import { SignJWT, jwtVerify } from "jose";
 
 const JWT_SECRET = "meu-segredo-super-secreto-123";
 const encoder = new TextEncoder();

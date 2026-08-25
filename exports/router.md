@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: ROUTER
 
-Gerado automaticamente em: 8/25/2026, 6:39:12 AM
+Gerado automaticamente em: 8/25/2026, 7:30:10 AM
 
 ---
 
@@ -34,7 +34,6 @@ export type WsHandler = (
   params: RouteParams,
 ) => void;
 
-// ✅ DUAL PARÂMETROS: receiverParams, senderParams e message
 export type PermissionFn = (
   receiverParams: RouteParams,
   senderParams: RouteParams,
@@ -42,6 +41,18 @@ export type PermissionFn = (
 ) => boolean;
 
 export type MimeTypeResolver = (ext: string) => string | undefined;
+
+// ✅ Constante exportada para evitar "Magic Numbers"
+export const DEFAULT_LAST_BROADCAST_DELAY = 50;
+
+export interface RouterOptions {
+  basePath?: string;
+  staticDir?: string | null;
+  embeddedDir?: string | null;
+  mimeTypeResolver?: MimeTypeResolver;
+  forceHttps?: boolean;
+  lastBroadcastDelay?: number; // ✅ Configurável
+}
 
 interface HttpRoute {
   method: string;
@@ -69,17 +80,45 @@ export class Router {
   private staticDir: string | null;
   private embeddedDir: string | null;
   private mimeTypeResolver: MimeTypeResolver;
+  public forceHttps: boolean;
+  private lastBroadcastDelay: number;
 
   constructor(
-    basePath = "",
+    basePathOrOptions: string | RouterOptions = "",
     staticDir: string | null = "public",
     embeddedDir: string | null = null,
     mimeTypeResolver: MimeTypeResolver = defaultMimeTypeResolver,
+    forceHttps: boolean | undefined = undefined,
+    lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY,
   ) {
+    let basePath: string;
+    
+    if (typeof basePathOrOptions === "object") {
+      const opts = basePathOrOptions;
+      basePath = opts.basePath ?? "";
+      this.staticDir = opts.staticDir ?? "public";
+      this.embeddedDir = opts.embeddedDir ?? null;
+      this.mimeTypeResolver = opts.mimeTypeResolver ?? defaultMimeTypeResolver;
+      this.forceHttps = opts.forceHttps ?? this.getDefaultForceHttps();
+      this.lastBroadcastDelay = opts.lastBroadcastDelay ?? DEFAULT_LAST_BROADCAST_DELAY;
+    } else {
+      basePath = basePathOrOptions;
+      this.staticDir = staticDir;
+      this.embeddedDir = embeddedDir;
+      this.mimeTypeResolver = mimeTypeResolver;
+      this.forceHttps = forceHttps ?? this.getDefaultForceHttps();
+      this.lastBroadcastDelay = lastBroadcastDelay;
+    }
+    
     this.basePath = this.normalizeBasePath(basePath);
-    this.staticDir = staticDir;
-    this.embeddedDir = embeddedDir;
-    this.mimeTypeResolver = mimeTypeResolver;
+  }
+
+  private getDefaultForceHttps(): boolean {
+    try {
+      return Deno.env.get("FORCE_HTTPS")?.toLowerCase() === "true";
+    } catch {
+      return false;
+    }
   }
 
   private normalizeBasePath(p: string): string {
@@ -100,6 +139,34 @@ export class Router {
     return pathname;
   }
 
+  private isLocalhost(req: Request): boolean {
+    const url = new URL(req.url);
+    const hostname = url.hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  }
+
+  private shouldForceHttps(req: Request): boolean {
+    if (!this.forceHttps) return false;
+    if (this.isLocalhost(req)) return false;
+
+    const forwardedProto = req.headers.get("x-forwarded-proto");
+    if (forwardedProto === "https") return false;
+
+    const url = new URL(req.url);
+    if (url.protocol === "https:") return false;
+
+    return true;
+  }
+
+  private buildHttpsUrl(req: Request): string {
+    const url = new URL(req.url);
+    url.protocol = "https:";
+    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      url.protocol = "wss:";
+    }
+    return url.toString();
+  }
+
   private addHttpRoute(method: string, path: string, handler: HttpHandler) {
     const patternPath = this.normalizePath(path);
     const pattern = new URLPattern({ pathname: patternPath });
@@ -109,7 +176,8 @@ export class Router {
   private addWsRoute(path: string, handler: WsHandler) {
     const patternPath = this.normalizePath(path);
     const pattern = new URLPattern({ pathname: patternPath });
-    const group = new WebSocketGroup();
+    // ✅ Passa o delay configurado para o grupo
+    const group = new WebSocketGroup(this.lastBroadcastDelay);
     this.wsRoutes.push({ pattern, handler, group });
   }
 
@@ -123,6 +191,17 @@ export class Router {
   ws(path: string, handler: WsHandler) { this.addWsRoute(path, handler); }
 
   async handleRequest(req: Request): Promise<Response> {
+    if (this.shouldForceHttps(req)) {
+      const httpsUrl = this.buildHttpsUrl(req);
+      return new Response(null, {
+        status: 301,
+        headers: {
+          "Location": httpsUrl,
+          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        },
+      });
+    }
+
     if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
       return this.handleWsUpgrade(req);
     }
@@ -139,13 +218,17 @@ export class Router {
       const match = route.pattern.exec(adjustedUrl);
       if (match) {
         const params = this.extractParams(match.pathname.groups);
-        const result = await route.handler(req, params);
         
-        const isHead = method.toUpperCase() === "HEAD";
-        const isNullBodyStatus = result.init?.status && [101, 204, 205, 304].includes(result.init.status);
-        const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
-        
-        return new Response(finalBody, result.init);
+        try {
+          const result = await route.handler(req, params);
+          const isHead = method.toUpperCase() === "HEAD";
+          const isNullBodyStatus = result.init?.status && [101, 204, 205, 304].includes(result.init.status);
+          const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
+          return new Response(finalBody, result.init);
+        } catch (error) {
+          console.error(`[Router] Error in ${method} ${route.pattern.pathname}:`, error);
+          return new Response("Internal Server Error", { status: 500 });
+        }
       }
     }
     return this.handleStaticFile(req);
@@ -166,7 +249,14 @@ export class Router {
         
         route.group.sendLastBroadcastTo(socket, params);
         
-        route.handler(socket, req, params);
+        try {
+          route.handler(socket, req, params);
+        } catch (error) {
+          console.error(`[Router] Error in WS handler ${route.pattern.pathname}:`, error);
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.close(1011, "Internal Server Error");
+          }
+        }
 
         socket.onclose = () => {
           this.webSockets.delete(socket);
@@ -315,6 +405,12 @@ export class Router {
 export class WebSocketGroup {
   private sockets = new Map<WebSocket, RouteParams>();
   private lastBroadcast: LastBroadcast | null = null;
+  private lastBroadcastDelay: number;
+
+  // ✅ Construtor aceita o delay configurável
+  constructor(lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY) {
+    this.lastBroadcastDelay = lastBroadcastDelay;
+  }
 
   addSocket(ws: WebSocket, params: RouteParams) {
     this.sockets.set(ws, params);
@@ -332,15 +428,15 @@ export class WebSocketGroup {
     const broadcast = this.lastBroadcast;
     if (!broadcast) return;
     
+    // ✅ Usa a constante/propriedade em vez do magic number
     setTimeout(() => {
       if (ws.readyState === WebSocket.OPEN) {
         const { message, permissionFn, senderParams } = broadcast;
-        // ✅ DUAL PARAMS: receiver (novo membro) e sender (original)
         if (!permissionFn || permissionFn(receiverParams, senderParams, message)) {
           ws.send(message);
         }
       }
-    }, 50);
+    }, this.lastBroadcastDelay);
   }
 
   broadcast(message: string, permissionFn?: PermissionFn, senderParams?: RouteParams) {
@@ -352,7 +448,6 @@ export class WebSocketGroup {
 
     for (const [socket, receiverParams] of this.sockets.entries()) {
       if (socket.readyState !== WebSocket.OPEN) continue;
-      // ✅ DUAL PARAMS: receiver (destinatário) e sender (remetente)
       if (!permissionFn || permissionFn(receiverParams, senderParams ?? {}, message)) {
         socket.send(message);
       }
@@ -884,7 +979,7 @@ setTimeout(() => {
 ```ts
 // monorepo/router/example/jwt/main.ts
 import { Router } from "../../src/mod.ts";
-import { SignJWT, jwtVerify } from "https://deno.land/x/jose@v5.2.0/index.ts";
+import { SignJWT, jwtVerify } from "jose";
 
 const JWT_SECRET = "meu-segredo-super-secreto-123";
 const encoder = new TextEncoder();
@@ -2010,6 +2105,178 @@ Deno
 
 ---
 
+## Arquivo: `monorepo/router/tests/router_advanced_test.ts`
+
+```ts
+// monorepo/router/tests/router_advanced_test.ts
+import { assertEquals } from "@std/assert";
+import { Router, WebSocketGroup } from "../src/mod.ts";
+
+// ============================================================
+// 1. Error Handling
+// ============================================================
+Deno.test("Handler HTTP que lança erro retorna 500", async () => {
+  const app = new Router("", null, null);
+  app.get("/error", () => {
+    throw new Error("Database connection failed");
+  });
+
+  const req = new Request("http://localhost/error");
+  const res = await app.handleRequest(req);
+  
+  assertEquals(res.status, 500);
+  assertEquals(await res.text(), "Internal Server Error");
+});
+
+Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
+  const app = new Router("", null, null);
+  app.get("/async-error", async () => {
+    await new Promise(r => setTimeout(r, 10));
+    throw new Error("Async boom");
+  });
+
+  const req = new Request("http://localhost/async-error");
+  const res = await app.handleRequest(req);
+  
+  assertEquals(res.status, 500);
+});
+
+// ============================================================
+// 2. Force HTTPS
+// ============================================================
+Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
+  const app = new Router({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+
+  const req = new Request("http://example.com/ping");
+  const res = await app.handleRequest(req);
+  
+  assertEquals(res.status, 301);
+  assertEquals(res.headers.get("Location"), "https://example.com/ping");
+  assertEquals(res.headers.get("Strict-Transport-Security"), "max-age=31536000; includeSubDomains");
+});
+
+Deno.test("Force HTTPS ignora localhost", async () => {
+  const app = new Router({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+
+  const req = new Request("http://localhost:8000/ping");
+  const res = await app.handleRequest(req);
+  
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "pong");
+});
+
+Deno.test("Force HTTPS ignora se já for HTTPS", async () => {
+  const app = new Router({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+
+  const req = new Request("https://example.com/ping");
+  const res = await app.handleRequest(req);
+  
+  assertEquals(res.status, 200);
+});
+
+Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
+  const app = new Router({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+
+  const req = new Request("http://example.com/ping", {
+    headers: { "x-forwarded-proto": "https" }
+  });
+  const res = await app.handleRequest(req);
+  
+  assertEquals(res.status, 200);
+});
+
+// ============================================================
+// 3. Last Broadcast com Dual Permission
+// ============================================================
+class MockWebSocket {
+  readyState: number = 1;
+  sent: string[] = [];
+  send(data: string | ArrayBuffer | Blob) {
+    if (typeof data === "string") {
+      this.sent.push(data);
+    }
+  }
+  close(code?: number, reason?: string) {
+    this.readyState = 3;
+  }
+}
+
+Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", async () => {
+  // ✅ Podemos passar 0ms no teste para execução síncrona/imediata se quisermos, 
+  // mas aqui usamos o default e aguardamos.
+  const group = new WebSocketGroup();
+  
+  // User1 na Sala A envia mensagem
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
+  
+  group.broadcast(
+    "Segredo da Sala A",
+    (receiver, sender, _msg) => receiver.room === sender.room,
+    { room: "A", user: "user1" }
+  );
+
+  // User2 na Sala B entra DEPOIS
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
+  
+  // O router chama isso automaticamente no upgrade
+  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
+
+  // Aguarda o setTimeout padrão (50ms) + margem
+  await new Promise(r => setTimeout(r, 100));
+
+  // ✅ CORREÇÃO: O array esperado deve ser VAZIO []. A string é apenas a mensagem de erro do assert.
+  assertEquals(ws2.sent, [], "User2 na sala B não deve receber broadcast da sala A");
+});
+
+Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () => {
+  const group = new WebSocketGroup();
+  
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
+  
+  group.broadcast(
+    "Bem-vindos!",
+    (receiver, sender, _msg) => receiver.room === sender.room,
+    { room: "A", user: "user1" }
+  );
+
+  const ws3 = new MockWebSocket();
+  group.addSocket(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
+  group.sendLastBroadcastTo(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
+
+  await new Promise(r => setTimeout(r, 100));
+
+  assertEquals(ws3.sent, ["Bem-vindos!"]);
+});
+
+// ✅ NOVO TESTE: Validando o delay configurável (Zero Delay para testes rápidos)
+Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
+  // Criamos um grupo com delay 0 para testes síncronos rápidos
+  const group = new WebSocketGroup(0);
+  
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+  group.broadcast("msg", undefined, { room: "A" });
+
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
+  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
+
+  // Com delay 0, ainda precisamos de um tick do event loop
+  await new Promise(r => setTimeout(r, 10));
+
+  assertEquals(ws2.sent, ["msg"]);
+});
+```
+
+---
+
 ## Arquivo: `monorepo/router/docs/return.md`
 
 ````md
@@ -2820,6 +3087,7 @@ Para rotas **sem parâmetros**:
     "@std/assert": "jsr:@std/assert@^1",
     "@std/media-types": "jsr:@std/media-types@^1",
     "@std/path": "jsr:@std/path@^1",
+    "jose": "https://deno.land/x/jose@v5.2.0/index.ts"
 
   },
   "tasks": {

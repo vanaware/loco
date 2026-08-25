@@ -17,7 +17,6 @@ export type WsHandler = (
   params: RouteParams,
 ) => void;
 
-// ✅ DUAL PARÂMETROS: receiverParams, senderParams e message
 export type PermissionFn = (
   receiverParams: RouteParams,
   senderParams: RouteParams,
@@ -25,6 +24,18 @@ export type PermissionFn = (
 ) => boolean;
 
 export type MimeTypeResolver = (ext: string) => string | undefined;
+
+// ✅ Constante exportada para evitar "Magic Numbers"
+export const DEFAULT_LAST_BROADCAST_DELAY = 50;
+
+export interface RouterOptions {
+  basePath?: string;
+  staticDir?: string | null;
+  embeddedDir?: string | null;
+  mimeTypeResolver?: MimeTypeResolver;
+  forceHttps?: boolean;
+  lastBroadcastDelay?: number; // ✅ Configurável
+}
 
 interface HttpRoute {
   method: string;
@@ -52,17 +63,45 @@ export class Router {
   private staticDir: string | null;
   private embeddedDir: string | null;
   private mimeTypeResolver: MimeTypeResolver;
+  public forceHttps: boolean;
+  private lastBroadcastDelay: number;
 
   constructor(
-    basePath = "",
+    basePathOrOptions: string | RouterOptions = "",
     staticDir: string | null = "public",
     embeddedDir: string | null = null,
     mimeTypeResolver: MimeTypeResolver = defaultMimeTypeResolver,
+    forceHttps: boolean | undefined = undefined,
+    lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY,
   ) {
+    let basePath: string;
+    
+    if (typeof basePathOrOptions === "object") {
+      const opts = basePathOrOptions;
+      basePath = opts.basePath ?? "";
+      this.staticDir = opts.staticDir ?? "public";
+      this.embeddedDir = opts.embeddedDir ?? null;
+      this.mimeTypeResolver = opts.mimeTypeResolver ?? defaultMimeTypeResolver;
+      this.forceHttps = opts.forceHttps ?? this.getDefaultForceHttps();
+      this.lastBroadcastDelay = opts.lastBroadcastDelay ?? DEFAULT_LAST_BROADCAST_DELAY;
+    } else {
+      basePath = basePathOrOptions;
+      this.staticDir = staticDir;
+      this.embeddedDir = embeddedDir;
+      this.mimeTypeResolver = mimeTypeResolver;
+      this.forceHttps = forceHttps ?? this.getDefaultForceHttps();
+      this.lastBroadcastDelay = lastBroadcastDelay;
+    }
+    
     this.basePath = this.normalizeBasePath(basePath);
-    this.staticDir = staticDir;
-    this.embeddedDir = embeddedDir;
-    this.mimeTypeResolver = mimeTypeResolver;
+  }
+
+  private getDefaultForceHttps(): boolean {
+    try {
+      return Deno.env.get("FORCE_HTTPS")?.toLowerCase() === "true";
+    } catch {
+      return false;
+    }
   }
 
   private normalizeBasePath(p: string): string {
@@ -83,6 +122,34 @@ export class Router {
     return pathname;
   }
 
+  private isLocalhost(req: Request): boolean {
+    const url = new URL(req.url);
+    const hostname = url.hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  }
+
+  private shouldForceHttps(req: Request): boolean {
+    if (!this.forceHttps) return false;
+    if (this.isLocalhost(req)) return false;
+
+    const forwardedProto = req.headers.get("x-forwarded-proto");
+    if (forwardedProto === "https") return false;
+
+    const url = new URL(req.url);
+    if (url.protocol === "https:") return false;
+
+    return true;
+  }
+
+  private buildHttpsUrl(req: Request): string {
+    const url = new URL(req.url);
+    url.protocol = "https:";
+    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      url.protocol = "wss:";
+    }
+    return url.toString();
+  }
+
   private addHttpRoute(method: string, path: string, handler: HttpHandler) {
     const patternPath = this.normalizePath(path);
     const pattern = new URLPattern({ pathname: patternPath });
@@ -92,7 +159,8 @@ export class Router {
   private addWsRoute(path: string, handler: WsHandler) {
     const patternPath = this.normalizePath(path);
     const pattern = new URLPattern({ pathname: patternPath });
-    const group = new WebSocketGroup();
+    // ✅ Passa o delay configurado para o grupo
+    const group = new WebSocketGroup(this.lastBroadcastDelay);
     this.wsRoutes.push({ pattern, handler, group });
   }
 
@@ -106,6 +174,17 @@ export class Router {
   ws(path: string, handler: WsHandler) { this.addWsRoute(path, handler); }
 
   async handleRequest(req: Request): Promise<Response> {
+    if (this.shouldForceHttps(req)) {
+      const httpsUrl = this.buildHttpsUrl(req);
+      return new Response(null, {
+        status: 301,
+        headers: {
+          "Location": httpsUrl,
+          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        },
+      });
+    }
+
     if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
       return this.handleWsUpgrade(req);
     }
@@ -122,13 +201,17 @@ export class Router {
       const match = route.pattern.exec(adjustedUrl);
       if (match) {
         const params = this.extractParams(match.pathname.groups);
-        const result = await route.handler(req, params);
         
-        const isHead = method.toUpperCase() === "HEAD";
-        const isNullBodyStatus = result.init?.status && [101, 204, 205, 304].includes(result.init.status);
-        const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
-        
-        return new Response(finalBody, result.init);
+        try {
+          const result = await route.handler(req, params);
+          const isHead = method.toUpperCase() === "HEAD";
+          const isNullBodyStatus = result.init?.status && [101, 204, 205, 304].includes(result.init.status);
+          const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
+          return new Response(finalBody, result.init);
+        } catch (error) {
+          console.error(`[Router] Error in ${method} ${route.pattern.pathname}:`, error);
+          return new Response("Internal Server Error", { status: 500 });
+        }
       }
     }
     return this.handleStaticFile(req);
@@ -149,7 +232,14 @@ export class Router {
         
         route.group.sendLastBroadcastTo(socket, params);
         
-        route.handler(socket, req, params);
+        try {
+          route.handler(socket, req, params);
+        } catch (error) {
+          console.error(`[Router] Error in WS handler ${route.pattern.pathname}:`, error);
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.close(1011, "Internal Server Error");
+          }
+        }
 
         socket.onclose = () => {
           this.webSockets.delete(socket);
@@ -298,6 +388,12 @@ export class Router {
 export class WebSocketGroup {
   private sockets = new Map<WebSocket, RouteParams>();
   private lastBroadcast: LastBroadcast | null = null;
+  private lastBroadcastDelay: number;
+
+  // ✅ Construtor aceita o delay configurável
+  constructor(lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY) {
+    this.lastBroadcastDelay = lastBroadcastDelay;
+  }
 
   addSocket(ws: WebSocket, params: RouteParams) {
     this.sockets.set(ws, params);
@@ -315,15 +411,15 @@ export class WebSocketGroup {
     const broadcast = this.lastBroadcast;
     if (!broadcast) return;
     
+    // ✅ Usa a constante/propriedade em vez do magic number
     setTimeout(() => {
       if (ws.readyState === WebSocket.OPEN) {
         const { message, permissionFn, senderParams } = broadcast;
-        // ✅ DUAL PARAMS: receiver (novo membro) e sender (original)
         if (!permissionFn || permissionFn(receiverParams, senderParams, message)) {
           ws.send(message);
         }
       }
-    }, 50);
+    }, this.lastBroadcastDelay);
   }
 
   broadcast(message: string, permissionFn?: PermissionFn, senderParams?: RouteParams) {
@@ -335,7 +431,6 @@ export class WebSocketGroup {
 
     for (const [socket, receiverParams] of this.sockets.entries()) {
       if (socket.readyState !== WebSocket.OPEN) continue;
-      // ✅ DUAL PARAMS: receiver (destinatário) e sender (remetente)
       if (!permissionFn || permissionFn(receiverParams, senderParams ?? {}, message)) {
         socket.send(message);
       }
