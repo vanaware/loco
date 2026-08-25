@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: ROUTER
 
-Gerado automaticamente em: 8/24/2026, 11:37:31 PM
+Gerado automaticamente em: 8/25/2026, 6:39:12 AM
 
 ---
 
@@ -34,8 +34,10 @@ export type WsHandler = (
   params: RouteParams,
 ) => void;
 
+// ✅ DUAL PARÂMETROS: receiverParams, senderParams e message
 export type PermissionFn = (
-  params: RouteParams,
+  receiverParams: RouteParams,
+  senderParams: RouteParams,
   message: string,
 ) => boolean;
 
@@ -59,14 +61,6 @@ interface LastBroadcast {
   senderParams: RouteParams;
 }
 
-export interface RouterOptions {
-  basePath?: string;
-  staticDir?: string | null;
-  embeddedDir?: string | null;
-  mimeTypeResolver?: MimeTypeResolver;
-  forceHttps?: boolean;
-}
-
 export class Router {
   private basePath: string;
   private httpRoutes: HttpRoute[] = [];
@@ -75,46 +69,17 @@ export class Router {
   private staticDir: string | null;
   private embeddedDir: string | null;
   private mimeTypeResolver: MimeTypeResolver;
-  
-  // ✅ NOVO: Propriedade pública para forçar HTTPS
-  public forceHttps: boolean;
 
   constructor(
-    basePathOrOptions: string | RouterOptions = "",
+    basePath = "",
     staticDir: string | null = "public",
     embeddedDir: string | null = null,
     mimeTypeResolver: MimeTypeResolver = defaultMimeTypeResolver,
-    forceHttps: boolean | undefined = undefined,
   ) {
-    // Suporta tanto a assinatura antiga quanto a nova com objeto de opções
-    let basePath: string;
-    
-    if (typeof basePathOrOptions === "object") {
-      const opts = basePathOrOptions;
-      basePath = opts.basePath ?? "";
-      this.staticDir = opts.staticDir ?? "public";
-      this.embeddedDir = opts.embeddedDir ?? null;
-      this.mimeTypeResolver = opts.mimeTypeResolver ?? defaultMimeTypeResolver;
-      this.forceHttps = opts.forceHttps ?? this.getDefaultForceHttps();
-    } else {
-      basePath = basePathOrOptions;
-      this.staticDir = staticDir;
-      this.embeddedDir = embeddedDir;
-      this.mimeTypeResolver = mimeTypeResolver;
-      this.forceHttps = forceHttps ?? this.getDefaultForceHttps();
-    }
-    
     this.basePath = this.normalizeBasePath(basePath);
-  }
-
-  // ✅ NOVO: Lê variável de ambiente como fallback
-  private getDefaultForceHttps(): boolean {
-    try {
-      return Deno.env.get("FORCE_HTTPS")?.toLowerCase() === "true";
-    } catch {
-      // Se não tiver permissão para ler env, retorna false
-      return false;
-    }
+    this.staticDir = staticDir;
+    this.embeddedDir = embeddedDir;
+    this.mimeTypeResolver = mimeTypeResolver;
   }
 
   private normalizeBasePath(p: string): string {
@@ -158,56 +123,10 @@ export class Router {
   ws(path: string, handler: WsHandler) { this.addWsRoute(path, handler); }
 
   async handleRequest(req: Request): Promise<Response> {
-    // ✅ NOVO: Verifica se deve forçar HTTPS
-    if (this.shouldForceHttps(req)) {
-      const httpsUrl = this.buildHttpsUrl(req);
-      console.log(`🔒 Redirecting to HTTPS: ${httpsUrl}`);
-      return new Response(null, {
-        status: 301,
-        headers: {
-          "Location": httpsUrl,
-          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-        },
-      });
-    }
-
     if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
       return this.handleWsUpgrade(req);
     }
     return this.handleHttpRequest(req);
-  }
-
-  // ✅ NOVO: Detecta se é localhost
-  private isLocalhost(req: Request): boolean {
-    const url = new URL(req.url);
-    const hostname = url.hostname.toLowerCase();
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-  }
-
-  // ✅ NOVO: Verifica se deve forçar HTTPS
-  private shouldForceHttps(req: Request): boolean {
-    if (!this.forceHttps) return false;
-    if (this.isLocalhost(req)) return false;
-
-    const forwardedProto = req.headers.get("x-forwarded-proto");
-    if (forwardedProto === "https") return false;
-
-    const url = new URL(req.url);
-    if (url.protocol === "https:") return false;
-
-    return true;
-  }
-
-  // ✅ NOVO: Cria URL HTTPS a partir da request
-  private buildHttpsUrl(req: Request): string {
-    const url = new URL(req.url);
-    url.protocol = "https:";
-    
-    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      url.protocol = "wss:";
-    }
-    
-    return url.toString();
   }
 
   private async handleHttpRequest(req: Request): Promise<Response> {
@@ -409,14 +328,15 @@ export class WebSocketGroup {
     return this.sockets.size;
   }
 
-  sendLastBroadcastTo(ws: WebSocket, params: RouteParams) {
+  sendLastBroadcastTo(ws: WebSocket, receiverParams: RouteParams) {
     const broadcast = this.lastBroadcast;
     if (!broadcast) return;
     
     setTimeout(() => {
       if (ws.readyState === WebSocket.OPEN) {
-        const { message, permissionFn } = broadcast;
-        if (!permissionFn || permissionFn(params, message)) {
+        const { message, permissionFn, senderParams } = broadcast;
+        // ✅ DUAL PARAMS: receiver (novo membro) e sender (original)
+        if (!permissionFn || permissionFn(receiverParams, senderParams, message)) {
           ws.send(message);
         }
       }
@@ -430,9 +350,10 @@ export class WebSocketGroup {
       senderParams: senderParams ?? {},
     };
 
-    for (const [socket, params] of this.sockets.entries()) {
+    for (const [socket, receiverParams] of this.sockets.entries()) {
       if (socket.readyState !== WebSocket.OPEN) continue;
-      if (!permissionFn || permissionFn(params, message)) {
+      // ✅ DUAL PARAMS: receiver (destinatário) e sender (remetente)
+      if (!permissionFn || permissionFn(receiverParams, senderParams ?? {}, message)) {
         socket.send(message);
       }
     }
@@ -477,134 +398,6 @@ function defaultMimeTypeResolver(ext: string): string | undefined {
   };
   return map[ext.toLowerCase()];
 }
-```
-
----
-
-## Arquivo: `monorepo/router/example/principal/main.ts`
-
-```ts
-// monorepo/router/example/main.ts
-import { Router } from "../../src/mod.ts";
-
-const app = new Router("/api", "./public", null);
-
-// ============================================================
-// HTTP GET com parâmetros em cascata
-// ============================================================
-app.get("/:id/:tipo", (_req, params) => {
-  console.log("[GET] /:id/:tipo", params);
-  return {
-    body: JSON.stringify({ id: params.id, tipo: params.tipo }),
-    init: { headers: { "Content-Type": "application/json" } },
-  };
-});
-
-// ============================================================
-// HTTP POST
-// ============================================================
-app.post("/users", async (req) => {
-  const body = await req.text();
-  return {
-    body,
-    init: { status: 201, headers: { "Content-Type": "application/json" } },
-  };
-});
-
-// ============================================================
-// WebSocket com broadcast inteligente
-// ============================================================
-app.ws("/chat/:room/:user", (ws, _req, params) => {
-  const room = params.room as string;
-  const user = params.user as string;
-  console.log(`[WS] ✅ ${user} entrou na sala ${room}`);
-
-  // ✅ NOVA VERSÃO MAIS SEGURA E DINÂMICA:
-  // O getWsGroupByPath agora usa URLPattern.test(), então podemos passar 
-  // tanto o pattern exato ("/chat/:room/:user") quanto um caminho concreto 
-  // derivado dos parâmetros ("/chat/" + room + "/:user"). Ambos funcionarão!
-  const group = app.getWsGroupByPath("/chat/:room/:user");
-  
-  if (!group) {
-    console.error("[WS] ❌ Grupo não encontrado!");
-    ws.close(1011, "Internal error");
-    return;
-  }
-
-  ws.onmessage = (event) => {
-    console.log(`[WS] 💬 ${room}/${user}: ${event.data}`);
-    
-    group.broadcast(
-      `[${user}]: ${event.data}`,
-      (clientParams) => clientParams.room === room,
-      params, // Passamos os params do sender para reavaliação em novos membros
-    );
-  };
-
-  ws.onclose = () => {
-    console.log(`[WS] ❌ ${user} saiu da sala ${room}`);
-  };
-
-  ws.onerror = (ev) => {
-    console.error(`[WS] ⚠️ erro ${room}/${user}:`, ev);
-  };
-});
-
-// ============================================================
-// Catch-all HTTP
-// ============================================================
-app.get("/subfolder/*", (_req, params) => {
-  console.log("[GET] /subfolder/*", params);
-  return {
-    body: `Catch-all: ${JSON.stringify(params.catch)}`,
-    init: { status: 200 },
-  };
-});
-
-// ============================================================
-// Catch-all WebSocket
-// ============================================================
-app.ws("/subfolder/*", (ws, _req, params) => {
-  console.log("[WS catch-all] params:", params);
-  ws.onmessage = (event) => ws.send(`Echo: ${event.data}`);
-  ws.onclose = () => console.log("[WS catch-all] closed");
-  ws.onerror = (ev) => console.error("[WS catch-all] error:", ev);
-});
-
-// ============================================================
-// Inicia o servidor
-// ============================================================
-const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
-console.log("🚀 Servidor rodando em http://localhost:8000");
-console.log("📡 API:      http://localhost:8000/api");
-console.log("🔌 WS chat:  ws://localhost:8000/api/chat/:room/:user");
-console.log("📂 Estáticos: http://localhost:8000/api/index.html");
-
-// ============================================================
-// Graceful shutdown
-// ============================================================
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => {
-    console.log(`\n🛑 ${signal} recebido. Encerrando...`);
-    app.closeAllWebSockets();
-    server.shutdown().then(() => {
-      console.log("✅ Servidor encerrado.");
-      Deno.exit(0);
-    }).catch((err) => {
-      console.error("❌ Erro ao encerrar:", err);
-      Deno.exit(1);
-    });
-  });
-}
-
-// ============================================================
-// Exemplo: fechar grupo após 30s (usando API pública)
-// ============================================================
-setTimeout(() => {
-  if (app.closeGroupByPath("/chat/:room/:user")) {
-    console.log("🔒 Grupo de chat fechado após 30s.");
-  }
-}, 30000);
 ```
 
 ---
@@ -831,6 +624,145 @@ setTimeout(() => {
 
 ---
 
+## Arquivo: `monorepo/router/example/principal/main.ts`
+
+```ts
+// monorepo/router/example/principal/main.ts
+import { Router } from "../../src/mod.ts";
+
+const app = new Router("/api", "./public", null);
+
+// ============================================================
+// HTTP GET com parâmetros em cascata
+// ============================================================
+app.get("/:id/:tipo", (_req, params) => {
+  console.log("[GET] /:id/:tipo", params);
+  return {
+    body: JSON.stringify({ id: params.id, tipo: params.tipo }),
+    init: { headers: { "Content-Type": "application/json" } },
+  };
+});
+
+// ============================================================
+// HTTP POST
+// ============================================================
+app.post("/users", async (req) => {
+  const body = await req.text();
+  return {
+    body,
+    init: { status: 201, headers: { "Content-Type": "application/json" } },
+  };
+});
+
+// ============================================================
+// WebSocket com broadcast inteligente (DUAL PARAMS)
+// ============================================================
+app.ws("/chat/:room/:user", (ws, _req, params) => {
+  const room = params.room as string;
+  const user = params.user as string;
+  console.log(`[WS] ✅ ${user} entrou na sala ${room}`);
+
+  const group = app.getWsGroupByPath("/chat/:room/:user");
+  if (!group) {
+    console.error("[WS] ❌ Grupo não encontrado!");
+    ws.close(1011, "Internal error");
+    return;
+  }
+
+  ws.onmessage = (event) => {
+    console.log(`[WS] 💬 ${room}/${user}: ${event.data}`);
+    
+    // ✅ DUAL PARAMS: Agora podemos filtrar por receiver E sender
+    group.broadcast(
+      `[${user}]: ${event.data}`,
+      (receiverParams, senderParams, _msg) => {
+        // Exemplo 1: Filtrar por sala do receiver
+        // return receiverParams.room === room;
+        
+        // Exemplo 2: Filtrar por sala do sender
+        // return senderParams.room === room;
+        
+        // Exemplo 3: Filtrar por ambos (mais seguro)
+        return receiverParams.room === senderParams.room;
+        
+        // Exemplo 4: Filtrar por conteúdo da mensagem
+        // return !_msg.includes("spam");
+        
+        // Exemplo 5: Combinar tudo
+        // return receiverParams.room === senderParams.room && !_msg.includes("spam");
+      },
+      params // senderParams
+    );
+  };
+
+  ws.onclose = () => {
+    console.log(`[WS] ❌ ${user} saiu da sala ${room}`);
+  };
+
+  ws.onerror = (ev) => {
+    console.error(`[WS] ⚠️ erro ${room}/${user}:`, ev);
+  };
+});
+
+// ============================================================
+// Catch-all HTTP
+// ============================================================
+app.get("/subfolder/*", (_req, params) => {
+  console.log("[GET] /subfolder/*", params);
+  return {
+    body: `Catch-all: ${JSON.stringify(params.catch)}`,
+    init: { status: 200 },
+  };
+});
+
+// ============================================================
+// Catch-all WebSocket
+// ============================================================
+app.ws("/subfolder/*", (ws, _req, params) => {
+  console.log("[WS catch-all] params:", params);
+  ws.onmessage = (event) => ws.send(`Echo: ${event.data}`);
+  ws.onclose = () => console.log("[WS catch-all] closed");
+  ws.onerror = (ev) => console.error("[WS catch-all] error:", ev);
+});
+
+// ============================================================
+// Inicia o servidor
+// ============================================================
+const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
+console.log("🚀 Servidor rodando em http://localhost:8000");
+console.log("📡 API:      http://localhost:8000/api");
+console.log("🔌 WS chat:  ws://localhost:8000/api/chat/:room/:user");
+console.log("📂 Estáticos: http://localhost:8000/api/index.html");
+
+// ============================================================
+// Graceful shutdown
+// ============================================================
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  Deno.addSignalListener(signal, () => {
+    console.log(`\n🛑 ${signal} recebido. Encerrando...`);
+    app.closeAllWebSockets();
+    server.shutdown().then(() => {
+      console.log("✅ Servidor encerrado.");
+      Deno.exit(0);
+    }).catch((err) => {
+      console.error("❌ Erro ao encerrar:", err);
+      Deno.exit(1);
+    });
+  });
+}
+
+// ============================================================
+// Exemplo: fechar grupo após 30s
+// ============================================================
+setTimeout(() => {
+  if (app.closeGroupByPath("/chat/:room/:user")) {
+    console.log("🔒 Grupo de chat fechado após 30s.");
+  }
+}, 30000);
+```
+
+---
+
 ## Arquivo: `monorepo/router/example/jwt/public/index.html`
 
 ```html
@@ -950,7 +882,7 @@ setTimeout(() => {
 ## Arquivo: `monorepo/router/example/jwt/main.ts`
 
 ```ts
-// monorepo/router/example/main.ts
+// monorepo/router/example/jwt/main.ts
 import { Router } from "../../src/mod.ts";
 import { SignJWT, jwtVerify } from "https://deno.land/x/jose@v5.2.0/index.ts";
 
@@ -989,14 +921,11 @@ app.post("/login", async (req) => {
 app.ws("/chat/:room", async (ws, req, params) => {
   const room = params.room as string;
   
-  // ✅ Extrai o token do header Sec-WebSocket-Protocol
-  // O cliente envia: ["Bearer", "eyJ..."]
-  // O servidor recebe: "Bearer, eyJ..."
+  // Extrai o token do header Sec-WebSocket-Protocol
   const protocolHeader = req.headers.get("sec-websocket-protocol") ?? "";
-  const protocols = protocolHeader.split(",").map(p => p.trim());
+  const protocols = protocolHeader.split(",").map((p) => p.trim());
   
-  // Procura pelo protocolo "Bearer" e pega o token que vem depois
-  const bearerIndex = protocols.findIndex(p => p === "Bearer");
+  const bearerIndex = protocols.findIndex((p) => p === "Bearer");
   const token = bearerIndex !== -1 ? protocols[bearerIndex + 1] : null;
 
   if (!token) {
@@ -1006,16 +935,30 @@ app.ws("/chat/:room", async (ws, req, params) => {
   }
 
   try {
-    // Verifica a validade e a assinatura do JWT
     const { payload } = await jwtVerify(token, encoder.encode(JWT_SECRET));
     const user = payload.username as string;
     const role = payload.role as string;
     
     console.log(`[WS] ✅ Usuário autenticado: ${user} (${role}) entrou na sala ${room}`);
 
+    const group = app.getWsGroupByPath("/chat/:room");
+    if (!group) {
+      ws.close(1011, "No group");
+      return;
+    }
+
+    // ✅ DUAL PARAMS: Exemplo de filtragem por receiver E sender
     ws.onmessage = (event) => {
       console.log(`[WS] 💬 ${user} em ${room}: ${event.data}`);
-      ws.send(`[${user}]: ${event.data}`);
+      
+      group.broadcast(
+        `[${user}]: ${event.data}`,
+        // Filtra: receiver deve estar na mesma sala E sender deve ser válido
+        (receiverParams, senderParams, _msg) => {
+          return receiverParams.room === senderParams.room;
+        },
+        { ...params, user, role } // senderParams enriquecido com dados do JWT
+      );
     };
 
     ws.onclose = () => {
@@ -1023,7 +966,6 @@ app.ws("/chat/:room", async (ws, req, params) => {
     };
 
   } catch (error) {
-// ✅ CORREÇÃO: Trata o erro como 'unknown' de forma segura
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("[WS] Falha na autenticação:", errorMessage);
     ws.close(4002, "Token inválido ou expirado");
@@ -1940,9 +1882,8 @@ Deno.test("WebSocket real: closeGroup fecha todos os sockets do grupo", async ()
 import { assertEquals } from "@std/assert";
 import { WebSocketGroup, type RouteParams } from "../src/mod.ts";
 
-// Mock simples de WebSocket para testes
 class MockWebSocket {
-  readyState: number = 1; // WebSocket.OPEN
+  readyState: number = 1;
   sent: string[] = [];
 
   send(data: string | ArrayBuffer | Blob) {
@@ -1952,7 +1893,7 @@ class MockWebSocket {
   }
 
   close(code?: number, reason?: string) {
-    this.readyState = 3; // WebSocket.CLOSED
+    this.readyState = 3;
   }
 }
 
@@ -1970,7 +1911,7 @@ Deno.test("broadcast envia para todos os sockets", () => {
   assertEquals(ws2.sent, ["hello"]);
 });
 
-Deno.test("broadcast com permissionFn filtra destinatários", () => {
+Deno.test("broadcast com permissionFn filtra por receiver", () => {
   const group = new WebSocketGroup();
   const ws1 = new MockWebSocket();
   const ws2 = new MockWebSocket();
@@ -1978,10 +1919,74 @@ Deno.test("broadcast com permissionFn filtra destinatários", () => {
   group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
   group.addSocket(ws2 as unknown as WebSocket, { room: "B" });
 
-  group.broadcast("only-A", (p) => p.room === "A");
+  // ✅ DUAL PARAMS: Filtra por receiverParams
+  group.broadcast(
+    "only-A",
+    (receiver, _sender, _msg) => receiver.room === "A",
+    { room: "A" }
+  );
 
   assertEquals(ws1.sent, ["only-A"]);
   assertEquals(ws2.sent, []);
+});
+
+Deno.test("broadcast com permissionFn filtra por sender", () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  const ws2 = new MockWebSocket();
+
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
+
+  // ✅ DUAL PARAMS: Filtra por senderParams
+  group.broadcast(
+    "admin-only",
+    (_receiver, sender, _msg) => sender.role === "admin",
+    { room: "A", role: "admin" }
+  );
+
+  assertEquals(ws1.sent, ["admin-only"]);
+  assertEquals(ws2.sent, ["admin-only"]);
+});
+
+Deno.test("broadcast com permissionFn filtra por ambos", () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  const ws2 = new MockWebSocket();
+  const ws3 = new MockWebSocket();
+
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "alice" });
+  group.addSocket(ws2 as unknown as WebSocket, { room: "A", user: "bob" });
+  group.addSocket(ws3 as unknown as WebSocket, { room: "B", user: "charlie" });
+
+  // ✅ DUAL PARAMS: Filtra por receiver E sender
+  group.broadcast(
+    "message",
+    (receiver, sender, _msg) => {
+      return receiver.room === sender.room && receiver.user !== sender.user;
+    },
+    { room: "A", user: "alice" }
+  );
+
+  assertEquals(ws1.sent, []); // alice não recebe (é o sender)
+  assertEquals(ws2.sent, ["message"]); // bob recebe (mesma sala, usuário diferente)
+  assertEquals(ws3.sent, []); // charlie não recebe (sala diferente)
+});
+
+Deno.test("broadcast com permissionFn filtra por mensagem", () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+
+  // ✅ DUAL PARAMS: Filtra por conteúdo da mensagem
+  group.broadcast(
+    "spam message",
+    (_receiver, _sender, msg) => !msg.includes("spam"),
+    { room: "A" }
+  );
+
+  assertEquals(ws1.sent, []); // não recebe porque contém "spam"
 });
 
 Deno.test("novo membro recebe último broadcast ao entrar", async () => {
@@ -1991,50 +1996,16 @@ Deno.test("novo membro recebe último broadcast ao entrar", async () => {
   group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
   group.broadcast("first-msg", undefined, { room: "A" });
 
-  // Novo membro entra
   const ws2 = new MockWebSocket();
   group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
 
-  // ✅ CORREÇÃO: Aguarda o delay do setTimeout interno (50ms) + margem de segurança
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   assertEquals(ws2.sent, ["first-msg"]);
 });
 
-// ✅ NOVO TESTE: Garante que a correção de permissão funcione para salas diferentes
-Deno.test("novo membro em sala diferente NÃO recebe último broadcast", async () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
-  group.broadcast("first-msg", (p) => p.room === "A", { room: "A" });
-
-  // Novo membro em sala B entra
-  const ws2 = new MockWebSocket();
-  group.addSocket(ws2 as unknown as WebSocket, { room: "B" });
-  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B" });
-
-  // Aguarda o delay do setTimeout interno (50ms) + margem de segurança
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  assertEquals(ws2.sent, []);
-});
-
-Deno.test("closeGroup fecha todos os sockets", () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  const ws2 = new MockWebSocket();
-
-  group.addSocket(ws1 as unknown as WebSocket, {});
-  group.addSocket(ws2 as unknown as WebSocket, {});
-
-  group.closeGroup();
-
-  assertEquals(ws1.readyState, 3);
-  assertEquals(ws2.readyState, 3);
-  assertEquals(group.size, 0);
-});
+Deno
 ```
 
 ---
@@ -2667,6 +2638,169 @@ Graças ao armazenamento do `lastBroadcast`, o sistema faz isso automaticamente:
 --- 
 
 *Este documento faz parte da especificação oficial do `@loco/router`. Para mais detalhes sobre a API, consulte o `README.md` principal.*
+````
+
+---
+
+## Arquivo: `monorepo/router/docs/simple-permission.md`
+
+````md
+# Exemplo Simples: Rota `/sala` sem Parâmetros
+
+Quando a rota não tem parâmetros dinâmicos, o `params` recebido pela `permissionFn` será um objeto vazio `{}`. Nesse caso, a filtragem deve ser feita com base no **conteúdo da mensagem** ou em **estado externo** (como uma lista de banidos).
+
+## 📄 Arquivo: `monorepo/router/example/sala/main.ts`
+
+```typescript
+// monorepo/router/example/sala/main.ts
+import { Router } from "../../src/mod.ts";
+
+const app = new Router("/api", "./public", null);
+
+// Lista externa de usuários banidos (simulando um banco de dados)
+const bannedUsers = new Set(["spammer1", "baduser2"]);
+
+// ============================================================
+// Rota WebSocket simples: /sala (sem parâmetros)
+// ============================================================
+app.ws("/sala", (ws, req, _params) => {
+  // Extrai o nome do usuário de um header (já que não temos params na URL)
+  const user = req.headers.get("x-user-name") ?? "anonimo";
+  
+  console.log(`[WS] ${user} entrou na sala`);
+
+  const group = app.getWsGroupByPath("/sala");
+  if (!group) return;
+
+  ws.onmessage = (event) => {
+    const message = event.data;
+
+    // Exemplo 1: Filtrar por conteúdo da mensagem
+    // Exemplo 2: Filtrar por usuário banido (estado externo)
+    group.broadcast(
+      `[${user}]: ${message}`,
+      (clientParams, msg) => {
+        // clientParams é {} (vazio, pois a rota não tem params)
+        // msg é a mensagem sendo enviada
+        
+        // Regra 1: Bloquear mensagens com palavra proibida
+        if (msg.toLowerCase().includes("spam")) {
+          return false;
+        }
+        
+        // Regra 2: Bloquear mensagens de usuários banidos
+        // (extraímos o nome do usuário do prefixo "[user]:")
+        const senderMatch = msg.match(/^\[([^\]]+)\]:/);
+        if (senderMatch && bannedUsers.has(senderMatch[1])) {
+          return false;
+        }
+        
+        return true; // Permite todas as outras mensagens
+      },
+      {}, // senderParams vazio, já que não temos params na rota
+    );
+  };
+
+  ws.onclose = () => console.log(`[WS] ${user} saiu da sala`);
+});
+
+// ============================================================
+// Servidor
+// ============================================================
+const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
+console.log("🚀 Servidor rodando em http://localhost:8000");
+console.log("🔌 WS: ws://localhost:8000/api/sala (header X-User-Name opcional)");
+```
+
+---
+
+## 🔍 Como Funciona a `permissionFn` sem Parâmetros
+
+Como a rota `/sala` não tem `:param`, o objeto `params` é sempre `{}`. Então a filtragem precisa usar outras informações:
+
+| Fonte de Dados | Como Acessar | Exemplo de Uso |
+|----------------|--------------|----------------|
+| **Conteúdo da mensagem** | Parâmetro `msg` da `permissionFn` | Bloquear palavras proibidas |
+| **Estado externo** | Variáveis fora do handler (ex: `bannedUsers`) | Lista de banidos, roles |
+| **Headers da requisição** | Capturados no `onopen` e guardados | Roles, níveis de acesso |
+
+---
+
+## 🧪 Testando
+
+### Cliente simples (Node.js ou navegador)
+
+```javascript
+// Conectar passando o nome no header (via fetch + WebSocket manual)
+// No navegador, headers customizados não são possíveis no WebSocket.
+// Alternativa: passar o nome na query string ou primeira mensagem.
+
+const ws = new WebSocket("ws://localhost:8000/api/sala");
+
+ws.onopen = () => {
+  // Primeira mensagem identifica o usuário
+  ws.send("__IDENTIFY__:joao");
+};
+
+ws.onmessage = (e) => console.log("Recebido:", e.data);
+```
+
+### Casos de teste
+
+```bash
+# ✅ Mensagem normal → todos recebem
+ws.send("Olá pessoal!")
+# → [joao]: Olá pessoal!
+
+# ❌ Mensagem com "spam" → ninguém recebe
+ws.send("Isso é spam!")
+# → (silêncio)
+
+# ❌ Mensagem de usuário banido → ninguém recebe
+# (se o sender for "spammer1")
+# → (silêncio)
+```
+
+---
+
+## 💡 Alternativa: Guardar Estado no Handler
+
+Se precisar de filtragem mais complexa, você pode guardar informações no fechamento (closure) do handler:
+
+```typescript
+app.ws("/sala", (ws, req, _params) => {
+  // Estado local por conexão
+  const userRole = req.headers.get("x-role") ?? "visitor";
+  const userName = req.headers.get("x-user-name") ?? "anonimo";
+  
+  const group = app.getWsGroupByPath("/sala");
+  if (!group) return;
+
+  ws.onmessage = (event) => {
+    group.broadcast(
+      `[${userName}]: ${event.data}`,
+      (clientParams, msg) => {
+        // Aqui você pode usar `userRole` do closure
+        // para decidir se a mensagem deve passar
+        if (userRole === "admin") return true; // Admin sempre passa
+        if (msg.includes("@admin")) return false; // Visitante não vê menções
+        return true;
+      },
+      {},
+    );
+  };
+});
+```
+
+---
+
+## ✅ Resumo
+
+Para rotas **sem parâmetros**:
+- `params` será sempre `{}`
+- Use o parâmetro `message` da `permissionFn` para filtrar por conteúdo
+- Use variáveis externas (closures, Maps, Sets) para estado compartilhado
+- A lógica de permissão continua sendo `(clientParams, message) => boolean`
 ````
 
 ---

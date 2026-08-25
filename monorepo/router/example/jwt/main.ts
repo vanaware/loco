@@ -1,4 +1,4 @@
-// monorepo/router/example/main.ts
+// monorepo/router/example/jwt/main.ts
 import { Router } from "../../src/mod.ts";
 import { SignJWT, jwtVerify } from "https://deno.land/x/jose@v5.2.0/index.ts";
 
@@ -37,14 +37,11 @@ app.post("/login", async (req) => {
 app.ws("/chat/:room", async (ws, req, params) => {
   const room = params.room as string;
   
-  // ✅ Extrai o token do header Sec-WebSocket-Protocol
-  // O cliente envia: ["Bearer", "eyJ..."]
-  // O servidor recebe: "Bearer, eyJ..."
+  // Extrai o token do header Sec-WebSocket-Protocol
   const protocolHeader = req.headers.get("sec-websocket-protocol") ?? "";
-  const protocols = protocolHeader.split(",").map(p => p.trim());
+  const protocols = protocolHeader.split(",").map((p) => p.trim());
   
-  // Procura pelo protocolo "Bearer" e pega o token que vem depois
-  const bearerIndex = protocols.findIndex(p => p === "Bearer");
+  const bearerIndex = protocols.findIndex((p) => p === "Bearer");
   const token = bearerIndex !== -1 ? protocols[bearerIndex + 1] : null;
 
   if (!token) {
@@ -54,16 +51,30 @@ app.ws("/chat/:room", async (ws, req, params) => {
   }
 
   try {
-    // Verifica a validade e a assinatura do JWT
     const { payload } = await jwtVerify(token, encoder.encode(JWT_SECRET));
     const user = payload.username as string;
     const role = payload.role as string;
     
     console.log(`[WS] ✅ Usuário autenticado: ${user} (${role}) entrou na sala ${room}`);
 
+    const group = app.getWsGroupByPath("/chat/:room");
+    if (!group) {
+      ws.close(1011, "No group");
+      return;
+    }
+
+    // ✅ DUAL PARAMS: Exemplo de filtragem por receiver E sender
     ws.onmessage = (event) => {
       console.log(`[WS] 💬 ${user} em ${room}: ${event.data}`);
-      ws.send(`[${user}]: ${event.data}`);
+      
+      group.broadcast(
+        `[${user}]: ${event.data}`,
+        // Filtra: receiver deve estar na mesma sala E sender deve ser válido
+        (receiverParams, senderParams, _msg) => {
+          return receiverParams.room === senderParams.room;
+        },
+        { ...params, user, role } // senderParams enriquecido com dados do JWT
+      );
     };
 
     ws.onclose = () => {
@@ -71,7 +82,6 @@ app.ws("/chat/:room", async (ws, req, params) => {
     };
 
   } catch (error) {
-// ✅ CORREÇÃO: Trata o erro como 'unknown' de forma segura
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("[WS] Falha na autenticação:", errorMessage);
     ws.close(4002, "Token inválido ou expirado");

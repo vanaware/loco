@@ -1,4 +1,4 @@
-// monorepo/router/example/main.ts
+// monorepo/router/example/principal/main.ts
 import { Router } from "../../src/mod.ts";
 
 const app = new Router("/api", "./public", null);
@@ -26,19 +26,14 @@ app.post("/users", async (req) => {
 });
 
 // ============================================================
-// WebSocket com broadcast inteligente
+// WebSocket com broadcast inteligente (DUAL PARAMS)
 // ============================================================
 app.ws("/chat/:room/:user", (ws, _req, params) => {
   const room = params.room as string;
   const user = params.user as string;
   console.log(`[WS] ✅ ${user} entrou na sala ${room}`);
 
-  // ✅ NOVA VERSÃO MAIS SEGURA E DINÂMICA:
-  // O getWsGroupByPath agora usa URLPattern.test(), então podemos passar 
-  // tanto o pattern exato ("/chat/:room/:user") quanto um caminho concreto 
-  // derivado dos parâmetros ("/chat/" + room + "/:user"). Ambos funcionarão!
   const group = app.getWsGroupByPath("/chat/:room/:user");
-  
   if (!group) {
     console.error("[WS] ❌ Grupo não encontrado!");
     ws.close(1011, "Internal error");
@@ -48,10 +43,26 @@ app.ws("/chat/:room/:user", (ws, _req, params) => {
   ws.onmessage = (event) => {
     console.log(`[WS] 💬 ${room}/${user}: ${event.data}`);
     
+    // ✅ DUAL PARAMS: Agora podemos filtrar por receiver E sender
     group.broadcast(
       `[${user}]: ${event.data}`,
-      (clientParams) => clientParams.room === room,
-      params, // Passamos os params do sender para reavaliação em novos membros
+      (receiverParams, senderParams, _msg) => {
+        // Exemplo 1: Filtrar por sala do receiver
+        // return receiverParams.room === room;
+        
+        // Exemplo 2: Filtrar por sala do sender
+        // return senderParams.room === room;
+        
+        // Exemplo 3: Filtrar por ambos (mais seguro)
+        return receiverParams.room === senderParams.room;
+        
+        // Exemplo 4: Filtrar por conteúdo da mensagem
+        // return !_msg.includes("spam");
+        
+        // Exemplo 5: Combinar tudo
+        // return receiverParams.room === senderParams.room && !_msg.includes("spam");
+      },
+      params // senderParams
     );
   };
 
@@ -112,7 +123,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 // ============================================================
-// Exemplo: fechar grupo após 30s (usando API pública)
+// Exemplo: fechar grupo após 30s
 // ============================================================
 setTimeout(() => {
   if (app.closeGroupByPath("/chat/:room/:user")) {

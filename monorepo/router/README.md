@@ -1,570 +1,81 @@
-# Deno Router Library
+A powerful, type-safe HTTP and WebSocket router for Deno with advanced features like intelligent broadcasting, path traversal protection, and seamless deployment support.
 
-Uma biblioteca de roteamento moderna e flexível para Deno, construída sobre a **URL Pattern API** nativa. Suporta rotas HTTP, WebSockets com sistema de grupos e broadcast inteligente, arquivos estáticos (locais e embarcados em executáveis), e parâmetros dinâmicos com catch-all.
+## ✨ Features
 
-## 🚀 Características
+- 🚀 **URL Pattern API** - Native browser standard for route matching
+- 🔒 **Path Traversal Protection** - Built-in security against directory traversal attacks
+- 📡 **WebSocket Broadcasting** - Intelligent message filtering with dual-parameter permissions
+- 🔄 **Last Broadcast** - New members automatically receive the last message
+- 🌐 **HTTP/2 Ready** - Seamless deployment with Deno Deploy (automatic HTTPS)
+- 🔐 **JWT Authentication** - Complete examples with WebSocket subprotocol
+- 📦 **Static Files** - Serve from disk or embedded in executable
+- 🎯 **Type-Safe** - Full TypeScript support with strict mode
+- ⚡ **Zero Dependencies** - Only uses Deno standard library
 
-- ✅ **URL Pattern API nativa** - Padrão web moderno para matching de rotas
-- ✅ **HTTP completo** - Métodos `.get()`, `.post()`, `.put()`, `.delete()`
-- ✅ **WebSockets** - Rota dedicada com `.ws()` e sistema de grupos
-- ✅ **Broadcast inteligente** - Com função de permissão por cliente
-- ✅ **Histórico de broadcast** - Novos membros recebem a última mensagem automaticamente
-- ✅ **Arquivos estáticos** - Servidos de pasta local ou embarcados no executável
-- ✅ **Catch-all flexível** - Parâmetro `catch` como array para múltiplos wildcards
-- ✅ **Base path configurável** - Para deploy em subpastas (ex: `/servidor/`)
-- ✅ **MIME types automáticos** - Resolução inteligente por extensão
-- ✅ **Graceful shutdown** - Fechamento limpo de WebSockets em sinais SIGINT/SIGTERM
+## 📦 Installation
 
----
+Add to your `deno.jsonc`:
 
-## 📦 Instalação
-
-### Via GitHub (recomendado)
-
-```typescript
-import { Router } from "https://raw.githubusercontent.com/vanaware/loco/main/monorepo/router/mod.ts";
-```
-
-### Cópia local
-
-```typescript
-import { Router } from "./mod.ts";
-```
-
----
-
-## 🏗️ Construtor do Router
-
-```typescript
-new Router(basePath, staticDir, embeddedDir, mimeTypeResolver)
-```
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|-----------|------|--------|-----------|
-| `basePath` | `string` | `''` | Prefixo aplicado a todas as rotas (ex: `/api`) |
-| `staticDir` | `string \| null` | `'public'` | Pasta de arquivos estáticos. `null` desabilita |
-| `embeddedDir` | `string \| null` | `null` | Prefixo para arquivos embarcados no executável |
-| `mimeTypeResolver` | `function` | interna | Função `(ext: string) => string \| undefined` |
-
-### Exemplo básico
-
-```typescript
-const app = new Router('/api', './public', null);
-```
-
-### Exemplo com arquivos embarcados
-
-```typescript
-// Para executáveis compilados com: deno compile --include=public/* main.ts
-const app = new Router('/api', './public', import.meta.dirname);
-```
-
----
-
-## 🌐 Rotas HTTP
-
-### Métodos disponíveis
-
-```typescript
-app.get(path, handler)
-app.post(path, handler)
-app.put(path, handler)
-app.delete(path, handler)
-```
-
-### Assinatura do handler
-
-```typescript
-(req: Request, params: Record<string, string | string[]>) => {
-  body: BodyInit;
-  init?: ResponseInit;
+```json
+{
+  "imports": {
+    "@loco/router": "./src/mod.ts"
+  }
 }
 ```
 
-### Exemplos
-
-#### Rota simples
+Or import directly:
 
 ```typescript
-app.get('/hello', (req, params) => {
-  return {
-    body: 'Hello, World!',
-    init: { headers: { 'Content-Type': 'text/plain' } }
-  };
-});
+import { Router } from "./src/mod.ts";
 ```
 
-#### Rota com parâmetros
+## 🚀 Quick Start
 
 ```typescript
-app.get('/users/:id/posts/:postId', (req, params) => {
-  return {
-    body: JSON.stringify({
-      userId: params.id,
-      postId: params.postId
-    }),
-    init: { headers: { 'Content-Type': 'application/json' } }
-  };
-});
-// GET /users/42/posts/7 → { userId: "42", postId: "7" }
-```
+import { Router } from "@loco/router";
 
-#### Rota POST com body
-
-```typescript
-app.post('/users', async (req, params) => {
-  const data = await req.json();
-  return {
-    body: JSON.stringify({ created: data }),
-    init: { status: 201, headers: { 'Content-Type': 'application/json' } }
-  };
-});
-```
-
----
-
-## 🎯 Catch-all e Parâmetro `catch`
-
-A biblioteca usa a **URL Pattern API** nativa. Quando você usa `*` (wildcard), o valor capturado é armazenado no parâmetro `catch` como **array**.
-
-### Regras de matching
-
-| Padrão | URL | `params` |
-|--------|-----|----------|
-| `/files/*` | `/files/docs/readme.md` | `{ catch: ["docs/readme.md"] }` |
-| `/a/*/b/*/c` | `/a/x/b/y/z/c` | `{ catch: ["x", "y/z"] }` |
-| `/api/:id/*` | `/api/42/foo/bar` | `{ id: "42", catch: ["foo/bar"] }` |
-
-### Exemplo
-
-```typescript
-app.get('/files/*', (req, params) => {
-  const path = (params.catch as string[])[0];
-  return {
-    body: `Arquivo solicitado: ${path}`,
-    init: { status: 200 }
-  };
-});
-```
-
-> **Nota:** O `*` captura tudo até o próximo delimitador fixo ou fim da URL.
-
----
-
-## 📂 Arquivos Estáticos
-
-### Pasta local (`staticDir`)
-
-Quando uma rota HTTP não é encontrada, o router tenta servir arquivos da pasta `staticDir`.
-
-**Comportamentos:**
-
-1. **Arquivo exato encontrado** → servido com MIME type correto
-2. **Pasta sem `/` final** → busca `index.html` ou `index.htm`
-3. **Pasta com `/` final** → busca `index.html` ou `index.htm`
-4. **Arquivo sem extensão** → tenta `.html` e `.htm` automaticamente
-5. **Nada encontrado** → retorna 404
-
-### Arquivos embarcados (`embeddedDir`)
-
-Quando você compila com `deno compile --include=...`, os arquivos ficam disponíveis via `import.meta.dirname`.
-
-**Prioridade:**
-1. Primeiro tenta o arquivo embarcado (`embeddedDir`)
-2. Se não encontrado, tenta a pasta local (`staticDir`)
-
-### Exemplo de compilação
-
-```bash
-deno compile --include=public/* --allow-net --allow-read main.ts
-```
-
-### Desabilitar estáticos
-
-```typescript
-const app = new Router('/api', null, null); // Nenhum arquivo estático
-```
-
----
-
-## 🔌 WebSockets
-
-### Rota WebSocket
-
-```typescript
-app.ws(path, handler)
-```
-
-### Assinatura do handler
-
-```typescript
-(ws: WebSocket, req: Request, params: Record<string, string | string[]>) => void
-```
-
-### Exemplo básico
-
-```typescript
-app.ws('/chat/:room/:user', (ws, req, params) => {
-  console.log(`Conectado: ${params.user} na sala ${params.room}`);
-
-  ws.onmessage = (event) => {
-    console.log(`Mensagem de ${params.user}: ${event.data}`);
-    ws.send(`Echo: ${event.data}`);
-  };
-
-  ws.onclose = () => {
-    console.log(`${params.user} desconectou`);
-  };
-
-  ws.onerror = (event) => {
-    console.error('Erro:', event);
-  };
-});
-```
-
----
-
-## 👥 Grupos de WebSocket
-
-Cada rota `.ws()` cria automaticamente um **grupo** que gerencia todos os clientes conectados àquela rota.
-
-### Obtendo um grupo
-
-```typescript
-const group = app.getWsGroupByPath('/api/chat/:room/:user');
-```
-
-### Métodos do grupo
-
-#### `broadcast(message, permissionFn?)`
-
-Envia mensagem para todos os membros do grupo.
-
-```typescript
-group.broadcast('Olá a todos!', (clientParams, message) => {
-  // Retorna true para enviar, false para pular
-  return clientParams.room === 'geral';
-});
-```
-
-#### `closeGroup()`
-
-Fecha todas as conexões do grupo.
-
-```typescript
-group.closeGroup();
-```
-
-### Exemplo completo com broadcast
-
-```typescript
-app.ws('/chat/:room/:user', (ws, req, params) => {
-  const group = app.getWsGroupByPath('/api/chat/:room/:user');
-  if (!group) return;
-
-  ws.onmessage = (event) => {
-    // Broadcast para todos na mesma sala
-    group.broadcast(
-      `${params.user}: ${event.data}`,
-      (clientParams, msg) => clientParams.room === params.room
-    );
-  };
-});
-```
-
----
-
-## 📜 Histórico de Broadcast (Last Broadcast)
-
-**Funcionalidade especial:** O último broadcast de cada grupo é armazenado. Quando um **novo membro se conecta**, ele recebe automaticamente a última mensagem broadcastada (se atender aos critérios de permissão).
-
-### O que é armazenado
-
-- A mensagem enviada
-- A função de permissão usada
-- Os parâmetros do contexto original
-
-### Exemplo prático
-
-```typescript
-// Cliente A envia mensagem às 10:00
-// Cliente B conecta às 10:05
-// → Cliente B recebe automaticamente a mensagem das 10:00
-```
-
-```typescript
-app.ws('/news/:topic', (ws, req, params) => {
-  const group = app.getWsGroupByPath('/api/news/:topic');
-  if (!group) return;
-
-  ws.onmessage = (event) => {
-    group.broadcast(
-      `[${params.topic}] ${event.data}`,
-      (clientParams, msg) => clientParams.topic === params.topic
-    );
-  };
-});
-```
-
-> **Importante:** O envio ao novo membro respeita a `permissionFn` original do broadcast.
-
----
-
-## 🔒 Graceful Shutdown
-
-Feche todas as conexões WebSocket ao desligar o servidor:
-
-```typescript
-const server = Deno.serve(app.handleRequest.bind(app));
-
-const shutdownSignals = ['SIGINT', 'SIGTERM'] as const;
-
-for (const signal of shutdownSignals) {
-  Deno.addSignalListener(signal, () => {
-    console.log(`Recebido ${signal}. Encerrando...`);
-    app.closeAllWebSockets();
-    server.shutdown().then(() => {
-      console.log('Servidor encerrado.');
-      Deno.exit(0);
-    });
-  });
-}
-```
-
----
-
-## 🎨 MIME Type Resolver Personalizado
-
-```typescript
-const myResolver = (ext: string): string | undefined => {
-  const map: Record<string, string> = {
-    'html': 'text/html',
-    'css': 'text/css',
-    'js': 'application/javascript',
-    'json': 'application/json',
-    'png': 'image/png',
-    'jpg': 'image/jpeg',
-    'svg': 'image/svg+xml',
-    'wasm': 'application/wasm',
-    // ... adicione o que precisar
-  };
-  return map[ext.toLowerCase()];
-};
-
-const app = new Router('/api', './public', null, myResolver);
-```
-
----
-
-## 📋 Exemplo Completo
-
-```typescript
-import { Router } from "https://raw.githubusercontent.com/vanaware/loco/main/monorepo/router/src/mod.ts";
-
-const app = new Router('/api', './public', import.meta.dirname);
-
-// === ROTAS HTTP ===
-
-app.get('/users/:id', (req, params) => ({
-  body: JSON.stringify({ id: params.id }),
-  init: { headers: { 'Content-Type': 'application/json' } }
-}));
-
-app.post('/users', async (req) => {
-  const data = await req.json();
-  return {
-    body: JSON.stringify({ created: true, data }),
-    init: { status: 201, headers: { 'Content-Type': 'application/json' } }
-  };
-});
-
-// === CATCH-ALL ===
-
-app.get('/docs/*', (req, params) => ({
-  body: `Documentação: ${(params.catch as string[])[0]}`,
-  init: { status: 200 }
-}));
-
-// === WEBSOCKET ===
-
-app.ws('/chat/:room/:user', (ws, req, params) => {
-  const group = app.getWsGroupByPath('/api/chat/:room/:user');
-  if (!group) return;
-
-  console.log(`✅ ${params.user} entrou em ${params.room}`);
-
-  ws.onmessage = (event) => {
-    console.log(`💬 ${params.user}: ${event.data}`);
-
-    // Broadcast apenas para quem está na mesma sala
-    group.broadcast(
-      `${params.user}: ${event.data}`,
-      (clientParams) => clientParams.room === params.room
-    );
-  };
-
-  ws.onclose = () => {
-    console.log(`❌ ${params.user} saiu de ${params.room}`);
-  };
-});
-
-// === SERVIDOR ===
-
-const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
-
-// Graceful shutdown
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  Deno.addSignalListener(signal, () => {
-    console.log(`🛑 ${signal} recebido. Encerrando...`);
-    app.closeAllWebSockets();
-    server.shutdown().then(() => Deno.exit(0));
-  });
-}
-```
-
----
-
-## 🧪 Testando
-
-### Executar em desenvolvimento
-
-```bash
-deno run --allow-net --allow-read main.ts
-```
-
-### Compilar como executável com assets embarcados
-
-```bash
-deno compile --include=public/* --allow-net --allow-read main.ts
-```
-
-### Testar com curl
-
-```bash
-# HTTP
-curl http://localhost:8000/api/users/42
-
-# WebSocket (use wscat ou navegador)
-wscat -c ws://localhost:8000/api/chat/sala1/joao
-```
-
----
-
-## 📁 Estrutura recomendada
-
-```
-meu-projeto/
-├── main.ts              # Entry point
-├── public/              # Arquivos estáticos
-│   ├── index.html
-│   ├── styles.css
-│   └── app.js
-└── deno.json            # Configuração Deno (opcional)
-```
-
----
-
-## 🐛 Troubleshooting
-
-| Problema | Solução |
-|----------|---------|
-| Arquivo estático não encontrado | Verifique se `staticDir` está correto e permissões `--allow-read` |
-| WebSocket 404 | Confirme que o path bate com `.ws()` registrado |
-| Broadcast não chega | Verifique a `permissionFn` - ela deve retornar `true` |
-| Novo membro não recebe último broadcast | Confirme que houve ao menos um `broadcast()` antes da conexão |
-| `import.meta.dirname` undefined | Use apenas em arquivos compilados ou módulos ES |
-
----
-
-## 📄 Licença
-
-MIT License - veja arquivo LICENSE para detalhes.
-
----
-
-## 🔗 Recursos
-
-- [Deno Documentation](https://deno.land/)
-- [URL Pattern API - MDN](https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API)
-- [WebSocket API - MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
-# @loco/router
-
-Uma biblioteca de roteamento moderna e flexível para **Deno**, construída sobre a **URL Pattern API** nativa. Suporta rotas HTTP completas, WebSockets com sistema de grupos e broadcast inteligente, arquivos estáticos (locais e embarcados em executáveis) e parâmetros dinâmicos com catch-all.
-
-## 🚀 Características
-
-- ✅ **URL Pattern API nativa** — padrão web moderno para matching de rotas
-- ✅ **HTTP completo** — métodos `.get()`, `.post()`, `.put()`, `.delete()`, `.patch()`, `.options()`, `.head()`
-- ✅ **CORS integrado** — helper para preflight e headers customizados
-- ✅ **WebSockets** — rota dedicada com `.ws()` e sistema de grupos
-- ✅ **Broadcast inteligente** — com função de permissão por cliente
-- ✅ **Histórico de broadcast** — novos membros recebem a última mensagem automaticamente
-- ✅ **Arquivos estáticos** — servidos de pasta local ou embarcados no executável
-- ✅ **Proteção contra Path Traversal** — segurança contra ataques `../`
-- ✅ **Catch-all flexível** — parâmetro `catch` como array para múltiplos wildcards
-- ✅ **Base path configurável** — para deploy em subpastas (ex: `/api/`)
-- ✅ **MIME types automáticos** — resolução inteligente por extensão
-- ✅ **Graceful shutdown** — fechamento limpo de WebSockets em sinais SIGINT/SIGTERM
-
----
-
-## 📦 Instalação
-
-### Via JSR (recomendado)
-
-```typescript
-import { Router } from "jsr:@loco/router";
-```
-
-### Via GitHub
-
-```typescript
-import { Router } from "https://raw.githubusercontent.com/yourusername/router/main/src/mod.ts";
-```
-
-### Clone local
-
-```bash
-git clone https://github.com/yourusername/router.git
-```
-
-```typescript
-import { Router } from "./router/src/mod.ts";
-```
-
----
-
-## 🏗️ Construtor
-
-```typescript
-new Router(basePath, staticDir, embeddedDir, mimeTypeResolver)
-```
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|-----------|------|--------|-----------|
-| `basePath` | `string` | `""` | Prefixo aplicado a todas as rotas (ex: `/api`) |
-| `staticDir` | `string \| null` | `"public"` | Pasta de arquivos estáticos. `null` desabilita |
-| `embeddedDir` | `string \| null` | `null` | Prefixo para arquivos embarcados no executável |
-| `mimeTypeResolver` | `function` | interna | Função `(ext: string) => string \| undefined` |
-
-### Exemplo básico
-
-```typescript
 const app = new Router("/api", "./public", null);
+
+// HTTP routes
+app.get("/users/:id", (req, params) => ({
+  body: JSON.stringify({ id: params.id }),
+  init: { headers: { "Content-Type": "application/json" } }
+}));
+
+// WebSocket with intelligent broadcasting
+app.ws("/chat/:room/:user", (ws, req, params) => {
+  const group = app.getWsGroupByPath("/chat/:room/:user");
+  
+  ws.onmessage = (event) => {
+    group.broadcast(
+      `[${params.user}]: ${event.data}`,
+      (receiver, sender, msg) => receiver.room === sender.room,
+      params
+    );
+  };
+});
+
+// Start server
+Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 ```
 
-### Exemplo com arquivos embarcados
+## 📖 API Reference
+
+### Constructor
 
 ```typescript
-// Para executáveis compilados com: deno compile --include=public/* main.ts
-const app = new Router("/api", "./public", import.meta.dirname);
+new Router(
+  basePath?: string,           // Route prefix (e.g., "/api")
+  staticDir?: string | null,   // Static files directory
+  embeddedDir?: string | null, // Embedded files directory
+  mimeTypeResolver?: (ext: string) => string | undefined
+)
 ```
 
----
+### HTTP Methods
 
-## 🌐 Rotas HTTP
-
-### Métodos disponíveis
+All HTTP methods follow the same signature:
 
 ```typescript
 app.get(path, handler)
@@ -576,522 +87,465 @@ app.options(path, handler)
 app.head(path, handler)
 ```
 
-### Assinatura do handler
+**Handler signature:**
 
 ```typescript
-(req: Request, params: RouteParams) => {
+type HttpHandler = (
+  req: Request,
+  params: RouteParams
+) => {
   body: BodyInit;
   init?: ResponseInit;
-}
-// ou
-(req: Request, params: RouteParams) => Promise<{ body: BodyInit; init?: ResponseInit }>
+} | Promise<{ body: BodyInit; init?: ResponseInit }>;
 ```
 
-### Exemplos
-
-#### Rota simples
+**Example:**
 
 ```typescript
-app.get("/hello", () => ({
-  body: "Hello, World!",
-  init: { headers: { "Content-Type": "text/plain" } },
-}));
-```
-
-#### Rota com parâmetros
-
-```typescript
-app.get("/users/:id/posts/:postId", (_req, params) => ({
-  body: JSON.stringify({
-    userId: params.id,
-    postId: params.postId,
-  }),
-  init: { headers: { "Content-Type": "application/json" } },
-}));
-// GET /users/42/posts/7 → { userId: "42", postId: "7" }
-```
-
-#### Rota POST com body
-
-```typescript
-app.post("/users", async (req) => {
+app.post("/users", async (req, params) => {
   const data = await req.json();
   return {
-    body: JSON.stringify({ created: data }),
-    init: { status: 201, headers: { "Content-Type": "application/json" } },
-  };
-});
-```
-
----
-
-## 🔐 CORS
-
-### Configuração básica (permitir todas as origens)
-
-Registre uma rota `OPTIONS` catch-all **antes** das outras rotas:
-
-```typescript
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Max-Age": "86400",
-};
-
-app.options("/*", () => ({
-  body: "",
-  init: { status: 204, headers: corsHeaders },
-}));
-```
-
-### Helper para adicionar CORS em todas as respostas
-
-```typescript
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Max-Age": "86400",
-};
-
-function withCors(init: ResponseInit = {}): ResponseInit {
-  return {
-    ...init,
-    headers: { ...corsHeaders, ...(init.headers ?? {}) },
-  };
-}
-
-// Uso
-app.get("/users/:id", (_req, params) => ({
-  body: JSON.stringify({ id: params.id }),
-  init: withCors({ headers: { "Content-Type": "application/json" } }),
-}));
-```
-
-### CORS restritivo (origens específicas)
-
-```typescript
-const allowedOrigins = new Set(["https://meusite.com", "https://app.meusite.com"]);
-
-app.options("/*", (req) => {
-  const origin = req.headers.get("origin") ?? "";
-  const allow = allowedOrigins.has(origin);
-  return {
-    body: "",
+    body: JSON.stringify({ created: true, data }),
     init: {
-      status: allow ? 204 : 403,
-      headers: allow ? {
-        "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      } : {},
-    },
+      status: 201,
+      headers: { "Content-Type": "application/json" }
+    }
   };
 });
 ```
 
----
-
-## 🎯 Catch-all e Parâmetro `catch`
-
-A biblioteca usa a **URL Pattern API** nativa. Quando você usa `*` (wildcard), o valor capturado é armazenado no parâmetro `catch` como **array**.
-
-### Regras de matching
-
-| Padrão | URL | `params` |
-|--------|-----|----------|
-| `/files/*` | `/files/docs/readme.md` | `{ catch: ["docs/readme.md"] }` |
-| `/a/*/b/*/c` | `/a/x/b/y/z/c` | `{ catch: ["x", "y/z"] }` |
-| `/api/:id/*` | `/api/42/foo/bar` | `{ id: "42", catch: ["foo/bar"] }` |
-
-### Exemplo
-
-```typescript
-app.get("/files/*", (_req, params) => ({
-  body: `Arquivo: ${(params.catch as string[])[0]}`,
-  init: { status: 200 },
-}));
-```
-
-> **Nota:** O `*` captura tudo até o próximo delimitador fixo ou fim da URL.
-
----
-
-## 📂 Arquivos Estáticos
-
-### Pasta local (`staticDir`)
-
-Quando uma rota HTTP não é encontrada, o router tenta servir arquivos da pasta `staticDir`.
-
-**Comportamentos:**
-
-1. **Arquivo exato encontrado** → servido com MIME type correto
-2. **Pasta sem `/` final** → busca `index.html` ou `index.htm`
-3. **Pasta com `/` final** → busca `index.html` ou `index.htm`
-4. **Arquivo sem extensão** → tenta `.html` e `.htm` automaticamente
-5. **Nada encontrado** → retorna 404
-
-### Arquivos embarcados (`embeddedDir`)
-
-Quando você compila com `deno compile --include=...`, os arquivos ficam disponíveis via `import.meta.dirname`.
-
-**Prioridade:**
-1. Primeiro tenta o arquivo embarcado (`embeddedDir`)
-2. Se não encontrado, tenta a pasta local (`staticDir`)
-
-### Proteção contra Path Traversal
-
-A biblioteca protege automaticamente contra ataques de path traversal (`../`). Tentativas de acessar arquivos fora do diretório configurado retornam 404.
-
-```bash
-# Estes ataques são bloqueados:
-GET /../secret.txt          → 404
-GET /subdir/../../etc/passwd → 404
-GET /..%2Fsecret.txt         → 404
-```
-
-### Exemplo de compilação
-
-```bash
-deno compile --include=public/* --allow-net --allow-read main.ts
-```
-
-### Desabilitar estáticos
-
-```typescript
-const app = new Router("/api", null, null); // Nenhum arquivo estático
-```
-
----
-
-## 🔌 WebSockets
-
-### Rota WebSocket
+### WebSocket Routes
 
 ```typescript
 app.ws(path, handler)
 ```
 
-### Assinatura do handler
+**Handler signature:**
 
 ```typescript
-(ws: WebSocket, req: Request, params: RouteParams) => void
+type WsHandler = (
+  ws: WebSocket,
+  req: Request,
+  params: RouteParams
+) => void;
 ```
 
-### Exemplo básico
+**Example:**
 
 ```typescript
-app.ws("/chat/:room/:user", (ws, _req, params) => {
-  console.log(`Conectado: ${params.user} na sala ${params.room}`);
-
+app.ws("/chat/:room/:user", (ws, req, params) => {
+  console.log(`User ${params.user} joined room ${params.room}`);
+  
   ws.onmessage = (event) => {
-    console.log(`Mensagem de ${params.user}: ${event.data}`);
     ws.send(`Echo: ${event.data}`);
   };
-
-  ws.onclose = () => console.log(`${params.user} desconectou`);
-  ws.onerror = (ev) => console.error("Erro:", ev);
+  
+  ws.onclose = () => {
+    console.log("Connection closed");
+  };
 });
 ```
 
----
+### Route Parameters
 
-## 👥 Grupos de WebSocket
-
-Cada rota `.ws()` cria automaticamente um **grupo** que gerencia todos os clientes conectados àquela rota.
-
-### Obtendo um grupo
+Parameters are extracted from the URL pattern:
 
 ```typescript
-const group = app.getWsGroupByPath("/chat/:room/:user");
+app.get("/users/:id/posts/:postId", (req, params) => {
+  console.log(params.id);      // "123"
+  console.log(params.postId);  // "456"
+  return { body: "OK" };
+});
 ```
 
-### Métodos do grupo
+**Catch-all routes:**
 
-#### `broadcast(message, permissionFn?, senderParams?)`
+```typescript
+app.get("/files/*", (req, params) => {
+  console.log(params.catch);  // ["path", "to", "file.txt"]
+  return { body: "OK" };
+});
+```
 
-Envia mensagem para todos os membros do grupo.
+## 🔐 WebSocket Broadcasting
+
+### Basic Broadcasting
+
+```typescript
+app.ws("/chat/:room/:user", (ws, req, params) => {
+  const group = app.getWsGroupByPath("/chat/:room/:user");
+  
+  ws.onmessage = (event) => {
+    // Broadcast to all members in the group
+    group.broadcast(
+      `[${params.user}]: ${event.data}`,
+      undefined,  // No permission filter
+      params      // Sender params
+    );
+  };
+});
+```
+
+### Permission-Based Broadcasting
+
+The `PermissionFn` receives **three parameters**:
+
+```typescript
+type PermissionFn = (
+  receiverParams: RouteParams,  // Who will receive
+  senderParams: RouteParams,    // Who sent the message
+  message: string               // The message content
+) => boolean;
+```
+
+**Example: Room-based filtering**
 
 ```typescript
 group.broadcast(
-  "Olá a todos!",
-  (clientParams, message) => clientParams.room === "geral",
-  { room: "geral" }, // senderParams para reavaliação em novos membros
+  message,
+  (receiver, sender, msg) => {
+    // Only send to users in the same room
+    return receiver.room === sender.room;
+  },
+  params
 );
 ```
 
-#### `sendLastBroadcastTo(ws, params)`
-
-Envia o último broadcast para um socket específico (usado internamente quando um novo membro entra).
-
-#### `closeGroup()`
-
-Fecha todas as conexões do grupo.
+**Example: Role-based filtering**
 
 ```typescript
-group.closeGroup();
+group.broadcast(
+  message,
+  (receiver, sender, msg) => {
+    // Only admins can send to all rooms
+    if (sender.role === "admin") return true;
+    // Others can only send to their own room
+    return receiver.room === sender.room;
+  },
+  params
+);
 ```
 
-### Exemplo completo com broadcast
+**Example: Content filtering**
 
 ```typescript
-app.ws("/chat/:room/:user", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/chat/:room/:user");
-  if (!group) return;
-
-  ws.onmessage = (event) => {
-    // Broadcast para todos na mesma sala
-    group.broadcast(
-      `${params.user}: ${event.data}`,
-      (clientParams) => clientParams.room === params.room,
-      params, // importante: passa params do sender
-    );
-  };
-});
+group.broadcast(
+  message,
+  (receiver, sender, msg) => {
+    // Block messages containing "spam"
+    return !msg.includes("spam");
+  },
+  params
+);
 ```
 
----
+### Last Broadcast Feature
 
-## 📜 Histórico de Broadcast (Last Broadcast)
-
-**Funcionalidade especial:** O último broadcast de cada grupo é armazenado. Quando um **novo membro se conecta**, ele recebe automaticamente a última mensagem broadcastada (se atender aos critérios de permissão).
-
-### O que é armazenado
-
-- A mensagem enviada
-- A função de permissão usada
-- Os parâmetros do sender original
-
-### Exemplo prático
+When a new member joins a WebSocket group, they automatically receive the last broadcast message (if they pass the permission check):
 
 ```typescript
-// Cliente A envia mensagem às 10:00
-// Cliente B conecta às 10:05
-// → Cliente B recebe automaticamente a mensagem das 10:00
+// User A sends message at 10:00
+// User B joins at 10:05
+// User B automatically receives the message from 10:00
 ```
 
-> **Importante:** O envio ao novo membro respeita a `permissionFn` original do broadcast, avaliada com os `senderParams`.
+This is perfect for chat applications where new users need to see recent messages.
 
----
+## 🔒 Security Features
 
-## 🔒 Graceful Shutdown
+### Path Traversal Protection
 
-Feche todas as conexões WebSocket ao desligar o servidor:
+The router automatically protects against path traversal attacks:
 
 ```typescript
-const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
-
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => {
-    console.log(`🛑 ${signal} recebido. Encerrando...`);
-    app.closeAllWebSockets();
-    server.shutdown().then(() => {
-      console.log("✅ Servidor encerrado.");
-      Deno.exit(0);
-    });
-  });
-}
+// These requests are blocked:
+GET /../../etc/passwd          → 404
+GET /..%2F..%2Fetc%2Fpasswd    → 404
+GET /..\..\etc\passwd          → 404
 ```
 
-### Fechamento de grupo específico
+### CORS Configuration
+
+**Basic CORS (allow all origins):**
 
 ```typescript
-app.closeGroupByPath("/chat/:room/:user");
-```
-
----
-
-## 🎨 MIME Type Resolver Personalizado
-
-```typescript
-const myResolver = (ext: string): string | undefined => {
-  const map: Record<string, string> = {
-    html: "text/html",
-    css: "text/css",
-    js: "application/javascript",
-    json: "application/json",
-    png: "image/png",
-    wasm: "application/wasm",
-    // ... adicione o que precisar
-  };
-  return map[ext.toLowerCase()];
-};
-
-const app = new Router("/api", "./public", null, myResolver);
-```
-
----
-
-## 📋 Exemplo Completo
-
-```typescript
-import { Router } from "jsr:@loco/router";
-
-const app = new Router("/api", "./public", import.meta.dirname);
-
-// === CORS ===
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Max-Age": "86400",
-};
-
-app.options("/*", () => ({
+app.options("/*", (req) => ({
   body: "",
-  init: { status: 204, headers: corsHeaders },
+  init: {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Max-Age": "86400"
+    }
+  }
 }));
+```
 
-function withCors(init: ResponseInit = {}): ResponseInit {
-  return { ...init, headers: { ...corsHeaders, ...(init.headers ?? {}) } };
-}
+**Restricted CORS:**
 
-// === ROTAS HTTP ===
+```typescript
+const allowedOrigins = ["https://example.com", "https://app.example.com"];
 
-app.get("/users/:id", (_req, params) => ({
-  body: JSON.stringify({ id: params.id }),
-  init: withCors({ headers: { "Content-Type": "application/json" } }),
-}));
-
-app.post("/users", async (req) => {
-  const data = await req.json();
+app.options("/*", (req) => {
+  const origin = req.headers.get("origin") || "";
+  const allowed = allowedOrigins.includes(origin);
+  
   return {
-    body: JSON.stringify({ created: true, data }),
-    init: withCors({ status: 201, headers: { "Content-Type": "application/json" } }),
+    body: "",
+    init: {
+      status: allowed ? 204 : 403,
+      headers: allowed ? {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      } : {}
+    }
+  };
+});
+```
+
+## 🔐 JWT Authentication
+
+### HTTP Authentication
+
+```typescript
+import { SignJWT, jwtVerify } from "jsr:@luca/jose";
+
+const JWT_SECRET = "your-secret-key";
+
+// Login endpoint
+app.post("/login", async (req) => {
+  const { username, password } = await req.json();
+  
+  // Validate credentials...
+  
+  const token = await new SignJWT({ username, role: "user" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("1h")
+    .sign(new TextEncoder().encode(JWT_SECRET));
+  
+  return {
+    body: JSON.stringify({ token }),
+    init: { headers: { "Content-Type": "application/json" } }
   };
 });
 
-// === CATCH-ALL ===
-
-app.get("/docs/*", (_req, params) => ({
-  body: `Documentação: ${(params.catch as string[])[0]}`,
-  init: withCors({ status: 200 }),
-}));
-
-// === WEBSOCKET ===
-
-app.ws("/chat/:room/:user", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/chat/:room/:user");
-  if (!group) return;
-
-  console.log(`✅ ${params.user} entrou em ${params.room}`);
-
-  ws.onmessage = (event) => {
-    group.broadcast(
-      `${params.user}: ${event.data}`,
-      (clientParams) => clientParams.room === params.room,
-      params,
+// Protected endpoint
+app.get("/protected", async (req) => {
+  const authHeader = req.headers.get("authorization");
+  const token = authHeader?.replace("Bearer ", "");
+  
+  if (!token) {
+    return { body: "Unauthorized", init: { status: 401 } };
+  }
+  
+  try {
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET)
     );
-  };
-
-  ws.onclose = () => console.log(`❌ ${params.user} saiu de ${params.room}`);
+    
+    return {
+      body: JSON.stringify({ user: payload.username }),
+      init: { headers: { "Content-Type": "application/json" } }
+    };
+  } catch {
+    return { body: "Invalid token", init: { status: 401 } };
+  }
 });
-
-// === SERVIDOR ===
-
-const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
-
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => {
-    app.closeAllWebSockets();
-    server.shutdown().then(() => Deno.exit(0));
-  });
-}
 ```
 
----
+### WebSocket Authentication (Subprotocol)
 
-## 🧪 Testando
+```typescript
+app.ws("/chat/:room/:user", async (ws, req, params) => {
+  // Extract token from Sec-WebSocket-Protocol header
+  const protocol = req.headers.get("sec-websocket-protocol") || "";
+  const [_, token] = protocol.split(",").map(s => s.trim());
+  
+  if (!token) {
+    ws.close(4001, "Authentication required");
+    return;
+  }
+  
+  try {
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET)
+    );
+    
+    console.log(`Authenticated: ${payload.username}`);
+    
+    ws.onmessage = (event) => {
+      ws.send(`Echo: ${event.data}`);
+    };
+  } catch {
+    ws.close(4002, "Invalid token");
+  }
+});
+```
 
-### Executar em desenvolvimento
+**Client-side:**
+
+```javascript
+const token = "your-jwt-token";
+const ws = new WebSocket(
+  "ws://localhost:8000/api/chat/room1/user1",
+  ["Bearer", token]  // Subprotocol
+);
+```
+
+## 🌐 HTTPS and HTTP/2
+
+### Local Development
+
+For local HTTPS, generate certificates and configure:
+
+```typescript
+const cert = await Deno.readTextFile("./localhost.pem");
+const key = await Deno.readTextFile("./localhost-key.pem");
+
+Deno.serve({
+  port: 8443,
+  cert,
+  key
+}, app.handleRequest.bind(app));
+```
+
+### Deno Deploy (Automatic HTTPS)
+
+When deploying to Deno Deploy, HTTPS and HTTP/2 are automatic:
 
 ```bash
-deno task dev
-# ou
-deno run --allow-net --allow-read --watch example/main.ts
+deployctl deploy --project=my-app example/main.ts
 ```
 
-### Compilar como executável com assets embarcados
+Your app will be available at `https://my-app.deno.dev` with automatic SSL certificates.
+
+### Force HTTPS Redirect
+
+```typescript
+const app = new Router("/api", "./public", null);
+
+// Enable HTTPS redirect (ignored for localhost)
+app.forceHttps = true;
+
+// Or use environment variable
+app.forceHttps = Deno.env.get("FORCE_HTTPS") === "true";
+```
+
+## 📦 Static Files
+
+### Serving from Directory
+
+```typescript
+const app = new Router("/api", "./public", null);
+```
+
+Files in `./public` are automatically served:
+- `GET /api/index.html` → `./public/index.html`
+- `GET /api/css/style.css` → `./public/css/style.css`
+
+### Embedded Files
+
+For executables, embed files at compile time:
+
+```typescript
+const app = new Router("/api", null, import.meta.dirname);
+```
+
+Compile with:
 
 ```bash
-deno compile --include=public/* --allow-net --allow-read main.ts
+deno compile --include=./public/**/* main.ts
 ```
 
-### Rodar a suíte de testes
+### MIME Type Resolution
+
+The router automatically resolves MIME types:
+
+```typescript
+// Custom MIME resolver
+const app = new Router("/api", "./public", null, (ext) => {
+  const types = {
+    "html": "text/html",
+    "css": "text/css",
+    "js": "application/javascript",
+    "json": "application/json"
+  };
+  return types[ext];
+});
+```
+
+## 🧪 Testing
+
+Run the test suite:
 
 ```bash
 deno task tests
 ```
 
-### Testar com curl
+Individual test files:
 
 ```bash
-# HTTP
-curl http://localhost:8000/api/users/42
-
-# CORS preflight
-curl -i -X OPTIONS http://localhost:8000/api/users/42
-
-# WebSocket (use wscat ou navegador)
-wscat -c ws://localhost:8000/api/chat/sala1/joao
+deno test --allow-net --allow-read tests/router_http_test.ts
+deno test --allow-net --allow-read tests/websocket_real_test.ts
 ```
 
----
+## 🚢 Deployment
 
-## 📁 Estrutura recomendada
+### Deno Deploy
 
-```
-monorepo/router/
-├── src/
-│   └── mod.ts              # Biblioteca
-├── tests/
-│   ├── router_http_test.ts
-│   ├── router_catchall_test.ts
-│   ├── router_static_test.ts
-│   ├── websocket_group_test.ts
-│   ├── websocket_real_test.ts
-│   └── path_traversal_test.ts
-├── example/
-│   ├── main.ts             # Exemplo de uso
-│   └── public/             # Arquivos estáticos
-│       ├── index.html
-│       └── broadcast.html
-├── deno.jsonc
-└── README.md
+```bash
+# Install deployctl
+deno install -A jsr:@deno/deployctl
+
+# Deploy
+deployctl deploy --project=my-app example/main.ts
 ```
 
----
+### Docker
 
-## 🐛 Troubleshooting
+```dockerfile
+FROM denoland/deno:latest
+WORKDIR /app
+COPY . .
+RUN deno cache example/main.ts
+CMD ["run", "--allow-net", "--allow-read", "example/main.ts"]
+```
 
-| Problema | Solução |
-|----------|---------|
-| Arquivo estático não encontrado | Verifique se `staticDir` está correto e permissões `--allow-read` |
-| WebSocket 404 | Confirme que o path bate com `.ws()` registrado |
-| Broadcast não chega | Verifique a `permissionFn` — ela deve retornar `true` |
-| Novo membro não recebe último broadcast | Confirme que houve ao menos um `broadcast()` antes da conexão |
-| CORS bloqueado no navegador | Registre rota `OPTIONS` catch-all e adicione headers nas respostas |
-| `import.meta.dirname` undefined | Use apenas em arquivos compilados ou módulos ES |
-| Path traversal funciona | Atualize para versão com `normalize()` do `@std/path` |
+### Standalone Executable
 
----
+```bash
+deno compile \
+  --allow-net \
+  --allow-read \
+  --include=./public/**/* \
+  --output=my-app \
+  example/main.ts
+```
 
-## 📄 Licença
+## 📝 Examples
 
-MIT License
+See the `example/` directory for complete examples:
 
----
+- `example/main.ts` - Basic HTTP and WebSocket routes
+- `example/jwt/` - JWT authentication with WebSocket
+- `example/public/` - Static HTML files for testing
 
-## 🤝 Contribuindo
+## 📄 License
 
-Contribuições são bem-vindas! Abra uma issue ou PR no repositório.
+MIT License - see LICENSE file for details.
 
----
+## 🤝 Contributing
 
-## 🔗 Recursos
+Contributions are welcome! Please open an issue or pull request.
+
+## 🔗 Links
 
 - [Deno Documentation](https://deno.land/)
-- [URL Pattern API - MDN](https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API)
-- [WebSocket API - MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
-- [CORS - MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS)
+- [URL Pattern API](https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API)
+- [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+- [Deno Deploy](https://deno.com/deploy)
