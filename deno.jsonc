@@ -17,7 +17,8 @@
     "proto/01-push-messaging",
     "./monorepo/playground",
     "./monorepo/worker-db",
-    "./monorepo/server"
+    "./monorepo/server",
+    "./monorepo/router"
   ],
 
   // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
