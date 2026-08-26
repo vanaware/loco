@@ -67,7 +67,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/server",
     subpastasPermitidas: ["src", "tests","docs"],
-    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md", "minify-keys.ts", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"],
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "minify-keys.ts", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR @loco/server"
   },
@@ -76,7 +76,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/playground",
     subpastasPermitidas: ["src", "public", "tests","docs"],
-    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md", "server.ts"],
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND."
   },
@@ -85,7 +85,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/worker-db",
     subpastasPermitidas: ["src", "tests", "docs", "example"],
-    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "README.md"],
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/workerdb"
   },
@@ -94,7 +94,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/utils",
     subpastasPermitidas: ["src", "tests", "docs"],
-    arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "README.md"],
+    arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/utils"
   },
@@ -103,7 +103,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/router",
     subpastasPermitidas: ["src", "tests", "docs", "example"],
-    arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "README.md"],
+    arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do ROUTER @loco/router"
   }

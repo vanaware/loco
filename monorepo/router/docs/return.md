@@ -326,7 +326,7 @@ app.get("/page", () => ({
 ```typescript
 import { Router } from "../src/mod.ts";
 
-const app = new Router("/api");
+const app = new Router({ basePath: "/api" });
 
 // 1. String simples
 app.get("/text", () => ({

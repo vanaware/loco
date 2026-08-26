@@ -38,9 +38,10 @@ Deno.test("WebSocket real: conexão, broadcast e last broadcast para novo membro
     const group = app.getWsGroupByPath("/chat/:room/:user");
     if (!group) { ws.close(1011, "No group"); return; }
     ws.onmessage = (event) => {
+      // ✅ CORRETO: usar dual params
       group.broadcast(
         `[${user}]: ${event.data}`,
-        (clientParams) => clientParams.room === room,
+        (receiver, sender, _msg) => receiver.room === sender.room,  // ← NEW
         params,
       );
     };

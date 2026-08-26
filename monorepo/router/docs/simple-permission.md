@@ -8,7 +8,7 @@ Quando a rota não tem parâmetros dinâmicos, o `params` recebido pela `permiss
 // monorepo/router/example/sala/main.ts
 import { Router } from "../../src/mod.ts";
 
-const app = new Router("/api", "./public", null);
+const app = new Router({ basePath: "/api" });
 
 // Lista externa de usuários banidos (simulando um banco de dados)
 const bannedUsers = new Set(["spammer1", "baduser2"]);
@@ -32,7 +32,7 @@ app.ws("/sala", (ws, req, _params) => {
     // Exemplo 2: Filtrar por usuário banido (estado externo)
     group.broadcast(
       `[${user}]: ${message}`,
-      (clientParams, msg) => {
+      (_receiver, _sender, msg) => { 
         // clientParams é {} (vazio, pois a rota não tem params)
         // msg é a mensagem sendo enviada
         
@@ -132,7 +132,7 @@ app.ws("/sala", (ws, req, _params) => {
   ws.onmessage = (event) => {
     group.broadcast(
       `[${userName}]: ${event.data}`,
-      (clientParams, msg) => {
+      (_receiver, _sender, msg) => { 
         // Aqui você pode usar `userRole` do closure
         // para decidir se a mensagem deve passar
         if (userRole === "admin") return true; // Admin sempre passa
@@ -153,4 +153,4 @@ Para rotas **sem parâmetros**:
 - `params` será sempre `{}`
 - Use o parâmetro `message` da `permissionFn` para filtrar por conteúdo
 - Use variáveis externas (closures, Maps, Sets) para estado compartilhado
-- A lógica de permissão continua sendo `(clientParams, message) => boolean`
+- A lógica de permissão continua sendo `(receiverParams, senderParams, message) => boolean`

@@ -1103,6 +1103,27 @@
           "npm:wrangler@^4.123.0"
         ]
       },
+      "monorepo/service-worker": {
+        "dependencies": [
+          "jsr:@std/assert@1",
+          "jsr:@std/fs@1",
+          "jsr:@std/http@1",
+          "jsr:@std/path@1"
+        ]
+      },
+      "monorepo/ui": {
+        "dependencies": [
+          "jsr:@std/assert@1",
+          "jsr:@std/fs@1",
+          "jsr:@std/http@1",
+          "jsr:@std/path@1"
+        ]
+      },
+      "monorepo/utils": {
+        "dependencies": [
+          "jsr:@std/assert@*"
+        ]
+      },
       "monorepo/worker-db": {
         "dependencies": [
           "jsr:@std/assert@*",

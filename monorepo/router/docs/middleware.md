@@ -32,7 +32,7 @@ import { SignJWT, jwtVerify } from "jose";
 const JWT_SECRET = "meu-segredo-super-secreto-123";
 const encoder = new TextEncoder();
 
-const app = new Router("/api", "./public", null);
+const app = new Router({ basePath: "/api" });
 
 // ✅ Middleware de autenticação: bloqueia ANTES do upgrade
 app.use(async (req, _params, next) => {
@@ -148,6 +148,8 @@ app.use(async (_req, _params, next) => {
 ## ⚠️ Pontos Importantes
 
 1. **Ordem importa:** Middlewares são executados na ordem em que foram registrados com `app.use()`.
-2. **Só em rotas registradas:** Middlewares não rodam para arquivos estáticos nem para rotas 404 (apenas quando há match em uma rota HTTP ou WS).
+2. **Executam em todas as requisições:** Middlewares rodam para todas as 
+   requisições, incluindo 404, arquivos estáticos e rotas não encontradas.
+   Isso permite logging global, CORS e rate limiting universais.
 3. **Abortar o upgrade:** Se um middleware retornar `Response` sem chamar `next()` em uma rota WS, o upgrade nunca acontece — o cliente recebe uma resposta HTTP normal (ex: 401).
 4. **Params disponíveis:** O middleware recebe os `params` já extraídos da rota, permitindo lógica como "bloquear acesso à sala X".
