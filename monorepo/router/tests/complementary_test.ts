@@ -1,12 +1,13 @@
 // monorepo/router/tests/complementary_test.ts
  import { assertEquals, assert } from "@std/assert";
- import { Router, WebSocketGroup } from "../src/mod.ts";
+ import { createDenoRouter } from "../src/deno.ts";
+ import { WebSocketGroup } from "../src/mod.ts";
  
  // ============================================================
  // 1. ERROR HANDLING
  // ============================================================
  Deno.test("Handler HTTP que lança erro retorna 500", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.get("/error", () => {
      throw new Error("Database connection failed");
    });
@@ -17,7 +18,7 @@
  });
  
  Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.get("/async-error", async () => {
      await new Promise(r => setTimeout(r, 10));
      throw new Error("Async boom");
@@ -31,7 +32,7 @@
  // 2. FORCE HTTPS
  // ============================================================
  Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
-   const app = new Router({ basePath: "", forceHttps: true });
+   const app = createDenoRouter({ basePath: "", forceHttps: true });
    app.get("/ping", () => ({ body: "pong" }));
    const req = new Request("http://example.com/ping");
    const res = await app.handleRequest(req);
@@ -41,7 +42,7 @@
  });
  
  Deno.test("Force HTTPS ignora localhost", async () => {
-   const app = new Router({ basePath: "", forceHttps: true });
+   const app = createDenoRouter({ basePath: "", forceHttps: true });
    app.get("/ping", () => ({ body: "pong" }));
    const req = new Request("http://localhost:8000/ping");
    const res = await app.handleRequest(req);
@@ -50,7 +51,7 @@
  });
  
  Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
-   const app = new Router({ basePath: "", forceHttps: true });
+   const app = createDenoRouter({ basePath: "", forceHttps: true });
    app.get("/ping", () => ({ body: "pong" }));
    const req = new Request("http://example.com/ping", {
      headers: { "x-forwarded-proto": "https" }
@@ -63,7 +64,7 @@
  // 3. MIDDLEWARES
  // ============================================================
  Deno.test("Middleware HTTP: executa antes do handler e pode abortar", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use((_req, _params, _next) => {
      return new Response("Unauthorized", { status: 401 });
    });
@@ -75,7 +76,7 @@
  });
  
  Deno.test("Middleware HTTP: múltiplos middlewares em cadeia", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    const order: number[] = [];
    app.use(async (_req, _params, next) => {
      order.push(1);
@@ -98,7 +99,7 @@
  });
  
  Deno.test("Middleware HTTP: modifica a resposta", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use(async (_req, _params, next) => {
      const res = await next();
      res.headers.set("X-Middleware", "applied");
@@ -111,7 +112,7 @@
  });
  
  Deno.test("Middleware HTTP: executa mesmo sem rota (404)", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    let middlewareCalled = false;
    app.use(async (_req, _params, next) => {
      middlewareCalled = true;
@@ -124,7 +125,7 @@
  });
  
  Deno.test("Middleware WS: aborta upgrade sem token", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use((req, _params, next) => {
      if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
        return next();
@@ -145,7 +146,7 @@
  });
  
  Deno.test("Middleware WS: não é chamado para rotas WS inexistentes", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    let middlewareCalled = false;
    app.use(async (_req, _params, next) => {
      middlewareCalled = true;
@@ -160,7 +161,7 @@
  });
  
  Deno.test("Middleware WS: pode passar Request modificada para next()", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use(async (req, _params, next) => {
      if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
        return next();

@@ -1,5 +1,7 @@
+// 📄 Arquivo: `monorepo/router/deno.jsonc` (ATUALIZADO)
 {
   "name": "@loco/router",
+  "version": "0.2.0",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
     "strict": true,
@@ -11,7 +13,6 @@
     "@std/media-types": "jsr:@std/media-types@^1",
     "@std/path": "jsr:@std/path@^1",
     "jose": "https://deno.land/x/jose@v5.2.0/index.ts"
-
   },
   "tasks": {
     "test": "deno test --allow-env --allow-net --allow-read --allow-write tests/",
@@ -23,5 +24,11 @@
     "fmt": "deno fmt",
     "lint": "deno lint"
   },
-  "exports": "./src/mod.ts"
+  "exports": {
+    ".": "./src/mod.ts",
+    "./deno": "./src/deno.ts",
+    "./cloudflare": "./src/cloudflare.ts",
+    "./adapters/deno": "./src/adapters/deno.ts",
+    "./adapters/cloudflare": "./src/adapters/cloudflare.ts"
+  }
 }

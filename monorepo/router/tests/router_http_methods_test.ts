@@ -1,13 +1,13 @@
 // monorepo/router/tests/router_http_methods_test.ts
 import { assertEquals, assertExists } from "@std/assert";
-import { Router } from "../src/mod.ts";
+import { createDenoRouter } from "../src/deno.ts";
 
 // ============================================================
 // Testes para método OPTIONS (CORS preflight)
 // ============================================================
 
 Deno.test("OPTIONS retorna headers CORS corretos", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -36,7 +36,7 @@ Deno.test("OPTIONS retorna headers CORS corretos", async () => {
 });
 
 Deno.test("OPTIONS com rota específica", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.options("/users/:id", (_req, params) => ({
     body: JSON.stringify({ allowed: ["GET", "PATCH", "DELETE"], id: params.id }),
@@ -64,7 +64,7 @@ Deno.test("OPTIONS com rota específica", async () => {
 // ============================================================
 
 Deno.test("PUT atualiza recurso completo", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.put("/users/:id", async (req, params) => {
     const body = await req.json();
@@ -93,7 +93,7 @@ Deno.test("PUT atualiza recurso completo", async () => {
 });
 
 Deno.test("PUT sem body funciona", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.put("/status", () => ({
     body: "Status updated",
@@ -114,7 +114,7 @@ Deno.test("PUT sem body funciona", async () => {
 // ============================================================
 
 Deno.test("DELETE remove recurso", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.delete("/users/:id", (_req, params) => ({
     body: JSON.stringify({ deleted: true, id: params.id }),
@@ -136,7 +136,7 @@ Deno.test("DELETE remove recurso", async () => {
 });
 
 Deno.test("DELETE retorna 204 No Content", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.delete("/items/:id", (_req, params) => ({
     body: "",
@@ -157,7 +157,7 @@ Deno.test("DELETE retorna 204 No Content", async () => {
 // ============================================================
 
 Deno.test("PATCH atualiza recurso parcialmente", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.patch("/users/:id", async (req, params) => {
     const updates = await req.json();
@@ -186,7 +186,7 @@ Deno.test("PATCH atualiza recurso parcialmente", async () => {
 });
 
 Deno.test("PATCH com múltiplos campos", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.patch("/products/:id", async (req, params) => {
     const updates = await req.json();
@@ -221,7 +221,7 @@ Deno.test("PATCH com múltiplos campos", async () => {
 // ============================================================
 
 Deno.test("HEAD retorna headers sem body", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.head("/users/:id", (_req, params) => ({
     body: JSON.stringify({ id: params.id, name: "João" }),
@@ -248,7 +248,7 @@ Deno.test("HEAD retorna headers sem body", async () => {
 });
 
 Deno.test("HEAD para verificar existência de recurso", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.head("/files/:name", (_req, params) => ({
     body: "",
@@ -276,7 +276,7 @@ Deno.test("HEAD para verificar existência de recurso", async () => {
 // ============================================================
 
 Deno.test("Método não registrado retorna 404", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.get("/only-get", () => ({ body: "ok" }));
 
@@ -289,7 +289,7 @@ Deno.test("Método não registrado retorna 404", async () => {
 });
 
 Deno.test("PUT em rota GET retorna 404", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.get("/resource", () => ({ body: "data" }));
 
@@ -307,7 +307,7 @@ Deno.test("PUT em rota GET retorna 404", async () => {
 // ============================================================
 
 Deno.test("OPTIONS com basePath funciona", async () => {
-  const app = new Router("/api", null, null);
+  const app = createDenoRouter("/api", null, null);
   
   app.options("/*", () => ({
     body: "",
@@ -327,7 +327,7 @@ Deno.test("OPTIONS com basePath funciona", async () => {
 });
 
 Deno.test("PUT com basePath e parâmetros", async () => {
-  const app = new Router("/api/v1", null, null);
+  const app = createDenoRouter("/api/v1", null, null);
   
   app.put("/users/:id", async (req, params) => {
     const body = await req.json();
@@ -355,7 +355,7 @@ Deno.test("PUT com basePath e parâmetros", async () => {
 // ============================================================
 
 Deno.test("Mesma rota com métodos diferentes", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   
   app.get("/resource", () => ({ body: "GET response" }));
   app.post("/resource", () => ({ body: "POST response", init: { status: 201 } }));

@@ -1,11 +1,11 @@
 // monorepo/router/tests/middleware_test.ts
  import { assertEquals, assert } from "@std/assert";
- import { Router } from "../src/mod.ts";
+ import { createDenoRouter } from "../src/deno.ts";
  // ============================================================
  // 1. MIDDLEWARE HTTP - BÁSICO
  // ============================================================
  Deno.test("Middleware HTTP: executa antes do handler", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    const calls: string[] = [];
    app.use(async (_req, _params, next) => {
      calls.push("middleware");
@@ -22,7 +22,7 @@
    assertEquals(calls, ["middleware", "handler"]);
  });
  Deno.test("Middleware HTTP: pode abortar o fluxo (401)", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use((_req, _params, _next) => {
      return new Response("Unauthorized", { status: 401 });
    });
@@ -33,7 +33,7 @@
    assertEquals(await res.text(), "Unauthorized");
  });
  Deno.test("Middleware HTTP: múltiplos middlewares em cadeia", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    const order: number[] = [];
    app.use(async (_req, _params, next) => {
      order.push(1);
@@ -56,7 +56,7 @@
    assertEquals(order, [1, 2, 3, 4, 5]);
  });
  Deno.test("Middleware HTTP: modifica a resposta", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use(async (_req, _params, next) => {
      const res = await next();
      res.headers.set("X-Middleware", "applied");
@@ -68,7 +68,7 @@
    assertEquals(res.headers.get("X-Middleware"), "applied");
  });
  Deno.test("Middleware HTTP: middleware de log mede tempo", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    let measuredMs = -1;
    app.use(async (_req, _params, next) => {
      const start = Date.now();
@@ -88,7 +88,7 @@
  // 2. MIDDLEWARE HTTP - EDGE CASES
  // ============================================================
  Deno.test("Middleware HTTP: executa mesmo sem rota (404)", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    let middlewareCalled = false;
    app.use(async (_req, _params, next) => {
      middlewareCalled = true;
@@ -102,7 +102,7 @@
  Deno.test("Middleware HTTP: CORS em arquivo estático", async () => {
    const tmpDir = await Deno.makeTempDir();
    await Deno.writeTextFile(`${tmpDir}/hello.txt`, "world");
-   const app = new Router("", tmpDir, null);
+   const app = createDenoRouter("", tmpDir, null);
    app.use(async (_req, _params, next) => {
      const res = await next();
      res.headers.set("Access-Control-Allow-Origin", "*");
@@ -115,7 +115,7 @@
    await Deno.remove(tmpDir, { recursive: true });
  });
  Deno.test("Middleware HTTP: múltiplas chamadas de next() são protegidas", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    const handlerCalls: number[] = [];
    app.use(async (_req, _params, next) => {
      const r1 = await next(); // 1ª chamada OK
@@ -141,7 +141,7 @@
  // 3. MIDDLEWARE WEBSOCKET
  // ============================================================
  Deno.test("Middleware WS: aborta upgrade sem token", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use((req, _params, next) => {
      if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
        return next();
@@ -174,7 +174,7 @@
    assertEquals(res2.status, 101);
  });
  Deno.test("Middleware WS: não é chamado para rotas WS inexistentes", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    let middlewareCalled = false;
    app.use(async (_req, _params, next) => {
      middlewareCalled = true;
@@ -189,7 +189,7 @@
    assertEquals(middlewareCalled, true, "Middleware deve executar mesmo para 404 WS");
  });
  Deno.test("Middleware WS: pode passar Request modificada para next()", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use(async (req, _params, next) => {
      if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
        return next();
@@ -226,7 +226,7 @@
  // 4. MIDDLEWARE + ROUTES COMBINADAS
  // ============================================================
  Deno.test("Middleware HTTP: autenticação com rotas públicas e privadas", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    // Middleware global de autenticação
    app.use(async (req, _params, next) => {
      const path = new URL(req.url).pathname;
@@ -259,7 +259,7 @@
    assertEquals(await res3.text(), "private data");
  });
  Deno.test("Middleware: CORS preflight (OPTIONS) é tratado corretamente", async () => {
-   const app = new Router("", null, null);
+   const app = createDenoRouter("", null, null);
    app.use(async (req, _params, next) => {
      if (req.method === "OPTIONS") {
        return new Response(null, {

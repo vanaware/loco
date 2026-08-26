@@ -1,12 +1,13 @@
 // monorepo/router/tests/router_advanced_test.ts
 import { assertEquals } from "@std/assert";
-import { Router, WebSocketGroup } from "../src/mod.ts";
+import { createDenoRouter } from "../src/deno.ts";
+import { WebSocketGroup } from "../src/mod.ts";
 
 // ============================================================
 // 1. Error Handling
 // ============================================================
 Deno.test("Handler HTTP que lança erro retorna 500", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   app.get("/error", () => {
     throw new Error("Database connection failed");
   });
@@ -17,7 +18,7 @@ Deno.test("Handler HTTP que lança erro retorna 500", async () => {
 });
 
 Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   app.get("/async-error", async () => {
     await new Promise(r => setTimeout(r, 10));
     throw new Error("Async boom");
@@ -31,7 +32,7 @@ Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
 // 2. Force HTTPS
 // ============================================================
 Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
-  const app = new Router({ basePath: "", forceHttps: true });
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
   app.get("/ping", () => ({ body: "pong" }));
   const req = new Request("http://example.com/ping");
   const res = await app.handleRequest(req);
@@ -41,7 +42,7 @@ Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => 
 });
 
 Deno.test("Force HTTPS ignora localhost", async () => {
-  const app = new Router({ basePath: "", forceHttps: true });
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
   app.get("/ping", () => ({ body: "pong" }));
   const req = new Request("http://localhost:8000/ping");
   const res = await app.handleRequest(req);
@@ -50,7 +51,7 @@ Deno.test("Force HTTPS ignora localhost", async () => {
 });
 
 Deno.test("Force HTTPS ignora se já for HTTPS", async () => {
-  const app = new Router({ basePath: "", forceHttps: true });
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
   app.get("/ping", () => ({ body: "pong" }));
   const req = new Request("https://example.com/ping");
   const res = await app.handleRequest(req);
@@ -58,7 +59,7 @@ Deno.test("Force HTTPS ignora se já for HTTPS", async () => {
 });
 
 Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
-  const app = new Router({ basePath: "", forceHttps: true });
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
   app.get("/ping", () => ({ body: "pong" }));
   const req = new Request("http://example.com/ping", {
     headers: { "x-forwarded-proto": "https" }

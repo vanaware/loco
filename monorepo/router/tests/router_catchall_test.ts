@@ -1,9 +1,9 @@
 // monorepo/router/tests/router_catchall_test.ts
 import { assertEquals } from "@std/assert";
-import { Router } from "../src/mod.ts";
+import { createDenoRouter } from "../src/deno.ts";
 
 Deno.test("Catch-all com * captura path completo", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   app.get("/files/*", (_req, params) => ({
     body: JSON.stringify(params.catch),
   }));
@@ -14,7 +14,7 @@ Deno.test("Catch-all com * captura path completo", async () => {
 });
 
 Deno.test("Catch-all com múltiplos * gera array", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   app.get("/a/*/b/*", (_req, params) => ({
     body: JSON.stringify(params.catch),
   }));
@@ -25,7 +25,7 @@ Deno.test("Catch-all com múltiplos * gera array", async () => {
 });
 
 Deno.test("Catch-all combinado com parâmetro nomeado", async () => {
-  const app = new Router("", null, null);
+  const app = createDenoRouter("", null, null);
   app.get("/api/:version/*", (_req, params) => ({
     body: JSON.stringify({ version: params.version, catch: params.catch }),
   }));

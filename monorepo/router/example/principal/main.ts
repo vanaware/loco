@@ -1,62 +1,27 @@
 // monorepo/router/example/principal/main.ts
-import { Router } from "../../src/mod.ts";
+import { createDenoRouter } from "../../src/deno.ts";
 
-const app = new Router("/api", "./public", null);
-
-// ============================================================
-// 🛡️ MIDDLEWARES GLOBAIS (Executam antes de qualquer rota)
-// ============================================================
-
-// 1. Middleware de Log (Mede tempo de resposta)
-app.use(async (req, _params, next) => {
-  const start = Date.now();
-  const res = await next(); // Chama o próximo middleware ou a rota
-  const ms = Date.now() - start;
-  console.log(`📝 ${req.method} ${req.url} - ${res.status} (${ms}ms)`);
-  return res;
-});
-
-// 2. Middleware de CORS Global (Substitui a necessidade de app.options)
-app.use(async (req, _params, next) => {
-  // Se for preflight (OPTIONS), já responde na hora
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Max-Age": "86400",
-      },
-    });
-  }
-  
-  // Se for outra requisição, deixa passar e injeta o header na resposta
-  const res = await next();
-  res.headers.set("Access-Control-Allow-Origin", "*");
-  return res;
-});
-
-// 3. Middleware de Segurança (Ex: Bloqueia usuários banidos)
-const bannedIPs = ["192.168.1.100"];
-app.use(async (req, _params, next) => {
-  const ip = req.headers.get("x-forwarded-for") ?? "unknown";
-  if (bannedIPs.includes(ip)) {
-    return new Response("Forbidden", { status: 403 });
-  }
-  return await next();
+// ✅ Cria router com adaptadores Deno pré-configurados
+const app = createDenoRouter({
+  basePath: "/api",
+  staticDir: "./public",
+  forceHttps: false, // Mude para true em produção
 });
 
 // ============================================================
-// 🚀 ROTAS HTTP
+// HTTP GET com parâmetros em cascata
 // ============================================================
 app.get("/:id/:tipo", (_req, params) => {
+  console.log("[GET] /:id/:tipo", params);
   return {
     body: JSON.stringify({ id: params.id, tipo: params.tipo }),
     init: { headers: { "Content-Type": "application/json" } },
   };
 });
 
+// ============================================================
+// HTTP POST
+// ============================================================
 app.post("/users", async (req) => {
   const body = await req.text();
   return {
@@ -66,25 +31,90 @@ app.post("/users", async (req) => {
 });
 
 // ============================================================
-// 📡 WEBSOCKET (Continua igual, pois WS tem seu próprio upgrade)
+// WebSocket com broadcast inteligente (DUAL PARAMS)
 // ============================================================
 app.ws("/chat/:room/:user", (ws, _req, params) => {
   const room = params.room as string;
   const user = params.user as string;
+  console.log(`[WS] ✅ ${user} entrou na sala ${room}`);
+
   const group = app.getWsGroupByPath("/chat/:room/:user");
-  if (!group) return ws.close(1011, "Internal error");
+  if (!group) {
+    console.error("[WS] ❌ Grupo não encontrado!");
+    ws.close(1011, "Internal error");
+    return;
+  }
 
   ws.onmessage = (event) => {
+    console.log(`[WS] 💬 ${room}/${user}: ${event.data}`);
     group.broadcast(
       `[${user}]: ${event.data}`,
       (receiverParams, senderParams, _msg) => receiverParams.room === senderParams.room,
-      params
+      params,
     );
+  };
+
+  ws.onclose = () => {
+    console.log(`[WS] ❌ ${user} saiu da sala ${room}`);
+  };
+
+  ws.onerror = (ev) => {
+    console.error(`[WS] ⚠️ erro ${room}/${user}:`, ev);
   };
 });
 
 // ============================================================
-// 🏁 Inicia o servidor
+// Catch-all HTTP
+// ============================================================
+app.get("/subfolder/*", (_req, params) => {
+  console.log("[GET] /subfolder/*", params);
+  return {
+    body: `Catch-all: ${JSON.stringify(params.catch)}`,
+    init: { status: 200 },
+  };
+});
+
+// ============================================================
+// Catch-all WebSocket
+// ============================================================
+app.ws("/subfolder/*", (ws, _req, params) => {
+  console.log("[WS catch-all] params:", params);
+  ws.onmessage = (event) => ws.send(`Echo: ${event.data}`);
+  ws.onclose = () => console.log("[WS catch-all] closed");
+  ws.onerror = (ev) => console.error("[WS catch-all] error:", ev);
+});
+
+// ============================================================
+// Inicia o servidor
 // ============================================================
 const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 console.log("🚀 Servidor rodando em http://localhost:8000");
+console.log("📡 API:      http://localhost:8000/api");
+console.log("🔌 WS chat:  ws://localhost:8000/api/chat/:room/:user");
+console.log("📂 Estáticos: http://localhost:8000/api/index.html");
+
+// ============================================================
+// Graceful shutdown
+// ============================================================
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  Deno.addSignalListener(signal, () => {
+    console.log(`\n🛑 ${signal} recebido. Encerrando...`);
+    app.closeAllWebSockets();
+    server.shutdown().then(() => {
+      console.log("✅ Servidor encerrado.");
+      Deno.exit(0);
+    }).catch((err) => {
+      console.error("❌ Erro ao encerrar:", err);
+      Deno.exit(1);
+    });
+  });
+}
+
+// ============================================================
+// Exemplo: fechar grupo após 30s
+// ============================================================
+setTimeout(() => {
+  if (app.closeGroupByPath("/chat/:room/:user")) {
+    console.log("🔒 Grupo de chat fechado após 30s.");
+  }
+}, 30000);
