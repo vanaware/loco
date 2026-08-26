@@ -1,6 +1,8 @@
 # 🌐 Arquitetura Runtime-Agnostic
 
-O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript** que suporte as Web APIs padrão (Fetch API, WebSocket, URLPattern). O core do router **não possui nenhuma dependência direta** de runtime específico (Deno, Node.js, Cloudflare Workers, Bun).
+O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript** que suporte as Web APIs padrão (Fetch API, WebSocket, URLPattern). O core do router **não possui nenhuma dependência direta** de runtime específico.
+
+Atualmente, fornecemos adaptadores oficiais e testados apenas para **Deno**. Adaptadores para outros runtimes (Node.js, Bun, Cloudflare Workers) estão em nosso [Roadmap](./roadmap-adapters.md).
 
 ---
 
@@ -14,24 +16,22 @@ O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript**
 └──────────────────────────┬──────────────────────────────┘
                            │ importa
 ┌──────────────────────────▼──────────────────────────────┐
-│           ENTRY POINTS (src/deno.ts, src/cloudflare.ts) │
-│  - createDenoRouter()                                   │
-│  - createCloudflareRouter()                             │
-└──────────────────────────┬──────────────────────────────┘
+ │           ENTRY POINTS (src/deno.ts)                    │
+ │  - createDenoRouter()                                   │
+ └──────────────────────────┬──────────────────────────────┘
                            │ injeta adaptadores
 ┌──────────────────────────▼──────────────────────────────┐
-│              CORE AGNÓSTICO (src/mod.ts)                │
-│  - Router, WebSocketGroup, tipos                        │
-│  - ZERO dependência de runtime                          │
-│  - Usa interfaces: WebSocketUpgrader, StaticFileHandler │
-└──────────────────────────┬──────────────────────────────┘
+ │              CORE AGNÓSTICO (src/mod.ts)                │
+ │  - Router, WebSocketGroup, tipos                        │
+ │  - ZERO dependência de runtime                          │
+ │  - Usa interfaces: WebSocketUpgrader, StaticFileHandler │
+ └──────────────────────────┬──────────────────────────────┘
                            │ implementado por
 ┌──────────────────────────▼──────────────────────────────┐
-│              ADAPTADORES (src/adapters/)                 │
-│  - adapters/deno.ts       → Deno.upgradeWebSocket,      │
-│                              Deno.stat, Deno.open       │
-│  - adapters/cloudflare.ts → WebSocketPair, KV, R2       │
-└─────────────────────────────────────────────────────────┘
+ │              ADAPTADORES (src/adapters/)                 │
+ │  - adapters/deno.ts       → Deno.upgradeWebSocket,      │
+ │                              Deno.stat, Deno.open       │
+ └─────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -39,40 +39,24 @@ O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript**
 ## 🔌 Interfaces de Adaptação
 
 ### `WebSocketUpgrader`
-
 Abstrai o mecanismo de upgrade de HTTP para WebSocket:
-
 ```typescript
 interface WebSocketUpgrader {
   upgrade(req: Request): { socket: WebSocket; response: Response };
 }
 ```
 
-| Runtime | Implementação |
-|---------|---------------|
-| Deno | `Deno.upgradeWebSocket(req)` |
-| Cloudflare Workers | `new WebSocketPair()` |
-| Node.js (ws) | `ws.handleUpgrade()` |
-
 ### `StaticFileHandler`
-
 Abstrai o sistema de arquivos para servir arquivos estáticos:
-
 ```typescript
 interface StaticFileHandler {
   handle(path: string): Promise<Response | null>;
 }
 ```
 
-| Runtime | Implementação |
-|---------|---------------|
-| Deno | `Deno.stat()` + `Deno.open()` |
-| Cloudflare Workers | KV Namespace ou R2 Bucket |
-| Node.js | `fs.stat()` + `fs.createReadStream()` |
-
 ---
 
-## 🦕 Usando com Deno
+## 🦕 Usando com Deno (Suporte Oficial)
 
 ```typescript
 import { createDenoRouter } from "@loco/router/deno";
@@ -81,6 +65,7 @@ const app = createDenoRouter({
   basePath: "/api",
   staticDir: "./public",
   forceHttps: true,
+  trustProxy: true,
 });
 
 app.get("/hello", () => ({ body: "Hello!" }));
@@ -88,39 +73,21 @@ app.get("/hello", () => ({ body: "Hello!" }));
 Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 ```
 
-## ☁️ Usando com Cloudflare Workers
+## 🟢 Usando com Node.js ou Bun (Via Core Puro)
 
-```typescript
-import { createCloudflareRouter } from "@loco/router/cloudflare";
-
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    const app = createCloudflareRouter({
-      basePath: "/api",
-      kvNamespace: env.MY_KV,
-      forceHttps: true,
-    });
-
-    app.get("/hello", () => ({ body: "Hello from Cloudflare!" }));
-
-    app.ws("/chat/:room", (ws, _req, params) => {
-      ws.onmessage = (e) => ws.send(`Echo: ${e.data}`);
-    });
-
-    return app.handleRequest(req);
-  },
-};
-```
-
-## 🟢 Usando com Node.js (exemplo conceitual)
+Como o core é agnóstico, você pode usá-lo em Node.js ou Bun implementando suas próprias interfaces de adaptação:
 
 ```typescript
 import { Router } from "@loco/router";
-import { createNodeWebSocketUpgrader } from "./adapters/node.ts"; // futuro
+
+// Você precisaria implementar estas interfaces para o seu runtime
+const myNodeUpgrader = { /* ... */ };
+const myNodeStaticHandler = { /* ... */ };
 
 const app = new Router({
   basePath: "/api",
-  webSocketUpgrader: createNodeWebSocketUpgrader(),
+  webSocketUpgrader: myNodeUpgrader,
+  staticFileHandler: myNodeStaticHandler,
 });
 ```
 
@@ -128,22 +95,23 @@ const app = new Router({
 
 ## 🔒 Segurança
 
-- **Path Traversal Protection**: O core sanitiza paths com `normalize()` + regex anti-`..`
-- **Force HTTPS**: Redireciona HTTP→HTTPS em produção (ignora localhost)
-- **HSTS**: Header `Strict-Transport-Security` adicionado automaticamente
+- **Path Traversal Protection**: O core sanitiza paths e o adaptador Deno garante *containment* real e recusa symlinks.
+- **Dotfiles**: Bloqueados por padrão (`allowDotfiles: false`).
+- **Force HTTPS**: Redireciona HTTP→HTTPS em produção (ignora localhost).
+- **HSTS**: Header `Strict-Transport-Security` adicionado automaticamente em respostas HTTPS.
+- **Trust Proxy**: Confiança explícita em headers como `X-Forwarded-Proto` via `trustProxy: true`.
 
 ---
 
-## 📋 Tabela de Compatibilidade
+## 📋 Tabela de Compatibilidade Atual
 
-| Feature | Deno | Cloudflare Workers | Node.js (futuro) |
-|---------|------|--------------------|------------------|
-| HTTP Routing | ✅ | ✅ | ✅ |
-| WebSocket | ✅ | ✅ | ✅ |
-| Static Files (disco) | ✅ | ❌ | ✅ |
-| Static Files (KV/R2) | ❌ | ✅ | ❌ |
-| Force HTTPS | ✅ | ✅ | ✅ |
-| Middlewares | ✅ | ✅ | ✅ |
-| Dual Params Broadcast | ✅ | ✅ | ✅ |
-| Last Broadcast | ✅ | ✅ | ✅ |
-| Path Traversal Protection | ✅ | ✅ | ✅ |
+| Feature | Deno (Oficial) | Node.js / Bun (Via Core) |
+|---------|----------------|--------------------------|
+| HTTP Routing | ✅ | ✅ |
+| WebSocket | ✅ | ⚠️ (Requer Adaptador) |
+| Static Files (disco) | ✅ | ⚠️ (Requer Adaptador) |
+| Force HTTPS / HSTS | ✅ | ✅ |
+| Middlewares | ✅ | ✅ |
+| Dual Params Broadcast | ✅ | ✅ |
+| Last Broadcast | ✅ | ✅ |
+| Path Traversal / Symlinks | ✅ | ⚠️ (Depende do Adaptador) |

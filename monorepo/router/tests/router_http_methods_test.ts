@@ -275,32 +275,31 @@ Deno.test("HEAD para verificar existência de recurso", async () => {
 // Testes de métodos não permitidos
 // ============================================================
 
-Deno.test("Método não registrado retorna 404", async () => {
+// 🚀 CORREÇÃO: Agora retorna 405 Method Not Allowed
+Deno.test("Método não registrado retorna 405", async () => {
   const app = createDenoRouter("", null, null);
-  
   app.get("/only-get", () => ({ body: "ok" }));
-
   const req = new Request("http://localhost/only-get", {
     method: "POST",
   });
   const res = await app.handleRequest(req);
-  
-  assertEquals(res.status, 404);
+  assertEquals(res.status, 405);
+  assertEquals(res.headers.get("Allow"), "GET");
 });
 
-Deno.test("PUT em rota GET retorna 404", async () => {
+// 🚀 CORREÇÃO: Agora retorna 405 Method Not Allowed
+Deno.test("PUT em rota GET retorna 405", async () => {
   const app = createDenoRouter("", null, null);
-  
   app.get("/resource", () => ({ body: "data" }));
-
   const req = new Request("http://localhost/resource", {
     method: "PUT",
     body: "update",
   });
   const res = await app.handleRequest(req);
-  
-  assertEquals(res.status, 404);
+  assertEquals(res.status, 405);
+  assertEquals(res.headers.get("Allow"), "GET");
 });
+
 
 // ============================================================
 // Testes com basePath

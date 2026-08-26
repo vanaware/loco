@@ -61,10 +61,12 @@ Deno.test("Rota inexistente retorna 404 (sem static)", async () => {
   assertEquals(res.status, 404);
 });
 
-Deno.test("Método HTTP errado retorna 404", async () => {
+// 🚀 CORREÇÃO: Agora retorna 405 Method Not Allowed
+Deno.test("Método HTTP errado retorna 405", async () => {
   const app = createDenoRouter({ basePath: "" });
   app.get("/only-get", () => ({ body: "ok" }));
   const req = new Request("http://localhost/only-get", { method: "POST" });
   const res = await app.handleRequest(req);
-  assertEquals(res.status, 404);
+  assertEquals(res.status, 405);
+  assertEquals(res.headers.get("Allow"), "GET");
 });

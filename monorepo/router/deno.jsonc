@@ -1,7 +1,7 @@
-// 📄 Arquivo: `monorepo/router/deno.jsonc` (ATUALIZADO)
+// monorepo/router/deno.jsonc
 {
   "name": "@loco/router",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
     "strict": true,
@@ -27,8 +27,6 @@
   "exports": {
     ".": "./src/mod.ts",
     "./deno": "./src/deno.ts",
-    "./cloudflare": "./src/cloudflare.ts",
-    "./adapters/deno": "./src/adapters/deno.ts",
-    "./adapters/cloudflare": "./src/adapters/cloudflare.ts"
+    "./adapters/deno": "./src/adapters/deno.ts"
   }
 }

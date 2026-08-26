@@ -2,8 +2,6 @@
 import { assertEquals, assert } from "@std/assert";
 import { Router } from "../src/mod.ts";
 import { createDenoRouter } from "../src/deno.ts";
-import { cloudflareWebSocketUpgrader, createKVStaticFileHandler } from "../src/adapters/cloudflare.ts";
-import type { KVNamespace } from "../src/adapters/cloudflare-types.ts";
 
 // ============================================================
 // 1. TESTES DO ADAPTADOR DENO
@@ -32,64 +30,7 @@ Deno.test("createDenoRouter sem staticDir retorna 404 para estáticos", async ()
 });
 
 // ============================================================
-// 2. TESTES DO ADAPTADOR CLOUDFLARE (MOCK)
-// ============================================================
-class MockKVNamespace {
-  private store = new Map<string, string>();
-  put(key: string, value: string) {
-    this.store.set(key, value);
-  }
-  async get(key: string, type: "text" | "arrayBuffer" = "text"): Promise<string | ArrayBuffer | null> {
-    const value = this.store.get(key);
-    if (value === undefined) return null;
-    if (type === "arrayBuffer") {
-      return new TextEncoder().encode(value).buffer;
-    }
-    return value;
-  }
-  async delete(key: string) {
-    this.store.delete(key);
-  }
-}
-
-Deno.test("Cloudflare KV adapter: serve arquivo existente", async () => {
-  const kv = new MockKVNamespace();
-  kv.put("index.html", "<h1>Hello</h1>");
-  const handler = createKVStaticFileHandler(kv as unknown as KVNamespace);
-  const response = await handler.handle("index.html");
-  assert(response !== null, "Deve retornar Response");
-  assertEquals(response!.status, 200);
-  assertEquals(await response!.text(), "<h1>Hello</h1>");
-  assertEquals(response!.headers.get("Content-Type"), "text/html; charset=utf-8");
-});
-
-Deno.test("Cloudflare KV adapter: retorna null para arquivo inexistente", async () => {
-  const kv = new MockKVNamespace();
-  const handler = createKVStaticFileHandler(kv as unknown as KVNamespace);
-  const response = await handler.handle("nao-existe.txt");
-  assertEquals(response, null);
-});
-
-Deno.test("Cloudflare KV adapter: MIME type correto para CSS", async () => {
-  const kv = new MockKVNamespace();
-  kv.put("style.css", "body { color: red; }");
-  const handler = createKVStaticFileHandler(kv as unknown as KVNamespace);
-  const response = await handler.handle("style.css");
-  assert(response !== null);
-  assertEquals(response!.headers.get("Content-Type"), "text/css; charset=utf-8");
-});
-
-Deno.test("Cloudflare KV adapter: MIME type fallback para extensão desconhecida", async () => {
-  const kv = new MockKVNamespace();
-  kv.put("data.xyz", "binary data");
-  const handler = createKVStaticFileHandler(kv as unknown as KVNamespace);
-  const response = await handler.handle("data.xyz");
-  assert(response !== null);
-  assertEquals(response!.headers.get("Content-Type"), "application/octet-stream");
-});
-
-// ============================================================
-// 3. TESTE DE WEBSOCKET SEM UPGRADER (Erro esperado)
+// 2. TESTE DE WEBSOCKET SEM UPGRADER (Erro esperado)
 // ============================================================
 Deno.test("WebSocket sem upgrader retorna 501", async () => {
   const app = new Router({ basePath: "", webSocketUpgrader: undefined });
@@ -103,7 +44,7 @@ Deno.test("WebSocket sem upgrader retorna 501", async () => {
 });
 
 // ============================================================
-// 4. TESTE DE INTEGRAÇÃO COM createDenoRouter + WebSocket
+// 3. TESTE DE INTEGRAÇÃO COM createDenoRouter + WebSocket
 // ============================================================
 Deno.test("createDenoRouter com WebSocket funciona", async () => {
   const app = createDenoRouter({ basePath: "/api", staticDir: null });
@@ -131,7 +72,7 @@ Deno.test("createDenoRouter com WebSocket funciona", async () => {
 });
 
 // ============================================================
-// 5. TESTE DE FORCE HTTPS COM createDenoRouter
+// 4. TESTE DE FORCE HTTPS COM createDenoRouter
 // ============================================================
 Deno.test("createDenoRouter com forceHttps redireciona", async () => {
   const app = createDenoRouter({ basePath: "", staticDir: null, forceHttps: true });

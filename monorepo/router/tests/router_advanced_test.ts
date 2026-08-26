@@ -58,8 +58,9 @@ Deno.test("Force HTTPS ignora se já for HTTPS", async () => {
   assertEquals(res.status, 200);
 });
 
+// 🚀 CORREÇÃO: Adicionado trustProxy: true
 Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
-  const app = createDenoRouter({ basePath: "", forceHttps: true });
+  const app = createDenoRouter({ basePath: "", forceHttps: true, trustProxy: true });
   app.get("/ping", () => ({ body: "pong" }));
   const req = new Request("http://example.com/ping", {
     headers: { "x-forwarded-proto": "https" }
@@ -88,20 +89,15 @@ Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", asyn
   const group = new WebSocketGroup();
   const ws1 = new MockWebSocket();
   group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
-  
   group.broadcast(
     "Segredo da Sala A",
     (receiver, sender, _msg) => receiver.room === sender.room,
     { room: "A", user: "user1" }
   );
-
   const ws2 = new MockWebSocket();
   group.addSocket(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
-
   await new Promise(r => setTimeout(r, 100));
-
-  // ✅ CORREÇÃO: O array esperado é VAZIO. A string é a mensagem de erro do assert.
   assertEquals(ws2.sent, [], "User2 na sala B não deve receber broadcast da sala A");
 });
 
@@ -109,17 +105,14 @@ Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () 
   const group = new WebSocketGroup();
   const ws1 = new MockWebSocket();
   group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
-  
   group.broadcast(
     "Bem-vindos!",
     (receiver, sender, _msg) => receiver.room === sender.room,
     { room: "A", user: "user1" }
   );
-
   const ws3 = new MockWebSocket();
   group.addSocket(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
   group.sendLastBroadcastTo(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
-
   await new Promise(r => setTimeout(r, 100));
   assertEquals(ws3.sent, ["Bem-vindos!"]);
 });
@@ -129,11 +122,9 @@ Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
   const ws1 = new MockWebSocket();
   group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
   group.broadcast("msg", undefined, { room: "A" });
-
   const ws2 = new MockWebSocket();
   group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
-
   await new Promise(r => setTimeout(r, 10));
   assertEquals(ws2.sent, ["msg"]);
 });

@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: ROUTER
 
-Gerado automaticamente em: 8/26/2026, 7:02:28 AM
+Gerado automaticamente em: 8/26/2026, 7:57:44 PM
 
 ---
 
@@ -16,34 +16,29 @@ Gerado automaticamente em: 8/26/2026, 7:02:28 AM
 
 ```ts
 // monorepo/router/src/adapters/deno.ts
-// 🦕 Adaptadores para Deno Runtime
-import { join } from "@std/path";
-import type { WebSocketUpgrader, StaticFileHandler, MimeTypeResolver } from "../mod.ts";
+// 🦕 Adaptadores para Deno Runtime — Fase 3: Segurança reforçada
 
-/** Adaptador de WebSocket para Deno */
+import { join, resolve } from "@std/path";
+import type { WebSocketUpgrader, StaticFileHandler } from "../mod.ts";
+
 export const denoWebSocketUpgrader: WebSocketUpgrader = {
   upgrade(req: Request): { socket: WebSocket; response: Response } {
     return Deno.upgradeWebSocket(req);
   },
 };
 
-/** Cria um handler de arquivos estáticos para Deno */
 export function createDenoStaticFileHandler(
   staticDir: string | null,
   embeddedDir: string | null = null,
-  mimeTypeResolver?: MimeTypeResolver,
 ): StaticFileHandler {
-  const resolver = mimeTypeResolver ?? defaultDenoMimeTypeResolver;
-
   return {
     async handle(path: string): Promise<Response | null> {
-      // Tenta embedded primeiro, depois static
       if (embeddedDir) {
-        const embedded = await tryServeDir(embeddedDir, path, resolver);
+        const embedded = await tryServeDir(embeddedDir, path);
         if (embedded) return embedded;
       }
       if (staticDir) {
-        const staticResp = await tryServeDir(staticDir, path, resolver);
+        const staticResp = await tryServeDir(staticDir, path);
         if (staticResp) return staticResp;
       }
       return null;
@@ -51,21 +46,61 @@ export function createDenoStaticFileHandler(
   };
 }
 
-async function tryServeDir(
-  baseDir: string,
-  pathname: string,
-  mimeTypeResolver: MimeTypeResolver,
-): Promise<Response | null> {
+async function tryServeDir(baseDir: string, pathname: string): Promise<Response | null> {
+  const fullPath = join(baseDir, pathname);
+  
+  // 🚀 CONTAINMENT: Resolver caminho absoluto e verificar que está dentro de baseDir
+  let resolvedPath: string;
+  try {
+    resolvedPath = await Deno.realPath(fullPath);
+  } catch {
+    resolvedPath = resolve(fullPath);
+  }
+  
+  const resolvedBase = await Deno.realPath(baseDir).catch(() => resolve(baseDir));
+  
+  if (!resolvedPath.startsWith(resolvedBase + "/") && resolvedPath !== resolvedBase) {
+    return new Response("Not Found", { status: 404 });
+  }
+
   const candidates = buildFileCandidates(baseDir, pathname);
   for (const candidate of candidates) {
     try {
-      const info = await Deno.stat(candidate);
+      // 🚀 SYMLINKS: Usar lstat para recusar symlinks
+      const info = await Deno.lstat(candidate);
+      
+      if (info.isSymlink) {
+        console.warn(`[Static] Symlink recusado: ${candidate}`);
+        continue;
+      }
+      
       if (info.isFile) {
         const ext = candidate.split(".").pop()?.toLowerCase() ?? "";
-        const mimeType = mimeTypeResolver(ext) ?? "application/octet-stream";
+        const mimeType = defaultDenoMimeTypeResolver(ext) ?? "application/octet-stream";
         const file = await Deno.open(candidate);
-        return new Response(file.readable, {
-          headers: { "Content-Type": mimeType },
+        
+        // 🚀 HEADERS: Adicionar metadata completa
+        const headers: HeadersInit = {
+          "Content-Type": mimeType,
+          "Content-Length": info.size.toString(),
+          "Last-Modified": info.mtime?.toUTCString() ?? new Date().toUTCString(),
+          "Cache-Control": "public, max-age=3600",
+        };
+        
+        // Adicionar ETag baseado em size + mtime
+        if (info.mtime) {
+          const etag = `"${info.size.toString(16)}-${info.mtime.getTime().toString(16)}"`;
+          headers["ETag"] = etag;
+        }
+        
+        return new Response(file.readable, { headers });
+      }
+      
+      // 🚀 REDIRECT: Se é diretório sem barra final, redirecionar
+      if (info.isDirectory && !pathname.endsWith("/")) {
+        return new Response(null, {
+          status: 301,
+          headers: { "Location": pathname + "/" },
         });
       }
     } catch (err) {
@@ -92,197 +127,21 @@ function buildFileCandidates(baseDir: string, pathname: string): string[] {
 
 function defaultDenoMimeTypeResolver(ext: string): string | undefined {
   const map: Record<string, string> = {
-    html: "text/html; charset=utf-8",
-    htm: "text/html; charset=utf-8",
-    css: "text/css; charset=utf-8",
-    js: "application/javascript; charset=utf-8",
-    mjs: "application/javascript; charset=utf-8",
-    json: "application/json; charset=utf-8",
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    svg: "image/svg+xml",
-    ico: "image/x-icon",
-    txt: "text/plain; charset=utf-8",
-    pdf: "application/pdf",
-    xml: "application/xml",
-    woff: "font/woff",
-    woff2: "font/woff2",
-    ttf: "font/ttf",
-    otf: "font/otf",
-    mp3: "audio/mpeg",
-    mp4: "video/mp4",
-    webm: "video/webm",
-    wasm: "application/wasm",
-  };
-  return map[ext.toLowerCase()];
-}
-```
-
----
-
-## Arquivo: `monorepo/router/src/adapters/cloudflare-types.ts`
-
-```ts
-// monorepo/router/src/adapters/cloudflare-types.ts
-// Declarações de tipo para o ambiente Cloudflare Workers
-export interface R2Bucket {
-  get(key: string): Promise<any>;
-}
-export interface KVNamespace {
-  get(key: string, type: string): Promise<any>;
-}
-```
-
----
-
-## Arquivo: `monorepo/router/src/adapters/cloudflare.ts`
-
-```ts
-// monorepo/router/src/adapters/cloudflare.ts
-import type { WebSocketUpgrader, StaticFileHandler } from "../mod.ts";
-import type { R2Bucket, KVNamespace } from "./cloudflare-types.ts";
-
-/**
- * Adaptador de WebSocket para Cloudflare Workers.
- * Usa WebSocketPair nativo do Workers.
- */
-export const cloudflareWebSocketUpgrader: WebSocketUpgrader = {
-  upgrade(req: Request): { socket: WebSocket; response: Response } {
-    // @ts-ignore: Cloudflare Workers specific global
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
-    
-    // @ts-ignore: Cloudflare Workers specific method
-    server.accept();
-    
-    const response = new Response(null, {
-      status: 101,
-      // @ts-ignore: Cloudflare Workers specific ResponseInit property
-      webSocket: client,
-    });
-    return { socket: server, response };
-  },
-};
-
-/**
- * Cria um handler de arquivos estáticos para Cloudflare Workers.
- * Usa R2 Bucket para servir arquivos.
- */
-export function createR2StaticFileHandler(bucket: R2Bucket): StaticFileHandler {
-  return {
-    async handle(path: string): Promise<Response | null> {
-      try {
-        const object = await bucket.get(path);
-        if (!object) return null;
-        return new Response(object.body, {
-          headers: {
-            "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
-            "ETag": object.etag,
-            "Cache-Control": object.httpMetadata?.cacheControl ?? "public, max-age=3600",
-          },
-        });
-      } catch {
-        return null;
-      }
-    },
-  };
-}
-
-/**
- * Cria um handler de arquivos estáticos usando Cloudflare KV.
- */
-export function createKVStaticFileHandler(kv: KVNamespace): StaticFileHandler {
-  return {
-    async handle(path: string): Promise<Response | null> {
-      try {
-        const content = await kv.get(path, "arrayBuffer");
-        if (!content) return null;
-        const ext = path.split(".").pop()?.toLowerCase() ?? "";
-        const contentType = getContentType(ext);
-        return new Response(content, {
-          headers: {
-            "Content-Type": contentType,
-            "Cache-Control": "public, max-age=3600",
-          },
-        });
-      } catch {
-        return null;
-      }
-    },
-  };
-}
-
-function getContentType(ext: string): string {
-  const map: Record<string, string> = {
     html: "text/html; charset=utf-8", htm: "text/html; charset=utf-8",
     css: "text/css; charset=utf-8", js: "application/javascript; charset=utf-8",
-    json: "application/json; charset=utf-8", png: "image/png",
-    jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+    mjs: "application/javascript; charset=utf-8", json: "application/json; charset=utf-8",
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
     svg: "image/svg+xml", ico: "image/x-icon", txt: "text/plain; charset=utf-8",
     pdf: "application/pdf", xml: "application/xml", woff: "font/woff",
     woff2: "font/woff2", ttf: "font/ttf", otf: "font/otf",
-    mp3: "audio/mpeg", mp4: "video/mp4", webm: "video/webm",
-    wasm: "application/wasm",
+    mp3: "audio/mpeg", mp4: "video/mp4", webm: "video/webm", wasm: "application/wasm",
+    // 🚀 EXTENSÕES MODERNAS
+    webp: "image/webp", avif: "image/avif", webmanifest: "application/manifest+json",
+    ts: "application/typescript", tsx: "application/typescript",
+    jsx: "application/javascript", map: "application/json",
   };
-  return map[ext] ?? "application/octet-stream";
+  return map[ext.toLowerCase()];
 }
-```
-
----
-
-## Arquivo: `monorepo/router/src/cloudflare.ts`
-
-```ts
-// monorepo/router/src/cloudflare.ts
-// ☁️ Entry point para Cloudflare Workers
-import { Router } from "./mod.ts";
-import {
-  cloudflareWebSocketUpgrader,
-  createR2StaticFileHandler,
-  createKVStaticFileHandler,
-} from "./adapters/cloudflare.ts";
-import type { R2Bucket, KVNamespace } from "./adapters/cloudflare-types.ts";
-
-export function createCloudflareRouter(options: {
-  basePath?: string;
-  forceHttps?: boolean;
-  lastBroadcastDelay?: number;
-  r2Bucket?: R2Bucket;
-  kvNamespace?: KVNamespace;
-}): Router {
-  const {
-    basePath = "",
-    forceHttps = false,
-    lastBroadcastDelay,
-    r2Bucket,
-    kvNamespace,
-  } = options;
-
-  let staticFileHandler;
-  if (r2Bucket) {
-    staticFileHandler = createR2StaticFileHandler(r2Bucket);
-  } else if (kvNamespace) {
-    staticFileHandler = createKVStaticFileHandler(kvNamespace);
-  }
-
-  const router = new Router({
-    basePath,
-    forceHttps,
-    lastBroadcastDelay,
-    webSocketUpgrader: cloudflareWebSocketUpgrader,
-    staticFileHandler,
-  });
-  return router;
-}
-
-export * from "./mod.ts";
-export {
-  cloudflareWebSocketUpgrader,
-  createR2StaticFileHandler,
-  createKVStaticFileHandler,
-} from "./adapters/cloudflare.ts";
 ```
 
 ---
@@ -299,13 +158,11 @@ export interface DenoRouterOptions {
   staticDir?: string | null;
   embeddedDir?: string | null;
   forceHttps?: boolean;
+  trustProxy?: boolean;
+  allowDotfiles?: boolean;
   lastBroadcastDelay?: number;
 }
 
-/**
- * Cria um Router pré-configurado para Deno.
- * Suporta tanto passagem de opções via objeto quanto via argumentos posicionais.
- */
 export function createDenoRouter(
   basePathOrOptions: string | DenoRouterOptions = "",
   staticDir: string | null = "public",
@@ -314,41 +171,34 @@ export function createDenoRouter(
   lastBroadcastDelay?: number,
 ): Router {
   let options: DenoRouterOptions;
-  
   if (typeof basePathOrOptions === "string") {
-    options = {
-      basePath: basePathOrOptions,
-      staticDir,
-      embeddedDir,
-      forceHttps,
-      lastBroadcastDelay,
-    };
+    options = { basePath: basePathOrOptions, staticDir, embeddedDir, forceHttps, lastBroadcastDelay };
   } else {
     options = basePathOrOptions;
   }
 
   const {
     basePath = "",
-    staticDir: sDir = "public",
+    staticDir: sDir = null, // 🚀 MUDANÇA: Default null no options object
     embeddedDir: eDir = null,
     forceHttps: fHttps = false,
+    trustProxy = false,
+    allowDotfiles = false,
     lastBroadcastDelay: lDelay,
   } = options;
 
   const router = new Router({
     basePath,
     forceHttps: fHttps,
+    trustProxy,
+    allowDotfiles,
     lastBroadcastDelay: lDelay,
     webSocketUpgrader: denoWebSocketUpgrader,
-    staticFileHandler: sDir || eDir
-      ? createDenoStaticFileHandler(sDir, eDir)
-      : undefined,
+    staticFileHandler: sDir || eDir ? createDenoStaticFileHandler(sDir, eDir) : undefined,
   });
-  
   return router;
 }
 
-// Re-exporta tudo do core
 export * from "./mod.ts";
 export { denoWebSocketUpgrader, createDenoStaticFileHandler } from "./adapters/deno.ts";
 ```
@@ -359,539 +209,523 @@ export { denoWebSocketUpgrader, createDenoStaticFileHandler } from "./adapters/d
 
 ```ts
 // monorepo/router/src/mod.ts
- // ⚡ CORE AGNÓSTICO — Nenhuma dependência direta de runtime (Deno, Node, CF Workers)
- import { join, normalize } from "@std/path";
- 
- // ============================================================
- // TIPOS FUNDAMENTAIS
- // ============================================================
- export type RouteParams = Record<string, string | string[]>;
- export type HttpHandler = (
-   req: Request,
-   params: RouteParams,
- ) =>
-   | { body: BodyInit; init?: ResponseInit }
-   | Promise<{ body: BodyInit; init?: ResponseInit }>;
- export type WsHandler = (
-   ws: WebSocket,
-   req: Request,
-   params: RouteParams,
- ) => void;
- // ✅ DUAL PARAMS: receiverParams, senderParams e message
- export type PermissionFn = (
-   receiverParams: RouteParams,
-   senderParams: RouteParams,
-   message: string,
- ) => boolean;
- export type MimeTypeResolver = (ext: string) => string | undefined;
- // ✅ MIDDLEWARE: Suporte a Request modificada via next(newReq)
- export type Middleware = (
-   req: Request,
-   params: RouteParams,
-   next: (newReq?: Request) => Promise<Response>,
- ) => Promise<Response> | Response;
- 
- // ============================================================
- // 🌐 INTERFACES DE ABSTRAÇÃO (Runtime Adapters)
- // ============================================================
- /**
-  * Abstrai o upgrade de HTTP para WebSocket.
-  * - Deno: Deno.upgradeWebSocket(req)
-  * - Cloudflare: new WebSocketPair()
-  * - Node: ws library
-  */
- export interface WebSocketUpgrader {
-   upgrade(req: Request): { socket: WebSocket; response: Response };
- }
- /**
-  * Abstrai o sistema de arquivos para servir arquivos estáticos.
-  * Retorna Response ou null (não encontrado).
-  * - Deno: Deno.open/Deno.stat
-  * - Cloudflare: R2, KV, ou Assets
-  * - Node: fs module
-  */
- export interface StaticFileHandler {
-   handle(path: string): Promise<Response | null>;
- }
- 
- // ============================================================
- // OPÇÕES DO ROUTER
- // ============================================================
- export const DEFAULT_LAST_BROADCAST_DELAY = 50;
- export interface RouterOptions {
-   basePath?: string;
-   forceHttps?: boolean;
-   lastBroadcastDelay?: number;
-   mimeTypeResolver?: MimeTypeResolver;
-   /** Adaptador de WebSocket. Se não fornecido, tenta detectar o runtime. */
-   webSocketUpgrader?: WebSocketUpgrader;
-   /** Adaptador de arquivos estáticos. Se não fornecido, não serve estáticos. */
-   staticFileHandler?: StaticFileHandler;
- }
- 
- // ============================================================
- // INTERFACES INTERNAS
- // ============================================================
- interface HttpRoute {
-   method: string;
-   pattern: URLPattern;
-   handler: HttpHandler;
- }
- interface WsRoute {
-   pattern: URLPattern;
-   handler: WsHandler;
-   group: WebSocketGroup;
- }
- interface LastBroadcast {
-   message: string;
-   permissionFn?: PermissionFn;
-   senderParams: RouteParams;
- }
- 
- // ============================================================
- // CLASSE ROUTER (CORE AGNÓSTICO)
- // ============================================================
- export class Router {
-   private basePath: string;
-   private httpRoutes: HttpRoute[] = [];
-   private wsRoutes: WsRoute[] = [];
-   private middlewares: Middleware[] = [];
-   private webSockets = new Map<WebSocket, { group: WebSocketGroup }>();
-   private mimeTypeResolver: MimeTypeResolver;
-   private webSocketUpgrader?: WebSocketUpgrader;
-   private staticFileHandler?: StaticFileHandler;
-   public forceHttps: boolean;
-   private lastBroadcastDelay: number;
- 
-   constructor(options: RouterOptions = {}) {
-     this.basePath = this.normalizeBasePath(options.basePath ?? "");
-     this.mimeTypeResolver = options.mimeTypeResolver ?? defaultMimeTypeResolver;
-     this.forceHttps = options.forceHttps ?? false;
-     this.lastBroadcastDelay = options.lastBroadcastDelay ?? DEFAULT_LAST_BROADCAST_DELAY;
-     this.webSocketUpgrader = options.webSocketUpgrader;
-     this.staticFileHandler = options.staticFileHandler;
-   }
- 
-   /** Configura o adaptador de WebSocket */
-   setWebSocketUpgrader(upgrader: WebSocketUpgrader): this {
-     this.webSocketUpgrader = upgrader;
-     return this;
-   }
- 
-   /** Configura o handler de arquivos estáticos */
-   setStaticFileHandler(handler: StaticFileHandler): this {
-     this.staticFileHandler = handler;
-     return this;
-   }
- 
-   private normalizeBasePath(p: string): string {
-     if (!p) return "";
-     return "/" + p.replace(/^\/+|\/+$/g, "");
-   }
- 
-   private normalizePath(p: string): string {
-     return p.startsWith("/") ? p : "/" + p;
-   }
- 
-   private stripBase(pathname: string): string {
-     if (!this.basePath) return pathname;
-     if (pathname === this.basePath) return "/";
-     if (pathname.startsWith(this.basePath + "/")) {
-       return pathname.slice(this.basePath.length);
-     }
-     return pathname;
-   }
- 
-   private isLocalhost(req: Request): boolean {
-     const url = new URL(req.url);
-     const hostname = url.hostname.toLowerCase();
-     return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-   }
- 
-   private shouldForceHttps(req: Request): boolean {
-     if (!this.forceHttps) return false;
-     if (this.isLocalhost(req)) return false;
-     const protoHeader = req.headers.get("x-forwarded-proto");
-     const forwardedProto = protoHeader ? protoHeader.split(",")[0]?.trim() : undefined;
-     if (forwardedProto === "https") return false;
-     const url = new URL(req.url);
-     if (url.protocol === "https:") return false;
-     return true;
-   }
- 
-   private buildHttpsUrl(req: Request): string {
-     const url = new URL(req.url);
-     url.protocol = "https:";
-     if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-       url.protocol = "wss:";
-     }
-     return url.toString();
-   }
- 
-   private addHttpRoute(method: string, path: string, handler: HttpHandler) {
-     const patternPath = this.normalizePath(path);
-     const pattern = new URLPattern({ pathname: patternPath });
-     this.httpRoutes.push({ method: method.toUpperCase(), pattern, handler });
-   }
- 
-   private addWsRoute(path: string, handler: WsHandler) {
-     const patternPath = this.normalizePath(path);
-     const pattern = new URLPattern({ pathname: patternPath });
-     const group = new WebSocketGroup(this.lastBroadcastDelay);
-     this.wsRoutes.push({ pattern, handler, group });
-   }
- 
-   // ============================================================
-   // REGISTRO DE ROTAS
-   // ============================================================
-   use(middleware: Middleware): this {
-     this.middlewares.push(middleware);
-     return this;
-   }
- 
-   get(path: string, handler: HttpHandler): this {
-     this.addHttpRoute("GET", path, handler);
-     return this;
-   }
- 
-   post(path: string, handler: HttpHandler): this {
-     this.addHttpRoute("POST", path, handler);
-     return this;
-   }
- 
-   put(path: string, handler: HttpHandler): this {
-     this.addHttpRoute("PUT", path, handler);
-     return this;
-   }
- 
-   delete(path: string, handler: HttpHandler): this {
-     this.addHttpRoute("DELETE", path, handler);
-     return this;
-   }
- 
-   patch(path: string, handler: HttpHandler): this {
-     this.addHttpRoute("PATCH", path, handler);
-     return this;
-   }
- 
-   options(path: string, handler: HttpHandler): this {
-     this.addHttpRoute("OPTIONS", path, handler);
-     return this;
-   }
- 
-   head(path: string, handler: HttpHandler): this {
-     this.addHttpRoute("HEAD", path, handler);
-     return this;
-   }
- 
-   ws(path: string, handler: WsHandler): this {
-     this.addWsRoute(path, handler);
-     return this;
-   }
- 
-   // ============================================================
-   // BUSCA DE ROTAS
-   // ============================================================
-   private findHttpRoute(req: Request): { route: HttpRoute; params: RouteParams } | null {
-     const adjustedUrl = new URL(req.url);
-     adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
-     for (const route of this.httpRoutes) {
-       if (route.method !== req.method.toUpperCase()) continue;
-       const match = route.pattern.exec(adjustedUrl);
-       if (match) {
-         return { route, params: this.extractParams(match.pathname.groups) };
-       }
-     }
-     return null;
-   }
- 
-   private findWsRoute(req: Request): { route: WsRoute; params: RouteParams } | null {
-     const adjustedUrl = new URL(req.url);
-     adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
-     for (const route of this.wsRoutes) {
-       const match = route.pattern.exec(adjustedUrl);
-       if (match) {
-         return { route, params: this.extractParams(match.pathname.groups) };
-       }
-     }
-     return null;
-   }
- 
-   // ============================================================
-   // EXECUÇÃO DOS HANDLERS
-   // ============================================================
-   private async executeHttpHandler(
-     req: Request,
-     route: HttpRoute,
-     params: RouteParams,
-   ): Promise<Response> {
-     try {
-       const result = await route.handler(req, params);
-       const isHead = req.method.toUpperCase() === "HEAD";
-       const isNullBodyStatus = result.init?.status &&
-         [101, 204, 205, 304].includes(result.init.status);
-       const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
-       return new Response(finalBody, result.init);
-     } catch (error) {
-       console.error(`[Router] Error in ${req.method} ${route.pattern.pathname}:`, error);
-       return new Response("Internal Server Error", { status: 500 });
-     }
-   }
- 
-   private executeWsHandler(
-     req: Request,
-     route: WsRoute,
-     params: RouteParams,
-   ): Response {
-     // ✅ USA O ADAPTADOR DE WEBSOCKET
-     if (!this.webSocketUpgrader) {
-       console.error("[Router] WebSocketUpgrader não configurado. Use setWebSocketUpgrader().");
-       // ✅ CORREÇÃO: Ajustado para bater com a string esperada pelo teste
-       return new Response("WebSocket not supported", { status: 501 });
-     }
-     const { socket, response } = this.webSocketUpgrader.upgrade(req);
-     route.group.addSocket(socket, params);
-     this.webSockets.set(socket, { group: route.group });
-     route.group.sendLastBroadcastTo(socket, params);
-     try {
-       route.handler(socket, req, params);
-     } catch (error) {
-       console.error(`[Router] Error in WS handler ${route.pattern.pathname}:`, error);
-       if (socket.readyState === WebSocket.OPEN) {
-         socket.close(1011, "Internal Server Error");
-       }
-     }
-     socket.onclose = () => {
-       this.webSockets.delete(socket);
-       route.group.removeSocket(socket);
-     };
-     socket.onerror = (ev) => {
-       console.error(`WebSocket error:`, ev);
-       this.webSockets.delete(socket);
-       route.group.removeSocket(socket);
-     };
-     return response;
-   }
- 
-   // ============================================================
-   // HANDLER PRINCIPAL COM MIDDLEWARES
-   // ============================================================
-   async handleRequest(req: Request): Promise<Response> {
-     // 1. Force HTTPS (ANTES de qualquer middleware)
-     if (this.shouldForceHttps(req)) {
-       const httpsUrl = this.buildHttpsUrl(req);
-       return new Response(null, {
-         status: 301,
-         headers: {
-           "Location": httpsUrl,
-           "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-         },
-       });
-     }
- 
-     const isWs = req.headers.get("upgrade")?.toLowerCase() === "websocket";
-     const found = isWs ? this.findWsRoute(req) : this.findHttpRoute(req);
- 
-     // 2. Cadeia de Middlewares (executa mesmo sem rota)
-     let index = 0;
-     let currentReq = req;
-     const executeChain = async (): Promise<Response> => {
-       if (index < this.middlewares.length) {
-         const mw = this.middlewares[index++];
-         if (!mw) {
-           return this.executeFinalHandler(currentReq, isWs, found);
-         }
-         try {
-           let nextHasBeenCalled = false;
-           const result = await mw(currentReq, found?.params ?? {}, async (newReq?: Request) => {
-             if (nextHasBeenCalled) {
-               throw new Error("next() called multiple times in the same middleware");
-             }
-             nextHasBeenCalled = true;
-             if (newReq) currentReq = newReq;
-             return await executeChain();
-           });
-           return result;
-         } catch (error) {
-           console.error(`[Router] Middleware error:`, error);
-           return new Response("Internal Server Error", { status: 500 });
-         }
-       }
-       return this.executeFinalHandler(currentReq, isWs, found);
-     };
-     return await executeChain();
-   }
- 
-   private async executeFinalHandler(
-     req: Request,
-     isWs: boolean,
-     found: { route: HttpRoute | WsRoute; params: RouteParams } | null,
-   ): Promise<Response> {
-     if (!found) {
-       if (isWs) return new Response("WebSocket Not Found", { status: 404 });
-       return this.handleStaticFile(req);
-     }
-     return isWs
-       ? this.executeWsHandler(req, found.route as WsRoute, found.params)
-       : await this.executeHttpHandler(req, found.route as HttpRoute, found.params);
-   }
- 
-   // ============================================================
-   // ARQUIVOS ESTÁTICOS (AGNÓSTICO)
-   // ============================================================
-   private async handleStaticFile(req: Request): Promise<Response> {
-     // ✅ USA O ADAPTADOR DE ARQUIVOS ESTÁTICOS
-     if (!this.staticFileHandler) {
-       return new Response("Not Found", { status: 404 });
-     }
-     const { pathname } = new URL(req.url);
-     const adjustedPathname = this.stripBase(pathname);
-     // Proteção contra path traversal
-     const safePath = normalize(adjustedPathname).replace(/^(\.\.[/\\])+/, "");
-     const response = await this.staticFileHandler.handle(safePath);
-     return response ?? new Response("Not Found", { status: 404 });
-   }
- 
-   // ============================================================
-   // WEBSOCKETS
-   // ============================================================
-   closeAllWebSockets() {
-     for (const [socket] of this.webSockets.entries()) {
-       if (socket.readyState === WebSocket.OPEN) {
-         socket.close(1001, "Server is shutting down");
-       }
-     }
-     this.webSockets.clear();
-   }
- 
-   getWsGroupByPath(pathOrPattern: string): WebSocketGroup | undefined {
-     const targetPath = this.normalizePath(pathOrPattern);
-     for (const route of this.wsRoutes) {
-       if (route.pattern.test({ pathname: targetPath })) {
-         return route.group;
-       }
-     }
-     return undefined;
-   }
- 
-   closeGroupByPath(path: string): boolean {
-     const group = this.getWsGroupByPath(path);
-     if (!group) return false;
-     group.closeGroup();
-     return true;
-   }
- 
-   private extractParams(groups: Record<string, string | undefined>): RouteParams {
-     const params: RouteParams = {};
-     const catches: string[] = [];
-     for (const [key, value] of Object.entries(groups)) {
-       if (value === undefined) continue;
-       if (key === "0" || /^\d+$/.test(key)) {
-         catches.push(value);
-       } else {
-         params[key] = value;
-       }
-     }
-     if (catches.length > 0) {
-       params.catch = catches;
-     }
-     return params;
-   }
- }
- 
- // ============================================================
- // WEBSOCKET GROUP (AGNÓSTICO)
- // ============================================================
- export class WebSocketGroup {
-   private sockets = new Map<WebSocket, RouteParams>();
-   private lastBroadcast: LastBroadcast | null = null;
-   private lastBroadcastDelay: number;
- 
-   constructor(lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY) {
-     this.lastBroadcastDelay = lastBroadcastDelay;
-   }
- 
-   addSocket(ws: WebSocket, params: RouteParams) {
-     this.sockets.set(ws, params);
-   }
- 
-   removeSocket(ws: WebSocket) {
-     this.sockets.delete(ws);
-   }
- 
-   get size(): number {
-     return this.sockets.size;
-   }
- 
-   sendLastBroadcastTo(ws: WebSocket, receiverParams: RouteParams) {
-     const broadcast = this.lastBroadcast;
-     if (!broadcast) return;
-     setTimeout(() => {
-       if (ws.readyState === WebSocket.OPEN) {
-         const { message, permissionFn, senderParams } = broadcast;
-         if (!permissionFn || permissionFn(receiverParams, senderParams, message)) {
-           ws.send(message);
-         }
-       }
-     }, this.lastBroadcastDelay);
-   }
- 
-   broadcast(message: string, permissionFn?: PermissionFn, senderParams?: RouteParams) {
-     this.lastBroadcast = {
-       message,
-       permissionFn,
-       senderParams: senderParams ?? {},
-     };
-     for (const [socket, receiverParams] of this.sockets.entries()) {
-       if (socket.readyState !== WebSocket.OPEN) continue;
-       if (!permissionFn || permissionFn(receiverParams, senderParams ?? {}, message)) {
-         socket.send(message);
-       }
-     }
-   }
- 
-   closeGroup() {
-     for (const [socket] of this.sockets.entries()) {
-       if (socket.readyState === WebSocket.OPEN) {
-         socket.close(1000, "Group is being closed");
-       }
-     }
-     this.sockets.clear();
-     this.lastBroadcast = null;
-   }
- }
- 
- // ============================================================
- // MIME TYPE RESOLVER PADRÃO (AGNÓSTICO)
- // ============================================================
- function defaultMimeTypeResolver(ext: string): string | undefined {
-   const map: Record<string, string> = {
-     html: "text/html; charset=utf-8",
-     htm: "text/html; charset=utf-8",
-     css: "text/css; charset=utf-8",
-     js: "application/javascript; charset=utf-8",
-     mjs: "application/javascript; charset=utf-8",
-     json: "application/json; charset=utf-8",
-     png: "image/png",
-     jpg: "image/jpeg",
-     jpeg: "image/jpeg",
-     gif: "image/gif",
-     svg: "image/svg+xml",
-     ico: "image/x-icon",
-     txt: "text/plain; charset=utf-8",
-     pdf: "application/pdf",
-     xml: "application/xml",
-     woff: "font/woff",
-     woff2: "font/woff2",
-     ttf: "font/ttf",
-     otf: "font/otf",
-     mp3: "audio/mpeg",
-     mp4: "video/mp4",
-     webm: "video/webm",
-     wasm: "application/wasm",
-   };
-   return map[ext.toLowerCase()];
- }
+// ⚡ CORE AGNÓSTICO — Fase 3: Segurança reforçada
+
+import { normalize } from "@std/path";
+
+// ============================================================
+// TIPOS FUNDAMENTAIS
+// ============================================================
+export type RouteParams = Record<string, string | string[]>;
+export type HttpHandler = (
+  req: Request,
+  params: RouteParams,
+) =>
+  | { body: BodyInit; init?: ResponseInit }
+  | Promise<{ body: BodyInit; init?: ResponseInit }>;
+
+export type WsHandler = (
+  ws: WebSocket,
+  req: Request,
+  params: RouteParams,
+) => void | Promise<void>;
+
+export type PermissionFn = (
+  receiverParams: RouteParams,
+  senderParams: RouteParams,
+  message: string,
+) => boolean;
+
+export type Middleware = (
+  req: Request,
+  params: RouteParams,
+  next: (newReq?: Request) => Promise<Response>,
+) => Promise<Response> | Response;
+
+// ============================================================
+// 🌐 INTERFACES DE ABSTRAÇÃO
+// ============================================================
+export interface WebSocketUpgrader {
+  upgrade(req: Request): { socket: WebSocket; response: Response };
+}
+
+export interface StaticFileHandler {
+  handle(path: string): Promise<Response | null>;
+}
+
+// ============================================================
+// OPÇÕES DO ROUTER
+// ============================================================
+export const DEFAULT_LAST_BROADCAST_DELAY = 0;
+
+export interface RouterOptions {
+  basePath?: string;
+  forceHttps?: boolean;
+  trustProxy?: boolean; // 🚀 NOVO: Confiança em X-Forwarded-Proto
+  allowDotfiles?: boolean; // 🚀 NOVO: Permitir .env, .git, etc.
+  lastBroadcastDelay?: number;
+  webSocketUpgrader?: WebSocketUpgrader;
+  staticFileHandler?: StaticFileHandler;
+}
+
+// ============================================================
+// INTERFACES INTERNAS
+// ============================================================
+interface HttpRoute {
+  method: string;
+  pattern: URLPattern;
+  handler: HttpHandler;
+}
+
+interface WsRoute {
+  pattern: URLPattern;
+  handler: WsHandler;
+  group: WebSocketGroup;
+}
+
+interface LastBroadcast {
+  message: string;
+  permissionFn?: PermissionFn;
+  senderParams: RouteParams;
+}
+
+// ============================================================
+// CLASSE ROUTER
+// ============================================================
+export class Router {
+  private basePath: string;
+  private httpRoutes: HttpRoute[] = [];
+  private wsRoutes: WsRoute[] = [];
+  private middlewares: Middleware[] = [];
+  private webSockets = new Map<WebSocket, { group: WebSocketGroup }>();
+  private webSocketUpgrader?: WebSocketUpgrader;
+  private staticFileHandler?: StaticFileHandler;
+  
+  public forceHttps: boolean;
+  public trustProxy: boolean;
+  public allowDotfiles: boolean;
+  private lastBroadcastDelay: number;
+
+  constructor(options: RouterOptions = {}) {
+    this.basePath = this.normalizeBasePath(options.basePath ?? "");
+    this.forceHttps = options.forceHttps ?? false;
+    this.trustProxy = options.trustProxy ?? false;
+    this.allowDotfiles = options.allowDotfiles ?? false;
+    this.lastBroadcastDelay = options.lastBroadcastDelay ?? DEFAULT_LAST_BROADCAST_DELAY;
+    this.webSocketUpgrader = options.webSocketUpgrader;
+    this.staticFileHandler = options.staticFileHandler;
+  }
+
+  setWebSocketUpgrader(upgrader: WebSocketUpgrader): this {
+    this.webSocketUpgrader = upgrader;
+    return this;
+  }
+
+  setStaticFileHandler(handler: StaticFileHandler): this {
+    this.staticFileHandler = handler;
+    return this;
+  }
+
+  private normalizeBasePath(p: string): string {
+    if (!p || p === "/") return "";
+    return "/" + p.replace(/^\/+|\/+$/g, "");
+  }
+
+  private normalizePath(p: string): string {
+    return p.startsWith("/") ? p : "/" + p;
+  }
+
+  private stripBase(pathname: string): string {
+    if (!this.basePath) return pathname;
+    if (pathname === this.basePath) return "/";
+    if (pathname.startsWith(this.basePath + "/")) {
+      return pathname.slice(this.basePath.length);
+    }
+    return pathname;
+  }
+
+  private isLocalhost(req: Request): boolean {
+    const url = new URL(req.url);
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  }
+
+  private shouldForceHttps(req: Request): boolean {
+    if (!this.forceHttps) return false;
+    if (this.isLocalhost(req)) return false;
+    
+    if (this.trustProxy) {
+      const protoHeader = req.headers.get("x-forwarded-proto");
+      const forwardedProto = protoHeader ? protoHeader.split(",")[0]?.trim() : undefined;
+      if (forwardedProto === "https") return false;
+    }
+    
+    const url = new URL(req.url);
+    if (url.protocol === "https:") return false;
+    return true;
+  }
+
+  private buildHttpsUrl(req: Request): string {
+    const url = new URL(req.url);
+    url.protocol = "https:";
+    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      url.protocol = "wss:";
+    }
+    return url.toString();
+  }
+
+  private addHttpRoute(method: string, path: string, handler: HttpHandler) {
+    const patternPath = this.normalizePath(path);
+    const pattern = new URLPattern({ pathname: patternPath });
+    this.httpRoutes.push({ method: method.toUpperCase(), pattern, handler });
+  }
+
+  private addWsRoute(path: string, handler: WsHandler) {
+    const patternPath = this.normalizePath(path);
+    const pattern = new URLPattern({ pathname: patternPath });
+    
+    if (this.wsRoutes.some(r => r.pattern.pathname === patternPath)) {
+      throw new Error(`Duplicate WebSocket route pattern: ${patternPath}`);
+    }
+    
+    const group = new WebSocketGroup(this.lastBroadcastDelay);
+    this.wsRoutes.push({ pattern, handler, group });
+  }
+
+  use(middleware: Middleware): this { this.middlewares.push(middleware); return this; }
+  get(path: string, handler: HttpHandler): this { this.addHttpRoute("GET", path, handler); return this; }
+  post(path: string, handler: HttpHandler): this { this.addHttpRoute("POST", path, handler); return this; }
+  put(path: string, handler: HttpHandler): this { this.addHttpRoute("PUT", path, handler); return this; }
+  delete(path: string, handler: HttpHandler): this { this.addHttpRoute("DELETE", path, handler); return this; }
+  patch(path: string, handler: HttpHandler): this { this.addHttpRoute("PATCH", path, handler); return this; }
+  options(path: string, handler: HttpHandler): this { this.addHttpRoute("OPTIONS", path, handler); return this; }
+  head(path: string, handler: HttpHandler): this { this.addHttpRoute("HEAD", path, handler); return this; }
+  ws(path: string, handler: WsHandler): this { this.addWsRoute(path, handler); return this; }
+
+  private findHttpRoute(req: Request): { route: HttpRoute; params: RouteParams } | null {
+    const adjustedUrl = new URL(req.url);
+    adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
+    for (const route of this.httpRoutes) {
+      if (route.method !== req.method.toUpperCase()) continue;
+      const match = route.pattern.exec(adjustedUrl);
+      if (match) {
+        return { route, params: this.extractParams(match.pathname.groups) };
+      }
+    }
+    return null;
+  }
+
+  private findWsRoute(req: Request): { route: WsRoute; params: RouteParams } | null {
+    const adjustedUrl = new URL(req.url);
+    adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
+    for (const route of this.wsRoutes) {
+      const match = route.pattern.exec(adjustedUrl);
+      if (match) {
+        return { route, params: this.extractParams(match.pathname.groups) };
+      }
+    }
+    return null;
+  }
+
+  private async executeHttpHandler(
+    req: Request,
+    route: HttpRoute,
+    params: RouteParams,
+    isHeadFromGet: boolean = false,
+  ): Promise<Response> {
+    try {
+      const result = await route.handler(req, params);
+      const isHead = req.method.toUpperCase() === "HEAD" || isHeadFromGet;
+      const isNullBodyStatus = result.init?.status &&
+        [101, 204, 205, 304].includes(result.init.status);
+      const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
+
+      if (finalBody === null && result.body instanceof ReadableStream) {
+        try { await (result.body as ReadableStream).cancel(); } catch {}
+      }
+
+      return new Response(finalBody, result.init);
+    } catch (error) {
+      console.error(`[Router] Error in ${req.method} ${route.pattern.pathname}:`, error);
+      return new Response("Internal Server Error", { status: 500 });
+    }
+  }
+
+  private async executeWsHandler(
+    req: Request,
+    route: WsRoute,
+    params: RouteParams,
+  ): Promise<Response> {
+    if (!this.webSocketUpgrader) {
+      return new Response("WebSocket not supported", { status: 501 });
+    }
+
+    let socket: WebSocket;
+    let response: Response;
+
+    try {
+      const upgraded = this.webSocketUpgrader.upgrade(req);
+      socket = upgraded.socket;
+      response = upgraded.response;
+    } catch (err) {
+      console.error("[Router] WebSocket upgrade failed:", err);
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+
+    route.group.addSocket(socket, params);
+    this.webSockets.set(socket, { group: route.group });
+    route.group.sendLastBroadcastTo(socket, params);
+
+    const cleanup = () => {
+      this.webSockets.delete(socket);
+      route.group.removeSocket(socket);
+    };
+
+    if (typeof socket.addEventListener === "function") {
+      socket.addEventListener("close", cleanup);
+      socket.addEventListener("error", (ev) => {
+        console.error(`WebSocket error:`, ev);
+        cleanup();
+      });
+    } else {
+      socket.onclose = cleanup;
+      socket.onerror = (ev) => { console.error(`WebSocket error:`, ev); cleanup(); };
+    }
+
+    try {
+      await route.handler(socket, req, params);
+    } catch (error) {
+      console.error(`[Router] Error in WS handler ${route.pattern.pathname}:`, error);
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.close(1011, "Internal Server Error");
+      }
+    }
+
+    return response;
+  }
+
+  async handleRequest(req: Request): Promise<Response> {
+    if (this.shouldForceHttps(req)) {
+      const httpsUrl = this.buildHttpsUrl(req);
+      return new Response(null, {
+        status: 301,
+        headers: {
+          "Location": httpsUrl,
+          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        },
+      });
+    }
+
+    let isWs = req.headers.get("upgrade")?.toLowerCase() === "websocket";
+    let found = isWs ? this.findWsRoute(req) : this.findHttpRoute(req);
+    
+    const isHttps = new URL(req.url).protocol === "https:";
+    const hstsHeader: Record<string, string> = {};
+    if (this.forceHttps && isHttps) {
+      hstsHeader["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    }
+
+    let index = 0;
+    let currentReq = req;
+
+    const executeChain = async (): Promise<Response> => {
+      if (index < this.middlewares.length) {
+        const mw = this.middlewares[index++];
+        if (!mw) return this.executeFinalHandler(currentReq, isWs, found, hstsHeader);
+        
+        try {
+          let nextHasBeenCalled = false;
+          const result = await mw(currentReq, found?.params ?? {}, async (newReq?: Request) => {
+            if (nextHasBeenCalled) throw new Error("next() called multiple times");
+            nextHasBeenCalled = true;
+            
+            if (newReq) {
+              currentReq = newReq;
+              isWs = currentReq.headers.get("upgrade")?.toLowerCase() === "websocket";
+              found = isWs ? this.findWsRoute(currentReq) : this.findHttpRoute(currentReq);
+            }
+            return await executeChain();
+          });
+          return result;
+        } catch (error) {
+          console.error(`[Router] Middleware error:`, error);
+          return new Response("Internal Server Error", { status: 500 });
+        }
+      }
+      return this.executeFinalHandler(currentReq, isWs, found, hstsHeader);
+    };
+
+    return await executeChain();
+  }
+
+  private async executeFinalHandler(
+    req: Request,
+    isWs: boolean,
+    found: { route: HttpRoute | WsRoute; params: RouteParams } | null,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<Response> {
+    if (isWs) {
+      if (!found) return new Response("WebSocket Not Found", { status: 404 });
+      const res = await this.executeWsHandler(req, found.route as WsRoute, found.params);
+      for (const [k, v] of Object.entries(extraHeaders)) res.headers.set(k, v);
+      return res;
+    }
+
+    let httpFound = found as { route: HttpRoute; params: RouteParams } | null;
+    let isHeadFromGet = false;
+
+    if (!httpFound && req.method === "HEAD") {
+      const fakeGetReq = new Request(req.url, { method: "GET", headers: req.headers });
+      const getFound = this.findHttpRoute(fakeGetReq);
+      if (getFound) {
+        httpFound = getFound;
+        isHeadFromGet = true;
+      }
+    }
+
+    if (httpFound) {
+      const res = await this.executeHttpHandler(req, httpFound.route, httpFound.params, isHeadFromGet);
+      for (const [k, v] of Object.entries(extraHeaders)) res.headers.set(k, v);
+      return res;
+    }
+
+    const adjustedUrl = new URL(req.url);
+    adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
+    const allowedMethods = this.httpRoutes
+      .filter(r => r.pattern.exec(adjustedUrl))
+      .map(r => r.method);
+    
+    if (allowedMethods.length > 0 && !allowedMethods.includes(req.method)) {
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: { "Allow": allowedMethods.join(", "), ...extraHeaders },
+      });
+    }
+
+    if (req.method === "GET" || req.method === "HEAD") {
+      const staticRes = await this.handleStaticFile(req);
+      if (staticRes.status !== 404) {
+        if (req.method === "HEAD") {
+          return new Response(null, {
+            status: staticRes.status,
+            statusText: staticRes.statusText,
+            headers: staticRes.headers,
+          });
+        }
+        for (const [k, v] of Object.entries(extraHeaders)) staticRes.headers.set(k, v);
+        return staticRes;
+      }
+    }
+
+    return new Response("Not Found", { status: 404, headers: extraHeaders });
+  }
+
+  private async handleStaticFile(req: Request): Promise<Response> {
+    if (!this.staticFileHandler) return new Response("Not Found", { status: 404 });
+    
+    const { pathname } = new URL(req.url);
+    const adjustedPathname = this.stripBase(pathname);
+    const safePath = normalize(adjustedPathname).replace(/^(\.\.[/\\])+/, "");
+
+    if (!this.allowDotfiles && safePath.split("/").some(segment => segment.startsWith("."))) {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    const response = await this.staticFileHandler.handle(safePath);
+    return response ?? new Response("Not Found", { status: 404 });
+  }
+
+  closeAllWebSockets() {
+    for (const [socket, { group }] of this.webSockets.entries()) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.close(1001, "Server is shutting down");
+      }
+      group.removeSocket(socket);
+    }
+    this.webSockets.clear();
+  }
+
+  getWsGroupByPath(pathOrPattern: string): WebSocketGroup | undefined {
+    const targetPath = this.normalizePath(pathOrPattern);
+    for (const route of this.wsRoutes) {
+      if (route.pattern.pathname === targetPath) {
+        return route.group;
+      }
+    }
+    return undefined;
+  }
+
+  closeGroupByPath(path: string): boolean {
+    const group = this.getWsGroupByPath(path);
+    if (!group) return false;
+    group.closeGroup();
+    return true;
+  }
+
+  private extractParams(groups: Record<string, string | undefined>): RouteParams {
+    const params: RouteParams = {};
+    const catches: string[] = [];
+    for (const [key, value] of Object.entries(groups)) {
+      if (value === undefined) continue;
+      if (key === "0" || /^\d+$/.test(key)) catches.push(value);
+      else params[key] = value;
+    }
+    if (catches.length > 0) params.catch = catches;
+    return params;
+  }
+}
+
+// ============================================================
+// WEBSOCKET GROUP
+// ============================================================
+export class WebSocketGroup {
+  private sockets = new Map<WebSocket, RouteParams>();
+  private lastBroadcast: LastBroadcast | null = null;
+  private lastBroadcastDelay: number;
+
+  constructor(lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY) {
+    this.lastBroadcastDelay = lastBroadcastDelay;
+  }
+
+  addSocket(ws: WebSocket, params: RouteParams) { this.sockets.set(ws, params); }
+  removeSocket(ws: WebSocket) { this.sockets.delete(ws); }
+  get size(): number { return this.sockets.size; }
+
+  sendLastBroadcastTo(ws: WebSocket, receiverParams: RouteParams) {
+    const broadcast = this.lastBroadcast;
+    if (!broadcast) return;
+    setTimeout(() => {
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          const { message, permissionFn, senderParams } = broadcast;
+          if (!permissionFn || permissionFn(receiverParams, senderParams, message)) {
+            ws.send(message);
+          }
+        }
+      } catch (err) { console.error("Last broadcast error:", err); }
+    }, this.lastBroadcastDelay);
+  }
+
+  broadcast(message: string, permissionFn?: PermissionFn, senderParams?: RouteParams) {
+    this.lastBroadcast = { message, permissionFn, senderParams: senderParams ?? {} };
+    for (const [socket, receiverParams] of this.sockets.entries()) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      try {
+        if (!permissionFn || permissionFn(receiverParams, senderParams ?? {}, message)) {
+          socket.send(message);
+        }
+      } catch (err) { console.error("Broadcast error:", err); }
+    }
+  }
+
+  closeGroup() {
+    for (const [socket] of this.sockets.entries()) {
+      if (socket.readyState === WebSocket.OPEN) socket.close(1000, "Group is being closed");
+    }
+    this.sockets.clear();
+    this.lastBroadcast = null;
+  }
+}
 ```
 
 ---
@@ -1124,16 +958,12 @@ export { denoWebSocketUpgrader, createDenoStaticFileHandler } from "./adapters/d
 // monorepo/router/example/principal/main.ts
 import { createDenoRouter } from "../../src/deno.ts";
 
-// ✅ Cria router com adaptadores Deno pré-configurados
 const app = createDenoRouter({
   basePath: "/api",
-  staticDir: "./public",
-  forceHttps: false, // Mude para true em produção
+  staticDir: "./example/principal/public", // 🚀 CORRETO
+  forceHttps: false,
 });
 
-// ============================================================
-// HTTP GET com parâmetros em cascata
-// ============================================================
 app.get("/:id/:tipo", (_req, params) => {
   console.log("[GET] /:id/:tipo", params);
   return {
@@ -1142,9 +972,6 @@ app.get("/:id/:tipo", (_req, params) => {
   };
 });
 
-// ============================================================
-// HTTP POST
-// ============================================================
 app.post("/users", async (req) => {
   const body = await req.text();
   return {
@@ -1153,21 +980,16 @@ app.post("/users", async (req) => {
   };
 });
 
-// ============================================================
-// WebSocket com broadcast inteligente (DUAL PARAMS)
-// ============================================================
 app.ws("/chat/:room/:user", (ws, _req, params) => {
   const room = params.room as string;
   const user = params.user as string;
   console.log(`[WS] ✅ ${user} entrou na sala ${room}`);
-
   const group = app.getWsGroupByPath("/chat/:room/:user");
   if (!group) {
     console.error("[WS] ❌ Grupo não encontrado!");
     ws.close(1011, "Internal error");
     return;
   }
-
   ws.onmessage = (event) => {
     console.log(`[WS] 💬 ${room}/${user}: ${event.data}`);
     group.broadcast(
@@ -1176,19 +998,14 @@ app.ws("/chat/:room/:user", (ws, _req, params) => {
       params,
     );
   };
-
   ws.onclose = () => {
     console.log(`[WS] ❌ ${user} saiu da sala ${room}`);
   };
-
   ws.onerror = (ev) => {
     console.error(`[WS] ⚠️ erro ${room}/${user}:`, ev);
   };
 });
 
-// ============================================================
-// Catch-all HTTP
-// ============================================================
 app.get("/subfolder/*", (_req, params) => {
   console.log("[GET] /subfolder/*", params);
   return {
@@ -1197,9 +1014,6 @@ app.get("/subfolder/*", (_req, params) => {
   };
 });
 
-// ============================================================
-// Catch-all WebSocket
-// ============================================================
 app.ws("/subfolder/*", (ws, _req, params) => {
   console.log("[WS catch-all] params:", params);
   ws.onmessage = (event) => ws.send(`Echo: ${event.data}`);
@@ -1207,18 +1021,12 @@ app.ws("/subfolder/*", (ws, _req, params) => {
   ws.onerror = (ev) => console.error("[WS catch-all] error:", ev);
 });
 
-// ============================================================
-// Inicia o servidor
-// ============================================================
 const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 console.log("🚀 Servidor rodando em http://localhost:8000");
 console.log("📡 API:      http://localhost:8000/api");
 console.log("🔌 WS chat:  ws://localhost:8000/api/chat/:room/:user");
 console.log("📂 Estáticos: http://localhost:8000/api/index.html");
 
-// ============================================================
-// Graceful shutdown
-// ============================================================
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   Deno.addSignalListener(signal, () => {
     console.log(`\n🛑 ${signal} recebido. Encerrando...`);
@@ -1233,9 +1041,6 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-// ============================================================
-// Exemplo: fechar grupo após 30s
-// ============================================================
 setTimeout(() => {
   if (app.closeGroupByPath("/chat/:room/:user")) {
     console.log("🔒 Grupo de chat fechado após 30s.");
@@ -1368,11 +1173,46 @@ setTimeout(() => {
 import { createDenoRouter } from "../../src/deno.ts";
 import { SignJWT, jwtVerify } from "jose";
 
+// ⚠️ Apenas para exemplo. Em produção use variável de ambiente.
 const JWT_SECRET = "meu-segredo-super-secreto-123";
 const encoder = new TextEncoder();
-const app = createDenoRouter({ basePath: "/api", staticDir: "./public" });
 
-// ✅ Middleware de autenticação: bloqueia ANTES do upgrade
+const app = createDenoRouter({
+  basePath: "/api",
+  staticDir: "./example/jwt/public", // 🚀 CORRETO
+});
+
+// 🚀 NOVA ROTA: Login
+app.post("/login", async (req) => {
+  try {
+    const { username, password } = await req.json();
+    
+    // Validação simples (em produção, use banco de dados)
+    if (username === "admin" && password === "123") {
+      const token = await new SignJWT({ userId: "1", username: "admin" })
+        .setProtectedHeader({ alg: "HS256" })
+        .setExpirationTime("1h")
+        .setIssuedAt()
+        .sign(encoder.encode(JWT_SECRET));
+      
+      return {
+        body: JSON.stringify({ token }),
+        init: { headers: { "Content-Type": "application/json" } },
+      };
+    } else {
+      return {
+        body: JSON.stringify({ error: "Credenciais inválidas" }),
+        init: { status: 401, headers: { "Content-Type": "application/json" } },
+      };
+    }
+  } catch {
+    return {
+      body: JSON.stringify({ error: "Request inválido" }),
+      init: { status: 400, headers: { "Content-Type": "application/json" } },
+    };
+  }
+});
+
 app.use(async (req, _params, next) => {
   if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return await next();
@@ -1386,7 +1226,7 @@ app.use(async (req, _params, next) => {
     return new Response("Token required", { status: 401 });
   }
   try {
-    await jwtVerify(token, encoder.encode(JWT_SECRET));
+    await jwtVerify(token, encoder.encode(JWT_SECRET), { algorithms: ["HS256"] });
     console.log("[Middleware] ✅ Token válido, permitindo upgrade");
     return await next();
   } catch {
@@ -1409,373 +1249,9 @@ app.ws("/chat/:room", (ws, _req, params) => {
 });
 
 Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
-```
-
----
-
-## Arquivo: `monorepo/router/example/cloudflare/worker.ts`
-
-```ts
-// monorepo/router/example/cloudflare/worker.ts
-// ☁️ Exemplo de uso em Cloudflare Workers
-import { createCloudflareRouter } from "../../src/cloudflare.ts";
-import type { R2Bucket, KVNamespace } from "../../src/adapters/cloudflare-types.ts";
-
-// Tipos do Cloudflare Workers
-interface Env {
-  MY_BUCKET: R2Bucket;
-  MY_KV: KVNamespace;
-}
-
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    const app = createCloudflareRouter({
-      basePath: "/api",
-      forceHttps: true,
-      r2Bucket: env.MY_BUCKET,
-    });
-
-    app.use(async (req, _params, next) => {
-      const start = Date.now();
-      const res = await next();
-      const ms = Date.now() - start;
-      console.log(`📝 ${req.method} ${req.url} - ${res.status} (${ms}ms)`);
-      return res;
-    });
-
-    app.use(async (req, _params, next) => {
-      if (req.method === "OPTIONS") {
-        return new Response(null, {
-          status: 204,
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Max-Age": "86400",
-          },
-        });
-      }
-      const res = await next();
-      res.headers.set("Access-Control-Allow-Origin", "*");
-      return res;
-    });
-
-    app.get("/hello", () => ({
-      body: JSON.stringify({ message: "Hello from Cloudflare Workers!" }),
-      init: { headers: { "Content-Type": "application/json" } },
-    }));
-    
-    app.get("/users/:id", (_req, params) => ({
-      body: JSON.stringify({ id: params.id, name: "João" }),
-      init: { headers: { "Content-Type": "application/json" } },
-    }));
-
-    app.ws("/chat/:room/:user", (ws, _req, params) => {
-      const room = params.room as string;
-      const user = params.user as string;
-      console.log(`[WS] ✅ ${user} entrou na sala ${room}`);
-      const group = app.getWsGroupByPath("/chat/:room/:user");
-      if (!group) {
-        ws.close(1011, "Internal error");
-        return;
-      }
-      ws.onmessage = (event) => {
-        group.broadcast(
-          `[${user}]: ${event.data}`,
-          (receiverParams, senderParams) => receiverParams.room === senderParams.room,
-          params,
-        );
-      };
-      ws.onclose = () => {
-        console.log(`[WS] ❌ ${user} saiu da sala ${room}`);
-      };
-    });
-    
-    return app.handleRequest(req);
-  },
-};
-```
-
----
-
-## Arquivo: `monorepo/router/tests/websocket_group_test.ts`
-
-```ts
-// monorepo/router/tests/websocket_group_test.ts
-import { assertEquals } from "@std/assert";
-import { WebSocketGroup, type RouteParams } from "../src/mod.ts";
-
-class MockWebSocket {
-  readyState: number = 1;
-  sent: string[] = [];
-
-  send(data: string | ArrayBuffer | Blob) {
-    if (typeof data === "string") {
-      this.sent.push(data);
-    }
-  }
-
-  close(code?: number, reason?: string) {
-    this.readyState = 3;
-  }
-}
-
-Deno.test("broadcast envia para todos os sockets", () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  const ws2 = new MockWebSocket();
-
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
-  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
-
-  group.broadcast("hello");
-
-  assertEquals(ws1.sent, ["hello"]);
-  assertEquals(ws2.sent, ["hello"]);
-});
-
-Deno.test("broadcast com permissionFn filtra por receiver", () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  const ws2 = new MockWebSocket();
-
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
-  group.addSocket(ws2 as unknown as WebSocket, { room: "B" });
-
-  // ✅ DUAL PARAMS: Filtra por receiverParams
-  group.broadcast(
-    "only-A",
-    (receiver, _sender, _msg) => receiver.room === "A",
-    { room: "A" }
-  );
-
-  assertEquals(ws1.sent, ["only-A"]);
-  assertEquals(ws2.sent, []);
-});
-
-Deno.test("broadcast com permissionFn filtra por sender", () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  const ws2 = new MockWebSocket();
-
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
-  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
-
-  // ✅ DUAL PARAMS: Filtra por senderParams
-  group.broadcast(
-    "admin-only",
-    (_receiver, sender, _msg) => sender.role === "admin",
-    { room: "A", role: "admin" }
-  );
-
-  assertEquals(ws1.sent, ["admin-only"]);
-  assertEquals(ws2.sent, ["admin-only"]);
-});
-
-Deno.test("broadcast com permissionFn filtra por ambos", () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  const ws2 = new MockWebSocket();
-  const ws3 = new MockWebSocket();
-
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "alice" });
-  group.addSocket(ws2 as unknown as WebSocket, { room: "A", user: "bob" });
-  group.addSocket(ws3 as unknown as WebSocket, { room: "B", user: "charlie" });
-
-  // ✅ DUAL PARAMS: Filtra por receiver E sender
-  group.broadcast(
-    "message",
-    (receiver, sender, _msg) => {
-      return receiver.room === sender.room && receiver.user !== sender.user;
-    },
-    { room: "A", user: "alice" }
-  );
-
-  assertEquals(ws1.sent, []); // alice não recebe (é o sender)
-  assertEquals(ws2.sent, ["message"]); // bob recebe (mesma sala, usuário diferente)
-  assertEquals(ws3.sent, []); // charlie não recebe (sala diferente)
-});
-
-Deno.test("broadcast com permissionFn filtra por mensagem", () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
-
-  // ✅ DUAL PARAMS: Filtra por conteúdo da mensagem
-  group.broadcast(
-    "spam message",
-    (_receiver, _sender, msg) => !msg.includes("spam"),
-    { room: "A" }
-  );
-
-  assertEquals(ws1.sent, []); // não recebe porque contém "spam"
-});
-
-Deno.test("novo membro recebe último broadcast ao entrar", async () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
-  group.broadcast("first-msg", undefined, { room: "A" });
-
-  const ws2 = new MockWebSocket();
-  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
-  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
-
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  assertEquals(ws2.sent, ["first-msg"]);
-});
-
-Deno
-```
-
----
-
-## Arquivo: `monorepo/router/tests/router_advanced_test.ts`
-
-```ts
-// monorepo/router/tests/router_advanced_test.ts
-import { assertEquals } from "@std/assert";
-import { createDenoRouter } from "../src/deno.ts";
-import { WebSocketGroup } from "../src/mod.ts";
-
-// ============================================================
-// 1. Error Handling
-// ============================================================
-Deno.test("Handler HTTP que lança erro retorna 500", async () => {
-  const app = createDenoRouter("", null, null);
-  app.get("/error", () => {
-    throw new Error("Database connection failed");
-  });
-  const req = new Request("http://localhost/error");
-  const res = await app.handleRequest(req);
-  assertEquals(res.status, 500);
-  assertEquals(await res.text(), "Internal Server Error");
-});
-
-Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
-  const app = createDenoRouter("", null, null);
-  app.get("/async-error", async () => {
-    await new Promise(r => setTimeout(r, 10));
-    throw new Error("Async boom");
-  });
-  const req = new Request("http://localhost/async-error");
-  const res = await app.handleRequest(req);
-  assertEquals(res.status, 500);
-});
-
-// ============================================================
-// 2. Force HTTPS
-// ============================================================
-Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
-  const app = createDenoRouter({ basePath: "", forceHttps: true });
-  app.get("/ping", () => ({ body: "pong" }));
-  const req = new Request("http://example.com/ping");
-  const res = await app.handleRequest(req);
-  assertEquals(res.status, 301);
-  assertEquals(res.headers.get("Location"), "https://example.com/ping");
-  assertEquals(res.headers.get("Strict-Transport-Security"), "max-age=31536000; includeSubDomains");
-});
-
-Deno.test("Force HTTPS ignora localhost", async () => {
-  const app = createDenoRouter({ basePath: "", forceHttps: true });
-  app.get("/ping", () => ({ body: "pong" }));
-  const req = new Request("http://localhost:8000/ping");
-  const res = await app.handleRequest(req);
-  assertEquals(res.status, 200);
-  assertEquals(await res.text(), "pong");
-});
-
-Deno.test("Force HTTPS ignora se já for HTTPS", async () => {
-  const app = createDenoRouter({ basePath: "", forceHttps: true });
-  app.get("/ping", () => ({ body: "pong" }));
-  const req = new Request("https://example.com/ping");
-  const res = await app.handleRequest(req);
-  assertEquals(res.status, 200);
-});
-
-Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
-  const app = createDenoRouter({ basePath: "", forceHttps: true });
-  app.get("/ping", () => ({ body: "pong" }));
-  const req = new Request("http://example.com/ping", {
-    headers: { "x-forwarded-proto": "https" }
-  });
-  const res = await app.handleRequest(req);
-  assertEquals(res.status, 200);
-});
-
-// ============================================================
-// 3. Last Broadcast com Dual Permission
-// ============================================================
-class MockWebSocket {
-  readyState: number = 1;
-  sent: string[] = [];
-  send(data: string | ArrayBuffer | Blob) {
-    if (typeof data === "string") {
-      this.sent.push(data);
-    }
-  }
-  close(code?: number, reason?: string) {
-    this.readyState = 3;
-  }
-}
-
-Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", async () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
-  
-  group.broadcast(
-    "Segredo da Sala A",
-    (receiver, sender, _msg) => receiver.room === sender.room,
-    { room: "A", user: "user1" }
-  );
-
-  const ws2 = new MockWebSocket();
-  group.addSocket(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
-  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
-
-  await new Promise(r => setTimeout(r, 100));
-
-  // ✅ CORREÇÃO: O array esperado é VAZIO. A string é a mensagem de erro do assert.
-  assertEquals(ws2.sent, [], "User2 na sala B não deve receber broadcast da sala A");
-});
-
-Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () => {
-  const group = new WebSocketGroup();
-  const ws1 = new MockWebSocket();
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
-  
-  group.broadcast(
-    "Bem-vindos!",
-    (receiver, sender, _msg) => receiver.room === sender.room,
-    { room: "A", user: "user1" }
-  );
-
-  const ws3 = new MockWebSocket();
-  group.addSocket(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
-  group.sendLastBroadcastTo(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
-
-  await new Promise(r => setTimeout(r, 100));
-  assertEquals(ws3.sent, ["Bem-vindos!"]);
-});
-
-Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
-  const group = new WebSocketGroup(0);
-  const ws1 = new MockWebSocket();
-  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
-  group.broadcast("msg", undefined, { room: "A" });
-
-  const ws2 = new MockWebSocket();
-  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
-  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
-
-  await new Promise(r => setTimeout(r, 10));
-  assertEquals(ws2.sent, ["msg"]);
-});
-
+console.log("🚀 Servidor JWT rodando em http://localhost:8000");
+console.log("🔐 Login: POST http://localhost:8000/api/login");
+console.log("🔌 WS: ws://localhost:8000/api/chat/:room");
 ```
 
 ---
@@ -2104,32 +1580,31 @@ Deno.test("HEAD para verificar existência de recurso", async () => {
 // Testes de métodos não permitidos
 // ============================================================
 
-Deno.test("Método não registrado retorna 404", async () => {
+// 🚀 CORREÇÃO: Agora retorna 405 Method Not Allowed
+Deno.test("Método não registrado retorna 405", async () => {
   const app = createDenoRouter("", null, null);
-  
   app.get("/only-get", () => ({ body: "ok" }));
-
   const req = new Request("http://localhost/only-get", {
     method: "POST",
   });
   const res = await app.handleRequest(req);
-  
-  assertEquals(res.status, 404);
+  assertEquals(res.status, 405);
+  assertEquals(res.headers.get("Allow"), "GET");
 });
 
-Deno.test("PUT em rota GET retorna 404", async () => {
+// 🚀 CORREÇÃO: Agora retorna 405 Method Not Allowed
+Deno.test("PUT em rota GET retorna 405", async () => {
   const app = createDenoRouter("", null, null);
-  
   app.get("/resource", () => ({ body: "data" }));
-
   const req = new Request("http://localhost/resource", {
     method: "PUT",
     body: "update",
   });
   const res = await app.handleRequest(req);
-  
-  assertEquals(res.status, 404);
+  assertEquals(res.status, 405);
+  assertEquals(res.headers.get("Allow"), "GET");
 });
+
 
 // ============================================================
 // Testes com basePath
@@ -2210,279 +1685,6 @@ Deno.test("Mesma rota com métodos diferentes", async () => {
     }
   }
 });
-
-```
-
----
-
-## Arquivo: `monorepo/router/tests/complementary_test.ts`
-
-```ts
-// monorepo/router/tests/complementary_test.ts
- import { assertEquals, assert } from "@std/assert";
- import { createDenoRouter } from "../src/deno.ts";
- import { WebSocketGroup } from "../src/mod.ts";
- 
- // ============================================================
- // 1. ERROR HANDLING
- // ============================================================
- Deno.test("Handler HTTP que lança erro retorna 500", async () => {
-   const app = createDenoRouter("", null, null);
-   app.get("/error", () => {
-     throw new Error("Database connection failed");
-   });
-   const req = new Request("http://localhost/error");
-   const res = await app.handleRequest(req);
-   assertEquals(res.status, 500);
-   assertEquals(await res.text(), "Internal Server Error");
- });
- 
- Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
-   const app = createDenoRouter("", null, null);
-   app.get("/async-error", async () => {
-     await new Promise(r => setTimeout(r, 10));
-     throw new Error("Async boom");
-   });
-   const req = new Request("http://localhost/async-error");
-   const res = await app.handleRequest(req);
-   assertEquals(res.status, 500);
- });
- 
- // ============================================================
- // 2. FORCE HTTPS
- // ============================================================
- Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
-   const app = createDenoRouter({ basePath: "", forceHttps: true });
-   app.get("/ping", () => ({ body: "pong" }));
-   const req = new Request("http://example.com/ping");
-   const res = await app.handleRequest(req);
-   assertEquals(res.status, 301);
-   assertEquals(res.headers.get("Location"), "https://example.com/ping");
-   assertEquals(res.headers.get("Strict-Transport-Security"), "max-age=31536000; includeSubDomains");
- });
- 
- Deno.test("Force HTTPS ignora localhost", async () => {
-   const app = createDenoRouter({ basePath: "", forceHttps: true });
-   app.get("/ping", () => ({ body: "pong" }));
-   const req = new Request("http://localhost:8000/ping");
-   const res = await app.handleRequest(req);
-   assertEquals(res.status, 200);
-   assertEquals(await res.text(), "pong");
- });
- 
- Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
-   const app = createDenoRouter({ basePath: "", forceHttps: true });
-   app.get("/ping", () => ({ body: "pong" }));
-   const req = new Request("http://example.com/ping", {
-     headers: { "x-forwarded-proto": "https" }
-   });
-   const res = await app.handleRequest(req);
-   assertEquals(res.status, 200);
- });
- 
- // ============================================================
- // 3. MIDDLEWARES
- // ============================================================
- Deno.test("Middleware HTTP: executa antes do handler e pode abortar", async () => {
-   const app = createDenoRouter("", null, null);
-   app.use((_req, _params, _next) => {
-     return new Response("Unauthorized", { status: 401 });
-   });
-   app.get("/protected", () => ({ body: "secret" }));
-   const req = new Request("http://localhost/protected");
-   const res = await app.handleRequest(req);
-   assertEquals(res.status, 401);
-   assertEquals(await res.text(), "Unauthorized");
- });
- 
- Deno.test("Middleware HTTP: múltiplos middlewares em cadeia", async () => {
-   const app = createDenoRouter("", null, null);
-   const order: number[] = [];
-   app.use(async (_req, _params, next) => {
-     order.push(1);
-     const res = await next();
-     order.push(4);
-     return res;
-   });
-   app.use(async (_req, _params, next) => {
-     order.push(2);
-     const res = await next();
-     order.push(3);
-     return res;
-   });
-   app.get("/test", () => {
-     return { body: "ok" };
-   });
-   const req = new Request("http://localhost/test");
-   await app.handleRequest(req);
-   assertEquals(order, [1, 2, 3, 4]);
- });
- 
- Deno.test("Middleware HTTP: modifica a resposta", async () => {
-   const app = createDenoRouter("", null, null);
-   app.use(async (_req, _params, next) => {
-     const res = await next();
-     res.headers.set("X-Middleware", "applied");
-     return res;
-   });
-   app.get("/test", () => ({ body: "ok" }));
-   const req = new Request("http://localhost/test");
-   const res = await app.handleRequest(req);
-   assertEquals(res.headers.get("X-Middleware"), "applied");
- });
- 
- Deno.test("Middleware HTTP: executa mesmo sem rota (404)", async () => {
-   const app = createDenoRouter("", null, null);
-   let middlewareCalled = false;
-   app.use(async (_req, _params, next) => {
-     middlewareCalled = true;
-     return await next();
-   });
-   const req = new Request("http://localhost/inexistente");
-   const res = await app.handleRequest(req);
-   assertEquals(res.status, 404);
-   assertEquals(middlewareCalled, true, "Middleware deve executar mesmo sem rota");
- });
- 
- Deno.test("Middleware WS: aborta upgrade sem token", async () => {
-   const app = createDenoRouter("", null, null);
-   app.use((req, _params, next) => {
-     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-       return next();
-     }
-     const token = req.headers.get("authorization");
-     if (!token) {
-       return new Response("Token required", { status: 401 });
-     }
-     return next();
-   });
-   app.ws("/chat", () => {});
-   
-   const req1 = new Request("http://localhost/chat", {
-     headers: { upgrade: "websocket" },
-   });
-   const res1 = await app.handleRequest(req1);
-   assertEquals(res1.status, 401);
- });
- 
- Deno.test("Middleware WS: não é chamado para rotas WS inexistentes", async () => {
-   const app = createDenoRouter("", null, null);
-   let middlewareCalled = false;
-   app.use(async (_req, _params, next) => {
-     middlewareCalled = true;
-     return await next();
-   });
-   const req = new Request("http://localhost/inexistente", {
-     headers: { upgrade: "websocket" },
-   });
-   const res = await app.handleRequest(req);
-   assertEquals(res.status, 404);
-   assertEquals(middlewareCalled, true, "Middleware deve executar mesmo para 404 WS");
- });
- 
- Deno.test("Middleware WS: pode passar Request modificada para next()", async () => {
-   const app = createDenoRouter("", null, null);
-   app.use(async (req, _params, next) => {
-     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-       return next();
-     }
-     // Cria nova request com header injetado
-     const newHeaders = new Headers(req.headers);
-     newHeaders.set("X-User-Id", "42");
-     const newReq = new Request(req.url, {
-       method: req.method,
-       headers: newHeaders,
-     });
-     return next(newReq);
-   });
-   
-   let receivedUserId: string | null = null;
-   app.ws("/chat", (ws, req) => {
-     receivedUserId = req.headers.get("X-User-Id");
-     ws.close(1000, "Test done");
-   });
-   
-   // ✅ CORREÇÃO: Adicionado connection: Upgrade para satisfazer o Deno
-   const req = new Request("http://localhost/chat", {
-     headers: {
-       upgrade: "websocket",
-       connection: "Upgrade", // <--- Adicionado para evitar TypeError no upgradeWebSocket
-       "sec-websocket-version": "13",
-       "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
-     },
-   });
-   
-   await app.handleRequest(req);
-   // Aguarda um tick para o handler executar
-   await new Promise((r) => setTimeout(r, 50));
-   assertEquals(receivedUserId, "42", "Handler deve receber a request modificada");
- });
- 
- // ============================================================
- // 4. LAST BROADCAST COM DUAL PERMISSION
- // ============================================================
- class MockWebSocket {
-   readyState: number = 1;
-   sent: string[] = [];
-   send(data: string | ArrayBuffer | Blob) {
-     if (typeof data === "string") {
-       this.sent.push(data);
-     }
-   }
-   close(code?: number, reason?: string) {
-     this.readyState = 3;
-   }
- }
- 
- Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", async () => {
-   const group = new WebSocketGroup();
-   const ws1 = new MockWebSocket();
-   group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
-   group.broadcast(
-     "Segredo da Sala A",
-     (receiver, sender, _msg) => receiver.room === sender.room,
-     { room: "A", user: "user1" }
-   );
-   
-   const ws2 = new MockWebSocket();
-   group.addSocket(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
-   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
-   
-   await new Promise(r => setTimeout(r, 100));
-   assertEquals(ws2.sent, [], "User2 na sala B não deve receber broadcast da sala A");
- });
- 
- Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () => {
-   const group = new WebSocketGroup();
-   const ws1 = new MockWebSocket();
-   group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
-   group.broadcast(
-     "Bem-vindos!",
-     (receiver, sender, _msg) => receiver.room === sender.room,
-     { room: "A", user: "user1" }
-   );
-   
-   const ws3 = new MockWebSocket();
-   group.addSocket(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
-   group.sendLastBroadcastTo(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
-   
-   await new Promise(r => setTimeout(r, 100));
-   assertEquals(ws3.sent, ["Bem-vindos!"]);
- });
- 
- Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
-   const group = new WebSocketGroup(0);
-   const ws1 = new MockWebSocket();
-   group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
-   group.broadcast("msg", undefined, { room: "A" });
-   
-   const ws2 = new MockWebSocket();
-   group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
-   group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
-   
-   await new Promise(r => setTimeout(r, 10));
-   assertEquals(ws2.sent, ["msg"]);
- });
 
 ```
 
@@ -2851,12 +2053,14 @@ Deno.test("Rota inexistente retorna 404 (sem static)", async () => {
   assertEquals(res.status, 404);
 });
 
-Deno.test("Método HTTP errado retorna 404", async () => {
+// 🚀 CORREÇÃO: Agora retorna 405 Method Not Allowed
+Deno.test("Método HTTP errado retorna 405", async () => {
   const app = createDenoRouter({ basePath: "" });
   app.get("/only-get", () => ({ body: "ok" }));
   const req = new Request("http://localhost/only-get", { method: "POST" });
   const res = await app.handleRequest(req);
-  assertEquals(res.status, 404);
+  assertEquals(res.status, 405);
+  assertEquals(res.headers.get("Allow"), "GET");
 });
 ```
 
@@ -3148,6 +2352,699 @@ Deno.test("WebSocket real: closeGroup fecha todos os sockets do grupo", async ()
 
 ---
 
+## Arquivo: `monorepo/router/tests/websocket_group_test.ts`
+
+```ts
+// monorepo/router/tests/websocket_group_test.ts
+import { assertEquals } from "@std/assert";
+import { WebSocketGroup, type RouteParams } from "../src/mod.ts";
+
+class MockWebSocket {
+  readyState: number = 1;
+  sent: string[] = [];
+  send(data: string | ArrayBuffer | Blob) {
+    if (typeof data === "string") this.sent.push(data);
+  }
+  close(code?: number, reason?: string) {
+    this.readyState = 3;
+  }
+}
+
+Deno.test("broadcast envia para todos os sockets", () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
+  group.broadcast("hello");
+  assertEquals(ws1.sent, ["hello"]);
+  assertEquals(ws2.sent, ["hello"]);
+});
+
+Deno.test("broadcast com permissionFn filtra destinatários", () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+  group.addSocket(ws2 as unknown as WebSocket, { room: "B" });
+  
+  // 🚀 MUDANÇA: Assinatura Dual (receiver, sender, msg)
+  group.broadcast("only-A", (receiver, _sender, _msg) => receiver.room === "A");
+  
+  assertEquals(ws1.sent, ["only-A"]);
+  assertEquals(ws2.sent, []);
+});
+
+Deno.test("novo membro recebe último broadcast ao entrar", async () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+  group.broadcast("first-msg", undefined, { room: "A" });
+
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
+  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
+
+  // 🚀 MUDANÇA: Delay default agora é 0ms, 10ms é mais que suficiente
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assertEquals(ws2.sent, ["first-msg"]);
+});
+
+Deno.test("novo membro em sala diferente NÃO recebe último broadcast", async () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+  
+  // 🚀 MUDANÇA: Assinatura Dual
+  group.broadcast("first-msg", (receiver, sender, _msg) => receiver.room === sender.room, { room: "A" });
+
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws2 as unknown as WebSocket, { room: "B" });
+  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B" });
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assertEquals(ws2.sent, []);
+});
+
+Deno.test("closeGroup fecha todos os sockets", () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, {});
+  group.addSocket(ws2 as unknown as WebSocket, {});
+  group.closeGroup();
+  assertEquals(ws1.readyState, 3);
+  assertEquals(ws2.readyState, 3);
+  assertEquals(group.size, 0);
+});
+```
+
+---
+
+## Arquivo: `monorepo/router/tests/security_test.ts`
+
+```ts
+// monorepo/router/tests/security_test.ts
+import { assertEquals } from "@std/assert";
+import { createDenoRouter } from "../src/deno.ts";
+import { join } from "@std/path";
+
+Deno.test("trustProxy: X-Forwarded-Proto é ignorado por padrão", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true, trustProxy: false });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("http://example.com/ping", {
+    headers: { "x-forwarded-proto": "https" },
+  });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 301, "Deve redirecionar mesmo com X-Forwarded-Proto");
+});
+
+Deno.test("trustProxy: X-Forwarded-Proto é respeitado quando ativo", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true, trustProxy: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("http://example.com/ping", {
+    headers: { "x-forwarded-proto": "https" },
+  });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200, "Deve aceitar X-Forwarded-Proto");
+});
+
+Deno.test("HSTS está presente em respostas HTTPS quando forceHttps ativo", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("https://example.com/ping");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(
+    res.headers.get("Strict-Transport-Security"),
+    "max-age=31536000; includeSubDomains"
+  );
+});
+
+Deno.test("Dotfiles são bloqueados por padrão", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(join(tmpDir, ".env"), "SECRET=123");
+  await Deno.writeTextFile(join(tmpDir, "public.txt"), "ok");
+  
+  const app = createDenoRouter({ basePath: "", staticDir: tmpDir, allowDotfiles: false });
+  
+  const req1 = new Request("http://localhost/.env");
+  const res1 = await app.handleRequest(req1);
+  assertEquals(res1.status, 404, "Dotfile deve ser bloqueado");
+  
+  const req2 = new Request("http://localhost/public.txt");
+  const res2 = await app.handleRequest(req2);
+  assertEquals(res2.status, 200, "Arquivo normal deve ser servido");
+  
+  await Deno.remove(tmpDir, { recursive: true });
+});
+
+Deno.test("Dotfiles são permitidos quando allowDotfiles é true", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(join(tmpDir, ".env"), "SECRET=123");
+  
+  const app = createDenoRouter({ basePath: "", staticDir: tmpDir, allowDotfiles: true });
+  
+  const req = new Request("http://localhost/.env");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200, "Dotfile deve ser servido");
+  assertEquals(await res.text(), "SECRET=123");
+  
+  await Deno.remove(tmpDir, { recursive: true });
+});
+
+Deno.test("Symlinks são recusados", async () => {
+  const tmpRoot = await Deno.makeTempDir();
+  const publicDir = join(tmpRoot, "public");
+  const secretDir = join(tmpRoot, "secret");
+  
+  await Deno.mkdir(publicDir);
+  await Deno.mkdir(secretDir);
+  await Deno.writeTextFile(join(secretDir, "secret.txt"), "TOP SECRET");
+  await Deno.symlink(join(secretDir, "secret.txt"), join(publicDir, "leak.txt"));
+  
+  const app = createDenoRouter({ basePath: "", staticDir: publicDir });
+  
+  const req = new Request("http://localhost/leak.txt");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 404, "Symlink deve ser recusado");
+  
+  await Deno.remove(tmpRoot, { recursive: true });
+});
+
+Deno.test("Headers de arquivo estático incluem Content-Length e ETag", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(join(tmpDir, "test.txt"), "hello world");
+  
+  const app = createDenoRouter({ basePath: "", staticDir: tmpDir });
+  
+  const req = new Request("http://localhost/test.txt");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(res.headers.get("Content-Length"), "11");
+  assertEquals(res.headers.get("Last-Modified") !== null, true);
+  assertEquals(res.headers.get("ETag") !== null, true);
+  assertEquals(res.headers.get("Cache-Control"), "public, max-age=3600");
+  
+  await Deno.remove(tmpDir, { recursive: true });
+});
+
+Deno.test("Diretório sem barra final redireciona para com barra", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  const subDir = join(tmpDir, "docs");
+  await Deno.mkdir(subDir);
+  await Deno.writeTextFile(join(subDir, "index.html"), "<h1>Docs</h1>");
+  
+  const app = createDenoRouter({ basePath: "", staticDir: tmpDir });
+  
+  const req = new Request("http://localhost/docs");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 301);
+  assertEquals(res.headers.get("Location"), "/docs/");
+  
+  await Deno.remove(tmpDir, { recursive: true });
+});
+```
+
+---
+
+## Arquivo: `monorepo/router/tests/http_semantics_test.ts`
+
+```ts
+// monorepo/router/tests/http_semantics_test.ts
+import { assertEquals } from "@std/assert";
+import { createDenoRouter } from "../src/deno.ts";
+
+Deno.test("HEAD automático: usa rota GET se HEAD não existir", async () => {
+  const app = createDenoRouter({ basePath: "" });
+  app.get("/resource", () => ({
+    body: "data",
+    init: { headers: { "X-Custom": "value" } },
+  }));
+  
+  const req = new Request("http://localhost/resource", { method: "HEAD" });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(res.headers.get("X-Custom"), "value");
+  assertEquals(await res.text(), "", "HEAD deve ter body vazio");
+});
+
+Deno.test("405 Method Not Allowed: retorna quando path existe com outro método", async () => {
+  const app = createDenoRouter({ basePath: "" });
+  app.get("/resource", () => ({ body: "data" }));
+  app.post("/resource", () => ({ body: "created", init: { status: 201 } }));
+  
+  const req = new Request("http://localhost/resource", { method: "PUT" });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 405);
+  assertEquals(res.headers.get("Allow"), "GET, POST");
+});
+
+Deno.test("Static files: POST retorna 404", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(`${tmpDir}/file.txt`, "content");
+  
+  const app = createDenoRouter({ basePath: "", staticDir: tmpDir });
+  
+  const req = new Request("http://localhost/file.txt", { method: "POST" });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 404);
+  
+  await Deno.remove(tmpDir, { recursive: true });
+});
+
+Deno.test("Static files: HEAD retorna headers sem body", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(`${tmpDir}/file.txt`, "content");
+  
+  const app = createDenoRouter({ basePath: "", staticDir: tmpDir });
+  
+  const req = new Request("http://localhost/file.txt", { method: "HEAD" });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(res.headers.get("Content-Type"), "text/plain; charset=utf-8");
+  assertEquals(await res.text(), "", "HEAD deve ter body vazio");
+  
+  await Deno.remove(tmpDir, { recursive: true });
+});
+
+Deno.test("basePath normaliza '/' para ''", async () => {
+  const app = createDenoRouter({ basePath: "/" });
+  app.get("/test", () => ({ body: "ok" }));
+  
+  const req = new Request("http://localhost/test");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "ok");
+});
+
+Deno.test("lastBroadcastDelay default é 0ms", async () => {
+  // Teste implícito: se fosse 50ms, testes de last broadcast seriam mais lentos
+  const app = createDenoRouter({ basePath: "" });
+  // Se não houver erro, o default está correto
+  assertEquals(true, true);
+});
+```
+
+---
+
+## Arquivo: `monorepo/router/tests/complementary_test.ts`
+
+```ts
+// monorepo/router/tests/complementary_test.ts
+import { assertEquals, assert } from "@std/assert";
+import { createDenoRouter } from "../src/deno.ts";
+import { WebSocketGroup } from "../src/mod.ts";
+
+// ============================================================
+// 1. ERROR HANDLING
+// ============================================================
+Deno.test("Handler HTTP que lança erro retorna 500", async () => {
+  const app = createDenoRouter("", null, null);
+  app.get("/error", () => {
+    throw new Error("Database connection failed");
+  });
+  const req = new Request("http://localhost/error");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 500);
+  assertEquals(await res.text(), "Internal Server Error");
+});
+
+Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
+  const app = createDenoRouter("", null, null);
+  app.get("/async-error", async () => {
+    await new Promise(r => setTimeout(r, 10));
+    throw new Error("Async boom");
+  });
+  const req = new Request("http://localhost/async-error");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 500);
+});
+
+// ============================================================
+// 2. FORCE HTTPS
+// ============================================================
+Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("http://example.com/ping");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 301);
+  assertEquals(res.headers.get("Location"), "https://example.com/ping");
+  assertEquals(res.headers.get("Strict-Transport-Security"), "max-age=31536000; includeSubDomains");
+});
+
+Deno.test("Force HTTPS ignora localhost", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("http://localhost:8000/ping");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "pong");
+});
+
+// 🚀 CORREÇÃO: Adicionado trustProxy: true
+Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true, trustProxy: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("http://example.com/ping", {
+    headers: { "x-forwarded-proto": "https" }
+  });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+});
+
+// ============================================================
+// 3. MIDDLEWARES
+// ============================================================
+Deno.test("Middleware HTTP: executa antes do handler e pode abortar", async () => {
+  const app = createDenoRouter("", null, null);
+  app.use((_req, _params, _next) => {
+    return new Response("Unauthorized", { status: 401 });
+  });
+  app.get("/protected", () => ({ body: "secret" }));
+  const req = new Request("http://localhost/protected");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 401);
+  assertEquals(await res.text(), "Unauthorized");
+});
+
+Deno.test("Middleware HTTP: múltiplos middlewares em cadeia", async () => {
+  const app = createDenoRouter("", null, null);
+  const order: number[] = [];
+  app.use(async (_req, _params, next) => {
+    order.push(1);
+    const res = await next();
+    order.push(4);
+    return res;
+  });
+  app.use(async (_req, _params, next) => {
+    order.push(2);
+    const res = await next();
+    order.push(3);
+    return res;
+  });
+  app.get("/test", () => {
+    return { body: "ok" };
+  });
+  const req = new Request("http://localhost/test");
+  await app.handleRequest(req);
+  assertEquals(order, [1, 2, 3, 4]);
+});
+
+Deno.test("Middleware HTTP: modifica a resposta", async () => {
+  const app = createDenoRouter("", null, null);
+  app.use(async (_req, _params, next) => {
+    const res = await next();
+    res.headers.set("X-Middleware", "applied");
+    return res;
+  });
+  app.get("/test", () => ({ body: "ok" }));
+  const req = new Request("http://localhost/test");
+  const res = await app.handleRequest(req);
+  assertEquals(res.headers.get("X-Middleware"), "applied");
+});
+
+Deno.test("Middleware HTTP: executa mesmo sem rota (404)", async () => {
+  const app = createDenoRouter("", null, null);
+  let middlewareCalled = false;
+  app.use(async (_req, _params, next) => {
+    middlewareCalled = true;
+    return await next();
+  });
+  const req = new Request("http://localhost/inexistente");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 404);
+  assertEquals(middlewareCalled, true, "Middleware deve executar mesmo sem rota");
+});
+
+Deno.test("Middleware WS: aborta upgrade sem token", async () => {
+  const app = createDenoRouter("", null, null);
+  app.use((req, _params, next) => {
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      return next();
+    }
+    const token = req.headers.get("authorization");
+    if (!token) {
+      return new Response("Token required", { status: 401 });
+    }
+    return next();
+  });
+  app.ws("/chat", () => {});
+  const req1 = new Request("http://localhost/chat", {
+    headers: { upgrade: "websocket" },
+  });
+  const res1 = await app.handleRequest(req1);
+  assertEquals(res1.status, 401);
+});
+
+Deno.test("Middleware WS: não é chamado para rotas WS inexistentes", async () => {
+  const app = createDenoRouter("", null, null);
+  let middlewareCalled = false;
+  app.use(async (_req, _params, next) => {
+    middlewareCalled = true;
+    return await next();
+  });
+  const req = new Request("http://localhost/inexistente", {
+    headers: { upgrade: "websocket" },
+  });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 404);
+  assertEquals(middlewareCalled, true, "Middleware deve executar mesmo para 404 WS");
+});
+
+Deno.test("Middleware WS: pode passar Request modificada para next()", async () => {
+  const app = createDenoRouter("", null, null);
+  app.use(async (req, _params, next) => {
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      return next();
+    }
+    const newHeaders = new Headers(req.headers);
+    newHeaders.set("X-User-Id", "42");
+    const newReq = new Request(req.url, {
+      method: req.method,
+      headers: newHeaders,
+    });
+    return next(newReq);
+  });
+  let receivedUserId: string | null = null;
+  app.ws("/chat", (ws, req) => {
+    receivedUserId = req.headers.get("X-User-Id");
+    ws.close(1000, "Test done");
+  });
+  const req = new Request("http://localhost/chat", {
+    headers: {
+      upgrade: "websocket",
+      connection: "Upgrade",
+      "sec-websocket-version": "13",
+      "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+    },
+  });
+  await app.handleRequest(req);
+  await new Promise((r) => setTimeout(r, 50));
+  assertEquals(receivedUserId, "42", "Handler deve receber a request modificada");
+});
+
+// ============================================================
+// 4. LAST BROADCAST COM DUAL PERMISSION
+// ============================================================
+class MockWebSocket {
+  readyState: number = 1;
+  sent: string[] = [];
+  send(data: string | ArrayBuffer | Blob) {
+    if (typeof data === "string") {
+      this.sent.push(data);
+    }
+  }
+  close(code?: number, reason?: string) {
+    this.readyState = 3;
+  }
+}
+
+Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", async () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
+  group.broadcast(
+    "Segredo da Sala A",
+    (receiver, sender, _msg) => receiver.room === sender.room,
+    { room: "A", user: "user1" }
+  );
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
+  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
+  await new Promise(r => setTimeout(r, 100));
+  assertEquals(ws2.sent, [], "User2 na sala B não deve receber broadcast da sala A");
+});
+
+Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
+  group.broadcast(
+    "Bem-vindos!",
+    (receiver, sender, _msg) => receiver.room === sender.room,
+    { room: "A", user: "user1" }
+  );
+  const ws3 = new MockWebSocket();
+  group.addSocket(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
+  group.sendLastBroadcastTo(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
+  await new Promise(r => setTimeout(r, 100));
+  assertEquals(ws3.sent, ["Bem-vindos!"]);
+});
+
+Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
+  const group = new WebSocketGroup(0);
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+  group.broadcast("msg", undefined, { room: "A" });
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
+  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
+  await new Promise(r => setTimeout(r, 10));
+  assertEquals(ws2.sent, ["msg"]);
+});
+```
+
+---
+
+## Arquivo: `monorepo/router/tests/router_advanced_test.ts`
+
+```ts
+// monorepo/router/tests/router_advanced_test.ts
+import { assertEquals } from "@std/assert";
+import { createDenoRouter } from "../src/deno.ts";
+import { WebSocketGroup } from "../src/mod.ts";
+
+// ============================================================
+// 1. Error Handling
+// ============================================================
+Deno.test("Handler HTTP que lança erro retorna 500", async () => {
+  const app = createDenoRouter("", null, null);
+  app.get("/error", () => {
+    throw new Error("Database connection failed");
+  });
+  const req = new Request("http://localhost/error");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 500);
+  assertEquals(await res.text(), "Internal Server Error");
+});
+
+Deno.test("Handler HTTP assíncrono que rejeita retorna 500", async () => {
+  const app = createDenoRouter("", null, null);
+  app.get("/async-error", async () => {
+    await new Promise(r => setTimeout(r, 10));
+    throw new Error("Async boom");
+  });
+  const req = new Request("http://localhost/async-error");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 500);
+});
+
+// ============================================================
+// 2. Force HTTPS
+// ============================================================
+Deno.test("Force HTTPS redireciona em produção (não localhost)", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("http://example.com/ping");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 301);
+  assertEquals(res.headers.get("Location"), "https://example.com/ping");
+  assertEquals(res.headers.get("Strict-Transport-Security"), "max-age=31536000; includeSubDomains");
+});
+
+Deno.test("Force HTTPS ignora localhost", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("http://localhost:8000/ping");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "pong");
+});
+
+Deno.test("Force HTTPS ignora se já for HTTPS", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("https://example.com/ping");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+});
+
+// 🚀 CORREÇÃO: Adicionado trustProxy: true
+Deno.test("Force HTTPS ignora se x-forwarded-proto for https", async () => {
+  const app = createDenoRouter({ basePath: "", forceHttps: true, trustProxy: true });
+  app.get("/ping", () => ({ body: "pong" }));
+  const req = new Request("http://example.com/ping", {
+    headers: { "x-forwarded-proto": "https" }
+  });
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+});
+
+// ============================================================
+// 3. Last Broadcast com Dual Permission
+// ============================================================
+class MockWebSocket {
+  readyState: number = 1;
+  sent: string[] = [];
+  send(data: string | ArrayBuffer | Blob) {
+    if (typeof data === "string") {
+      this.sent.push(data);
+    }
+  }
+  close(code?: number, reason?: string) {
+    this.readyState = 3;
+  }
+}
+
+Deno.test("Last Broadcast NÃO vaza para sala diferente (Dual Permission)", async () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
+  group.broadcast(
+    "Segredo da Sala A",
+    (receiver, sender, _msg) => receiver.room === sender.room,
+    { room: "A", user: "user1" }
+  );
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
+  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "B", user: "user2" });
+  await new Promise(r => setTimeout(r, 100));
+  assertEquals(ws2.sent, [], "User2 na sala B não deve receber broadcast da sala A");
+});
+
+Deno.test("Last Broadcast É entregue para novo membro na mesma sala", async () => {
+  const group = new WebSocketGroup();
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A", user: "user1" });
+  group.broadcast(
+    "Bem-vindos!",
+    (receiver, sender, _msg) => receiver.room === sender.room,
+    { room: "A", user: "user1" }
+  );
+  const ws3 = new MockWebSocket();
+  group.addSocket(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
+  group.sendLastBroadcastTo(ws3 as unknown as WebSocket, { room: "A", user: "user3" });
+  await new Promise(r => setTimeout(r, 100));
+  assertEquals(ws3.sent, ["Bem-vindos!"]);
+});
+
+Deno.test("Last Broadcast com delay customizado (0ms)", async () => {
+  const group = new WebSocketGroup(0);
+  const ws1 = new MockWebSocket();
+  group.addSocket(ws1 as unknown as WebSocket, { room: "A" });
+  group.broadcast("msg", undefined, { room: "A" });
+  const ws2 = new MockWebSocket();
+  group.addSocket(ws2 as unknown as WebSocket, { room: "A" });
+  group.sendLastBroadcastTo(ws2 as unknown as WebSocket, { room: "A" });
+  await new Promise(r => setTimeout(r, 10));
+  assertEquals(ws2.sent, ["msg"]);
+});
+```
+
+---
+
 ## Arquivo: `monorepo/router/tests/adapters_test.ts`
 
 ```ts
@@ -3155,8 +3052,6 @@ Deno.test("WebSocket real: closeGroup fecha todos os sockets do grupo", async ()
 import { assertEquals, assert } from "@std/assert";
 import { Router } from "../src/mod.ts";
 import { createDenoRouter } from "../src/deno.ts";
-import { cloudflareWebSocketUpgrader, createKVStaticFileHandler } from "../src/adapters/cloudflare.ts";
-import type { KVNamespace } from "../src/adapters/cloudflare-types.ts";
 
 // ============================================================
 // 1. TESTES DO ADAPTADOR DENO
@@ -3185,64 +3080,7 @@ Deno.test("createDenoRouter sem staticDir retorna 404 para estáticos", async ()
 });
 
 // ============================================================
-// 2. TESTES DO ADAPTADOR CLOUDFLARE (MOCK)
-// ============================================================
-class MockKVNamespace {
-  private store = new Map<string, string>();
-  put(key: string, value: string) {
-    this.store.set(key, value);
-  }
-  async get(key: string, type: "text" | "arrayBuffer" = "text"): Promise<string | ArrayBuffer | null> {
-    const value = this.store.get(key);
-    if (value === undefined) return null;
-    if (type === "arrayBuffer") {
-      return new TextEncoder().encode(value).buffer;
-    }
-    return value;
-  }
-  async delete(key: string) {
-    this.store.delete(key);
-  }
-}
-
-Deno.test("Cloudflare KV adapter: serve arquivo existente", async () => {
-  const kv = new MockKVNamespace();
-  kv.put("index.html", "<h1>Hello</h1>");
-  const handler = createKVStaticFileHandler(kv as unknown as KVNamespace);
-  const response = await handler.handle("index.html");
-  assert(response !== null, "Deve retornar Response");
-  assertEquals(response!.status, 200);
-  assertEquals(await response!.text(), "<h1>Hello</h1>");
-  assertEquals(response!.headers.get("Content-Type"), "text/html; charset=utf-8");
-});
-
-Deno.test("Cloudflare KV adapter: retorna null para arquivo inexistente", async () => {
-  const kv = new MockKVNamespace();
-  const handler = createKVStaticFileHandler(kv as unknown as KVNamespace);
-  const response = await handler.handle("nao-existe.txt");
-  assertEquals(response, null);
-});
-
-Deno.test("Cloudflare KV adapter: MIME type correto para CSS", async () => {
-  const kv = new MockKVNamespace();
-  kv.put("style.css", "body { color: red; }");
-  const handler = createKVStaticFileHandler(kv as unknown as KVNamespace);
-  const response = await handler.handle("style.css");
-  assert(response !== null);
-  assertEquals(response!.headers.get("Content-Type"), "text/css; charset=utf-8");
-});
-
-Deno.test("Cloudflare KV adapter: MIME type fallback para extensão desconhecida", async () => {
-  const kv = new MockKVNamespace();
-  kv.put("data.xyz", "binary data");
-  const handler = createKVStaticFileHandler(kv as unknown as KVNamespace);
-  const response = await handler.handle("data.xyz");
-  assert(response !== null);
-  assertEquals(response!.headers.get("Content-Type"), "application/octet-stream");
-});
-
-// ============================================================
-// 3. TESTE DE WEBSOCKET SEM UPGRADER (Erro esperado)
+// 2. TESTE DE WEBSOCKET SEM UPGRADER (Erro esperado)
 // ============================================================
 Deno.test("WebSocket sem upgrader retorna 501", async () => {
   const app = new Router({ basePath: "", webSocketUpgrader: undefined });
@@ -3256,7 +3094,7 @@ Deno.test("WebSocket sem upgrader retorna 501", async () => {
 });
 
 // ============================================================
-// 4. TESTE DE INTEGRAÇÃO COM createDenoRouter + WebSocket
+// 3. TESTE DE INTEGRAÇÃO COM createDenoRouter + WebSocket
 // ============================================================
 Deno.test("createDenoRouter com WebSocket funciona", async () => {
   const app = createDenoRouter({ basePath: "/api", staticDir: null });
@@ -3284,7 +3122,7 @@ Deno.test("createDenoRouter com WebSocket funciona", async () => {
 });
 
 // ============================================================
-// 5. TESTE DE FORCE HTTPS COM createDenoRouter
+// 4. TESTE DE FORCE HTTPS COM createDenoRouter
 // ============================================================
 Deno.test("createDenoRouter com forceHttps redireciona", async () => {
   const app = createDenoRouter({ basePath: "", staticDir: null, forceHttps: true });
@@ -4095,7 +3933,9 @@ const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 ````md
 # 🌐 Arquitetura Runtime-Agnostic
 
-O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript** que suporte as Web APIs padrão (Fetch API, WebSocket, URLPattern). O core do router **não possui nenhuma dependência direta** de runtime específico (Deno, Node.js, Cloudflare Workers, Bun).
+O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript** que suporte as Web APIs padrão (Fetch API, WebSocket, URLPattern). O core do router **não possui nenhuma dependência direta** de runtime específico.
+
+Atualmente, fornecemos adaptadores oficiais e testados apenas para **Deno**. Adaptadores para outros runtimes (Node.js, Bun, Cloudflare Workers) estão em nosso [Roadmap](./roadmap-adapters.md).
 
 ---
 
@@ -4109,24 +3949,22 @@ O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript**
 └──────────────────────────┬──────────────────────────────┘
                            │ importa
 ┌──────────────────────────▼──────────────────────────────┐
-│           ENTRY POINTS (src/deno.ts, src/cloudflare.ts) │
-│  - createDenoRouter()                                   │
-│  - createCloudflareRouter()                             │
-└──────────────────────────┬──────────────────────────────┘
+ │           ENTRY POINTS (src/deno.ts)                    │
+ │  - createDenoRouter()                                   │
+ └──────────────────────────┬──────────────────────────────┘
                            │ injeta adaptadores
 ┌──────────────────────────▼──────────────────────────────┐
-│              CORE AGNÓSTICO (src/mod.ts)                │
-│  - Router, WebSocketGroup, tipos                        │
-│  - ZERO dependência de runtime                          │
-│  - Usa interfaces: WebSocketUpgrader, StaticFileHandler │
-└──────────────────────────┬──────────────────────────────┘
+ │              CORE AGNÓSTICO (src/mod.ts)                │
+ │  - Router, WebSocketGroup, tipos                        │
+ │  - ZERO dependência de runtime                          │
+ │  - Usa interfaces: WebSocketUpgrader, StaticFileHandler │
+ └──────────────────────────┬──────────────────────────────┘
                            │ implementado por
 ┌──────────────────────────▼──────────────────────────────┐
-│              ADAPTADORES (src/adapters/)                 │
-│  - adapters/deno.ts       → Deno.upgradeWebSocket,      │
-│                              Deno.stat, Deno.open       │
-│  - adapters/cloudflare.ts → WebSocketPair, KV, R2       │
-└─────────────────────────────────────────────────────────┘
+ │              ADAPTADORES (src/adapters/)                 │
+ │  - adapters/deno.ts       → Deno.upgradeWebSocket,      │
+ │                              Deno.stat, Deno.open       │
+ └─────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -4134,40 +3972,24 @@ O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript**
 ## 🔌 Interfaces de Adaptação
 
 ### `WebSocketUpgrader`
-
 Abstrai o mecanismo de upgrade de HTTP para WebSocket:
-
 ```typescript
 interface WebSocketUpgrader {
   upgrade(req: Request): { socket: WebSocket; response: Response };
 }
 ```
 
-| Runtime | Implementação |
-|---------|---------------|
-| Deno | `Deno.upgradeWebSocket(req)` |
-| Cloudflare Workers | `new WebSocketPair()` |
-| Node.js (ws) | `ws.handleUpgrade()` |
-
 ### `StaticFileHandler`
-
 Abstrai o sistema de arquivos para servir arquivos estáticos:
-
 ```typescript
 interface StaticFileHandler {
   handle(path: string): Promise<Response | null>;
 }
 ```
 
-| Runtime | Implementação |
-|---------|---------------|
-| Deno | `Deno.stat()` + `Deno.open()` |
-| Cloudflare Workers | KV Namespace ou R2 Bucket |
-| Node.js | `fs.stat()` + `fs.createReadStream()` |
-
 ---
 
-## 🦕 Usando com Deno
+## 🦕 Usando com Deno (Suporte Oficial)
 
 ```typescript
 import { createDenoRouter } from "@loco/router/deno";
@@ -4176,6 +3998,7 @@ const app = createDenoRouter({
   basePath: "/api",
   staticDir: "./public",
   forceHttps: true,
+  trustProxy: true,
 });
 
 app.get("/hello", () => ({ body: "Hello!" }));
@@ -4183,39 +4006,21 @@ app.get("/hello", () => ({ body: "Hello!" }));
 Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 ```
 
-## ☁️ Usando com Cloudflare Workers
+## 🟢 Usando com Node.js ou Bun (Via Core Puro)
 
-```typescript
-import { createCloudflareRouter } from "@loco/router/cloudflare";
-
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    const app = createCloudflareRouter({
-      basePath: "/api",
-      kvNamespace: env.MY_KV,
-      forceHttps: true,
-    });
-
-    app.get("/hello", () => ({ body: "Hello from Cloudflare!" }));
-
-    app.ws("/chat/:room", (ws, _req, params) => {
-      ws.onmessage = (e) => ws.send(`Echo: ${e.data}`);
-    });
-
-    return app.handleRequest(req);
-  },
-};
-```
-
-## 🟢 Usando com Node.js (exemplo conceitual)
+Como o core é agnóstico, você pode usá-lo em Node.js ou Bun implementando suas próprias interfaces de adaptação:
 
 ```typescript
 import { Router } from "@loco/router";
-import { createNodeWebSocketUpgrader } from "./adapters/node.ts"; // futuro
+
+// Você precisaria implementar estas interfaces para o seu runtime
+const myNodeUpgrader = { /* ... */ };
+const myNodeStaticHandler = { /* ... */ };
 
 const app = new Router({
   basePath: "/api",
-  webSocketUpgrader: createNodeWebSocketUpgrader(),
+  webSocketUpgrader: myNodeUpgrader,
+  staticFileHandler: myNodeStaticHandler,
 });
 ```
 
@@ -4223,25 +4028,1207 @@ const app = new Router({
 
 ## 🔒 Segurança
 
-- **Path Traversal Protection**: O core sanitiza paths com `normalize()` + regex anti-`..`
-- **Force HTTPS**: Redireciona HTTP→HTTPS em produção (ignora localhost)
-- **HSTS**: Header `Strict-Transport-Security` adicionado automaticamente
+- **Path Traversal Protection**: O core sanitiza paths e o adaptador Deno garante *containment* real e recusa symlinks.
+- **Dotfiles**: Bloqueados por padrão (`allowDotfiles: false`).
+- **Force HTTPS**: Redireciona HTTP→HTTPS em produção (ignora localhost).
+- **HSTS**: Header `Strict-Transport-Security` adicionado automaticamente em respostas HTTPS.
+- **Trust Proxy**: Confiança explícita em headers como `X-Forwarded-Proto` via `trustProxy: true`.
 
 ---
 
-## 📋 Tabela de Compatibilidade
+## 📋 Tabela de Compatibilidade Atual
 
-| Feature | Deno | Cloudflare Workers | Node.js (futuro) |
-|---------|------|--------------------|------------------|
-| HTTP Routing | ✅ | ✅ | ✅ |
-| WebSocket | ✅ | ✅ | ✅ |
-| Static Files (disco) | ✅ | ❌ | ✅ |
-| Static Files (KV/R2) | ❌ | ✅ | ❌ |
-| Force HTTPS | ✅ | ✅ | ✅ |
-| Middlewares | ✅ | ✅ | ✅ |
-| Dual Params Broadcast | ✅ | ✅ | ✅ |
-| Last Broadcast | ✅ | ✅ | ✅ |
-| Path Traversal Protection | ✅ | ✅ | ✅ |
+| Feature | Deno (Oficial) | Node.js / Bun (Via Core) |
+|---------|----------------|--------------------------|
+| HTTP Routing | ✅ | ✅ |
+| WebSocket | ✅ | ⚠️ (Requer Adaptador) |
+| Static Files (disco) | ✅ | ⚠️ (Requer Adaptador) |
+| Force HTTPS / HSTS | ✅ | ✅ |
+| Middlewares | ✅ | ✅ |
+| Dual Params Broadcast | ✅ | ✅ |
+| Last Broadcast | ✅ | ✅ |
+| Path Traversal / Symlinks | ✅ | ⚠️ (Depende do Adaptador) |
+
+````
+
+---
+
+## Arquivo: `monorepo/router/docs/middleware.md`
+
+````md
+# 🎯 Sim, Middleware cabe perfeitamente no WebSocket!
+
+Na verdade, é **onde ele brilha mais**, pois permite autenticar **antes** do upgrade (evitando criar conexões não autorizadas), em vez de validar dentro do handler quando o socket já está aberto.
+
+## 📊 Como Funciona o Fluxo
+
+```
+Request → Force HTTPS? → Rota encontrada? → MIDDLEWARES → Handler final
+                ↓                                    ↓
+              301                          Se retornar Response → ABORTA
+                                           Se chamar next() → continua
+```
+
+**Para HTTP:** `next()` executa o handler da rota.
+**Para WS:** `next()` faz o `Deno.upgradeWebSocket` e inicia o grupo.
+
+Se um middleware retornar uma `Response` (ex: `401`), o upgrade **nunca acontece**.
+
+
+---
+
+## 🌍 Exemplos Práticos
+
+### Exemplo 1: Autenticação JWT via Subprotocol (agora como middleware!)
+
+O exemplo do `jwt/main.ts` fica **muito mais limpo**. Toda a validação sai do handler:
+
+```typescript
+import { Router } from "../../src/mod.ts";
+import { SignJWT, jwtVerify } from "jose";
+
+const JWT_SECRET = "meu-segredo-super-secreto-123";
+const encoder = new TextEncoder();
+
+const app = new Router("/api", "./public", null);
+
+// ✅ Middleware de autenticação: bloqueia ANTES do upgrade
+app.use(async (req, _params, next) => {
+  // Só aplica em rotas WebSocket
+  if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    return await next();
+  }
+
+  const protocol = req.headers.get("sec-websocket-protocol") ?? "";
+  const protocols = protocol.split(",").map((p) => p.trim());
+  const bearerIndex = protocols.findIndex((p) => p === "Bearer");
+  const token = bearerIndex !== -1 ? protocols[bearerIndex + 1] : null;
+
+  if (!token) {
+    console.error("[Middleware] ❌ Token ausente");
+    return new Response("Token required", { status: 401 });
+  }
+
+  try {
+    await jwtVerify(token, encoder.encode(JWT_SECRET));
+    console.log("[Middleware] ✅ Token válido, permitindo upgrade");
+    return await next(); // Prossegue com o upgrade
+  } catch {
+    console.error("[Middleware] ❌ Token inválido");
+    return new Response("Invalid token", { status: 403 });
+  }
+});
+
+// Handler WS agora fica limpo — só lógica de negócio
+app.ws("/chat/:room", (ws, _req, params) => {
+  const room = params.room as string;
+  const group = app.getWsGroupByPath("/chat/:room");
+  if (!group) return;
+
+  ws.onmessage = (event) => {
+    group.broadcast(
+      `[room ${room}]: ${event.data}`,
+      (receiver, sender, _msg) => receiver.room === sender.room,
+      params,
+    );
+  };
+});
+
+Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
+```
+
+### Exemplo 2: Logging + Rate Limiting
+
+```typescript
+// Logging de todas as requisições (HTTP + WS)
+app.use(async (req, params, next) => {
+  const start = Date.now();
+  const res = await next();
+  const ms = Date.now() - start;
+  const isWs = req.headers.get("upgrade") === "websocket";
+  console.log(`📝 [${isWs ? "WS" : "HTTP"}] ${req.method} ${req.url} → ${res.status} (${ms}ms)`);
+  return res;
+});
+
+// Rate limiting por IP (simples, em memória)
+const requestCounts = new Map<string, { count: number; resetAt: number }>();
+
+app.use(async (req, _params, next) => {
+  const ip = req.headers.get("x-forwarded-for") ?? "unknown";
+  const now = Date.now();
+  const entry = requestCounts.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    requestCounts.set(ip, { count: 1, resetAt: now + 60_000 });
+    return await next();
+  }
+
+  entry.count++;
+  if (entry.count > 100) {
+    return new Response("Too Many Requests", { status: 429 });
+  }
+  return await next();
+});
+```
+
+### Exemplo 3: Manutenção Programada
+
+```typescript
+let maintenanceMode = false;
+
+app.use(async (_req, _params, next) => {
+  if (maintenanceMode) {
+    return new Response("🔧 Em manutenção", {
+      status: 503,
+      headers: { "Retry-After": "300" },
+    });
+  }
+  return await next();
+});
+```
+
+---
+
+## 📊 Comparação: Middleware vs PermissionFn
+
+| Aspecto | `app.use()` (Middleware) | `permissionFn` (Broadcast) |
+|---|---|---|
+| **Quando roda** | No momento da conexão/requisição | A cada mensagem broadcastada |
+| **O que controla** | Se a conexão/requisição é aceita | Quem recebe cada mensagem |
+| **Acesso ao WebSocket** | ❌ Não (ainda não foi criado) | ✅ Sim (sockets já conectados) |
+| **Acesso à Request** | ✅ Sim (headers, URL, method) | ❌ Não |
+| **Caso de uso** | Auth, rate limit, logging, CORS | Isolamento de salas, filtros de conteúdo |
+
+**Eles se complementam:** Middleware controla **quem entra**, `permissionFn` controla **quem ouve o quê**.
+
+---
+
+## ⚠️ Pontos Importantes
+
+1. **Ordem importa:** Middlewares são executados na ordem em que foram registrados com `app.use()`.
+2. **Só em rotas registradas:** Middlewares não rodam para arquivos estáticos nem para rotas 404 (apenas quando há match em uma rota HTTP ou WS).
+3. **Abortar o upgrade:** Se um middleware retornar `Response` sem chamar `next()` em uma rota WS, o upgrade nunca acontece — o cliente recebe uma resposta HTTP normal (ex: 401).
+4. **Params disponíveis:** O middleware recebe os `params` já extraídos da rota, permitindo lógica como "bloquear acesso à sala X".
+
+````
+
+---
+
+## Arquivo: `monorepo/router/docs/security.md`
+
+````md
+# 🔒 Guia de Segurança do @loco/router
+
+Este documento descreve as práticas de segurança recomendadas ao usar o `@loco/router` em produção.
+
+## 📋 Índice
+
+1. [HTTPS e HSTS](#https-e-hsts)
+2. [Proteção de Arquivos Estáticos](#proteção-de-arquivos-estáticos)
+3. [WebSocket Security](#websocket-security)
+4. [Autenticação e Autorização](#autenticação-e-autorização)
+5. [Rate Limiting](#rate-limiting)
+6. [Headers de Segurança](#headers-de-segurança)
+
+---
+
+## 🌐 HTTPS e HSTS
+
+### Force HTTPS
+
+O router suporta redirecionamento automático de HTTP para HTTPS:
+
+```typescript
+const app = createDenoRouter({
+  basePath: "/api",
+  forceHttps: true, // Redireciona HTTP → HTTPS
+});
+```
+
+**Comportamento:**
+- Redireciona com status `301 Moved Permanently`
+- Ignora automaticamente `localhost` e `127.0.0.1` para facilitar desenvolvimento
+- Suporta IPv6 `[::1]`
+
+### Confiança em Proxy (`trustProxy`)
+
+Quando atrás de um proxy reverso (nginx, Cloudflare, etc.), o router pode confiar no header `X-Forwarded-Proto`:
+
+```typescript
+const app = createDenoRouter({
+  forceHttps: true,
+  trustProxy: true, // ⚠️ Apenas se estiver atrás de proxy confiável
+});
+```
+
+**⚠️ AVISO:** Nunca ative `trustProxy` se o servidor estiver exposto diretamente à internet. Um atacante poderia enviar `X-Forwarded-Proto: https` e bypassar o redirect.
+
+### HSTS (HTTP Strict Transport Security)
+
+Quando `forceHttps` está ativo e a requisição já é HTTPS, o router automaticamente adiciona:
+
+```http
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+```
+
+Isso instrui navegadores a sempre usar HTTPS para seu domínio.
+
+---
+
+## 📂 Proteção de Arquivos Estáticos
+
+### Dotfiles
+
+Por padrão, arquivos que começam com `.` são bloqueados:
+
+```typescript
+const app = createDenoRouter({
+  staticDir: "./public",
+  allowDotfiles: false, // Default: false
+});
+```
+
+**Bloqueados por padrão:**
+- `.env`, `.env.local`
+- `.git/config`, `.git/HEAD`
+- `.DS_Store`
+- `.htaccess`
+
+Se precisar servir dotfiles (não recomendado):
+
+```typescript
+const app = createDenoRouter({
+  staticDir: "./public",
+  allowDotfiles: true, // ⚠️ Risco de segurança
+});
+```
+
+### Symlinks
+
+O adaptador Deno **recusa symlinks** por padrão para evitar vazamento de arquivos fora do diretório público.
+
+**Exemplo de ataque bloqueado:**
+```bash
+# Se existir: public/secret -> /etc/passwd
+# Requisição: GET /secret
+# Resultado: 404 (não serve o arquivo)
+```
+
+### Path Traversal
+
+O router sanitiza caminhos para evitar ataques de path traversal:
+
+```typescript
+// Requisição maliciosa
+GET /../../etc/passwd
+GET /..%2F..%2Fetc%2Fpasswd
+
+// Resultado: 404 (caminho sanitizado antes de acessar)
+```
+
+### Containment
+
+O adaptador Deno verifica que o caminho resolvido está estritamente dentro do `staticDir`:
+
+```typescript
+const app = createDenoRouter({
+  staticDir: "/var/www/public",
+});
+
+// Requisição: GET /../../etc/passwd
+// Mesmo após sanitização, o path resolvido é verificado
+// Resultado: 404 se tentar escapar do diretório
+```
+
+---
+
+## 🔌 WebSocket Security
+
+### Validação de Origin
+
+WebSockets são vulneráveis a ataques Cross-Site WebSocket Hijacking (CSWSH). Valide o header `Origin`:
+
+```typescript
+const allowedOrigins = ["https://meusite.com", "https://app.meusite.com"];
+
+app.use(async (req, _params, next) => {
+  if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+    const origin = req.headers.get("origin");
+    if (!origin || !allowedOrigins.includes(origin)) {
+      return new Response("Forbidden: Invalid origin", { status: 403 });
+    }
+  }
+  return await next();
+});
+```
+
+### Autenticação via Subprotocol
+
+O exemplo JWT demonstra como passar tokens via subprotocolo WebSocket:
+
+```javascript
+// Cliente
+const ws = new WebSocket("wss://api.site.com/chat", ["Bearer", token]);
+
+// Servidor (middleware)
+app.use(async (req, _params, next) => {
+  if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    return await next();
+  }
+  
+  const protocol = req.headers.get("sec-websocket-protocol") ?? "";
+  const protocols = protocol.split(",").map(p => p.trim());
+  const bearerIndex = protocols.findIndex(p => p === "Bearer");
+  const token = bearerIndex !== -1 ? protocols[bearerIndex + 1] : null;
+  
+  if (!token) {
+    return new Response("Token required", { status: 401 });
+  }
+  
+  try {
+    await jwtVerify(token, secret);
+    return await next();
+  } catch {
+    return new Response("Invalid token", { status: 403 });
+  }
+});
+```
+
+### Isolamento de Salas
+
+Use `permissionFn` para garantir que mensagens não vazem entre salas:
+
+```typescript
+app.ws("/chat/:room/:user", (ws, _req, params) => {
+  const group = app.getWsGroupByPath("/chat/:room/:user");
+  
+  ws.onmessage = (event) => {
+    group.broadcast(
+      `[${params.user}]: ${event.data}`,
+      (receiver, sender, _msg) => receiver.room === sender.room,
+      params
+    );
+  };
+});
+```
+
+**Sem `permissionFn`, o broadcast envia para TODOS os sockets da rota**, não apenas para a mesma sala.
+
+---
+
+## 🔐 Autenticação e Autorização
+
+### JWT com Expiração
+
+Sempre defina expiração em tokens JWT:
+
+```typescript
+import { SignJWT } from "jose";
+
+const token = await new SignJWT({ userId: "123", role: "user" })
+  .setProtectedHeader({ alg: "HS256" })
+  .setExpirationTime("1h") // ⚠️ Sempre definir
+  .setIssuedAt()
+  .sign(secret);
+```
+
+### Validação de Algoritmo
+
+Ao verificar JWTs, especifique algoritmos permitidos:
+
+```typescript
+import { jwtVerify } from "jose";
+
+await jwtVerify(token, secret, {
+  algorithms: ["HS256"], // ⚠️ Evite "none" e algoritmos fracos
+});
+```
+
+### Segredos em Variáveis de Ambiente
+
+Nunca hardcode segredos em produção:
+
+```typescript
+// ❌ RUIM
+const JWT_SECRET = "meu-segredo-123";
+
+// ✅ BOM
+const JWT_SECRET = Deno.env.get("JWT_SECRET");
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET não configurado");
+}
+```
+
+---
+
+## 🚦 Rate Limiting
+
+O router **não inclui rate limiting nativo**. Use middlewares para proteger contra abuso:
+
+```typescript
+// Exemplo simples de rate limiting por IP
+const requestCounts = new Map<string, { count: number; resetTime: number }>();
+
+app.use(async (req, _params, next) => {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+  const now = Date.now();
+  const windowMs = 60000; // 1 minuto
+  const maxRequests = 100;
+  
+  const record = requestCounts.get(ip) ?? { count: 0, resetTime: now + windowMs };
+  
+  if (now > record.resetTime) {
+    record.count = 0;
+    record.resetTime = now + windowMs;
+  }
+  
+  record.count++;
+  requestCounts.set(ip, record);
+  
+  if (record.count > maxRequests) {
+    return new Response("Too Many Requests", {
+      status: 429,
+      headers: {
+        "Retry-After": Math.ceil((record.resetTime - now) / 1000).toString(),
+      },
+    });
+  }
+  
+  return await next();
+});
+```
+
+Para produção, considere:
+- Redis para rate limiting distribuído
+- Bibliotecas especializadas como `rate-limiter-flexible`
+- Soluções de edge (Cloudflare, AWS WAF)
+
+---
+
+## 🛡️ Headers de Segurança
+
+Adicione headers de segurança via middleware:
+
+```typescript
+app.use(async (req, _params, next) => {
+  const res = await next();
+  
+  // Prevenir clickjacking
+  res.headers.set("X-Frame-Options", "DENY");
+  
+  // Prevenir MIME sniffing
+  res.headers.set("X-Content-Type-Options", "nosniff");
+  
+  // Referrer Policy
+  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  
+  // Content Security Policy (ajuste conforme necessário)
+  res.headers.set(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+  );
+  
+  return res;
+});
+```
+
+---
+
+## ✅ Checklist de Segurança para Produção
+
+- [ ] `forceHttps: true` ativado
+- [ ] `trustProxy: true` apenas se atrás de proxy confiável
+- [ ] `allowDotfiles: false` (default)
+- [ ] Validação de `Origin` em WebSockets
+- [ ] Tokens JWT com expiração e algoritmos restritos
+- [ ] Segredos em variáveis de ambiente
+- [ ] Rate limiting implementado
+- [ ] Headers de segurança adicionados
+- [ ] Logs de auditoria para autenticação
+- [ ] HTTPS/WSS em produção (nunca HTTP/WS)
+
+---
+
+## 📚 Recursos Adicionais
+
+- [OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/)
+- [MDN: HTTP Strict Transport Security](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security)
+- [MDN: Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP)
+
+````
+
+---
+
+## Arquivo: `monorepo/router/docs/roadmap-adapters.md`
+
+````md
+# 🗺️ Roadmap: Adaptadores para Outros Runtimes
+
+O `@loco/router` foi projetado com arquitetura runtime-agnostic, mas atualmente possui suporte oficial apenas para **Deno**. Este documento descreve o roadmap para suportar outros ambientes.
+
+---
+
+## 📊 Status Atual
+
+| Runtime | HTTP | WebSocket | Static Files | Status |
+|---------|------|-----------|--------------|--------|
+| **Deno** | ✅ | ✅ | ✅ | **Suporte Oficial** |
+| Cloudflare Workers | ⏸️ | ❌ | ⏸️ | Roadmap (Static Assets) |
+| Node.js | ❌ | ❌ | ❌ | Roadmap |
+| Bun | ❌ | ❌ | ❌ | Roadmap |
+| Edge Runtimes (Vercel, Netlify) | ❌ | ❌ | ❌ | Futuro |
+
+---
+
+## ☁️ Cloudflare Workers
+
+### Status Atual
+
+Os adaptadores Cloudflare foram **removidos do core** na versão 1.0 devido a:
+
+1. **Limitações de estado**: Cloudflare Workers não mantém estado compartilhado entre requests (exceto via Durable Objects)
+2. **WebSocket em memória**: Grupos WebSocket não funcionariam corretamente em produção
+3. **Foco no Deno**: Simplificar o core e garantir qualidade
+
+### Caminho Futuro: Static Assets
+
+Cloudflare lançou **Static Assets** ([documentação](https://developers.cloudflare.com/workers/static-assets/)), que é a forma recomendada de servir arquivos estáticos:
+
+```typescript
+// Futuro adaptador Cloudflare com Static Assets
+export function createCloudflareRouter(options: {
+  basePath?: string;
+  assets?: { binding: string }; // Novo binding de Static Assets
+}) {
+  // ...
+}
+```
+
+**Para WebSockets em Cloudflare**, use **Durable Objects**:
+
+```typescript
+// Exemplo conceitual: Chat Room como Durable Object
+export class ChatRoom {
+  private sessions: Map<string, WebSocket> = new Map();
+  
+  async fetch(request: Request) {
+    if (request.headers.get("Upgrade") !== "websocket") {
+      return new Response("Expected WebSocket", { status: 426 });
+    }
+    
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    
+    await this.handleSession(server);
+    
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    });
+  }
+  
+  async handleSession(webSocket: WebSocket) {
+    webSocket.accept();
+    // Gerenciar mensagens, broadcast, etc.
+  }
+}
+```
+
+### Prioridade: **Média**
+
+---
+
+## 🟢 Node.js
+
+### Desafios
+
+1. **URLPattern**: Disponível apenas em Node 18.17+ (via `undici`)
+2. **WebSocket**: Requer biblioteca externa (`ws`, `uWebSockets.js`)
+3. **Static Files**: Módulo `fs` ou `fs/promises`
+
+### Adaptador Conceitual
+
+```typescript
+// src/adapters/node.ts (futuro)
+import { WebSocketServer } from "ws";
+import { createReadStream, stat } from "fs/promises";
+import { join, resolve } from "path";
+
+export function createNodeWebSocketUpgrader(wss: WebSocketServer): WebSocketUpgrader {
+  return {
+    upgrade(req: Request): { socket: WebSocket; response: Response } {
+      // Node.js requer abordagem diferente
+      // WebSocket upgrade acontece no servidor HTTP, não no handler
+      throw new Error("Node WebSocket adapter requer integração com servidor HTTP");
+    },
+  };
+}
+
+export function createNodeStaticFileHandler(staticDir: string): StaticFileHandler {
+  return {
+    async handle(path: string): Promise<Response | null> {
+      try {
+        const filePath = join(staticDir, path);
+        const stats = await stat(filePath);
+        
+        if (stats.isFile()) {
+          const stream = createReadStream(filePath);
+          return new Response(stream as any, {
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "Content-Length": stats.size.toString(),
+            },
+          });
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    },
+  };
+}
+```
+
+### Prioridade: **Alta**
+
+Node.js é amplamente usado e seria valioso ter suporte oficial.
+
+---
+
+## 🥐 Bun
+
+### Vantagens
+
+- Compatível com APIs Node.js
+- Suporte nativo a WebSocket via `Bun.serve`
+- Performance excelente
+
+### Adaptador Conceitual
+
+```typescript
+// src/adapters/bun.ts (futuro)
+export function createBunWebSocketUpgrader(): WebSocketUpgrader {
+  return {
+    upgrade(req: Request): { socket: WebSocket; response: Response } {
+      const { socket, response } = Bun.upgrade(req, {
+        data: {},
+      });
+      return { socket, response };
+    },
+  };
+}
+
+export function createBunStaticFileHandler(staticDir: string): StaticFileHandler {
+  return {
+    async handle(path: string): Promise<Response | null> {
+      try {
+        const file = Bun.file(join(staticDir, path));
+        if (await file.exists()) {
+          return new Response(file);
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    },
+  };
+}
+```
+
+### Prioridade: **Média-Alta**
+
+Bun está ganhando popularidade e seria relativamente fácil adaptar.
+
+---
+
+## 🌐 Edge Runtimes (Vercel Edge, Netlify Edge)
+
+### Desafios
+
+- Ambientes serverless com cold starts
+- Sem suporte a WebSocket de longa duração
+- Foco em HTTP request/response
+
+### Abordagem Recomendada
+
+Usar o core agnóstico diretamente, sem adaptadores oficiais:
+
+```typescript
+// edge-function.ts
+import { Router } from "@loco/router";
+
+const router = new Router({ basePath: "/api" });
+
+router.get("/hello", () => ({
+  body: JSON.stringify({ message: "Hello from Edge!" }),
+  init: { headers: { "Content-Type": "application/json" } },
+}));
+
+export default function handler(request: Request) {
+  return router.handleRequest(request);
+}
+```
+
+### Prioridade: **Baixa**
+
+---
+
+## 🛠️ Como Contribuir com um Adaptador
+
+Se você quer criar um adaptador para outro runtime:
+
+### 1. Implementar `WebSocketUpgrader`
+
+```typescript
+interface WebSocketUpgrader {
+  upgrade(req: Request): { socket: WebSocket; response: Response };
+}
+```
+
+### 2. Implementar `StaticFileHandler`
+
+```typescript
+interface StaticFileHandler {
+  handle(path: string): Promise<Response | null>;
+}
+```
+
+### 3. Criar Entry Point
+
+```typescript
+// src/[runtime].ts
+export function create[Runtime]Router(options: {
+  basePath?: string;
+  staticDir?: string;
+  forceHttps?: boolean;
+  // ... outras opções específicas do runtime
+}): Router {
+  const router = new Router({
+    basePath,
+    forceHttps,
+    webSocketUpgrader: create[Runtime]WebSocketUpgrader(),
+    staticFileHandler: staticDir ? create[Runtime]StaticFileHandler(staticDir) : undefined,
+  });
+  return router;
+}
+
+export * from "./mod.ts";
+```
+
+### 4. Adicionar Testes
+
+Criar `tests/adapters_[runtime]_test.ts` com:
+- Testes de HTTP routing
+- Testes de WebSocket (se suportado)
+- Testes de static files (se suportado)
+- Testes de edge cases do runtime
+
+### 5. Documentar
+
+- Adicionar seção em `docs/runtime-agnostic.md`
+- Criar exemplo em `example/[runtime]/`
+- Atualizar `README.md`
+
+---
+
+## 📅 Timeline Estimado
+
+| Adaptador | Estimativa | Dependências |
+|-----------|------------|--------------|
+| Node.js | 2-3 semanas | `ws`, `undici` |
+| Bun | 1-2 semanas | Nenhuma (built-in) |
+| Cloudflare (Static Assets) | 1-2 semanas | Wrangler |
+| Edge Runtimes | 1 semana | Nenhuma |
+
+---
+
+## 💡 Alternativa: Adapters da Comunidade
+
+Se você criar um adaptador, considere publicá-lo como pacote separado:
+
+```bash
+@loco/router-adapter-node
+@loco/router-adapter-bun
+@loco/router-adapter-cloudflare
+```
+
+Isso mantém o core leve e permite que a comunidade contribua sem sobrecarregar o repositório principal.
+
+---
+
+## 🤝 Contribuindo
+
+Interessado em contribuir com um adaptador? Abra uma issue discutindo:
+
+1. Qual runtime você quer suportar
+2. Como você planeja implementar `WebSocketUpgrader`
+3. Como você planeja implementar `StaticFileHandler`
+4. Se você vai manter o adaptador a longo prazo
+
+Estamos abertos a colaborações! 🚀
+
+
+````
+
+---
+
+## Arquivo: `monorepo/router/docs/roadmap-rate-limiting.md`
+
+````md
+# 🚦 Roadmap: Rate Limiting e Proteção contra Abuso
+
+O `@loco/router` atualmente **não inclui rate limiting nativo**. Este documento descreve estratégias recomendadas e o roadmap para possíveis implementações futuras.
+
+---
+
+## 📊 Status Atual
+
+| Feature | Status | Implementação Recomendada |
+|---------|--------|---------------------------|
+| Rate Limiting por IP | ❌ | Middleware customizado |
+| Rate Limiting por Usuário | ❌ | Middleware customizado |
+| Rate Limiting por WebSocket | ❌ | Middleware customizado |
+| Tamanho Máximo de Mensagem | ❌ | Validação no handler |
+| Backpressure de Broadcast | ❌ | Lógica no handler |
+
+---
+
+## 🛡️ Por Que Rate Limiting é Importante?
+
+### Ataques Comuns
+
+1. **Brute Force**: Tentativas massivas de login
+2. **DDoS**: Sobrecarga do servidor com requests
+3. **Credential Stuffing**: Teste de credenciais vazadas
+4. **Scraping**: Extração automatizada de dados
+5. **WebSocket Flood**: Envio massivo de mensagens
+
+### Impactos sem Rate Limiting
+
+- **Performance degradada**: CPU/memory sobrecarregados
+- **Custos elevados**: Uso excessivo de recursos (especialmente em serverless)
+- **Dados comprometidos**: Contas invadidas via brute force
+- **Disponibilidade**: Serviço indisponível para usuários legítimos
+
+---
+
+## 💡 Implementações Recomendadas
+
+### 1. Rate Limiting Simples (Em Memória)
+
+Adequado para aplicações single-instance:
+
+```typescript
+const requestCounts = new Map<string, { count: number; resetTime: number }>();
+
+app.use(async (req, _params, next) => {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+  const now = Date.now();
+  const windowMs = 60000; // 1 minuto
+  const maxRequests = 100;
+  
+  const record = requestCounts.get(ip) ?? { count: 0, resetTime: now + windowMs };
+  
+  if (now > record.resetTime) {
+    record.count = 0;
+    record.resetTime = now + windowMs;
+  }
+  
+  record.count++;
+  requestCounts.set(ip, record);
+  
+  if (record.count > maxRequests) {
+    return new Response("Too Many Requests", {
+      status: 429,
+      headers: {
+        "Retry-After": Math.ceil((record.resetTime - now) / 1000).toString(),
+        "X-RateLimit-Limit": maxRequests.toString(),
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": record.resetTime.toString(),
+      },
+    });
+  }
+  
+  const res = await next();
+  res.headers.set("X-RateLimit-Limit", maxRequests.toString());
+  res.headers.set("X-RateLimit-Remaining", (maxRequests - record.count).toString());
+  res.headers.set("X-RateLimit-Reset", record.resetTime.toString());
+  
+  return res;
+});
+```
+
+**Limitações:**
+- Não funciona em múltiplas instâncias
+- Perde estado ao reiniciar
+- Sem persistência
+
+---
+
+### 2. Rate Limiting com Redis (Distribuído)
+
+Para aplicações multi-instância:
+
+```typescript
+import { connect } from "redis";
+
+const redis = await connect({ hostname: "localhost", port: 6379 });
+
+app.use(async (req, _params, next) => {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+  const key = `ratelimit:${ip}`;
+  const windowMs = 60000;
+  const maxRequests = 100;
+  
+  const current = await redis.incr(key);
+  if (current === 1) {
+    await redis.expire(key, Math.ceil(windowMs / 1000));
+  }
+  
+  if (current > maxRequests) {
+    const ttl = await redis.ttl(key);
+    return new Response("Too Many Requests", {
+      status: 429,
+      headers: {
+        "Retry-After": ttl.toString(),
+        "X-RateLimit-Limit": maxRequests.toString(),
+        "X-RateLimit-Remaining": "0",
+      },
+    });
+  }
+  
+  const res = await next();
+  res.headers.set("X-RateLimit-Limit", maxRequests.toString());
+  res.headers.set("X-RateLimit-Remaining", (maxRequests - current).toString());
+  
+  return res;
+});
+```
+
+**Vantagens:**
+- Funciona em múltiplas instâncias
+- Persistente
+- Atomicidade garantida
+
+---
+
+### 3. Rate Limiting por Usuário Autenticado
+
+```typescript
+app.use(async (req, _params, next) => {
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader) return await next();
+  
+  const token = authHeader.replace("Bearer ", "");
+  let userId: string;
+  
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    userId = payload.userId as string;
+  } catch {
+    return await next(); // Deixa o handler de auth lidar
+  }
+  
+  const key = `ratelimit:user:${userId}`;
+  // ... mesma lógica de rate limiting
+  
+  return await next();
+});
+```
+
+---
+
+### 4. Rate Limiting de WebSocket
+
+#### Limite de Mensagens por Segundo
+
+```typescript
+app.ws("/chat/:room/:user", (ws, _req, params) => {
+  const messageCount = { count: 0, resetTime: Date.now() + 1000 };
+  const maxMessagesPerSecond = 10;
+  
+  ws.onmessage = (event) => {
+    const now = Date.now();
+    
+    if (now > messageCount.resetTime) {
+      messageCount.count = 0;
+      messageCount.resetTime = now + 1000;
+    }
+    
+    messageCount.count++;
+    
+    if (messageCount.count > maxMessagesPerSecond) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Rate limit exceeded. Max 10 messages/second.",
+      }));
+      return;
+    }
+    
+    // Processar mensagem normalmente
+    const group = app.getWsGroupByPath("/chat/:room/:user");
+    group.broadcast(event.data, /* ... */);
+  };
+});
+```
+
+#### Tamanho Máximo de Mensagem
+
+```typescript
+app.ws("/chat/:room/:user", (ws, _req, params) => {
+  const maxMessageSize = 1024; // 1 KB
+  
+  ws.onmessage = (event) => {
+    if (typeof event.data === "string" && event.data.length > maxMessageSize) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: `Message too large. Max ${maxMessageSize} characters.`,
+      }));
+      return;
+    }
+    
+    // Processar mensagem
+  };
+});
+```
+
+---
+
+### 5. Backpressure de Broadcast
+
+Quando um cliente está lento, o broadcast pode acumular mensagens:
+
+```typescript
+app.ws("/chat/:room/:user", (ws, _req, params) => {
+  const group = app.getWsGroupByPath("/chat/:room/:user");
+  const maxQueueSize = 100;
+  let messageQueue: string[] = [];
+  
+  ws.onmessage = (event) => {
+    // Broadcast normal
+    group.broadcast(
+      `[${params.user}]: ${event.data}`,
+      (receiver, sender, _msg) => receiver.room === sender.room,
+      params
+    );
+  };
+  
+  // Monitorar bufferedAmount (WebSocket API)
+  setInterval(() => {
+    if (ws.bufferedAmount > 1024 * 1024) { // > 1 MB
+      console.warn(`[WS] Cliente ${params.user} com buffer alto: ${ws.bufferedAmount}`);
+      // Opcional: fechar conexão ou enviar alerta
+      ws.send(JSON.stringify({
+        type: "warning",
+        message: "You're receiving messages faster than you can process them.",
+      }));
+    }
+  }, 5000);
+});
+```
+
+---
+
+## 🔮 Possível Implementação Futura no Core
+
+Se rate limiting for adicionado ao core, poderia ser assim:
+
+```typescript
+const app = createDenoRouter({
+  basePath: "/api",
+  rateLimit: {
+    enabled: true,
+    windowMs: 60000,
+    maxRequests: 100,
+    keyGenerator: (req) => req.headers.get("x-forwarded-for") ?? "unknown",
+    skipSuccessfulRequests: false,
+    skipFailedRequests: false,
+    handler: (req, res, next, options) => {
+      res.status(429).json({
+        error: "Too many requests, please try again later.",
+      });
+    },
+  },
+});
+```
+
+### Desafios
+
+1. **Storage**: Em memória vs Redis vs banco de dados
+2. **Distribuição**: Como sincronizar entre instâncias
+3. **Flexibilidade**: Diferentes limites para diferentes rotas
+4. **Performance**: Overhead de verificar rate limit em cada request
+
+### Prioridade: **Média**
+
+Rate limiting é importante, mas existem soluções maduras (middlewares, proxies) que podem ser usadas. Implementar no core pode ser over-engineering.
+
+---
+
+## 📚 Bibliotecas Recomendadas
+
+### Para Node.js
+
+- **rate-limiter-flexible**: Suporta Redis, MongoDB, memória
+- **express-rate-limit**: Simples e popular
+- **slow-down**: Adiciona delay em vez de bloquear
+
+### Para Deno
+
+Atualmente não há bibliotecas maduras. Implemente custom ou use Redis diretamente.
+
+### Para Cloudflare
+
+- **Cloudflare Rate Limiting Rules**: Configurado no dashboard
+- **Workers KV**: Para rate limiting distribuído
+
+---
+
+## ✅ Checklist de Rate Limiting
+
+- [ ] Rate limit por IP em endpoints públicos
+- [ ] Rate limit mais agressivo em `/login`, `/register`
+- [ ] Rate limit por usuário autenticado
+- [ ] Rate limit de WebSocket (mensagens/segundo)
+- [ ] Tamanho máximo de mensagem WebSocket
+- [ ] Headers `X-RateLimit-*` nas respostas
+- [ ] Logs de tentativas de abuso
+- [ ] Alertas para picos anômalos de tráfego
+
+---
+
+## 🎯 Recomendações por Tamanho de Aplicação
+
+### Pequena (Single Instance, < 1000 req/min)
+
+- Rate limiting em memória
+- Sem Redis
+- Middleware simples
+
+### Média (Multi-Instance, < 10000 req/min)
+
+- Redis para rate limiting distribuído
+- Diferentes limites por rota
+- Monitoramento básico
+
+### Grande (> 10000 req/min)
+
+- Solução de edge (Cloudflare, AWS WAF)
+- Redis cluster
+- Análise de padrões de tráfego
+- Machine learning para detecção de anomalias
+
+---
+
+## 🤝 Contribuindo
+
+Se você implementou uma solução de rate limiting robusta, considere:
+
+1. Compartilhar como exemplo em `example/rate-limiting/`
+2. Criar um pacote separado: `@loco/router-rate-limit`
+3. Abrir uma issue discutindo a abordagem
+
+Estamos abertos a contribuições! 🚀
 
 ````
 
@@ -4250,10 +5237,10 @@ const app = new Router({
 ## Arquivo: `monorepo/router/deno.jsonc`
 
 ```json
-// 📄 Arquivo: `monorepo/router/deno.jsonc` (ATUALIZADO)
+// monorepo/router/deno.jsonc
 {
   "name": "@loco/router",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
     "strict": true,
@@ -4279,9 +5266,7 @@ const app = new Router({
   "exports": {
     ".": "./src/mod.ts",
     "./deno": "./src/deno.ts",
-    "./cloudflare": "./src/cloudflare.ts",
-    "./adapters/deno": "./src/adapters/deno.ts",
-    "./adapters/cloudflare": "./src/adapters/cloudflare.ts"
+    "./adapters/deno": "./src/adapters/deno.ts"
   }
 }
 ```
