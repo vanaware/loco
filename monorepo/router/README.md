@@ -1,286 +1,82 @@
 # 🚂 @loco/router
 
-**O router HTTP e WebSocket mais completo e seguro para Deno.**
-
-Roteamento expressivo baseado na [URL Pattern API](https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API) nativa, middlewares em cadeia, segurança nativa e o revolucionário sistema de **Dual Params** para broadcasts inteligentes em WebSockets.
-
-[![JSR](https://jsr.io/badges/@loco/router)](https://jsr.io/@loco/router)
-[![Deno](https://img.shields.io/badge/Deno-2.x-blue?logo=deno)](https://deno.com)
+[![Deno](https://img.shields.io/badge/Deno-1.40+-black?logo=deno)](https://deno.com)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue?logo=typescript)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-1.0.0-orange)](./CHANGELOG.md)
+
+**Router HTTP/WebSocket runtime-agnostic para Deno** — Rápido, seguro e extensível.
+
+O `@loco/router` é um router moderno com suporte completo a HTTP e WebSockets, projetado com arquitetura agnóstica que permite execução em múltiplos runtimes JavaScript. Atualmente oferece suporte oficial para **Deno**, com adaptadores para Node.js, Bun e Cloudflare Workers em desenvolvimento.
+
+## ✨ Features Principais
+
+### 🌐 HTTP Routing
+- ✅ Todos os métodos HTTP: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD`
+- ✅ Parâmetros de rota nomeados (`:id`) e catch-all (`*`)
+- ✅ **HEAD automático** baseado em rotas GET (semântica HTTP correta)
+- ✅ **405 Method Not Allowed** com header `Allow` quando método não é permitido
+- ✅ Base path configurável com normalização inteligente
+
+### 🔌 WebSockets
+- ✅ Upgrade automático com adaptadores por runtime
+- ✅ **Grupos de WebSocket** com broadcast inteligente
+- ✅ **Dual Params PermissionFn**: filtra por receiver, sender e conteúdo da mensagem
+- ✅ **Last Broadcast automático**: novos membros recebem a última mensagem ao conectar
+- ✅ Handlers `onclose`/`onerror` não são sobrescritos pelo router
+- ✅ Graceful shutdown com `closeAllWebSockets()`
+
+### 🛡️ Segurança
+- ✅ **Force HTTPS** com redirect automático (ignora localhost)
+- ✅ **HSTS** (HTTP Strict Transport Security) em respostas HTTPS
+- ✅ **Trust Proxy** explícito para headers `X-Forwarded-*`
+- ✅ **Bloqueio de dotfiles** (`.env`, `.git`, etc.) por padrão
+- ✅ **Recusa de symlinks** para evitar vazamento de arquivos
+- ✅ **Path traversal protection** com sanitização e containment real
+- ✅ Headers completos em arquivos estáticos (`ETag`, `Last-Modified`, `Cache-Control`)
+
+### 🎯 Middlewares
+- ✅ Cadeia de middlewares com `next()`
+- ✅ **Rewrite de rotas** via `next(newReq)`
+- ✅ Execução mesmo em 404 (útil para logging e CORS)
+- ✅ Proteção contra múltiplas chamadas de `next()`
+
+### 📂 Arquivos Estáticos
+- ✅ Servir arquivos de diretório local
+- ✅ Fallback automático para `index.html` e `index.htm`
+- ✅ **Redirect 301** para diretórios sem barra final
+- ✅ MIME types modernos (`.webp`, `.avif`, `.webmanifest`, etc.)
+- ✅ Suporte a diretórios embutidos (embedded)
 
 ---
 
-## 📑 Tabela de Conteúdo
+## 📦 Instalação
 
-- [✨ Por que @loco/router?](#-por-que-locorouter)
-- [🎯 Features](#-features)
-- [🌐 Arquitetura Runtime-Agnostic](#-arquitetura-runtime-agnostic)
-- [🔌 Adapters: A Camada de Adaptação](#-adapters-a-camada-de-adaptação)
-- [🚀 Quick Start](#-quick-start)
-- [📖 API Reference](#-api-reference)
-- [🧠 Dual Params: O Diferencial](#-dual-params-o-diferencial)
-- [🔗 Middlewares](#-middlewares)
-- [📡 WebSocket Groups & Last Broadcast](#-websocket-groups--last-broadcast)
-- [🛡️ Segurança](#️-segurança)
-- [📂 Arquivos Estáticos](#-arquivos-estáticos)
-- [🌍 Exemplos do Mundo Real](#-exemplos-do-mundo-real)
-- [⚙️ Configuração Avançada](#️-configuração-avançada)
-- [🚢 Deploy](#-deploy)
-- [🧪 Testes](#-testes)
-- [❓ FAQ & Troubleshooting](#-faq--troubleshooting)
-- [⚖️ Comparação com Alternativas](#️-comparação-com-alternativas)
-- [🗺️ Roadmap](#️-roadmap)
-- [🤝 Contribuindo](#-contribuindo)
-- [📄 Licença](#-licença)
-
----
-
-## ✨ Por que @loco/router?
-
-A maioria dos routers Deno trata WebSockets como cidadãos de segunda classe: você conecta, recebe uma mensagem e precisa implementar toda a lógica de salas, permissões e histórico manualmente.
-
-O **@loco/router** foi construído com uma filosofia diferente:
-
-> **"O servidor deve entender o contexto de cada conexão e tomar decisões inteligentes sobre quem recebe o quê."**
-
-Isso se traduz em quatro diferenciais que você não encontra em outros routers:
-
-### 1. 🧠 Dual Params (Exclusivo)
-Filtre broadcasts avaliando **três dimensões simultaneamente**: quem envia, quem recebe e o conteúdo da mensagem.
-
-### 2. ⏳ Last Broadcast Inteligente
-Novos membros recebem automaticamente a última mensagem da sala — respeitando as regras de permissão originais.
-
-### 3. 🔗 Middlewares Unificados HTTP + WebSocket
-Um único middleware pode interceptar tanto requisições HTTP quanto upgrades de WebSocket.
-
-### 4. 🌐 Arquitetura Runtime-Agnostic (Novo!)
-O core do router não depende de nenhum runtime específico. Ele funciona no Deno, Cloudflare Workers e, futuramente, Node.js — sem alterar uma linha do código de rotas.
-
----
-
-## 🎯 Features
-
-| Categoria | Recursos |
-|-----------|----------|
-| **HTTP** | `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD` |
-| **Routing** | Parâmetros nomeados (`:id`), catch-all (`*`), URL Pattern API nativa |
-| **WebSocket** | Grupos automáticos, broadcast com permissões, last broadcast |
-| **Middlewares** | Cadeia encadeada, modificação de Request/Response, abortar fluxo |
-| **Segurança** | Proteção contra Path Traversal, Force HTTPS, HSTS automático |
-| **Arquivos Estáticos** | Disco ou embedded, MIME types automáticos, index.html fallback |
-| **Arquitetura** | Runtime-agnostic, adapters para Deno/Cloudflare, zero dependências de runtime no core |
-| **Error Handling** | Try/catch automático, retorno 500 graceful |
-| **Type Safety** | TypeScript estrito, `noUncheckedIndexedAccess` compatível |
-
----
-
-## 🌐 Arquitetura Runtime-Agnostic
-
-O `@loco/router` foi projetado para funcionar em **qualquer runtime JavaScript** que suporte as Web APIs padrão (Fetch API, WebSocket, URLPattern). O core do router **não possui nenhuma dependência direta** de runtime específico (Deno, Node.js, Cloudflare Workers, Bun).
-
-### 🏗️ Arquitetura em Camadas
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│              SEU CÓDIGO (main.ts / worker.ts)               │
-│  - Define rotas, middlewares e handlers                     │
-│  - Escolhe o entry point adequado ao runtime                │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ importa
-┌──────────────────────────▼──────────────────────────────────┐
-│           ENTRY POINTS (src/deno.ts, src/cloudflare.ts)     │
-│  - createDenoRouter()                                       │
-│  - createCloudflareRouter()                                 │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ injeta adaptadores
-┌──────────────────────────▼──────────────────────────────────┐
-│              CORE AGNÓSTICO (src/mod.ts)                    │
-│  - Router, WebSocketGroup, tipos                            │
-│  - ZERO dependência de runtime                              │
-│  - Usa interfaces: WebSocketUpgrader, StaticFileHandler     │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ implementado por
-┌──────────────────────────▼──────────────────────────────────┐
-│              ADAPTADORES (src/adapters/)                    │
-│  - adapters/deno.ts       → Deno.upgradeWebSocket,          │
-│                              Deno.stat, Deno.open           │
-│  - adapters/cloudflare.ts → WebSocketPair, KV, R2           │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Por que essa arquitetura?
-
-| Problema | Solução |
-|----------|---------|
-| `Deno.upgradeWebSocket()` é específico do Deno | Interface `WebSocketUpgrader` abstrai o upgrade |
-| `Deno.stat()` / `Deno.open()` são específicos do Deno | Interface `StaticFileHandler` abstrai arquivos |
-| Cloudflare usa `WebSocketPair` | Adapter do Cloudflare implementa a interface |
-| Cloudflare usa KV/R2 para arquivos | Adapter do Cloudflare implementa `StaticFileHandler` |
-| Node.js usa `ws` e `fs` | Futuro adapter implementará as mesmas interfaces |
-
-### Quais partes são agnósticas?
-
-| Componente | Agnóstico? | Observação |
-|------------|:----------:|------------|
-| Roteamento HTTP | ✅ Sim | URL Pattern API é padrão web |
-| Middlewares | ✅ Sim | Puro JavaScript |
-| WebSocket Groups | ✅ Sim | Gerencia sockets de forma abstrata |
-| Broadcast & Last Broadcast | ✅ Sim | Lógica pura de JavaScript |
-| Force HTTPS | ✅ Sim | Manipulação de URL e headers |
-| Path Traversal Protection | ✅ Sim | `@std/path` é agnóstico |
-| Upgrade de WebSocket | ❌ Não | Depende do runtime → **Adapter** |
-| Arquivos Estáticos | ❌ Não | Depende do filesystem → **Adapter** |
-
----
-
-## 🔌 Adapters: A Camada de Adaptação
-
-### O que são Adapters?
-
-Adapters são implementações concretas das interfaces `WebSocketUpgrader` e `StaticFileHandler`. Eles isolam todo o código específico de runtime em módulos separados, permitindo que o core do router seja 100% agnóstico.
-
-### Interface `WebSocketUpgrader`
+### Deno
 
 ```typescript
-interface WebSocketUpgrader {
-  upgrade(req: Request): { socket: WebSocket; response: Response };
+import { createDenoRouter } from "jsr:@loco/router@1.0.0/deno";
+```
+
+Ou via import map no `deno.json`:
+
+```json
+{
+  "imports": {
+    "@loco/router": "jsr:@loco/router@1.0.0"
+  }
 }
 ```
 
-| Runtime | Implementação | Observação |
-|---------|---------------|------------|
-| Deno | `Deno.upgradeWebSocket(req)` | Nativo do Deno |
-| Cloudflare Workers | `new WebSocketPair()` | Específico do CF |
-| Node.js (futuro) | `ws.handleUpgrade()` | Via biblioteca `ws` |
-
-### Interface `StaticFileHandler`
-
-```typescript
-interface StaticFileHandler {
-  handle(path: string): Promise<Response | null>;
-}
-```
-
-| Runtime | Implementação | Observação |
-|---------|---------------|------------|
-| Deno | `Deno.stat()` + `Deno.open()` | Sistema de arquivos local |
-| Cloudflare Workers | KV Namespace ou R2 Bucket | Armazenamento distribuído |
-| Node.js (futuro) | `fs.stat()` + `fs.createReadStream()` | Sistema de arquivos local |
-
-### Adapter Deno (`src/adapters/deno.ts`)
-
-O adapter do Deno fornece:
-
-```typescript
-// Upgrade de WebSocket nativo do Deno
-export const denoWebSocketUpgrader: WebSocketUpgrader = {
-  upgrade(req: Request) {
-    return Deno.upgradeWebSocket(req);
-  },
-};
-
-// Handler de arquivos estáticos com suporte a:
-// - Diretório estático (staticDir)
-// - Arquivos embutidos (embeddedDir)
-// - Resolução de MIME types
-// - Candidatos: arquivo.html, arquivo.htm, index.html
-export function createDenoStaticFileHandler(
-  staticDir: string | null,
-  embeddedDir: string | null = null,
-  mimeTypeResolver?: MimeTypeResolver,
-): StaticFileHandler { ... }
-```
-
-**Uso:**
 ```typescript
 import { createDenoRouter } from "@loco/router/deno";
-
-const app = createDenoRouter({
-  basePath: "/api",
-  staticDir: "./public",
-  forceHttps: true,
-});
-```
-
-### Adapter Cloudflare Workers (`src/adapters/cloudflare.ts`)
-
-O adapter do Cloudflare fornece:
-
-```typescript
-// Upgrade de WebSocket via WebSocketPair (específico do CF)
-export const cloudflareWebSocketUpgrader: WebSocketUpgrader = {
-  upgrade(req: Request) {
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    server.accept();
-    return {
-      socket: server,
-      response: new Response(null, { status: 101, webSocket: client }),
-    };
-  },
-};
-
-// Handler de arquivos via R2 Bucket
-export function createR2StaticFileHandler(bucket: R2Bucket): StaticFileHandler;
-
-// Handler de arquivos via KV Namespace
-export function createKVStaticFileHandler(kv: KVNamespace): StaticFileHandler;
-```
-
-**Uso:**
-```typescript
-import { createCloudflareRouter } from "@loco/router/cloudflare";
-
-export default {
-  async fetch(req: Request, env: Env) {
-    const app = createCloudflareRouter({
-      basePath: "/api",
-      r2Bucket: env.MY_BUCKET,
-      forceHttps: true,
-    });
-    
-    app.get("/hello", () => ({ body: "Hello!" }));
-    return app.handleRequest(req);
-  },
-};
-```
-
-### Criando seu Próprio Adapter
-
-Se você quer usar o `@loco/router` em outro runtime, basta implementar as duas interfaces:
-
-```typescript
-import { Router, type WebSocketUpgrader, type StaticFileHandler } from "@loco/router";
-
-// Implemente o upgrade para seu runtime
-const meuUpgrader: WebSocketUpgrader = {
-  upgrade(req: Request) {
-    // Implementação específica do seu runtime
-    return { socket, response };
-  },
-};
-
-// Implemente o handler de arquivos
-const meuFileHandler: StaticFileHandler = {
-  async handle(path: string) {
-    // Implementação específica do seu filesystem
-    return new Response(content) || null;
-  },
-};
-
-const app = new Router({
-  basePath: "/api",
-  webSocketUpgrader: meuUpgrader,
-  staticFileHandler: meuFileHandler,
-});
 ```
 
 ---
 
 ## 🚀 Quick Start
 
-### 🦕 Com Deno (Recomendado)
+### Servidor HTTP Simples
 
 ```typescript
 import { createDenoRouter } from "@loco/router/deno";
@@ -288,566 +84,867 @@ import { createDenoRouter } from "@loco/router/deno";
 const app = createDenoRouter({
   basePath: "/api",
   staticDir: "./public",
-  forceHttps: true,
 });
 
-app.get("/", () => ({ body: "Olá, Mundo!" }));
+app.get("/hello", () => ({
+  body: JSON.stringify({ message: "Hello, World!" }),
+  init: { headers: { "Content-Type": "application/json" } },
+}));
+
+app.get("/users/:id", (_req, params) => ({
+  body: JSON.stringify({ userId: params.id }),
+}));
+
+Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
+console.log("🚀 Servidor rodando em http://localhost:8000");
+```
+
+### Chat WebSocket com Salas
+
+```typescript
+import { createDenoRouter } from "@loco/router/deno";
+
+const app = createDenoRouter({ basePath: "/api" });
+
+app.ws("/chat/:room/:user", (ws, _req, params) => {
+  const room = params.room as string;
+  const user = params.user as string;
+  const group = app.getWsGroupByPath("/chat/:room/:user");
+  
+  if (!group) {
+    ws.close(1011, "Internal error");
+    return;
+  }
+  
+  console.log(`✅ ${user} entrou na sala ${room}`);
+  
+  ws.onmessage = (event) => {
+    // Broadcast apenas para usuários na mesma sala
+    group.broadcast(
+      `[${user}]: ${event.data}`,
+      (receiver, sender, _msg) => receiver.room === sender.room,
+      params
+    );
+  };
+  
+  ws.onclose = () => {
+    console.log(`❌ ${user} saiu da sala ${room}`);
+  };
+});
 
 Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 ```
 
-### ☁️ Com Cloudflare Workers
-
-```typescript
-import { createCloudflareRouter } from "@loco/router/cloudflare";
-
-export default {
-  async fetch(req: Request, env: Env) {
-    const app = createCloudflareRouter({
-      basePath: "/api",
-      kvNamespace: env.MY_KV,
-      forceHttps: true,
-    });
-    app.get("/hello", () => ({ body: "Hello from Cloudflare!" }));
-    return app.handleRequest(req);
-  },
-};
-```
-
-### 🟢 Com Node.js (Futuro)
-
-```typescript
-import { Router } from "@loco/router";
-import { createNodeWebSocketUpgrader } from "@loco/router/adapters/node";
-
-const app = new Router({
-  basePath: "/api",
-  webSocketUpgrader: createNodeWebSocketUpgrader(),
-});
-```
-
 ---
 
-## 📖 API Reference
+## 🌐 Roteamento HTTP
 
-### Constructor
-
-O router aceita **objeto de opções** (forma recomendada):
+### Métodos Suportados
 
 ```typescript
-const app = new Router({
-  basePath: "/api",
-  staticDir: "./public",
-  embeddedDir: null,
-  forceHttps: true,
-  lastBroadcastDelay: 50,
-  webSocketUpgrader: meuUpgrader,      // Adapter
-  staticFileHandler: meuFileHandler,   // Adapter
-});
+app.get("/path", handler);
+app.post("/path", handler);
+app.put("/path", handler);
+app.delete("/path", handler);
+app.patch("/path", handler);
+app.options("/path", handler);
+app.head("/path", handler);
 ```
 
-### Opções (`RouterOptions`)
+### Formato do Handler
 
-| Opção | Tipo | Padrão | Descrição |
-|-------|------|--------|-----------|
-| `basePath` | `string` | `""` | Prefixo aplicado a todas as rotas |
-| `staticDir` | `string \| null` | `"public"` | Pasta de arquivos estáticos |
-| `embeddedDir` | `string \| null` | `null` | Pasta de arquivos embutidos |
-| `forceHttps` | `boolean` | `env.FORCE_HTTPS` | Força redirect HTTP → HTTPS |
-| `lastBroadcastDelay` | `number` | `50` | Delay (ms) para handshake WS |
-| `webSocketUpgrader` | `WebSocketUpgrader` | - | Adapter de upgrade WS |
-| `staticFileHandler` | `StaticFileHandler` | - | Adapter de arquivos estáticos |
-
-### Entry Points
-
-| Import | Runtime | Observação |
-|--------|---------|------------|
-| `@loco/router` | Core agnóstico | Sem adapters, use `new Router()` |
-| `@loco/router/deno` | Deno | `createDenoRouter()` |
-| `@loco/router/cloudflare` | Cloudflare Workers | `createCloudflareRouter()` |
-| `@loco/router/adapters/deno` | Deno adapters | `denoWebSocketUpgrader`, `createDenoStaticFileHandler` |
-| `@loco/router/adapters/cloudflare` | Cloudflare adapters | `cloudflareWebSocketUpgrader`, `createR2StaticFileHandler` |
-
-### Métodos HTTP
-
-Todos os métodos seguem a mesma assinatura:
-
-```typescript
-app.get(path: string, handler: HttpHandler)
-app.post(path: string, handler: HttpHandler)
-app.put(path: string, handler: HttpHandler)
-app.delete(path: string, handler: HttpHandler)
-app.patch(path: string, handler: HttpHandler)
-app.options(path: string, handler: HttpHandler)
-app.head(path: string, handler: HttpHandler)
-```
-
-### `HttpHandler`
+Os handlers retornam um objeto com `body` e opcionalmente `init`:
 
 ```typescript
 type HttpHandler = (
   req: Request,
   params: RouteParams,
-) =>
-  | { body: BodyInit; init?: ResponseInit }
-  | Promise<{ body: BodyInit; init?: ResponseInit }>;
+) => { body: BodyInit; init?: ResponseInit } | Promise<{ body: BodyInit; init?: ResponseInit }>;
 ```
 
-### `body: BodyInit`
+#### Exemplos
 
-| Tipo | Descrição | Exemplo |
-|------|-----------|---------|
-| `string` | Texto simples | `"Hello World"` |
-| `ArrayBuffer` | Dados binários | `new ArrayBuffer(8)` |
-| `TypedArray` | Arrays tipados | `new Uint8Array([1, 2, 3])` |
-| `Blob` | Dados binários com tipo | `new Blob(["data"], { type: "text/plain" })` |
-| `FormData` | Dados de formulário | `new FormData()` |
-| `URLSearchParams` | Query string | `new URLSearchParams({ a: "1" })` |
-| `ReadableStream` | Stream de dados | `file.readable` |
-| `null` | Sem body | `null` |
+**Resposta JSON:**
+```typescript
+app.get("/api/user/:id", async (_req, params) => {
+  const user = await db.getUser(params.id);
+  return {
+    body: JSON.stringify(user),
+    init: {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  };
+});
+```
 
-### `init?: ResponseInit`
+**Resposta de Texto:**
+```typescript
+app.get("/hello", () => ({
+  body: "Hello, World!",
+}));
+```
 
-| Propriedade | Tipo | Padrão | Descrição |
-|-------------|------|--------|-----------|
-| `status` | `number` | `200` | Código HTTP de status |
-| `statusText` | `string` | `""` | Texto do status |
-| `headers` | `HeadersInit` | `{}` | Headers da resposta |
+**Status Customizado:**
+```typescript
+app.post("/users", async (req) => {
+  const data = await req.json();
+  const user = await db.createUser(data);
+  return {
+    body: JSON.stringify(user),
+    init: {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    },
+  };
+});
+```
+
+**No Content (204):**
+```typescript
+app.delete("/users/:id", async (_req, params) => {
+  await db.deleteUser(params.id);
+  return {
+    body: "",
+    init: { status: 204 },
+  };
+});
+```
+
+**Redirect:**
+```typescript
+app.get("/old-page", () => ({
+  body: "",
+  init: {
+    status: 301,
+    headers: { "Location": "/new-page" },
+  },
+}));
+```
 
 ### Parâmetros de Rota
 
-#### Nomeados (`:param`)
-
 ```typescript
+// Parâmetros nomeados
 app.get("/users/:id/posts/:postId", (_req, params) => {
-  params.id;      // "42"
-  params.postId;  // "7"
-  return { body: "ok" };
+  console.log(params.id);      // "123"
+  console.log(params.postId);  // "456"
+  return { body: "OK" };
 });
-```
 
-#### Catch-all (`*`)
-
-Todos os wildcards são agrupados no parâmetro `catch` como **array**:
-
-```typescript
+// Catch-all com *
 app.get("/files/*", (_req, params) => {
-  params.catch;  // ["docs", "readme.md"]
-  return { body: "ok" };
+  console.log(params.catch);  // ["path", "to", "file.txt"]
+  return { body: JSON.stringify(params.catch) };
 });
 
-app.get("/a/*/b/*", (_req, params) => {
-  params.catch;  // ["x", "y/z"]
-  return { body: "ok" };
+// Combinação
+app.get("/api/:version/*", (_req, params) => {
+  console.log(params.version);  // "v1"
+  console.log(params.catch);    // ["users", "123"]
+  return { body: "OK" };
 });
 ```
 
-### Middlewares (`app.use()`)
+### HEAD Automático
+
+O router automaticamente suporta `HEAD` para rotas `GET` registradas:
 
 ```typescript
-type Middleware = (
-  req: Request,
-  params: RouteParams,
-  next: (newReq?: Request) => Promise<Response>,
-) => Promise<Response> | Response;
+app.get("/resource", () => ({
+  body: "data",
+  init: { headers: { "X-Custom": "value" } },
+}));
+
+// GET /resource → 200 com body "data"
+// HEAD /resource → 200 com headers mas body vazio
 ```
 
-| Método | Descrição |
-|--------|-----------|
-| `app.use(middleware)` | Registra middleware global |
-| `app.getWsGroupByPath(path)` | Retorna o grupo WS de uma rota |
-| `app.closeGroupByPath(path)` | Fecha todos os sockets de um grupo |
-| `app.closeAllWebSockets()` | Fecha todas as conexões WS |
+### 405 Method Not Allowed
+
+Quando um path existe mas o método não é permitido:
+
+```typescript
+app.get("/resource", () => ({ body: "data" }));
+app.post("/resource", () => ({ body: "created", init: { status: 201 } }));
+
+// PUT /resource → 405 Method Not Allowed
+// Headers: Allow: GET, POST
+```
 
 ---
 
-## 🧠 Dual Params: O Diferencial
+## 🎯 Middlewares
 
-### O Problema
+Middlewares executam antes do handler final e podem modificar a requisição, abortar o fluxo ou passar controle adiante.
 
-Em routers comuns, a função de permissão recebe apenas **um** contexto. Isso limita drasticamente os casos de uso.
-
-### A Solução Dual Params
+### Básico
 
 ```typescript
-type PermissionFn = (
-  receiverParams: RouteParams,  // Parâmetros de quem VAI RECEBER
-  senderParams: RouteParams,    // Parâmetros de quem ENVIOU
-  message: string               // Conteúdo da mensagem
-) => boolean;
-```
-
-### Exemplos Práticos
-
-#### Isolamento de Salas de Chat
-
-```typescript
-app.ws("/chat/:room/:user", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/chat/:room/:user");
-  ws.onmessage = (event) => {
-    group.broadcast(
-      `[${params.user}]: ${event.data}`,
-      (receiver, sender, _msg) => receiver.room === sender.room,
-      params,
-    );
-  };
+app.use(async (req, params, next) => {
+  console.log(`📝 ${req.method} ${req.url}`);
+  return await next();
 });
 ```
 
-#### Controle de Acesso por Role (RBAC)
+### Abortar Fluxo
 
 ```typescript
-app.ws("/dashboard/:role/:userId", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/dashboard/:role/:userId");
-  ws.onmessage = (event) => {
-    group.broadcast(
-      `🚨 ALERTA: ${event.data}`,
-      (_receiver, sender, _msg) => sender.role === "admin",
-      params,
-    );
-  };
+app.use(async (req, _params, next) => {
+  const auth = req.headers.get("authorization");
+  if (!auth) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  return await next();
 });
 ```
 
-#### Filtragem por Conteúdo
+### Modificar Resposta
 
 ```typescript
-app.ws("/community/:serverId/:userId", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/community/:serverId/:userId");
-  ws.onmessage = (event) => {
-    group.broadcast(
-      event.data,
-      (_receiver, _sender, msgContent) => {
-        return !msgContent.toLowerCase().includes("spam");
+app.use(async (_req, _params, next) => {
+  const res = await next();
+  res.headers.set("X-Custom-Header", "value");
+  return res;
+});
+```
+
+### Rewrite de Rota
+
+Você pode passar uma nova `Request` para `next()` para reescrever a rota:
+
+```typescript
+app.use(async (req, _params, next) => {
+  // Reescreve /old-api/* para /api/*
+  if (req.url.includes("/old-api/")) {
+    const newUrl = req.url.replace("/old-api/", "/api/");
+    const newReq = new Request(newUrl, req);
+    return next(newReq);
+  }
+  return next();
+});
+```
+
+### Logging com Tempo
+
+```typescript
+app.use(async (req, _params, next) => {
+  const start = Date.now();
+  const res = await next();
+  const ms = Date.now() - start;
+  console.log(`${req.method} ${req.url} → ${res.status} (${ms}ms)`);
+  return res;
+});
+```
+
+### CORS
+
+```typescript
+app.use(async (req, _params, next) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Max-Age": "86400",
       },
-      params,
-    );
-  };
+    });
+  }
+  const res = await next();
+  res.headers.set("Access-Control-Allow-Origin", "*");
+  return res;
 });
-```
-
-#### Combinação Avançada (Sala + Role + Conteúdo)
-
-```typescript
-group.broadcast(
-  event.data,
-  (receiver, sender, msg) => {
-    // Admin pode enviar para qualquer sala
-    if (sender.role === "admin") return true;
-    // Usuário comum: só mesma sala + sem spam
-    return receiver.room === sender.room && !msg.includes("spam");
-  },
-  params,
-);
-```
-
----
-
-## 📡 WebSocket Groups & Last Broadcast
-
-### Grupos Automáticos
-
-Cada rota `.ws()` cria automaticamente um grupo isolado:
-
-```typescript
-app.ws("/chat/:room/:user", (ws, _req, params) => {
-  const group = app.getWsGroupByPath("/chat/:room/:user");
-  if (!group) return ws.close(1011, "Internal error");
-  
-  ws.onmessage = (event) => {
-    group.broadcast(`[${params.user}]: ${event.data}`, ...);
-  };
-});
-```
-
-### Last Broadcast
-
-Quando um novo membro entra, o router automaticamente:
-
-1. Aguarda o handshake finalizar (`lastBroadcastDelay` ms)
-2. Recupera o `lastBroadcast` do grupo
-3. Reavalia a `permissionFn` com os params do novo membro
-4. Se aprovado, envia a mensagem histórica automaticamente
-
-```
-10:00:00 → User A (room: "lobby") envia: "Olá a todos!"
-           → broadcast salva { message, permissionFn, senderParams }
-           → User B (room: "lobby") recebe ✅
-           → User C (room: "vip") NÃO recebe ❌
-
-10:00:05 → User D conecta em /chat/lobby/userD
-           → permissionFn({ room: "lobby" }, { room: "lobby" }, "Olá!") → TRUE
-           → User D recebe "Olá a todos!" automaticamente ✅
-
-10:00:10 → User E conecta em /chat/vip/userE
-           → permissionFn({ room: "vip" }, { room: "lobby" }, "Olá!") → FALSE
-           → User E NÃO recebe (Segurança garantida!) 🔒
-```
-
-### Configurando o Delay
-
-```typescript
-// Produção (padrão: 50ms)
-const app = createDenoRouter({ lastBroadcastDelay: 50 });
-
-// Testes rápidos (0ms)
-const app = createDenoRouter({ lastBroadcastDelay: 0 });
-
-// Rede lenta
-const app = createDenoRouter({ lastBroadcastDelay: 200 });
-```
-
----
-
-## 🛡️ Segurança
-
-### Proteção contra Path Traversal
-
-O router normaliza paths com `@std/path` + regex anti-`..`:
-
-```bash
-GET /../../etc/passwd          → 404
-GET /..%2F..%2Fetc%2Fpasswd    → 404
-GET /..\..\etc\passwd          → 404
-GET /subdir/../../secret.txt   → 404
-```
-
-### Force HTTPS
-
-```typescript
-const app = createDenoRouter({ forceHttps: true });
-```
-
-| Cenário | Ação |
-|---------|------|
-| `http://meusite.com/api` | → 301 para `https://meusite.com/api` |
-| `ws://meusite.com/api` | → 301 para `wss://meusite.com/api` |
-| `http://localhost:8000` | ✅ Não redireciona (dev) |
-| `x-forwarded-proto: https` | ✅ Não redireciona (proxy) |
-
-### Error Handling Automático
-
-Handlers que lançam exceções retornam 500 automaticamente:
-
-```typescript
-app.get("/error", () => {
-  throw new Error("Database connection failed");
-});
-// → HTTP 500 "Internal Server Error"
 ```
 
 ---
 
 ## 📂 Arquivos Estáticos
 
-### Servir do Disco
+### Configuração Básica
+
+```typescript
+const app = createDenoRouter({
+  basePath: "/api",
+  staticDir: "./public",  // Diretório de arquivos estáticos
+});
+```
+
+### Com Diretório Embutido
 
 ```typescript
 const app = createDenoRouter({
   basePath: "/api",
   staticDir: "./public",
+  embeddedDir: "./dist",  // Tenta embedded primeiro, depois static
 });
 ```
 
-### Resolução Automática
+### Comportamento
 
-| Request | Tenta servir |
-|---------|--------------|
-| `/index.html` | `./public/index.html` |
-| `/docs` | `./public/docs.html` → `./public/docs.htm` → `./public/docs/index.html` |
-| `/about/` | `./public/about/index.html` → `./public/about/index.htm` |
+- Serve arquivos de `staticDir` quando rota HTTP não é encontrada
+- Fallback automático: `/docs` → `/docs.html` → `/docs/index.html`
+- **Redirect 301** para diretórios sem barra final: `/docs` → `/docs/`
+- Apenas métodos `GET` e `HEAD` são servidos
+- Headers completos: `Content-Type`, `Content-Length`, `Last-Modified`, `ETag`, `Cache-Control`
 
-### MIME Types Automáticos
+### MIME Types Modernos
 
-O router resolve MIME types automaticamente para mais de 20 tipos de arquivo. Você pode customizar:
-
-```typescript
-const app = createDenoRouter({
-  mimeTypeResolver: (ext) => ({
-    html: "text/html; charset=utf-8",
-    wasm: "application/wasm",
-  })[ext],
-});
-```
+Suporte nativo para:
+- Imagens: `.webp`, `.avif`, `.png`, `.jpg`, `.gif`, `.svg`
+- Web: `.html`, `.css`, `.js`, `.mjs`, `.json`, `.webmanifest`
+- Fontes: `.woff`, `.woff2`, `.ttf`, `.otf`
+- Mídia: `.mp3`, `.mp4`, `.webm`
+- Outros: `.pdf`, `.xml`, `.wasm`, `.ts`, `.tsx`, `.jsx`
 
 ---
 
-## 🌍 Exemplos do Mundo Real
+## 🔌 WebSockets
 
-### API REST Completa
+### Upgrade Automático
 
 ```typescript
-import { createDenoRouter } from "@loco/router/deno";
-
-const app = createDenoRouter({ basePath: "/api/v1" });
-
-// Middleware de logging
-app.use(async (req, _params, next) => {
-  const start = Date.now();
-  const res = await next();
-  console.log(`${req.method} ${req.url} → ${res.status} (${Date.now() - start}ms)`);
-  return res;
+app.ws("/chat/:room", (ws, req, params) => {
+  console.log(`Cliente conectou na sala ${params.room}`);
+  
+  ws.onmessage = (event) => {
+    ws.send(`Echo: ${event.data}`);
+  };
+  
+  ws.onclose = () => {
+    console.log("Cliente desconectou");
+  };
 });
-
-// CRUD de usuários
-app.get("/users", () => ({ body: JSON.stringify(users) }));
-app.get("/users/:id", (_req, params) => ({ body: JSON.stringify(users[params.id]) }));
-app.post("/users", async (req) => ({ body: await req.text(), init: { status: 201 } }));
-app.put("/users/:id", async (req, params) => ({ body: await req.text() }));
-app.delete("/users/:id", (_req, params) => ({ body: "", init: { status: 204 } }));
-
-Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
 ```
 
-### Chat com Salas Isoladas
+### Grupos de WebSocket
+
+Cada rota WS tem seu próprio grupo automaticamente:
 
 ```typescript
 app.ws("/chat/:room/:user", (ws, _req, params) => {
   const group = app.getWsGroupByPath("/chat/:room/:user");
-  if (!group) return ws.close(1011, "Internal error");
+  
+  ws.onmessage = (event) => {
+    // Broadcast para todos na mesma rota
+    group.broadcast(event.data);
+  };
+});
+```
 
+### Dual Params PermissionFn
+
+Filtre broadcasts com base em **receiver**, **sender** e **mensagem**:
+
+```typescript
+app.ws("/chat/:room/:user", (ws, _req, params) => {
+  const group = app.getWsGroupByPath("/chat/:room/:user");
+  
   ws.onmessage = (event) => {
     group.broadcast(
       `[${params.user}]: ${event.data}`,
-      (receiver, sender, _msg) => receiver.room === sender.room,
-      params,
+      (receiver, sender, message) => {
+        // Regra 1: Mesma sala
+        if (receiver.room !== sender.room) return false;
+        
+        // Regra 2: Não enviar para o próprio sender
+        if (receiver.user === sender.user) return false;
+        
+        // Regra 3: Bloquear spam
+        if (message.toLowerCase().includes("spam")) return false;
+        
+        return true;
+      },
+      params  // senderParams
     );
   };
 });
 ```
 
-### WebSocket com JWT via Subprotocol
+### Last Broadcast Automático
+
+Novos membros recebem a última mensagem ao conectar:
 
 ```typescript
-app.use(async (req, _params, next) => {
-  if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-    return await next();
-  }
-  const protocol = req.headers.get("sec-websocket-protocol") ?? "";
-  const token = protocol.split(",").find((_, i, arr) => arr[i-1] === "Bearer");
-  
-  if (!token) return new Response("Token required", { status: 401 });
-  
-  try {
-    await jwtVerify(token, secret);
-    return await next();
-  } catch {
-    return new Response("Invalid token", { status: 403 });
-  }
+// 10:00:00 → User A envia: "Olá a todos!"
+// Router salva: { message: "Olá...", permissionFn: ..., senderParams: { room: "lobby" } }
+
+// 10:00:05 → User B conecta em /chat/lobby/userB
+// Router reavalia: permissionFn({ room: "lobby" }, { room: "lobby" }, "Olá...") → TRUE
+// User B recebe "Olá a todos!" automaticamente!
+
+// 10:00:10 → User C conecta em /chat/vip/userC
+// Router reavalia: permissionFn({ room: "vip" }, { room: "lobby" }, "Olá...") → FALSE
+// User C NÃO recebe (segurança garantida!)
+```
+
+### Fechar Grupos
+
+```typescript
+// Fechar grupo específico
+app.closeGroupByPath("/chat/:room/:user");
+
+// Fechar todos os WebSockets (graceful shutdown)
+app.closeAllWebSockets();
+```
+
+---
+
+## 🛡️ Segurança
+
+### Force HTTPS
+
+Redireciona HTTP → HTTPS automaticamente em produção:
+
+```typescript
+const app = createDenoRouter({
+  forceHttps: true,
+});
+```
+
+**Comportamento:**
+- Redireciona com status `301 Moved Permanently`
+- Ignora automaticamente `localhost`, `127.0.0.1` e `[::1]` (IPv6)
+- Adiciona header `Strict-Transport-Security` (HSTS)
+
+### Trust Proxy
+
+Quando atrás de proxy reverso (nginx, Cloudflare, etc.):
+
+```typescript
+const app = createDenoRouter({
+  forceHttps: true,
+  trustProxy: true,  // ⚠️ Apenas se estiver atrás de proxy confiável
+});
+```
+
+Com `trustProxy: true`, o router respeita o header `X-Forwarded-Proto`.
+
+**⚠️ AVISO:** Nunca ative `trustProxy` se o servidor estiver exposto diretamente à internet.
+
+### Bloqueio de Dotfiles
+
+Por padrão, arquivos que começam com `.` são bloqueados:
+
+```typescript
+const app = createDenoRouter({
+  staticDir: "./public",
+  allowDotfiles: false,  // Default: false
+});
+```
+
+**Bloqueados:** `.env`, `.git/config`, `.DS_Store`, `.htaccess`, etc.
+
+Se precisar servir dotfiles (não recomendado):
+
+```typescript
+const app = createDenoRouter({
+  staticDir: "./public",
+  allowDotfiles: true,  // ⚠️ Risco de segurança
+});
+```
+
+### Proteção contra Path Traversal
+
+O router sanitiza caminhos e verifica containment real:
+
+```typescript
+// Requisição maliciosa
+GET /../../etc/passwd
+GET /..%2F..%2Fetc%2Fpasswd
+
+// Resultado: 404 (caminho sanitizado e verificado)
+```
+
+### Recusa de Symlinks
+
+O adaptador Deno recusa symlinks por padrão para evitar vazamento:
+
+```bash
+# Se existir: public/secret -> /etc/passwd
+# Requisição: GET /secret
+# Resultado: 404 (symlink recusado)
+```
+
+### Headers de Segurança
+
+Adicione via middleware:
+
+```typescript
+app.use(async (_req, _params, next) => {
+  const res = await next();
+  res.headers.set("X-Frame-Options", "DENY");
+  res.headers.set("X-Content-Type-Options", "nosniff");
+  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.headers.set(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'"
+  );
+  return res;
 });
 ```
 
 ---
 
-## ⚙️ Configuração Avançada
+## 🔌 Adaptadores
 
-### Configuração Completa
+### Deno (Oficial)
+
+Suporte completo e testado:
 
 ```typescript
 import { createDenoRouter } from "@loco/router/deno";
 
 const app = createDenoRouter({
-  basePath: "/api/v1",
+  basePath: "/api",
   staticDir: "./public",
-  embeddedDir: "./dist",
   forceHttps: true,
-  lastBroadcastDelay: 100,
-  mimeTypeResolver: (ext) => ({
-    html: "text/html; charset=utf-8",
-    wasm: "application/wasm",
-  })[ext],
+  trustProxy: true,
+  allowDotfiles: false,
 });
 ```
 
-### Variáveis de Ambiente
+**Features:**
+- ✅ HTTP Routing
+- ✅ WebSockets (via `Deno.upgradeWebSocket`)
+- ✅ Static Files (via `Deno.open` + `Deno.stat`)
+- ✅ Containment real e recusa de symlinks
+- ✅ Headers completos (ETag, Last-Modified, etc.)
 
-```bash
-FORCE_HTTPS=true deno run --allow-net --allow-read main.ts
+### Outros Runtimes (Roadmap)
+
+O core é runtime-agnostic. Adaptadores para outros runtimes estão em desenvolvimento:
+
+#### Node.js (Planejado)
+
+```typescript
+// Futuro
+import { createNodeRouter } from "@loco/router/node";
+```
+
+**Desafios:**
+- URLPattern disponível apenas em Node 18.17+
+- WebSocket requer biblioteca externa (`ws`, `uWebSockets.js`)
+- Static files via módulo `fs`
+
+#### Bun (Planejado)
+
+```typescript
+// Futuro
+import { createBunRouter } from "@loco/router/bun";
+```
+
+**Vantagens:**
+- Compatível com APIs Node.js
+- Suporte nativo a WebSocket via `Bun.serve`
+- Performance excelente
+
+#### Cloudflare Workers (Removido do Core)
+
+Os adaptadores Cloudflare foram **removidos do core** na versão 1.0 devido a limitações de estado compartilhado. Para WebSockets em Cloudflare, use **Durable Objects**.
+
+Para static files, use a nova feature **Static Assets** do Cloudflare Workers.
+
+Veja [docs/roadmap-adapters.md](./docs/roadmap-adapters.md) para detalhes.
+
+### Criando seu Próprio Adaptador
+
+Implemente as interfaces:
+
+```typescript
+interface WebSocketUpgrader {
+  upgrade(req: Request): { socket: WebSocket; response: Response };
+}
+
+interface StaticFileHandler {
+  handle(path: string): Promise<Response | null>;
+}
+```
+
+Use o core diretamente:
+
+```typescript
+import { Router } from "@loco/router";
+
+const app = new Router({
+  basePath: "/api",
+  webSocketUpgrader: myCustomUpgrader,
+  staticFileHandler: myCustomStaticHandler,
+});
 ```
 
 ---
 
-## 🚢 Deploy
+## 📚 API Reference
 
-### Deno Deploy (HTTPS Automático)
+### `createDenoRouter(options)`
 
-```bash
-deployctl deploy --project=meu-router main.ts
+```typescript
+interface DenoRouterOptions {
+  basePath?: string;           // Prefixo para todas as rotas
+  staticDir?: string | null;   // Diretório de arquivos estáticos (default: null)
+  embeddedDir?: string | null; // Diretório embutido (opcional)
+  forceHttps?: boolean;        // Redirecionar HTTP → HTTPS
+  trustProxy?: boolean;        // Confiar em X-Forwarded-*
+  allowDotfiles?: boolean;     // Permitir arquivos .env, .git, etc.
+  lastBroadcastDelay?: number; // Delay antes de enviar last broadcast (default: 0ms)
+}
 ```
 
-✅ Certificado SSL automático
-✅ HTTP/2 e HTTP/3 nativos
-✅ CDN global
+### `Router` Methods
 
-### Docker
+```typescript
+// Registro de rotas
+app.get(path, handler)
+app.post(path, handler)
+app.put(path, handler)
+app.delete(path, handler)
+app.patch(path, handler)
+app.options(path, handler)
+app.head(path, handler)
+app.ws(path, handler)
 
-```dockerfile
-FROM denoland/deno:latest
-WORKDIR /app
-COPY . .
-RUN deno cache main.ts
-EXPOSE 8000
-CMD ["run", "--allow-net", "--allow-read", "main.ts"]
+// Middlewares
+app.use(middleware)
+
+// WebSockets
+app.getWsGroupByPath(pattern): WebSocketGroup | undefined
+app.closeGroupByPath(pattern): boolean
+app.closeAllWebSockets(): void
+
+// Handler principal
+app.handleRequest(req: Request): Promise<Response>
 ```
 
-### Executável Standalone
+### `WebSocketGroup` Methods
 
-```bash
-deno compile --allow-net --allow-read --include=./public/**/* --output=server main.ts
+```typescript
+group.addSocket(ws, params)
+group.removeSocket(ws)
+group.size: number
+
+group.broadcast(message, permissionFn?, senderParams?)
+group.sendLastBroadcastTo(ws, receiverParams)
+group.closeGroup()
+```
+
+### `PermissionFn`
+
+```typescript
+type PermissionFn = (
+  receiverParams: RouteParams,
+  senderParams: RouteParams,
+  message: string,
+) => boolean;
+```
+
+---
+
+## 📖 Exemplos Completos
+
+### Autenticação JWT
+
+```typescript
+import { createDenoRouter } from "@loco/router/deno";
+import { SignJWT, jwtVerify } from "jose";
+
+const JWT_SECRET = new TextEncoder().encode(Deno.env.get("JWT_SECRET"));
+
+const app = createDenoRouter({
+  basePath: "/api",
+  staticDir: "./public",
+});
+
+// Rota de login
+app.post("/login", async (req) => {
+  const { username, password } = await req.json();
+  
+  if (username === "admin" && password === "secret") {
+    const token = await new SignJWT({ userId: "1", username })
+      .setProtectedHeader({ alg: "HS256" })
+      .setExpirationTime("1h")
+      .sign(JWT_SECRET);
+    
+    return {
+      body: JSON.stringify({ token }),
+      init: { headers: { "Content-Type": "application/json" } },
+    };
+  }
+  
+  return {
+    body: JSON.stringify({ error: "Invalid credentials" }),
+    init: { status: 401 },
+  };
+});
+
+// Middleware de autenticação WebSocket
+app.use(async (req, _params, next) => {
+  if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    return await next();
+  }
+  
+  const protocol = req.headers.get("sec-websocket-protocol") ?? "";
+  const protocols = protocol.split(",").map(p => p.trim());
+  const bearerIndex = protocols.findIndex(p => p === "Bearer");
+  const token = bearerIndex !== -1 ? protocols[bearerIndex + 1] : null;
+  
+  if (!token) {
+    return new Response("Token required", { status: 401 });
+  }
+  
+  try {
+    await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] });
+    return await next();
+  } catch {
+    return new Response("Invalid token", { status: 403 });
+  }
+});
+
+// Rota WebSocket protegida
+app.ws("/chat/:room", (ws, _req, params) => {
+  const group = app.getWsGroupByPath("/chat/:room");
+  
+  ws.onmessage = (event) => {
+    group.broadcast(
+      `[${params.room}]: ${event.data}`,
+      (receiver, sender, _msg) => receiver.room === sender.room,
+      params
+    );
+  };
+});
+```
+
+### Rate Limiting
+
+```typescript
+const requestCounts = new Map<string, { count: number; resetTime: number }>();
+
+app.use(async (req, _params, next) => {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+  const now = Date.now();
+  const windowMs = 60000; // 1 minuto
+  const maxRequests = 100;
+  
+  const record = requestCounts.get(ip) ?? { count: 0, resetTime: now + windowMs };
+  
+  if (now > record.resetTime) {
+    record.count = 0;
+    record.resetTime = now + windowMs;
+  }
+  
+  record.count++;
+  requestCounts.set(ip, record);
+  
+  if (record.count > maxRequests) {
+    return new Response("Too Many Requests", {
+      status: 429,
+      headers: {
+        "Retry-After": Math.ceil((record.resetTime - now) / 1000).toString(),
+        "X-RateLimit-Limit": maxRequests.toString(),
+        "X-RateLimit-Remaining": "0",
+      },
+    });
+  }
+  
+  const res = await next();
+  res.headers.set("X-RateLimit-Limit", maxRequests.toString());
+  res.headers.set("X-RateLimit-Remaining", (maxRequests - record.count).toString());
+  return res;
+});
 ```
 
 ---
 
 ## 🧪 Testes
 
+Execute a suíte completa de testes:
+
 ```bash
-# Rodar todos os testes
 deno task tests
+```
 
-# Rodar arquivo específico
-deno test tests/middleware_test.ts
+Ou separadamente:
 
-# Com coverage
-deno test --coverage=cov/ tests/
-deno coverage cov/
+```bash
+# Type checking
+deno task check
+
+# Testes unitários
+deno task test
+
+# Formatação
+deno task fmt
+
+# Linting
+deno task lint
 ```
 
 ---
 
-## ❓ FAQ & Troubleshooting
+## 📚 Documentação
 
-### WebSocket não conecta
-Verifique se o header `connection: Upgrade` está presente. O Deno exige esse header para o upgrade.
-
-### Middleware não executa para arquivos estáticos
-Middlewares executam para **rotas registradas**, não para arquivos estáticos. Para interceptar estáticos, use um middleware global com `app.use()`.
-
-### Last Broadcast não chega
-Verifique se o `lastBroadcastDelay` é suficiente para o handshake. Em testes, use `lastBroadcastDelay: 0`.
-
-### Force HTTPS não funciona em localhost
-Isso é intencional! O router ignora `localhost`, `127.0.0.1` e `::1` para não atrapalhar o desenvolvimento.
+- [Guia de Segurança](./docs/security.md)
+- [Roadmap de Adaptadores](./docs/roadmap-adapters.md)
+- [Roadmap de Rate Limiting](./docs/roadmap-rate-limiting.md)
+- [Arquitetura Runtime-Agnostic](./docs/runtime-agnostic.md)
+- [Middlewares](./docs/middleware.md)
+- [Permissões WebSocket](./docs/websocket-permissions.md)
+- [Retorno de Handlers](./docs/return.md)
 
 ---
 
-## ⚖️ Comparação com Alternativas
+## 🗺️ Roadmap
 
-| Feature | @loco/router | Hono | Oak | Fresh |
-|---------|:------------:|:----:|:---:|:-----:|
-| HTTP routing | ✅ | ✅ | ✅ | ✅ |
-| WebSocket nativo | ✅ | ⚠️ | ⚠️ | ❌ |
-| Dual Params | ✅ | ❌ | ❌ | ❌ |
-| Last Broadcast | ✅ | ❌ | ❌ | ❌ |
-| Middlewares unificados | ✅ | ❌ | ❌ | ❌ |
-| Runtime-agnostic | ✅ | ✅ | ❌ | ❌ |
-| Force HTTPS nativo | ✅ | ⚠️ | ❌ | ⚠️ |
-| Zero dependências | ✅ | ✅ | ❌ | ❌ |
+### Versão 1.0 (Atual)
+- ✅ Core agnóstico estável
+- ✅ Adaptador Deno completo
+- ✅ Sistema de permissões Dual Params
+- ✅ Segurança reforçada (HSTS, trustProxy, dotfiles, symlinks)
 
-✅ Nativo | ⚠️ Via plugin | ❌ Não suporta
+### Versão 1.1 (Planejado)
+- ⏳ Adaptador Node.js oficial
+- ⏳ Adaptador Bun oficial
+- ⏳ Suporte a Range Requests para arquivos grandes
+- ⏳ Validação de Origin em WebSockets
+
+### Versão 2.0 (Futuro)
+- ⏳ Rate limiting nativo no core
+- ⏳ Integração com OpenTelemetry
+- ⏳ Suporte a HTTP/2 Server Push
+- ⏳ Compressão automática (gzip, brotli)
+
+---
+
+## 🤝 Contribuindo
+
+Contribuições são bem-vindas! Por favor:
+
+1. Faça fork do repositório
+2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
+3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
+4. Push para a branch (`git push origin feature/AmazingFeature`)
+5. Abra um Pull Request
+
+### Desenvolvimento Local
+
+```bash
+# Clone o repositório
+git clone https://github.com/seu-usuario/loco.git
+cd loco/monorepo/router
+
+# Execute testes
+deno task tests
+
+# Execute exemplo principal
+deno task start
+
+# Execute exemplo JWT
+deno task example
+```
 
 ---
 
 ## 📄 Licença
 
-MIT © Loco Framework
-
+Este projeto está licenciado sob a Licença MIT - veja o arquivo [LICENSE](./LICENSE) para detalhes.

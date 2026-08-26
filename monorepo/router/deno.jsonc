@@ -1,7 +1,7 @@
 // monorepo/router/deno.jsonc
 {
   "name": "@loco/router",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
     "strict": true,

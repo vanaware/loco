@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: ROUTER
 
-Gerado automaticamente em: 8/26/2026, 7:57:44 PM
+Gerado automaticamente em: 8/26/2026, 8:04:14 PM
 
 ---
 
@@ -5240,7 +5240,7 @@ Estamos abertos a contribuições! 🚀
 // monorepo/router/deno.jsonc
 {
   "name": "@loco/router",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
     "strict": true,
