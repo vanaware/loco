@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: SERVER
 
-Gerado automaticamente em: 8/26/2026, 9:24:35 PM
+Gerado automaticamente em: 8/26/2026, 9:36:38 PM
 
 ---
 
@@ -823,7 +823,7 @@ import {
 } from "../../../src/utils/crypto-utils.ts";
 import { decifrarChaveVapid } from "../../../src/utils/push-utils.ts";
 
-export { APP_VERSION } from "../../../src/constants/version.ts";
+export { APP_VERSION } from "@loco/ui";
 
 export { extrairEExpandirChavesVapid } from "../../../src/utils/push-utils.ts";
 
