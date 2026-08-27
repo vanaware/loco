@@ -7,7 +7,7 @@ import {
 } from "../../../src/utils/crypto-utils.ts";
 import { decifrarChaveVapid } from "../../../src/utils/push-utils.ts";
 
-export { APP_VERSION } from "../../../src/constants/version.ts";
+export { APP_VERSION } from "@loco/ui";
 
 export { extrairEExpandirChavesVapid } from "../../../src/utils/push-utils.ts";
 

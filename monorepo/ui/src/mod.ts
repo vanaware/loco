@@ -1,1 +1,1 @@
-// reservado para futuras exportações
+export { APP_VERSION } from "./constants/version.ts";

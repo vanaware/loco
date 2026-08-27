@@ -3,25 +3,31 @@
  * @description Script de consolidação de contexto para IAs com suporte a parâmetros via CLI,
  * configuração baseada em diretório raiz (pastaBase) e filtros granulares por subpastas.
  * 
- * USO VIA DENO TASKS:
+ * USO VIA DENO TASKS (EXECUTAR NA RAIZ DO REPOSITÓRIO):
  * - deno task export            -> Exporta Código Fonte principal
  * - deno task export docs       -> Exporta Documentação e licenças
  * - deno task export tests      -> Exporta Testes
+ * - deno task export server     -> Exporta Server + .github/workflows
  * - deno task export playground -> Exporta a área de Playground
  */
 
 import { walk } from "@std/fs/walk";
 import { relative } from "@std/path/relative";
-import { APP_VERSION } from "../src/constants/version.ts";
+import { APP_VERSION } from "@loco/ui";
 
 // 1. Definição de Tipos e Interfaces
-type ModoExportacao = "main" | "docs" | "tests" | "server" | "playground" | "workerdb" | "utils" | "router";
+type ModoExportacao = "ui" | "docs" | "tests" | "server" | "playground" | "workerdb" | "utils" | "router" | "sw";
 
 interface ExportConfig {
   arquivoSaida: string;
   extensoesPermitidas: string[];
   pastaBase: string;
   subpastasPermitidas: string[];
+  /**
+   * NOVO: Permite incluir caminhos específicos que estão fora da pastaBase.
+   * Devem ser relativos ao diretório de onde o script é executado (geralmente a raiz do repo).
+   */
+  caminhosAdicionaisPermitidos?: string[];
   arquivosRaizPermitidos: string[];
   incluiVersao: boolean;
   instrucaoCustomizada: string;
@@ -35,19 +41,19 @@ const EXTENSOES_PADRAO = [
 
 // 2. Dicionário de Configurações (Declarativo)
 const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
-  main: {
-    arquivoSaida: "exports/main.md",
+  ui: {
+    arquivoSaida: "exports/ui.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
-    pastaBase: "./",
-    subpastasPermitidas: ["src", "public", ".github/workflows"], // Vazio = permite tudo dentro da pastaBase
-    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc"],
+    pastaBase: "./monorepo/ui/",
+    subpastasPermitidas: ["src", "public", "tests", "docs"],
+    arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: true,
-    instrucaoCustomizada: "O texto abaixo contém os arquivos de CÓDIGO FONTE principais da aplicação."
+    instrucaoCustomizada: "O texto abaixo contém os arquivos de CÓDIGO FONTE principais da aplicação (UI)."
   },
   docs: {
     arquivoSaida: "exports/docs.md",
     extensoesPermitidas: [".md", ".txt"],
-    pastaBase: "./", // Base na raiz para conseguir capturar o readme e a pasta docs
+    pastaBase: "./",
     subpastasPermitidas: ["docs"],
     arquivosRaizPermitidos: ["readme.md", "readme", "license", "license.md", "license.txt", ".tool-versions"],
     incluiVersao: true,
@@ -56,7 +62,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
   tests: {
     arquivoSaida: "exports/tests.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
-    pastaBase: "tests",
+    pastaBase: "./monorepo/ui/tests",
     subpastasPermitidas: [],
     arquivosRaizPermitidos: [],
     incluiVersao: true,
@@ -66,16 +72,17 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivoSaida: "exports/server.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/server",
-    subpastasPermitidas: ["src", "tests","docs"],
+    subpastasPermitidas: ["src", "tests", "docs"], // Removido "../../.github/workflows" daqui
+    caminhosAdicionaisPermitidos: [".github/workflows"], // NOVO: Caminho relativo à raiz de execução
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "minify-keys.ts", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"],
     incluiVersao: false,
-    instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR @loco/server"
+    instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR @loco/server e CI/CD."
   },
   playground: {
     arquivoSaida: "exports/playground.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/playground",
-    subpastasPermitidas: ["src", "public", "tests","docs"],
+    subpastasPermitidas: ["src", "public", "tests", "docs"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND."
@@ -98,6 +105,15 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/utils"
   },
+  sw: {
+    arquivoSaida: "exports/sw.md", // Corrigido nome do arquivo de saída para evitar colisão com utils.md
+    extensoesPermitidas: EXTENSOES_PADRAO,
+    pastaBase: "monorepo/utils", // Ajuste conforme a localização real do seu service worker
+    subpastasPermitidas: ["src", "tests", "docs"],
+    arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
+    incluiVersao: false,
+    instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/service-worker"
+  },
   router: {
     arquivoSaida: "exports/router.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
@@ -111,7 +127,7 @@ const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
 
 // 3. Resolução do Modo via CLI
 const argModo = (Deno.args[0]?.toLowerCase() || "main") as ModoExportacao;
-const modo: ModoExportacao = CONFIGURACOES[argModo] ? argModo : "main";
+const modo: ModoExportacao = CONFIGURACOES[argModo] ? argModo : "ui";
 const config = CONFIGURACOES[modo];
 
 /**
@@ -136,7 +152,8 @@ function normalizarCaminho(caminho: string): string {
 }
 
 /**
- * Avalia se o arquivo deve ser incluído isolando a validação dentro da pastaBase configurada.
+ * Avalia se o arquivo deve ser incluído isolando a validação dentro da pastaBase configurada,
+ * com suporte a exceções explícitas via caminhosAdicionaisPermitidos.
  */
 function deveIncluirArquivo(caminhoRelativo: string, config: ExportConfig): boolean {
   const caminhoNormalizado = normalizarCaminho(caminhoRelativo);
@@ -146,13 +163,28 @@ function deveIncluirArquivo(caminhoRelativo: string, config: ExportConfig): bool
     return false;
   }
 
-  // Define o prefixo real da pastaBase
-  // Se for raiz ("./" ou "."), o prefixo é vazio.
+  // 1. Verifica caminhos adicionais permitidos (permite sair da pastaBase)
+  if (config.caminhosAdicionaisPermitidos && config.caminhosAdicionaisPermitidos.length > 0) {
+    const correspondeAdicional = config.caminhosAdicionaisPermitidos.some(caminhoExtra => {
+      const extraNormalizado = normalizarCaminho(caminhoExtra);
+      // Verifica se é exatamente o arquivo ou está dentro do diretório extra
+      return caminhoNormalizado === extraNormalizado || caminhoNormalizado.startsWith(extraNormalizado + "/");
+    });
+
+    if (correspondeAdicional) {
+      // Ainda valida a extensão para evitar incluir binários ou arquivos de cache acidentalmente
+      return config.extensoesPermitidas.some(ext =>
+        caminhoNormalizado.endsWith(ext) || caminhoNormalizado === ext
+      );
+    }
+  }
+
+  // 2. Lógica padrão restrita à pastaBase
   const prefixoBase = (config.pastaBase === "./" || config.pastaBase === ".") 
     ? "" 
     : normalizarCaminho(config.pastaBase).replace(/\/$/, "") + "/";
 
-  // Se o arquivo estiver fora da pastaBase configurada, descarta imediatamente
+  // Se o arquivo estiver fora da pastaBase configurada (e não foi pego pelo adicional), descarta
   if (prefixoBase !== "" && !caminhoNormalizado.startsWith(prefixoBase)) {
     return false;
   }
@@ -160,19 +192,15 @@ function deveIncluirArquivo(caminhoRelativo: string, config: ExportConfig): bool
   // Extrai o caminho isolado apenas dentro do contexto da pastaBase
   const caminhoInterno = caminhoNormalizado.substring(prefixoBase.length);
 
-  // 1. Verifica se é um arquivo raiz explícito da pastaBase
-  // Ex: "build.ts" (sem subpastas no caminho interno)
+  // 3. Verifica se é um arquivo raiz explícito da pastaBase
   if (config.arquivosRaizPermitidos.includes(caminhoInterno)) {
     return true;
   }
 
-  // 2. Verifica se o arquivo pertence a alguma subpasta permitida
+  // 4. Verifica se o arquivo pertence a alguma subpasta permitida
   let emSubpastaPermitida = false;
 
   if (config.subpastasPermitidas.length === 0) {
-    // Se a lista for vazia, significa "permitir todas as subpastas e arquivos não-raiz se passarem na extensão"
-    // No entanto, para evitar capturar tudo, geralmente validamos arquivos de nível raiz via arquivosRaizPermitidos.
-    // Mas vamos manter a permissão global ativa caso não haja restrição de subpasta.
     emSubpastaPermitida = true;
   } else {
     emSubpastaPermitida = config.subpastasPermitidas.some(sub => {
@@ -181,7 +209,7 @@ function deveIncluirArquivo(caminhoRelativo: string, config: ExportConfig): bool
     });
   }
 
-  // 3. Validação final de extensão (apenas se passou nos filtros de diretório)
+  // 5. Validação final de extensão (apenas se passou nos filtros de diretório)
   if (emSubpastaPermitida) {
     if (config.extensoesPermitidas.length === 0) return true;
     
@@ -215,6 +243,7 @@ Gerado automaticamente em: ${new Date().toLocaleString()}
 console.log(`🚀 Iniciando exportação do Loco ${versaoDisplay}no modo: [${modo.toUpperCase()}] -> Gerando '${config.arquivoSaida}'`);
 
 // 5. Varredura do diretório principal
+// IMPORTANTE: Isso varre a partir de Deno.cwd(). Execute este script na raiz do repositório!
 for await (const entry of walk(".", { includeDirs: false })) {
   const caminhoRelativo = relative(".", entry.path);
 
