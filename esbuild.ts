@@ -1,8 +1,7 @@
 /// <reference lib="deno.ns" />
 import { ensureDir, copy, walk, emptyDir } from "@std/fs";
 import { join } from "@std/path";
-// ✅ Versão fixa para builds reprodutíveis. Atualize manualmente quando quiser testar novas versões.
-import * as esbuild from "https://esm.sh/esbuild-wasm@0.24.0";
+import * as esbuild from "esbuild-wasm";
 
 // ============================================================================
 // 📦 CONFIGURAÇÃO DECLARATIVA DE BUILDS
@@ -10,16 +9,16 @@ import * as esbuild from "https://esm.sh/esbuild-wasm@0.24.0";
 
 interface TargetConfig {
   // --- Configurações de Pipeline (Pré/Post Build) ---
-  publicdir?: string;       // Se existir, copia para distdir. Patcheia manifest.json se presente.
-  srcdir: string;           // Diretório fonte base para este alvo.
-  distdir: string;          // Diretório de saída final para este alvo.
-  indexHtml?: boolean;      // Se true, copia srcdir/index.html para distdir.
-  clean?: string[];         // Array de caminhos (relativos a distdir) para limpar antes do build.
+  publicdir?: string;
+  srcdir: string;
+  distdir: string;
+  indexHtml?: boolean;
+  clean?: string[];
   
   // --- Configurações do Esbuild ---
   entryPoints: string[];
-  outdir?: string;          // Se não definido, usa distdir.
-  outfile?: string;         // Se definido, sobrescreve outdir para um arquivo único.
+  outdir?: string;
+  outfile?: string;
   platform?: "browser" | "node" | "neutral";
   format?: "esm" | "iife" | "cjs";
   bundle?: boolean;
@@ -28,7 +27,10 @@ interface TargetConfig {
   jsx?: "automatic" | "transform" | "preserve";
   jsxImportSource?: string;
   conditions?: string[];
-  define?: Record<string, string>; // Define base. __APP_VERSION__ é injetado automaticamente.
+  define?: Record<string, string>;
+  drop?: string[]; // ← NOVO: Remove console/debugger em produção
+  external?: string[]; // ← NOVO: Marca pacotes como externos (CDN)
+  metafile?: boolean; // ← NOVO: Gera análise de bundle
 }
 
 interface GlobalConfig {
@@ -42,7 +44,7 @@ const CONFIG: GlobalConfig = {
     distdir: "monorepo/server/build/dist",
     publicdir: "public",
     indexHtml: true,
-    clean: ["."], // Limpa tudo em distdir antes de começar
+    clean: ["."],
     
     entryPoints: ["src/main.tsx"],
     platform: "browser",
@@ -50,26 +52,32 @@ const CONFIG: GlobalConfig = {
     bundle: true,
     minify: true,
     sourcemap: "linked",
-    conditions: ["browser"], // Garante que usa db(), opfs(), ls() do @loco/workerdb
+    conditions: ["browser"],
     jsx: "automatic",
     jsxImportSource: "preact",
+    // ✅ Remove console.log e debugger em produção
+    drop: ["console", "debugger"],
+    // ✅ Gera metafile para análise
+    metafile: true,
   },
 
   // --- ALVO: Service Worker (Offline-First) ---
   sw: {
     srcdir: "src",
     distdir: "monorepo/server/build/dist",
-    // Não tem publicdir nem indexHtml, pois usa o mesmo dist do 'main'
     
     entryPoints: ["src/service-worker.ts"],
     platform: "browser",
     format: "iife",
     bundle: true,
     minify: true,
-    conditions: ["worker"], // Garante que usa dbsw(), opfssw() do @loco/workerdb
+    conditions: ["worker"],
     define: {
-      // __GENERATED_ASSETS__ será preenchido dinamicamente no pipeline
+      // __GENERATED_ASSETS__ será preenchido dinamicamente
     },
+    // ✅ Mantém console.log no SW para debugging, remove apenas debugger
+    drop: ["debugger"],
+    metafile: true,
   },
 
   // --- ALVO: Web Worker Dedicado (P2P / OPFS) ---
@@ -82,6 +90,29 @@ const CONFIG: GlobalConfig = {
     format: "iife",
     bundle: true,
     minify: false,
+    drop: ["debugger"],
+    metafile: true,
+  },
+
+  // --- ALVO: Watch Mode (Desenvolvimento) ---
+  watch: {
+    srcdir: "src",
+    distdir: "monorepo/server/build/dist",
+    publicdir: "public",
+    indexHtml: true,
+    
+    entryPoints: ["src/main.tsx"],
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false, // ❌ Não minifica em dev
+    sourcemap: "inline", // ✅ Source maps inline para debug
+    conditions: ["browser"],
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    // ✅ Mantém console.log em desenvolvimento
+    drop: [],
+    metafile: false, // ❌ Não gera metafile em dev
   },
 };
 
@@ -123,7 +154,7 @@ async function processTarget(targetName: string, config: TargetConfig, appVersio
   const distDir = config.distdir;
   const srcDir = config.srcdir;
 
-  // 1. Limpeza (se especificada)
+  // 1. Limpeza
   if (config.clean && config.clean.length > 0) {
     console.log(`🧹 Limpando diretórios em ${distDir}...`);
     for (const cleanPath of config.clean) {
@@ -141,16 +172,15 @@ async function processTarget(targetName: string, config: TargetConfig, appVersio
     }
   }
 
-  // 2. Garantir existência do diretório de saída
+  // 2. Garantir existência do diretório
   await ensureDir(distDir);
 
-  // 3. Copiar publicdir (se existir)
+  // 3. Copiar publicdir
   if (config.publicdir) {
     try {
       await copy(config.publicdir, distDir, { overwrite: true });
       console.log(`📁 Arquivos de ${config.publicdir} copiados para ${distDir}`);
       
-      // Patchear manifest.json se existir
       const manifestPath = join(distDir, "manifest.json");
       try {
         const manifestText = await Deno.readTextFile(manifestPath);
@@ -159,14 +189,14 @@ async function processTarget(targetName: string, config: TargetConfig, appVersio
         await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
         console.log(`📱 Versão v${appVersion} injetada em manifest.json`);
       } catch {
-        // manifest.json não existe ou erro, ignora
+        // manifest.json não existe
       }
     } catch {
       console.log(`⚠️ Pasta ${config.publicdir} não encontrada, pulando cópia.`);
     }
   }
 
-  // 4. Copiar index.html (se especificado)
+  // 4. Copiar index.html
   if (config.indexHtml) {
     const srcHtml = join(srcDir, "index.html");
     const destHtml = join(distDir, "index.html");
@@ -178,23 +208,25 @@ async function processTarget(targetName: string, config: TargetConfig, appVersio
     }
   }
 
-  // 5. Preparar defines para o esbuild
+  // 5. Preparar defines
   const finalDefine: Record<string, string> = {
     ...config.define,
     "__APP_VERSION__": JSON.stringify(`v${appVersion}`),
   };
 
-  // Lógica especial para o Service Worker: injetar lista de assets
+  // Lógica especial para Service Worker
   if (targetName === "sw") {
     const assets = await listarAssetsParaCache(distDir);
     finalDefine["__GENERATED_ASSETS__"] = JSON.stringify(assets);
     console.log(`📋 ${assets.length} assets listados para cache do SW`);
   }
 
-  // 6. Executar o build do esbuild
+  // 6. Executar build
   console.log(`🔨 Compilando com esbuild-wasm...`);
+  const startTime = performance.now();
+  
   try {
-    await esbuild.build({
+    const result = await esbuild.build({
       entryPoints: config.entryPoints,
       bundle: config.bundle ?? true,
       outdir: config.outdir ?? distDir,
@@ -208,10 +240,24 @@ async function processTarget(targetName: string, config: TargetConfig, appVersio
       jsxImportSource: config.jsxImportSource,
       conditions: config.conditions,
       define: finalDefine,
+      drop: config.drop, // ✅ Remove console/debugger
+      external: config.external,
       treeShaking: true,
       legalComments: "none",
+      metafile: config.metafile, // ✅ Gera metafile
     });
-    console.log(`✅ [${targetName}] Build concluído com sucesso.`);
+
+    const duration = (performance.now() - startTime).toFixed(0);
+    console.log(`✅ [${targetName}] Build concluído em ${duration}ms`);
+
+    // 7. Salvar metafile se gerado
+    if (config.metafile && result.metafile) {
+      const metafilePath = join(distDir, `${targetName}-metafile.json`);
+      await Deno.writeTextFile(metafilePath, JSON.stringify(result.metafile, null, 2));
+      console.log(`📊 Metafile gerado: ${metafilePath}`);
+      console.log(`   💡 Visualize em: https://esbuild.github.io/analyze/`);
+    }
+
   } catch (error) {
     console.error(`❌ Erro fatal no build [${targetName}]:`, error);
     throw error;
@@ -220,10 +266,10 @@ async function processTarget(targetName: string, config: TargetConfig, appVersio
 
 async function listarAssetsParaCache(distDir: string): Promise<string[]> {
   const assets: string[] = [];
-  const exclude = new Set(['service-worker.js', 'service-worker.tmp.js']);
+  const exclude = new Set(['service-worker.js', 'service-worker.tmp.js', 'metafile.json']);
   
   for await (const entry of walk(distDir, { includeDirs: false })) {
-    if (!entry.name.endsWith(".map") && !exclude.has(entry.name)) {
+    if (!entry.name.endsWith(".map") && !entry.name.endsWith("metafile.json") && !exclude.has(entry.name)) {
       let webPath = entry.path.replace(distDir, "").replace(/\\/g, "/");
       webPath = webPath.startsWith('/') ? '.' + webPath : './' + webPath;
       assets.push(webPath);
@@ -236,13 +282,70 @@ function parseArgs(): { targets: string[]; globalNoVersion: boolean } {
   const args = Deno.args.map(a => a.toLowerCase());
   const globalNoVersion = args.includes('noversion');
   
-  // Filtra argumentos que são nomes de alvos válidos no CONFIG
   const targets = args.filter(arg => arg !== 'noversion' && arg in CONFIG);
-  
-  // Se nenhum alvo válido foi especificado, usa todos na ordem do CONFIG
-  const finalTargets = targets.length > 0 ? targets : Object.keys(CONFIG);
+  const finalTargets = targets.length > 0 ? targets : Object.keys(CONFIG).filter(t => t !== 'watch');
   
   return { targets: finalTargets, globalNoVersion };
+}
+
+// ============================================================================
+// 👀 WATCH MODE
+// ============================================================================
+
+async function startWatchMode() {
+  console.log("\n👀 Iniciando Watch Mode (Desenvolvimento)...\n");
+  
+  const config = CONFIG.watch;
+  const distDir = config.distdir;
+  
+  // Copia arquivos estáticos uma vez
+  if (config.publicdir) {
+    try {
+      await copy(config.publicdir, distDir, { overwrite: true });
+      console.log(`📁 Arquivos de ${config.publicdir} copiados`);
+    } catch {
+      console.log(`⚠️ Pasta ${config.publicdir} não encontrada`);
+    }
+  }
+  
+  if (config.indexHtml) {
+    try {
+      await copy(join(config.srcdir, "index.html"), join(distDir, "index.html"), { overwrite: true });
+      console.log(`📄 index.html copiado`);
+    } catch {
+      console.log(`⚠️ index.html não encontrado`);
+    }
+  }
+
+  // Cria contexto do esbuild
+  const ctx = await esbuild.context({
+    entryPoints: config.entryPoints,
+    bundle: config.bundle ?? true,
+    outdir: config.outdir ?? distDir,
+    platform: config.platform ?? "browser",
+    format: config.format ?? "esm",
+    minify: config.minify ?? false,
+    sourcemap: config.sourcemap ?? "inline",
+    jsx: config.jsx,
+    jsxImportSource: config.jsxImportSource,
+    conditions: config.conditions,
+    define: {
+      "__APP_VERSION__": JSON.stringify("dev"),
+    },
+    drop: config.drop,
+    treeShaking: true,
+  });
+
+  // Inicia watch
+  await ctx.watch();
+  
+  console.log("\n✅ Watch mode ativo!");
+  console.log(`📁 Monitorando: ${config.srcdir}/`);
+  console.log(`📦 Output: ${distDir}/`);
+  console.log("\n💡 Pressione Ctrl+C para parar.\n");
+  
+  // Mantém o processo rodando
+  await new Promise(() => {});
 }
 
 // ============================================================================
@@ -252,24 +355,31 @@ function parseArgs(): { targets: string[]; globalNoVersion: boolean } {
 async function build() {
   const { targets, globalNoVersion } = parseArgs();
   
+  // Verifica se é watch mode
+  const isWatchMode = Deno.args.map(a => a.toLowerCase()).includes('watch');
+  
   console.log("\n🚀 Iniciando Orquestrador de Build Loco (esbuild-wasm)");
-  console.log(`📋 Alvos a processar: ${targets.join(", ")}`);
+  console.log(`📋 Alvos a processar: ${isWatchMode ? 'WATCH MODE' : targets.join(", ")}`);
   console.log(`🔒 Noversion global: ${globalNoVersion}\n`);
   
   const start = performance.now();
 
   try {
-    // 1. Inicializa o WASM do esbuild (cacheado pelo Deno após primeira execução)
     console.log("⚙️ Inicializando esbuild-wasm...");
     await esbuild.initialize({
       wasmURL: "https://esm.sh/esbuild-wasm@0.24.0/esbuild.wasm",
     });
-    console.log("✅ esbuild-wasm pronto (usando cache do Deno se disponível).\n");
+    console.log("✅ esbuild-wasm pronto.\n");
 
-    // 2. Calcula a versão UMA VEZ só
+    // Watch mode
+    if (isWatchMode) {
+      await startWatchMode();
+      return;
+    }
+
+    // Build normal
     const appVersion = await incrementVersion(globalNoVersion);
 
-    // 3. Processa cada alvo na ordem especificada
     for (const targetName of targets) {
       const targetConfig = CONFIG[targetName];
       if (!targetConfig) {
@@ -287,7 +397,9 @@ async function build() {
     console.error("\n🛑 Pipeline de build falhou:", error);
     Deno.exit(1);
   } finally {
-    esbuild.stop();
+    if (!isWatchMode) {
+      esbuild.stop();
+    }
     const elapsed = (performance.now() - start).toFixed(0);
     console.log(`\n⏱️ Tempo total: ${elapsed}ms\n`);
   }
