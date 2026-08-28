@@ -1,9 +1,9 @@
 // src/utils/share-utils.ts
 import { gzipSync, gunzipSync } from 'fflate';
-import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from './jwt-helpers.ts';
-import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from './crypto-utils.ts';
-import type { ProfileConfig, Contato } from '../constants/db.ts';
-import { getAbsoluteProxyUrl } from '../constants/config.ts';
+import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from '../crypto/jwt.ts';
+import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from '../crypto/mod.ts';
+import type { ProfileConfig, Contato } from '../interfaces/db.ts';
+import { getAbsoluteProxyUrl } from '../config/proxy.ts';
 
 const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
 

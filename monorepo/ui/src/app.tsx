@@ -17,13 +17,13 @@ import { ToastSnackbar } from './components/ToastSnackbar.tsx';
 import { WebTorrentLabsSection } from './components/WebTorrentLabsSection.tsx'; 
 
 // Signals e Lógica de Negócio
-import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, appTheme, AppTheme } from './signals/state.ts';
+import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, appTheme, AppTheme } from './stores/state.ts';
 import { profile, initProfileStore, initContatosStore, initMensagensStore, initTorrentLabsStore, contatosComHash } from './stores/index.ts';
 import { isCarregandoContatos } from './stores/contatosStore.ts';
 import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 
 // Roteador Reativo
-import { activeView, navigate } from './utils/router.ts';
+import { activeView, navigate } from './stores/router.ts';
 
 import "@material/web";
 import './styles.css';

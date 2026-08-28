@@ -1,55 +1,11 @@
 // src/utils/jwt-helpers.ts
-import { minifyVapidPublic, expandVapidPublic } from "./crypto-utils.ts";
+import { 
+  minifyVapidPublic, 
+  expandVapidPublic,
+  bufferToBase64Url,
+  base64UrlToBuffer
+} from "./mod.ts";
 
-export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64Url: ${e.message}`);
-  }
-}
-
-export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
-  try {
-    // 🔥 ARQUITETURA DE BLINDAGEM MÁXIMA (Defensive Programming):
-    // 1. Substitui os caracteres seguros de URL (- e _) pelos clássicos (+ e /).
-    // 2. O Regex /[^A-Za-z0-9\+\/]/g atua como um "triturador": 
-    //    Ele remove impiedosamente espaços invisíveis, enters (\n) e restos de URLs (como ':' e '/') 
-    //    deixando o atob() trabalhar sempre de forma segura apenas com Base64 válido.
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9\+\/]/g, '');
-    
-    // Adiciona o padding (=) matematicamente correto
-    const padLength = (4 - (base64.length % 4)) % 4;
-    base64 += '='.repeat(padLength);
-    
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer as ArrayBuffer;
-  } catch (e: any) {
-    throw new Error(`Falha ao converter Base64Url para Binário. O token está corrompido: ${e.message}`);
-  }
-}
-
-export function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  try {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    return btoa(binary);
-  } catch (e: any) {
-    throw new Error(`Erro ao codificar Buffer para Base64 padrão: ${e.message}`);
-  }
-}
 
 export async function criarJWT(
   payload: Record<string, any>,
@@ -67,8 +23,8 @@ export async function criarJWT(
     const headerEnc = encoder.encode(JSON.stringify(header));
     const payloadEnc = encoder.encode(JSON.stringify(payload));
 
-    const headerB64 = arrayBufferToBase64Url(headerEnc.buffer as ArrayBuffer);
-    const payloadB64 = arrayBufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
+    const headerB64 = bufferToBase64Url(headerEnc.buffer as ArrayBuffer);
+    const payloadB64 = bufferToBase64Url(payloadEnc.buffer as ArrayBuffer);
     const toSign = `${headerB64}.${payloadB64}`;
 
     const privateKey = await crypto.subtle.importKey(
@@ -84,7 +40,7 @@ export async function criarJWT(
       privateKey,
       encoder.encode(toSign)
     );
-    const sigB64 = arrayBufferToBase64Url(signature);
+    const sigB64 = bufferToBase64Url(signature);
 
     return `${toSign}.${sigB64}`;
   } catch (err: any) {
@@ -107,8 +63,8 @@ export async function verificarJWT(
     const signatureB64 = parts[2]!;
     const decoder = new TextDecoder();
 
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+    const headerJson = decoder.decode(base64UrlToBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToBuffer(payloadB64));
     
     let header, payload;
     try {
@@ -137,7 +93,7 @@ export async function verificarJWT(
     );
 
     const toSign = `${headerB64}.${payloadB64}`;
-    const signatureBytes = base64UrlToArrayBuffer(signatureB64);
+    const signatureBytes = base64UrlToBuffer(signatureB64);
 
     const encoder = new TextEncoder();
     const valid = await crypto.subtle.verify(
@@ -165,8 +121,8 @@ export function decodificarJWT(jwt: string): { header: any; payload: any; signat
   const decoder = new TextDecoder();
 
   try {
-    const headerJson = decoder.decode(base64UrlToArrayBuffer(headerB64));
-    const payloadJson = decoder.decode(base64UrlToArrayBuffer(payloadB64));
+    const headerJson = decoder.decode(base64UrlToBuffer(headerB64));
+    const payloadJson = decoder.decode(base64UrlToBuffer(payloadB64));
 
     return {
       header: JSON.parse(headerJson),

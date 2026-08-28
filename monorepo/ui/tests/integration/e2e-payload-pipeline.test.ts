@@ -2,9 +2,9 @@
 /// <reference lib="deno.ns" />
 
 import { assert, assertEquals } from "@std/assert";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK, base64UrlToBuffer } from "../../src/utils/crypto-utils.ts";
-import { cifrarPayloadObj } from "../../src/utils/push-utils.ts";
-import { criarJWT, verificarJWT } from "../../src/utils/jwt-helpers.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK, base64UrlToBuffer } from "../../../utils/src/crypto/mod.ts";
+import { cifrarPayloadObj } from "@loco/utils/proxy";
+import { criarJWT, verificarJWT } from "../../../utils/src/crypto/jwt.ts";
 import { gunzipSync } from "fflate";
 
 Deno.test("INTEGRAÇÃO E2E: Nó A (Compacta, Cifra, Assina) -> Servidor (Cego) -> Nó B (Verifica, Decifra, Descompacta)", async () => {

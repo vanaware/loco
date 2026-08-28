@@ -1,7 +1,7 @@
 import { useEffect } from 'preact/hooks';
 import { contatosComHash, isCarregandoContatos, removerContatoCompletamente, homologarContatoPorPublicKey } from '../stores/contatosStore.ts';
-import { showToast } from '../signals/state.ts';
-import { navigate } from '../utils/router.ts';
+import { showToast } from '../stores/state.ts';
+import { navigate } from '../stores/router.ts';
 
 export function ContatosSection() {
   useEffect(() => {}, []);

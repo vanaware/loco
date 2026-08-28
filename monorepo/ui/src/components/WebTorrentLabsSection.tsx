@@ -1,8 +1,8 @@
 // src/components/WebTorrentLabsSection.tsx
 import { useSignal, useComputed } from '@preact/signals';
 import { useRef } from 'preact/hooks';
-import { showToast } from '../signals/state.ts';
-import { navigate, pastaSelecionada } from '../utils/router.ts';
+import { showToast } from '../stores/state.ts';
+import { navigate, pastaSelecionada } from '../stores/router.ts';
 import { 
   pastasAtivas,
   progressoMap,

@@ -2,7 +2,7 @@
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-import { Handshake, Contato } from "../constants/db.ts";
+import { Handshake, Contato } from "../../../utils/src/interfaces/db.ts";
 import { gerarId } from "../utils/id-utils.ts";
 import {
   buscarHandshake,

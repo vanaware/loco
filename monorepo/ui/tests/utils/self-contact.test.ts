@@ -1,8 +1,8 @@
 // tests/utils/self-contact.test.ts
 /// <reference lib="deno.ns" />
 import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
-import type { ProfileConfig, Contato } from "../../src/constants/db.ts";
-import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../src/utils/self-contact-utils.ts";
+import type { ProfileConfig, Contato } from "../../../utils/src/interfaces/db.ts";
+import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../../utils/src/db/self-contact-utils.ts";
 
 // Mock simples para a função serializarPublicKeyVapid que depende de IndexedDB
 async function serializarPublicKeyVapidMock(jwk: JsonWebKey): Promise<string> {

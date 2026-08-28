@@ -11,8 +11,8 @@
  */
 
 import { assertEquals, assert, assertRejects } from "@std/assert";
-import { cifrarPayloadObj } from "../../src/utils/push-utils.ts";
-import { generateE2EEKeys } from "../../src/utils/crypto-utils.ts";
+import { cifrarPayloadObj } from "@loco/utils/proxy";
+import { generateE2EEKeys } from "../../../utils/src/crypto/mod.ts";
 
 // ============================================================================
 // MOCKS E UTILITÁRIOS DE TESTE

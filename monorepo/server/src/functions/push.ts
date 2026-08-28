@@ -1,4 +1,5 @@
-// server/functions/push.ts
+/// <reference types="@cloudflare/workers-types" />
+
 import { sendResponse, handlePreflight, getOrInitServerKeys, extrairEExpandirChavesVapid } from "../shared.ts";
 import * as webpush from "@negrel/webpush";
 

@@ -1,5 +1,5 @@
 
-/// <reference lib="deno.ns" />
+/// <reference types="@cloudflare/workers-types" />
 
 import { sendResponse, handlePreflight } from "./shared.ts";
 import { handlePing } from "./functions/ping.ts";

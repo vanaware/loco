@@ -1,5 +1,5 @@
 // src/utils/self-contact-utils.ts
-import type { ProfileConfig, Contato } from '../constants/db.ts';
+import type { ProfileConfig, Contato } from '../interfaces/db.ts';
 
 /**
  * Função interna para serializar chave pública VAPID em hash SHA-256.

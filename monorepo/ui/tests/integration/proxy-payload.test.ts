@@ -12,9 +12,9 @@ import {
   serializarPublicKeyVapid, 
   removerHandshake,
   listarHandshakes
-} from "../../src/utils/db-helpers.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 const originalFetch = globalThis.fetch;
 

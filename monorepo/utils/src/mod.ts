@@ -1,1 +1,0 @@
-export { APP_VERSION } from "./config/version.ts";

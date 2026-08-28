@@ -10,11 +10,11 @@ import {
   removerHandshake,
   salvarHandshake,
   buscarContatoPorChave
-} from "../utils/db-helpers.ts";
-import type { Contato, Handshake } from "../constants/db.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-import { gerarContatoProprio } from "../utils/self-contact-utils.ts";
-import { gerarId } from "../utils/id-utils.ts";
+} from "../../../utils/src/db/mod.ts";
+import type { Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
+import { addDebugLog } from "../../../utils/src/debug/mod.ts";
+import { gerarContatoProprio } from "../../../utils/src/db/self-contact-utils.ts";
+import { gerarId } from "../../../worker-db/src/utils/id.ts";
 
 import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
 import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";

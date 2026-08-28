@@ -11,11 +11,11 @@ import {
   listarHandshakes,
   removerHandshake,
   serializarPublicKeyVapid
-} from "../../src/utils/db-helpers.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+} from "../../../utils/src/db/mod.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
 import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
 import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 // Mock da função de fetch para evitar erros de rede e simular sucesso no Proxy
 const originalFetch = globalThis.fetch;

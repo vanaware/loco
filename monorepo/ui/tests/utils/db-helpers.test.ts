@@ -14,8 +14,8 @@ import {
   salvarChat,
   listarChatPaginado,
   removerTodoHistoricoChat
-} from "../../src/utils/db-helpers.ts";
-import type { ProfileConfig, Chat } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import type { ProfileConfig, Chat } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("DB Helpers - Profile: Deve salvar, buscar e remover o perfil corretamente", async () => {
   const mockProfile: ProfileConfig = {

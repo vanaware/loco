@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
-import type { ProfileConfig, Chat, Handshake } from "../../src/constants/db.ts";
-import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../src/utils/self-contact-utils.ts";
+import type { ProfileConfig, Chat, Handshake } from "../../../utils/src/interfaces/db.ts";
+import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../../utils/src/db/self-contact-utils.ts";
 
 // Helper para substituir assertTrue
 function assertTrue(condition: boolean, msg?: string) {

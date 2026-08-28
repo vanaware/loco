@@ -4,7 +4,7 @@
 import "fake-indexeddb";
 import { assertEquals } from "@std/assert";
 import { loadAllConfigs, resetConfig, getConfigValue, saveConfig } from "../../src/stores/config-store.ts";
-import { DefaultProxyPath, FallbackAbsoluteProxy } from "../../src/constants/config.ts";
+import { DefaultProxyPath, FallbackAbsoluteProxy } from "../../../utils/src/config/proxy.ts";
 
 const originalFetch = globalThis.fetch;
 

@@ -2,11 +2,11 @@
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { profile } from '../stores/profileStore.ts';
-import { showToast } from '../signals/state.ts';
-import { solicitarArmazenamentoPersistente, repararSubscricaoPush } from '../utils/profile-utils.ts';
+import { showToast } from '../stores/state.ts';
+import { solicitarArmazenamentoPersistente, repararSubscricaoPush } from '../utils/profile.ts';
 import { DebugPanel } from './DebugPanel.tsx';
-import { APP_VERSION } from '../constants/version.ts'; 
-import { navigate } from '../utils/router.ts';
+import { APP_VERSION } from '../../../utils/src/config/version.ts'; 
+import { navigate } from '../stores/router.ts';
 import { loadAllConfigs } from '../stores/config-store.ts';
 
 export function AdvancedSection() {

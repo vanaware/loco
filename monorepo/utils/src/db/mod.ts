@@ -1,13 +1,13 @@
 // src/utils/db-helpers.ts
 import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../constants/db.ts";
-import type { ProfileConfig, Chat, Contato, Handshake, PastaMetadata } from "../constants/db.ts";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../interfaces/db.ts";
+import type { ProfileConfig, Chat, Contato, Handshake, PastaMetadata } from "../interfaces/db.ts";
 import { 
   minifyVapidPublic, expandVapidPublic, 
   minifyVapidPrivate, expandVapidPrivate, 
   minifyRsaPublic, expandRsaPublic, 
   minifyRsaPrivate, expandRsaPrivate 
-} from "./crypto-utils.ts";
+} from "../crypto/mod.ts";
 
 // ============================================================
 // Criação de Stores

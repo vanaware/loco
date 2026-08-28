@@ -1,5 +1,5 @@
-import { activeView, navigate, pastaSelecionada } from '../utils/router.ts';
-import { contatoSelecionado, contatoCompartilharHash } from '../signals/state.ts';
+import { activeView, navigate, pastaSelecionada } from '../stores/router.ts';
+import { contatoSelecionado, contatoCompartilharHash } from '../stores/state.ts';
 import { profile, contatosComHash } from '../stores/index.ts';
 import { pastasAtivas } from '../stores/torrentLabsStore.ts';
 

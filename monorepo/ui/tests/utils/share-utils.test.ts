@@ -1,9 +1,9 @@
 // tests/utils/share-utils.test.ts
 /// <reference lib="deno.ns" />
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import { gerarLinkConviteWeb, processarQualquerConvite, extrairDadosCompactos, expandirDadosCompactos } from "../../src/utils/share-utils.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
-import type { ProfileConfig, Contato } from "../../src/constants/db.ts";
+import { gerarLinkConviteWeb, processarQualquerConvite, extrairDadosCompactos, expandirDadosCompactos } from "../../../utils/src/db/share-utils.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
+import type { ProfileConfig, Contato } from "../../../utils/src/interfaces/db.ts";
 
 // Mock simples para as funções de DB que não podemos usar em testes unitários puros
 const mockContatos = new Map<string, Contato>();
@@ -175,7 +175,7 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
   
   const { gzipSync } = await import('fflate');
   const compressed = gzipSync(cqrBytes);
-  const { arrayBufferToBase64Url } = await import('../../src/utils/jwt-helpers.ts');
+  const { arrayBufferToBase64Url } = await import('../../../utils/src/crypto/jwt.ts');
   const cqrToken = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
   
   const contatoCqr = await processarQualquerConvite(cqrToken);
@@ -183,7 +183,7 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
 
   // Teste 9: Testar JWT não-compresso
   console.log("📝 Teste 9: Testando JWT não-compresso");
-  const { criarJWT } = await import('../../src/utils/jwt-helpers.ts');
+  const { criarJWT } = await import('../../../utils/src/crypto/jwt.ts');
   // 🔥 ARQUITETURA: Agora a extração é assíncrona, exigindo await dentro do spread operator.
   const extraidos = await extrairDadosCompactos(userA);
   const jwtPayload = {

@@ -17,10 +17,10 @@ import {
   listarHandshakes,
   removerHandshake,
   serializarPublicKeyVapid
-} from "../../src/utils/db-helpers.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+} from "../../../utils/src/db/mod.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
 
-import type { Contato, Handshake } from "../../src/constants/db.ts";
+import type { Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO (Expurgo Remoto 1): Limpar histórico cria Handshake Único e Apaga no Remoto", async () => {
   const contatoHash = "hash-bob-purge";

@@ -1,26 +1,4 @@
-// src/constants/db.ts
-
-export const DB_NAMES = {
-  CONFIG: "AppConfig_DB",
-  CHAT: "Chat_DB", 
-  CONTATOS: "BrowserB_Contatos_DB",
-  HANDSHAKES: "Handshake_DB",
-  // 🔥 ARQUITETURA: Banco atualizado para mapear as Pastas (Coleções de Mídia/Torrents)
-  MIDIAS: "Midias_Metadata_DB" 
-} as const;
-
-export const STORE_NAMES = {
-  KEYVAL: "keyval",
-} as const;
-
-export const KEY_NAMES = {
-  PROFILE: "profile",
-  CONTATO: "contato_",
-  CHAT_INDEX: "chat_index_", 
-} as const;
-
-export const MAX_TENTATIVAS = 3;
-export const MAX_PAYLOAD_SIZE = 4096;
+// TODO IA: no novo worker-db, "_id" fixo em "profile" para ProfileConfig
 
 export interface ProfileConfig {
   name: string;
@@ -42,6 +20,8 @@ export interface ProfileConfig {
   updatedAt: number;
 }
 
+// TODO IA: no novo worker-db, "id" deverá ser "_id" para chat
+
 export interface Chat {
   id: string;
   contatoHash: string;
@@ -61,6 +41,8 @@ export interface Chat {
 
 export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved' | 'deleted';
 
+// TODO IA: no novo worker-db, "id" deverá ser "_id" para contato
+
 export interface Contato {
   id: string; 
   email: string;
@@ -79,6 +61,8 @@ export interface Contato {
   updatedAt: number;
 }
 
+// TODO IA: no novo worker-db, função opfs(), usar interface OpfsFileInfo que já tem em db.ts
+
 // 🔥 ARQUITETURA: Nova Estrutura Baseada em Pastas/Manifestos P2P
 export interface FileMetadata {
   name: string;      // Nome original (ex: foto.jpg). É o mesmo nome salvo no OPFS dentro da pasta.
@@ -87,6 +71,8 @@ export interface FileMetadata {
   createdAt: number; 
   modifiedAt: number;
 }
+
+// TODO IA: no novo worker-db, função opfs(), "id" deverá ser "_id" para pasta meta data
 
 export interface PastaMetadata {
   id: string;                                    // ID único da pasta (gerado e espelhado pelo Manifesto JSON)
@@ -118,6 +104,7 @@ export interface MensagemRouteData {
   data?: Record<string, unknown>;
 }
 
+
 export interface ContatoRouteData {
   id?: string;
   removerContato?: boolean; 
@@ -125,6 +112,7 @@ export interface ContatoRouteData {
   data?: Record<string, unknown>;
   sync?: Record<string, unknown>;
 }
+
 
 export interface HandshakeRotas { 
   profile?: ProfileRouteData; 
@@ -150,6 +138,8 @@ export interface FluxoOut {
   erro?: string;
 }
 
+// TODO IA: no novo worker-db, "id" deverá ser "_id" para handshake
+
 export interface Handshake { 
   id: string; 
   aud: string; 
@@ -163,4 +153,22 @@ export interface EnvelopeCifrado {
   i: string;
   d: string;
   k: string;
+}
+
+export interface FetchProxyOptions extends Omit<RequestInit, 'body' | 'headers'> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  body?: any; 
+  specificProxy?: string; 
+  headers?: any; 
+}
+
+// TODO IA: no novo worker-db, função ls(), "id" deverá ser "_id" para debug 
+
+export interface DebugLogPayload {
+  id: string;
+  timestamp: string;
+  type: "info" | "warn" | "error" | "success";
+  module: string;
+  message: string;
+  details?: unknown;
 }

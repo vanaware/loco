@@ -14,9 +14,9 @@ import {
   listarHandshakes,
   salvarContato,
   removerHandshake
-} from "../../src/utils/db-helpers.ts";
+} from "../../../utils/src/db/mod.ts";
 
-import type { Chat, Handshake, Contato } from "../../src/constants/db.ts";
+import type { Chat, Handshake, Contato } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO (Exclusão - Parte 1): Apagar mensagem local deve gerar Handshake de exclusão remota OUT", async () => {
   const contatoHash = "hash-contato-bob-123";

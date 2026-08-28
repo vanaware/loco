@@ -1,7 +1,7 @@
 // tests/utils/crypto-aes.test.ts
 /// <reference lib="deno.ns" />
 import { assertEquals, assert, assertRejects } from "@std/assert";
-import { encryptTextAES, decryptTextAES } from "../../src/utils/crypto-utils.ts";
+import { encryptTextAES, decryptTextAES } from "../../../utils/src/crypto/mod.ts";
 
 Deno.test("Crypto AES - Criptografar e Descriptografar texto puro (Roundtrip)", async () => {
   // Gera uma chave AES-GCM temporária para o teste

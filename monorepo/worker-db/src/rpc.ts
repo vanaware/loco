@@ -1,5 +1,5 @@
 // ## Arquivo: monorepo/worker-db/src/rpc.ts
-import { gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
+import { gerarId, gerarIdComPrefixo, type WithId } from "./utils/id.ts";
 import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./db.ts";
 
 let workerInstance: Worker | null = null;

@@ -1,6 +1,6 @@
 // src/signals/state.ts
 import { signal } from '@preact/signals';
-import { addDebugLog as emitLog } from '../utils/debug-utils.ts';
+import { addDebugLog as emitLog } from '../../../utils/src/debug/mod.ts';
 
 export type AppTheme = 'system' | 'light' | 'dark';
 

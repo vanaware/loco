@@ -1,8 +1,8 @@
 // tests/utils/push-utils.test.ts
 /// <reference lib="deno.ns" />
 import { assert, assertEquals } from "@std/assert";
-import { cifrarChaveVapid } from "../../src/utils/push-utils.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+import { cifrarChaveVapid } from "@loco/utils/proxy";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
 
 Deno.test("Push Utils - Blindagem do Servidor (cifrarChaveVapid)", async () => {
   // 1. Cenário: O Cliente PWA acabou de gerar sua chave VAPID privada

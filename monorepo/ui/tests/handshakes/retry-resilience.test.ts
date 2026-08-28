@@ -13,9 +13,9 @@ import {
   serializarPublicKeyVapid,
   listarHandshakes,
   removerHandshake
-} from "../../src/utils/db-helpers.ts";
+} from "../../../utils/src/db/mod.ts";
 import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("RETRY RESILIENCE: Re-tentativas de mensagem devem anexar dados de contato (Shadow Sync)", async () => {
   // 🔥 SEGURANÇA CROSS-TEST: Limpa qualquer handshake residual na memória do Fake IndexedDB

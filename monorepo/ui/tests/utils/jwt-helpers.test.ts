@@ -1,7 +1,7 @@
 // testes/utils/jwt-helpers.test.ts/// <reference lib="deno.ns" />
 import { assert, assertEquals } from "@std/assert";
-import { criarJWT, verificarJWT } from "../../src/utils/jwt-helpers.ts";
-import { generateVAPIDKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+import { criarJWT, verificarJWT } from "../../../utils/src/crypto/jwt.ts";
+import { generateVAPIDKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
 
 Deno.test("JWT Helpers - Pipeline de Criação e Verificação E2E", async () => {
   const keys = await generateVAPIDKeys();

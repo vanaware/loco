@@ -15,8 +15,8 @@ import {
   buscarChat,
   serializarPublicKeyVapid,
   removerTodoHistoricoChat
-} from "../../src/utils/db-helpers.ts";
-import type { ProfileConfig, Contato, Handshake, Chat } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import type { ProfileConfig, Contato, Handshake, Chat } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamente com validação de autoridade", async () => {
   // 1. SETUP DO "BOB" (O usuário local que receberá a ordem de exclusão)

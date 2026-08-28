@@ -1,6 +1,6 @@
 // tests/id-utils.test.ts
 import { assert, assertEquals, assertNotEquals } from "@std/assert";
-import { gerarId, gerarIdFallback, validarId } from "../../src/utils/id-utils.ts";
+import { gerarId, gerarIdFallback, validarId } from "../../../worker-db/src/utils/id.ts";
 
 Deno.test("gerarId - Deve gerar um ID no formato string e com tamanho adequado", () => {
   const id = gerarId();

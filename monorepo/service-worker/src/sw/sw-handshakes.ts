@@ -3,7 +3,7 @@
 declare const self: ServiceWorkerGlobalScope;
 
 import { gunzipSync } from "fflate";
-import { Handshake, MAX_TENTATIVAS } from "../constants/db.ts";
+import { Handshake, MAX_TENTATIVAS } from "../../../utils/src/interfaces/db.ts";
 import { base64UrlToArrayBuffer, criarJWT } from "../utils/jwt-helpers.ts";
 import {
   salvarHandshake,

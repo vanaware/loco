@@ -6,7 +6,7 @@
 
 import { walk } from "@std/fs/walk";
 import { relative } from "@std/path/relative";
-import { APP_VERSION } from "@loco/utils";
+import { APP_VERSION } from "@loco/utils/config";
 
 // 1. Definição de Tipos e Interfaces
 export type ModoExportacao = "ui" | "docs" | "tests" | "server" | "playground" | "workerdb" | "utils" | "router" | "sw";
@@ -23,7 +23,7 @@ export interface ExportConfig {
 }
 
 // Extensões padrão reutilizáveis
-const EXTENSOES_PADRAO = [
+export const EXTENSOES_PADRAO = [
   ".tsx", ".jsx", ".js", ".ts", ".css", ".html", ".manifest", ".map",
   ".sh", ".py", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".env.example", ".md"
 ];
@@ -31,7 +31,7 @@ const EXTENSOES_PADRAO = [
 // 2. Dicionário de Configurações (Declarativo)
 export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
   ui: {
-    arquivoSaida: "exports/ui.md",
+    arquivoSaida: "snapshots/ui.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "./monorepo/ui/",
     subpastasPermitidas: ["src", "public", "tests", "docs"],
@@ -40,7 +40,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém os arquivos de CÓDIGO FONTE principais da aplicação (UI)."
   },
   docs: {
-    arquivoSaida: "exports/docs.md",
+    arquivoSaida: "snapshots/docs.md",
     extensoesPermitidas: [".md", ".txt"],
     pastaBase: "./",
     subpastasPermitidas: ["docs"],
@@ -49,7 +49,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém a DOCUMENTAÇÃO e diretrizes arquiteturais do projeto."
   },
   tests: {
-    arquivoSaida: "exports/tests.md",
+    arquivoSaida: "snapshots/tests.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "./monorepo/ui/tests",
     subpastasPermitidas: [],
@@ -58,7 +58,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém os TESTES unitários e de integração do projeto."
   },
   server: {
-    arquivoSaida: "exports/server.md",
+    arquivoSaida: "snapshots/server.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/server",
     subpastasPermitidas: ["src", "tests", "docs"],
@@ -68,7 +68,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR @loco/server e CI/CD."
   },
   playground: {
-    arquivoSaida: "exports/playground.md",
+    arquivoSaida: "snapshots/playground.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/playground",
     subpastasPermitidas: ["src", "public", "tests", "docs"],
@@ -77,7 +77,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND."
   },
   workerdb: {
-    arquivoSaida: "exports/worker-db.md",
+    arquivoSaida: "snapshots/worker-db.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/worker-db",
     subpastasPermitidas: ["src", "tests", "docs", "example"],
@@ -86,7 +86,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/workerdb"
   },
   utils: {
-    arquivoSaida: "exports/utils.md",
+    arquivoSaida: "snapshots/utils.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/utils",
     subpastasPermitidas: ["src", "tests", "docs"],
@@ -95,7 +95,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/utils"
   },
   sw: {
-    arquivoSaida: "exports/sw.md",
+    arquivoSaida: "snapshots/sw.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/utils",
     subpastasPermitidas: ["src", "tests", "docs"],
@@ -104,7 +104,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/service-worker"
   },
   router: {
-    arquivoSaida: "exports/router.md",
+    arquivoSaida: "snapshots/router.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/router",
     subpastasPermitidas: ["src", "tests", "docs", "example"],
@@ -113,11 +113,6 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do ROUTER @loco/router"
   }
 };
-
-// 3. Resolução do Modo via CLI
-const argModo = (Deno.args[0]?.toLowerCase() || "main") as ModoExportacao;
-const modo: ModoExportacao = CONFIGURACOES[argModo] ? argModo : "ui";
-const config = CONFIGURACOES[modo];
 
 function calcularCraseWrapper(texto: string): string {
   const matches = texto.match(/`+/g);
@@ -186,10 +181,11 @@ export function deveIncluirArquivo(caminhoRelativo: string, config: ExportConfig
   return false;
 }
 
-// 4. Montagem do cabeçalho instrucional dinâmico
+const argModo = (Deno.args[0]?.toLowerCase() || "ui") as ModoExportacao;
+const modo: ModoExportacao = CONFIGURACOES[argModo] ? argModo : "ui";
+const config = CONFIGURACOES[modo];
 const versaoDisplay = config.incluiVersao ? `[v${APP_VERSION}] ` : "";
-
-let conteudoFinal = `> **INSTRUÇÃO PARA A IA:** 
+const conteudoInicial = `> **INSTRUÇÃO PARA A IA:** 
 > ${config.instrucaoCustomizada}
 > O projeto é o **Loco ${versaoDisplay}** estruturado em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: \`## Arquivo: src/main.ts\`).
@@ -208,10 +204,9 @@ Gerado automaticamente em: ${new Date().toLocaleString()}
 // 5. Varredura do diretório principal (APENAS se executado diretamente)
 if (import.meta.main) {
   console.log(`🚀 Iniciando exportação do Loco ${versaoDisplay}no modo: [${modo.toUpperCase()}] -> Gerando '${config.arquivoSaida}'`);
-
+  let conteudoFinal = conteudoInicial;
   for await (const entry of walk(".", { includeDirs: false })) {
     const caminhoRelativo = relative(".", entry.path);
-
     if (deveIncluirArquivo(caminhoRelativo, config)) {
       try {
         console.log(` 📄 Incluindo: ${caminhoRelativo}`);

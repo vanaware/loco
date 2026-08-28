@@ -1,5 +1,5 @@
 // ## Arquivo: monorepo/worker-db/example/main.ts
-import { db, ls, opfs } from "../src/mod.ts";
+import { db, ls, opfs } from "../src/mod-main.ts";
 
 interface LocoMessage {
   _id?: string;

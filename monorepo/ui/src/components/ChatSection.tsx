@@ -1,8 +1,8 @@
 // src/components/ChatSection.tsx
 import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
-import { contatoSelecionado, showToast } from '../signals/state.ts';
-import { gerarId } from '../utils/id-utils.ts';
+import { contatoSelecionado, showToast } from '../stores/state.ts';
+import { gerarId } from '../../../worker-db/src/utils/id.ts';
 import { 
   mensagensAtivas, 
   hasMoreMessages, 
@@ -13,7 +13,7 @@ import {
   limparMemoriaChat,
   excluirMensagem
 } from '../stores/mensagensStore.ts';
-import type { Chat } from '../constants/db.ts';
+import type { Chat } from '../../../utils/src/interfaces/db.ts';
 
 export function ChatSection() {
   const inputText = useSignal<string>('');

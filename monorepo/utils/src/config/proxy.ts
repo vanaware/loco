@@ -1,12 +1,17 @@
 // src/constants/config.ts
+
+// TODO IA: todo acesso ao indexded deve ser pela lib db() de @loco/workerdb
+// TODO IA: precisa diferenciar quando a chamada for por um service worker ou web worker usar a função dbsw() e opfssw()
+// TODO IA: se o acesso for pela main thread (browser) usar as funções db(), opfs() e até o ls() se for o caso
+
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
-import { DB_NAMES } from "./db.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
-
-export const DefaultProxyPath: string = "/";
-export const FallbackAbsoluteProxy: string = "https://proxy.vanaware.com";
-
-const PROXY_PATH_KEY = 'ProxyPath';
+import { 
+  DB_NAMES, 
+  DefaultProxyPath,
+  PROXY_PATH_KEY
+} from "./mod.ts";
+import { addDebugLog } from "../debug/mod.ts";
+import type { FetchProxyOptions } from "../interfaces/mod.ts"
 
 let _configStore: ReturnType<typeof createStore> | null = null;
 let _cachedProxyPath: string | null = null; 
@@ -98,12 +103,6 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   return cleanEndpoint ? `${base}/${cleanEndpoint}` : `${base}/`;
 }
 
-export interface FetchProxyOptions extends Omit<RequestInit, 'body' | 'headers'> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  body?: any; 
-  specificProxy?: string; 
-  headers?: any; 
-}
 
 export async function fetchLocoProxy(endpoint: string, options: FetchProxyOptions = {}): Promise<Response> {
   const { specificProxy, body, headers: _ignorado, ...restOptions } = options;

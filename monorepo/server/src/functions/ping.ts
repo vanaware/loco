@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/workers-types" />
 
 import { sendResponse, handlePreflight, APP_VERSION } from "../shared.ts";
 

@@ -1,4 +1,4 @@
-import { navigate, activeView, pastaSelecionada } from '../utils/router.ts';
+import { navigate, activeView, pastaSelecionada } from '../stores/router.ts';
 import { ContatosSection } from './ContatosSection.tsx';
 import { 
   pastasAtivas, 

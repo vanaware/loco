@@ -1,5 +1,15 @@
-// src/types/material-web.d.ts
 import { JSX } from "preact";
+
+// 🔥 Declaração Global Centralizada para a API Nativa do BarcodeDetector
+declare global {
+  class BarcodeDetector {
+    constructor(options?: { formats: string[] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
+    static getSupportedFormats(): Promise<string[]>;
+  }
+}
+
 
 declare module "preact" {
   namespace JSX {
@@ -52,15 +62,5 @@ declare module "preact" {
       "md-outlined-select": MdElement;
       "md-select-option": MdElement;
     }
-  }
-}
-
-// 🔥 Declaração Global Centralizada para a API Nativa do BarcodeDetector
-declare global {
-  class BarcodeDetector {
-    constructor(options?: { formats: string[] });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    detect(image: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<any[]>;
-    static getSupportedFormats(): Promise<string[]>;
   }
 }

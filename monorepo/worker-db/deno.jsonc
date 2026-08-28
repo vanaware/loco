@@ -24,5 +24,13 @@
     "demo": "deno run --allow-env --allow-read --allow-net ./example/demo.ts",
     "example": "deno run -A --unstable-bundle ./example/server.ts"
   },
-  "exports":"./src//mod.ts"
+  "exports":"./src/mod.ts"
+  
+  "exports": {
+    ".": {
+      "worker": "./src/mod-sw.ts",
+      "browser": "./src/mod-main.ts",
+      "default": "./src/mod-main.ts"
+    }
+  }
 }

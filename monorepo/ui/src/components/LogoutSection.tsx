@@ -1,6 +1,6 @@
 // src/components/LogoutSection.tsx
 import { useSignal } from '@preact/signals';
-import { navigate } from '../utils/router.ts';
+import { navigate } from '../stores/router.ts';
 
 export function LogoutSection() {
   const status = useSignal('Aguardando confirmação...');

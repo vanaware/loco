@@ -1,8 +1,8 @@
 // src/stores/profileStore.ts
 import { signal, batch } from '@preact/signals';
-import { buscarProfile, salvarProfile } from '../utils/db-helpers.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { profileName, profileEmail, addDebugLog } from '../signals/state.ts';
+import { buscarProfile, salvarProfile } from '../../../utils/src/db/mod.ts';
+import type { ProfileConfig } from '../../../utils/src/interfaces/db.ts';
+import { profileName, profileEmail, addDebugLog } from './state.ts';
 
 // Signal dedicado EXCLUSIVAMENTE para indicar operações de I/O no banco
 export const isSavingProfile = signal<boolean>(false);

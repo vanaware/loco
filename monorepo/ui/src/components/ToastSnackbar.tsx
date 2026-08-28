@@ -1,5 +1,5 @@
 // src/components/ToastSnackbar.tsx
-import { toastState } from '../signals/state.ts';
+import { toastState } from '../stores/state.ts';
 
 export function ToastSnackbar() {
   const state = toastState.value;

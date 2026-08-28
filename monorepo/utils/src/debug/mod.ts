@@ -1,20 +1,13 @@
 // src/utils/debug-utils.ts
 
-const DEBUG_CHANNEL_NAME = "loco_debug_channel";
+import { DEBUG_CHANNEL_NAME } from "../config/mod.ts";
+
+import type { DebugLogPayload } from "../interfaces/mod.ts";
 
 // BroadcastChannel é suportado tanto na Window (UI) quanto no ServiceWorker
 let debugChannel: BroadcastChannel | null = null;
 if (typeof BroadcastChannel !== "undefined") {
   debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
-}
-
-export interface DebugLogPayload {
-  id: string;
-  timestamp: string;
-  type: "info" | "warn" | "error" | "success";
-  module: string;
-  message: string;
-  details?: unknown;
 }
 
 /**
@@ -59,7 +52,7 @@ export function addDebugLog(
     if (debugChannel) {
       debugChannel.postMessage({
         type: "LOCO_DEBUG_LOG",
-        entry, // A propriedade mágica "entry" que faltava no payload
+        entry,
       });
     }
   } catch (err) {

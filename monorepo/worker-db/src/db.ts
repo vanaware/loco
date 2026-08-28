@@ -6,7 +6,7 @@ import {
 } from "idb-keyval";
 import { zipSync, unzipSync } from "fflate";
 
-import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
+import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id.ts";
 
 // ============================================================================
 // DEFINIÇÕES DE TIPOS (Single Source of Truth)

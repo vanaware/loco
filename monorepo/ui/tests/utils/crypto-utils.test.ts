@@ -3,7 +3,7 @@ import { assertEquals, assert } from "@std/assert";
 import { 
   minifyVapidPublic, expandVapidPublic,
   minifyRsaPublic, expandRsaPublic
-} from "../../src/utils/crypto-utils.ts";
+} from "../../../utils/src/crypto/mod.ts";
 
 Deno.test("Crypto Utils - Minificação e Expansão de VAPID Public (ECDSA P-256)", () => {
   const mockJwkOriginal: JsonWebKey = {

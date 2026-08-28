@@ -1,7 +1,7 @@
 // src/stores/config-store.ts
 import { get, set, del, createStore } from "idb-keyval";
-import { DB_NAMES } from "../constants/db.ts";
-import { setProxyPath, getProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../constants/config.ts";
+import { DB_NAMES } from "../../../utils/src/interfaces/db.ts";
+import { setProxyPath, getProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../../../utils/src/config/proxy.ts";
 
 const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
 const configStore = createStore(CONFIG_STORE_NAME, 'keyval');

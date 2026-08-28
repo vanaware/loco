@@ -10,9 +10,9 @@ import {
   inicializarChat, 
   atualizarOuAdicionarChatAtivo 
 } from "../../src/stores/mensagensStore.ts";
-import { removerTodoHistoricoChat, buscarChat } from "../../src/utils/db-helpers.ts";
-import { contatoSelecionado } from "../../src/signals/state.ts";
-import type { Chat } from "../../src/constants/db.ts";
+import { removerTodoHistoricoChat, buscarChat } from "../../../utils/src/db/mod.ts";
+import { contatoSelecionado } from "../../src/stores/state.ts";
+import type { Chat } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("Store: Mensagens - Deve refletir atualizações no Signal de forma Otimista", async () => {
   const hashContato = "contato-reativo-123";

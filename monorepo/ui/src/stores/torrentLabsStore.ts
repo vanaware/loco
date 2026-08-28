@@ -1,16 +1,16 @@
 // src/stores/torrentLabsStore.ts
 import { signal } from "@preact/signals";
 import { zipSync } from "fflate";
-import { addDebugLog, showToast } from "../signals/state.ts";
+import { addDebugLog, showToast } from "./state.ts";
 import { salvarNoOPFS, lerDoOPFS, excluirDoOPFS } from "../utils/opfs-utils.ts";
-import { gerarId } from "../utils/id-utils.ts";
+import { gerarId } from "../../../worker-db/src/utils/id.ts";
 import { 
   salvarPastaMetadata, 
   listarTodasAsPastas, 
   buscarPastaMetadata,
   removerPastaMetadata
-} from "../utils/db-helpers.ts";
-import type { PastaMetadata, FileMetadata } from "../constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import type { PastaMetadata, FileMetadata } from "../../../utils/src/interfaces/db.ts";
 
 export const isMotorLigar = signal<boolean>(false);
 export const pastasAtivas = signal<PastaMetadata[]>([]);

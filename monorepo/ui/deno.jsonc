@@ -5,13 +5,12 @@
   // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "types": ["./src/types/material-web.d.ts"],
     "strict": true,
     "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
+    "noUncheckedIndexedAccess": true,
+    "jsx": "automatic",
+    "jsxImportSource": "preact"
+  }
 
   // 📦 Gerenciamento de Dependências
   "imports": {
@@ -34,8 +33,7 @@
     
     // 🔥 ARQUITETURA: Blindagem de Target do CDN (apenas para os ofensores)
     // Mantemos o target=es2022 apenas nas bibliotecas que puxavam módulos do Node.
-    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022",
-    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
+    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022"
   },
 
   // 🛠️ Scripts de Automação

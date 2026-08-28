@@ -1,8 +1,8 @@
 // ## Arquivo: monorepo/worker-db/example/sw.ts
 /// <reference lib="webworker" />
 
-import { dbsw as db } from "../src/mod.ts";
-import { listOpfsFiles } from "../src/utils/opfs_utils.ts";
+import { dbsw as db } from "../src/mod-main.ts";
+import { listOpfsFiles } from "../src/utils/opfs.ts";
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 

@@ -1,6 +1,6 @@
 // ## Arquivo: monorepo/worker-db/src/ls.ts
-import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
-import { opfs } from "./mod.ts"; // 💎 Proxy Worker-DB: Ponto de acesso unificado e assíncrono
+import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id.ts";
+import { opfs } from "./mod-main.ts"; // 💎 Proxy Worker-DB: Ponto de acesso unificado e assíncrono
 
 export interface LsStoreOptions {
   prefix?: string;

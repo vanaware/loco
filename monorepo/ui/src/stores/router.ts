@@ -6,7 +6,7 @@ import {
   showAdvanced,
   currentMobileView,
   sharePayload
-} from "../signals/state.ts";
+} from "./state.ts";
 
 export const currentHash = signal<string>(globalThis.location?.hash || "");
 

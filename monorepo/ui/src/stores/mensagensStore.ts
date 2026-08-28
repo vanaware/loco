@@ -1,9 +1,9 @@
 // src/stores/mensagensStore.ts
 import { signal, batch } from '@preact/signals';
-import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '../utils/db-helpers.ts';
+import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '../../../utils/src/db/mod.ts';
 import { ExpurgarMensagens } from '../handshakes/hand-mensagem.ts';
-import type { Chat } from '../constants/db.ts';
-import { contatoSelecionado } from '../signals/state.ts';
+import type { Chat } from '../../../utils/src/interfaces/db.ts';
+import { contatoSelecionado } from './state.ts';
 
 export const mensagensAtivas = signal<Chat[]>([]);
 export const hasMoreMessages = signal<boolean>(true);

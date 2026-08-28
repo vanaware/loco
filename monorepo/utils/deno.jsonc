@@ -6,12 +6,23 @@
     "noUncheckedIndexedAccess": true
   },
   "imports": {
-    "@std/assert": "jsr:@std/assert"
+    "@std/assert": "jsr:@std/assert",
+
+    // 🔥 ARQUITETURA: Blindagem de Target do CDN (apenas para os ofensores)
+    // Mantemos o target=es2022 apenas nas bibliotecas que puxavam módulos do Node.
+    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022"
   },
   "tasks": {
     "test": "deno test --allow-env --allow-net --allow-read tests/",
     "check": "deno check src/**/*.ts src/**/*.tsx tests/**/*.ts",
     "tests": "deno task check && deno task test"
   },
-  "exports":"./src//mod.ts"
+  "exports": {
+  ".": "./src/mod.ts",
+  "./config": "./src/config/mod.ts",
+  "./interfaces": "./src/interfaces/mod.ts",
+  "./proxy": "./src/proxy/mod.ts",
+  "./debug": "./src/debug/mod.ts",
+  "./crypto": "./src/crypto/mod.ts"
+  }
 }

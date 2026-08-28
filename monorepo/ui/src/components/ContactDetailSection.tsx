@@ -6,10 +6,10 @@ import qrcode from 'qrcode-generator';
 import { contatosComHash, adicionarContato, removerContatoCompletamente } from '../stores/contatosStore.ts';
 import { limparTodoHistorico } from '../stores/mensagensStore.ts';
 import { profile } from '../stores/profileStore.ts';
-import { contatoCompartilharHash, contatoSelecionado, showToast } from '../signals/state.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../utils/share-utils.ts';
-import { navigate } from '../utils/router.ts';
-import { ehContatoProprio } from '../utils/self-contact-utils.ts';
+import { contatoCompartilharHash, contatoSelecionado, showToast } from '../stores/state.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../../../utils/src/db/share-utils.ts';
+import { navigate } from '../stores/router.ts';
+import { ehContatoProprio } from '../../../utils/src/db/self-contact-utils.ts';
 
 export function ContactDetailSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);

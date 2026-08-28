@@ -1,13 +1,13 @@
 // src/utils/push-utils.ts
 import { gzipSync } from "fflate";
-import { addDebugLog } from "./debug-utils.ts";
+import { addDebugLog } from "../debug/mod.ts";
 import { 
   minifyVapidPrivate, 
   minifyVapidPublic, 
   expandVapidPublic, 
   expandVapidPrivate 
-} from "./crypto-utils.ts";
-import { fetchLocoProxy } from "../constants/config.ts";
+} from "../crypto/mod.ts";
+import { fetchLocoProxy } from "../config/proxy.ts";
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   try {

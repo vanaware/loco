@@ -1,7 +1,7 @@
 // tests/utils/config.test.ts
 /// <reference lib="deno.ns" />
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { getAbsoluteProxyUrl, buildProxyUrl } from "../../src/constants/config.ts";
+import { getAbsoluteProxyUrl, buildProxyUrl } from "../../../utils/src/config/proxy.ts";
 
 // Helper para injetar um Mock do objeto `location` global (simulando o Browser no Deno)
 function mockGlobalLocation(origin: string, pathname: string) {

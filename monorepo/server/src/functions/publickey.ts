@@ -1,4 +1,4 @@
-
+/// <reference types="@cloudflare/workers-types" />
 
 import { sendResponse, handlePreflight, getOrInitServerKeys } from "../shared.ts";
 

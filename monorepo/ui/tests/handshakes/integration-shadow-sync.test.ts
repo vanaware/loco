@@ -15,8 +15,8 @@ import {
   salvarHandshake,
   removerTodoHistoricoChat,
   serializarPublicKeyVapid
-} from "../../src/utils/db-helpers.ts";
-import type { ProfileConfig, Handshake } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import type { ProfileConfig, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao receber mensagem de desconhecido", async () => {
   // 1. SETUP DO "BOB" (O usuário local que vai receber a mensagem de um desconhecido)

@@ -19,10 +19,10 @@ import {
   serializarPublicKeyVapid, 
   listarChatPaginado,
   listarHandshakes
-} from "../../src/utils/db-helpers.ts";
+} from "../../../utils/src/db/mod.ts";
 
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
-import type { Contato, Chat, Handshake } from "../../src/constants/db.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
+import type { Contato, Chat, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO E EXPURGO: Excluir contato deve aplicar Tombstone e apagar histórico antigo em cascata", async () => {
 

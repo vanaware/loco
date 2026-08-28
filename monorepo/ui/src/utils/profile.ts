@@ -1,11 +1,11 @@
 // src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from './db-helpers.ts';
-import { cifrarChaveVapid } from './push-utils.ts';
+import { salvarProfile, buscarProfile } from '../../../utils/src/db/mod.ts';
+import { cifrarChaveVapid } from '@loco/utils/proxy';
 import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from './crypto-utils.ts';
-import type { ProfileConfig } from '../constants/db.ts';
-import { addDebugLog } from './debug-utils.ts';
-import { fetchLocoProxy } from '../constants/config.ts';
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from '../../../utils/src/crypto/mod.ts';
+import type { ProfileConfig } from '../../../utils/src/interfaces/db.ts';
+import { addDebugLog } from '../../../utils/src/debug/mod.ts';
+import { fetchLocoProxy } from '../../../utils/src/config/proxy.ts';
 import { getConfigValue, saveConfig } from '../stores/config-store.ts';
 
 export async function getServerPublicKey() {
