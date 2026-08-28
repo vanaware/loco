@@ -42,7 +42,7 @@ long_line_column=72
 current_page=-1
 
 [VTE]
-last_dir=/home/aarvati/github/loco
+last_dir=/home/aarvati
 
 [lsp]
 enabled=true
