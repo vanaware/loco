@@ -1,6 +1,6 @@
 import { activeView, navigate, pastaSelecionada } from '../stores/router.ts';
 import { contatoSelecionado, contatoCompartilharHash } from '../stores/state.ts';
-import { profile, contatosComHash } from '../stores/index.ts';
+import { profile, contatosComHash } from '../stores/mod.ts';
 import { pastasAtivas } from '../stores/torrentLabsStore.ts';
 
 export function MainHeader() {

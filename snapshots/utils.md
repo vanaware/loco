@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: UTILS
 
-Gerado automaticamente em: 8/30/2026, 9:18:49 AM
+Gerado automaticamente em: 8/30/2026, 9:31:37 AM
 
 ---
 
@@ -5637,7 +5637,6 @@ import { APP_VERSION, EXTENSOES_PADRAO } from "@loco/utils/config";
 export type ModoExportacao =
   | "ui"
   | "docs"
-  | "tests"
   | "server"
   | "playground"
   | "workerdb"
@@ -5672,17 +5671,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["readme.md", "readme", "license", "license.md", "license.txt", ".tool-versions"],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém a DOCUMENTAÇÃO e diretrizes arquiteturais do projeto.",
-    default: true, // ✅ Roda por padrão
-  },
-  tests: {
-    arquivoSaida: "snapshots/tests.md",
-    extensoesPermitidas: EXTENSOES_PADRAO,
-    pastaBase: "./monorepo/ui/tests",
-    subpastasPermitidas: [],
-    arquivosRaizPermitidos: [],
-    incluiVersao: true,
-    instrucaoCustomizada: "O texto abaixo contém os TESTES unitários e de integração do projeto.",
-    default: true, // ❌ Só roda quando solicitado explicitamente
+    default: false, // ✅ Roda por padrão
   },
   server: {
     arquivoSaida: "snapshots/server.md",
@@ -5706,7 +5695,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND.",
-    default: true, // ❌ Só roda quando solicitado explicitamente
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
   workerdb: {
     arquivoSaida: "snapshots/worker-db.md",
@@ -5747,7 +5736,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do ROUTER @loco/router",
-    default: true, // ❌ Só roda quando solicitado explicitamente
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
 };
 

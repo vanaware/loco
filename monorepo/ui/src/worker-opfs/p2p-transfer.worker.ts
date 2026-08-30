@@ -2,7 +2,7 @@
 /// <reference lib="webworker" />
 declare const self: DedicatedWorkerGlobalScope;
 
-import { salvarNoOPFS } from "../utils/opfs-utils.ts";
+import { salvarNoOPFS } from "./opfs-utils.ts";
 
 // 1. Carrega o motor nativo (Vendor Asset) de forma síncrona.
 importScripts('/webtorrent.min.js');
