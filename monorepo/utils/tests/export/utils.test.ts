@@ -1,10 +1,10 @@
 /// <reference lib="deno.ns" />
 
-import { describe, it } from "jsr:@std/testing/bdd";
+import { describe, it } from "@std/testing/bdd";
 import {
   assertEquals,
   assertStringIncludes,
-} from "jsr:@std/assert";
+} from "@std/assert";
 import {
   normalizarCaminho,
   calcularCraseWrapper,

@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 
 Deno.test("Layout - Verificação de Mapeamento de Classes Responsivas", () => {
   const leftNavClasses = "left l surface elevation-1";

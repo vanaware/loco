@@ -1,5 +1,5 @@
 // Arquivo: monorepo/playground/tests/router_path_test.ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 import { parseHash } from "../src/router.ts";
 
 Deno.test("Router - parseHash: Hash vazio ou inválido retorna 'chats' (fallback)", () => {

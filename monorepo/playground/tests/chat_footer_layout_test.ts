@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 
 Deno.test("Chat Footer - Trava de Estilo e Flexbox para Rodapé Fixo", () => {
   const containerStyle = { display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" };

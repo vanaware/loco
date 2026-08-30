@@ -1,5 +1,5 @@
-import { assertEquals } from "jsr:@std/assert";
-import { signal, computed } from "npm:@preact/signals-core"; // Usando core apenas para teste de lógica isolada
+import { assertEquals } from "@std/assert";
+import { signal, computed } from "@preact/signals-core"; // Usando core apenas para teste de lógica isolada
 
 Deno.test("Estado global: Fila de mensagens deve calcular pendências corretamente", () => {
   type Message = { id: string; status: "pending" | "synced" };

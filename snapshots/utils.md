@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: UTILS
 
-Gerado automaticamente em: 8/30/2026, 9:31:37 AM
+Gerado automaticamente em: 8/30/2026, 9:55:38 AM
 
 ---
 
@@ -1524,11 +1524,11 @@ Deno.test("deveIncluirArquivo: Configuração 'docs' deve capturar raiz e subpas
 ```````ts
 /// <reference lib="deno.ns" />
 
-import { describe, it } from "jsr:@std/testing/bdd";
+import { describe, it } from "@std/testing/bdd";
 import {
   assertEquals,
   assertStringIncludes,
-} from "jsr:@std/assert";
+} from "@std/assert";
 import {
   normalizarCaminho,
   calcularCraseWrapper,

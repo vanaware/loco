@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 import { signal, computed } from "@preact/signals";
 
 Deno.test("Subcomponentes - Fluxo de Dados entre Signals e Active Contact", () => {

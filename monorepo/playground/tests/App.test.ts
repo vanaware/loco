@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 
 Deno.test("Estado inicial da fila de sincronização deve ser zero", () => {
   // Isolamento da lógica de estado que usaremos no IndexedDB depois

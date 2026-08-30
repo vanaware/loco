@@ -29,8 +29,6 @@
     "jsr:@std/streams@^1.1.2": "1.1.2",
     "jsr:@std/testing@*": "1.0.20",
     "npm:@cloudflare/workers-types@*": "5.20260829.1",
-    "npm:@preact/signals-core@*": "1.14.4",
-    "npm:fake-indexeddb@6.0.0": "6.0.0",
     "npm:wrangler@*": "4.123.0_@cloudflare+workers-types@5.20260829.1",
     "npm:wrangler@^4.123.0": "4.123.0_@cloudflare+workers-types@5.20260829.1"
   },
@@ -1084,7 +1082,9 @@
     "members": {
       "monorepo/playground": {
         "dependencies": [
+          "jsr:@std/assert@*",
           "jsr:@std/fs@*",
+          "jsr:@std/http@*",
           "jsr:@std/path@*"
         ]
       },

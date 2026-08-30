@@ -1,5 +1,5 @@
-import { assertEquals } from "jsr:@std/assert@1.0.0";
-import { signal } from "https://esm.sh/@preact/signals@1.3.0";
+import { assertEquals } from "@std/assert";
+import { signal } from "@preact/signals";
 
 // Auxiliar de geração de classes idêntico ao utilitário da UI
 function getMasterClasses(selectedId: string | null): string {

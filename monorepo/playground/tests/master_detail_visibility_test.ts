@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 
 function getLayoutClasses(selectedChatId: string | null) {
   const masterClasses = selectedChatId ? "m4 l3 m l" : "s12 m4 l3";

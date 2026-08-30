@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: PLAYGROUND
 
-Gerado automaticamente em: 8/30/2026, 9:18:49 AM
+Gerado automaticamente em: 8/30/2026, 9:55:38 AM
 
 ---
 
@@ -1007,7 +1007,7 @@ export function navigateTo(route: Route) {
 ## Arquivo: `monorepo/playground/tests/App.test.ts`
 
 ```ts
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 
 Deno.test("Estado inicial da fila de sincronização deve ser zero", () => {
   // Isolamento da lógica de estado que usaremos no IndexedDB depois
@@ -1021,8 +1021,8 @@ Deno.test("Estado inicial da fila de sincronização deve ser zero", () => {
 ## Arquivo: `monorepo/playground/tests/state.test.ts`
 
 ```ts
-import { assertEquals } from "jsr:@std/assert";
-import { signal, computed } from "npm:@preact/signals-core"; // Usando core apenas para teste de lógica isolada
+import { assertEquals } from "@std/assert";
+import { signal, computed } from "@preact/signals-core"; // Usando core apenas para teste de lógica isolada
 
 Deno.test("Estado global: Fila de mensagens deve calcular pendências corretamente", () => {
   type Message = { id: string; status: "pending" | "synced" };
@@ -1048,8 +1048,8 @@ Deno.test("Estado global: Fila de mensagens deve calcular pendências corretamen
 ## Arquivo: `monorepo/playground/tests/master_detail_test.ts`
 
 ```ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
-import { signal } from "https://esm.sh/@preact/signals@1.3.0";
+import { assertEquals } from "@std/assert";
+import { signal } from "@preact/signals";
 
 // Auxiliar de geração de classes idêntico ao utilitário da UI
 function getMasterClasses(selectedId: string | null): string {
@@ -1108,7 +1108,7 @@ Deno.test("MasterDetail - Retorno à Lista de Conversas", () => {
 ## Arquivo: `monorepo/playground/tests/responsive_layout_test.ts`
 
 ```ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 
 Deno.test("Layout - Verificação de Mapeamento de Classes Responsivas", () => {
   const leftNavClasses = "left l surface elevation-1";
@@ -1129,7 +1129,7 @@ Deno.test("Layout - Verificação de Mapeamento de Classes Responsivas", () => {
 ## Arquivo: `monorepo/playground/tests/master_detail_visibility_test.ts`
 
 ```ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 
 function getLayoutClasses(selectedChatId: string | null) {
   const masterClasses = selectedChatId ? "m4 l3 m l" : "s12 m4 l3";
@@ -1161,7 +1161,7 @@ Deno.test("Master-Detail - Sem Seleção: Master 100% no mobile e Detail oculta"
 ## Arquivo: `monorepo/playground/tests/chat_footer_layout_test.ts`
 
 ```ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 
 Deno.test("Chat Footer - Trava de Estilo e Flexbox para Rodapé Fixo", () => {
   const containerStyle = { display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" };
@@ -1180,7 +1180,7 @@ Deno.test("Chat Footer - Trava de Estilo e Flexbox para Rodapé Fixo", () => {
 ## Arquivo: `monorepo/playground/tests/subcomponents_test.ts`
 
 ```ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 import { signal, computed } from "@preact/signals";
 
 Deno.test("Subcomponentes - Fluxo de Dados entre Signals e Active Contact", () => {
@@ -1210,7 +1210,7 @@ Deno.test("Subcomponentes - Fluxo de Dados entre Signals e Active Contact", () =
 
 ```ts
 // Arquivo: monorepo/playground/tests/router_path_test.ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { assertEquals } from "@std/assert";
 import { parseHash } from "../src/router.ts";
 
 Deno.test("Router - parseHash: Hash vazio ou inválido retorna 'chats' (fallback)", () => {
@@ -1238,7 +1238,7 @@ Deno.test("Router - parseHash: Rotas com barra extra são normalizadas", () => {
 
 ```ts
 // Arquivo: monorepo/playground/tests/router_test.ts
-import { assertEquals, assertExists } from "jsr:@std/assert@1.0.0";
+import { assertEquals, assertExists } from "@std/assert";
 import { ROUTES, activeRoute } from "../src/router.ts";
 
 Deno.test("Router - ROUTES deve conter as 3 views principais", () => {
@@ -1653,7 +1653,7 @@ Quando solicitado a adicionar uma funcionalidade ou tela, siga esta ordem estrit
 ## Arquivo: `monorepo/playground/server.ts`
 
 ```ts
-import { serveDir } from "jsr:@std/http/file-server";
+import { serveDir } from "@std/http/file-server";
 
 const PORT = 8000;
 
@@ -1755,7 +1755,9 @@ await build();
     "@preact/signals": "https://esm.sh/@preact/signals@1.3.1?deps=preact@10.29.7",
     "@preact/signals-core": "https://esm.sh/@preact/signals-core@1.10.1",
     "@std/fs": "jsr:@std/fs",
-    "@std/path": "jsr:@std/path"
+    "@std/path": "jsr:@std/path",
+    "@std/http": "jsr:@std/http",
+    "@std/assert": "jsr:@std/assert"
   },
   "tasks": {
     "build": "deno run -A --unstable-bundle build.ts",
