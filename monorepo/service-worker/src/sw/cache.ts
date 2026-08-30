@@ -1,14 +1,11 @@
 // src/sw/cache.ts
-
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 declare const __GENERATED_ASSETS__: string[];
 
-// 🔥 ARQUITETURA: SSOT (Single Source of Truth) para versionamento de Cache
-import { APP_VERSION } from "../../../utils/src/config/version.ts";
+import { APP_VERSION } from "@loco/utils/config";
 
 const CACHE_NAME = `loco-proto-cache-v${APP_VERSION}`;
-
 const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
 
 self.addEventListener("install", (event) => {
@@ -44,17 +41,12 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event: any) => {
-  // 🔥 ARQUITETURA [Method Guard]: A Cache API nativa suporta estritamente requisições GET.
-  // Ignoramos requisições POST, PUT e DELETE para evitar o TypeError: 'POST' is unsupported.
   if (event.request.method !== "GET") {
     return;
   }
-
-  // Ignora requisições de outros domínios ou rotas dinâmicas de API
   if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
     return;
   }
-  
   event.respondWith(
     fetch(event.request)
       .then((response) => {

@@ -1,24 +1,24 @@
 > **INSTRUÇÃO PARA A IA:** 
 > O texto abaixo contém os TESTES unitários e de integração do projeto.
-> O projeto é o **Loco [v0.3.26-mszev7vv] ** estruturado em blocos. 
+> O projeto é o **Loco [vdev] ** estruturado em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
 
 ---
 
-# Contexto Exportado do Projeto Loco [v0.3.26-mszev7vv] - Modo: TESTS
+# Contexto Exportado do Projeto Loco [vdev] - Modo: TESTS
 
-Gerado automaticamente em: 8/19/2026, 10:19:00 PM
+Gerado automaticamente em: 8/30/2026, 1:38:47 AM
 
 ---
 
-## Arquivo: `tests/utils/jwt-helpers.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/jwt-helpers.test.ts`
 
 ```ts
 // testes/utils/jwt-helpers.test.ts/// <reference lib="deno.ns" />
 import { assert, assertEquals } from "@std/assert";
-import { criarJWT, verificarJWT } from "../../src/utils/jwt-helpers.ts";
-import { generateVAPIDKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+import { criarJWT, verificarJWT } from "../../../utils/src/crypto/jwt.ts";
+import { generateVAPIDKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
 
 Deno.test("JWT Helpers - Pipeline de Criação e Verificação E2E", async () => {
   const keys = await generateVAPIDKeys();
@@ -38,7 +38,7 @@ Deno.test("JWT Helpers - Pipeline de Criação e Verificação E2E", async () =>
 
 ---
 
-## Arquivo: `tests/utils/webpush-mock.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/webpush-mock.test.ts`
 
 ```ts
 /// <reference lib="deno.ns" />
@@ -54,8 +54,8 @@ Deno.test("JWT Helpers - Pipeline de Criação e Verificação E2E", async () =>
  */
 
 import { assertEquals, assert, assertRejects } from "@std/assert";
-import { cifrarPayloadObj } from "../../src/utils/push-utils.ts";
-import { generateE2EEKeys } from "../../src/utils/crypto-utils.ts";
+import { cifrarPayloadObj } from "@loco/utils/proxy";
+import { generateE2EEKeys } from "../../../utils/src/crypto/mod.ts";
 
 // ============================================================================
 // MOCKS E UTILITÁRIOS DE TESTE
@@ -599,14 +599,14 @@ console.log("   - createMockPushData: Cria dados mockados para eventos push\n");
 
 ---
 
-## Arquivo: `tests/utils/self-contact.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/self-contact.test.ts`
 
 ```ts
 // tests/utils/self-contact.test.ts
 /// <reference lib="deno.ns" />
 import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
-import type { ProfileConfig, Contato } from "../../src/constants/db.ts";
-import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../src/utils/self-contact-utils.ts";
+import type { ProfileConfig, Contato } from "../../../utils/src/interfaces/db.ts";
+import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../../utils/src/db/self-contact-utils.ts";
 
 // Mock simples para a função serializarPublicKeyVapid que depende de IndexedDB
 async function serializarPublicKeyVapidMock(jwk: JsonWebKey): Promise<string> {
@@ -884,15 +884,15 @@ Deno.test("SELF-CONTACT: Atualização de profile deve refletir no contato próp
 
 ---
 
-## Arquivo: `tests/utils/share-utils.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/share-utils.test.ts`
 
 ```ts
 // tests/utils/share-utils.test.ts
 /// <reference lib="deno.ns" />
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import { gerarLinkConviteWeb, processarQualquerConvite, extrairDadosCompactos, expandirDadosCompactos } from "../../src/utils/share-utils.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
-import type { ProfileConfig, Contato } from "../../src/constants/db.ts";
+import { gerarLinkConviteWeb, processarQualquerConvite, extrairDadosCompactos, expandirDadosCompactos } from "../../../utils/src/db/share-utils.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
+import type { ProfileConfig, Contato } from "../../../utils/src/interfaces/db.ts";
 
 // Mock simples para as funções de DB que não podemos usar em testes unitários puros
 const mockContatos = new Map<string, Contato>();
@@ -1064,7 +1064,7 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
   
   const { gzipSync } = await import('fflate');
   const compressed = gzipSync(cqrBytes);
-  const { arrayBufferToBase64Url } = await import('../../src/utils/jwt-helpers.ts');
+  const { arrayBufferToBase64Url } = await import('../../../utils/src/crypto/jwt.ts');
   const cqrToken = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
   
   const contatoCqr = await processarQualquerConvite(cqrToken);
@@ -1072,7 +1072,7 @@ Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato
 
   // Teste 9: Testar JWT não-compresso
   console.log("📝 Teste 9: Testando JWT não-compresso");
-  const { criarJWT } = await import('../../src/utils/jwt-helpers.ts');
+  const { criarJWT } = await import('../../../utils/src/crypto/jwt.ts');
   // 🔥 ARQUITETURA: Agora a extração é assíncrona, exigindo await dentro do spread operator.
   const extraidos = await extrairDadosCompactos(userA);
   const jwtPayload = {
@@ -1183,12 +1183,12 @@ Deno.test("Share Utils - Reciprocidade na troca de contatos via cJWT", async () 
 
 ---
 
-## Arquivo: `tests/utils/id-utils.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/id-utils.test.ts`
 
 ```ts
 // tests/id-utils.test.ts
 import { assert, assertEquals, assertNotEquals } from "@std/assert";
-import { gerarId, gerarIdFallback, validarId } from "../../src/utils/id-utils.ts";
+import { gerarId, gerarIdFallback, validarId } from "../../../worker-db/src/utils/id.ts";
 
 Deno.test("gerarId - Deve gerar um ID no formato string e com tamanho adequado", () => {
   const id = gerarId();
@@ -1224,7 +1224,7 @@ Deno.test("validarId - Deve validar corretamente limites de tamanho", () => {
 
 ---
 
-## Arquivo: `tests/utils/crypto-utils.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/crypto-utils.test.ts`
 
 ```ts
 // tests/crypto-utils.test.ts
@@ -1232,7 +1232,7 @@ import { assertEquals, assert } from "@std/assert";
 import { 
   minifyVapidPublic, expandVapidPublic,
   minifyRsaPublic, expandRsaPublic
-} from "../../src/utils/crypto-utils.ts";
+} from "../../../utils/src/crypto/mod.ts";
 
 Deno.test("Crypto Utils - Minificação e Expansão de VAPID Public (ECDSA P-256)", () => {
   const mockJwkOriginal: JsonWebKey = {
@@ -1295,13 +1295,13 @@ Deno.test("Crypto Utils - Expansão de chave já expandida (Idempotência)", () 
 
 ---
 
-## Arquivo: `tests/utils/crypto-aes.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/crypto-aes.test.ts`
 
 ```ts
 // tests/utils/crypto-aes.test.ts
 /// <reference lib="deno.ns" />
 import { assertEquals, assert, assertRejects } from "@std/assert";
-import { encryptTextAES, decryptTextAES } from "../../src/utils/crypto-utils.ts";
+import { encryptTextAES, decryptTextAES } from "../../../utils/src/crypto/mod.ts";
 
 Deno.test("Crypto AES - Criptografar e Descriptografar texto puro (Roundtrip)", async () => {
   // Gera uma chave AES-GCM temporária para o teste
@@ -1365,13 +1365,13 @@ Deno.test("Crypto AES - Deve falhar caso o IV (Vetor de Inicialização) seja ad
 
 ---
 
-## Arquivo: `tests/utils/config.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/config.test.ts`
 
 ```ts
 // tests/utils/config.test.ts
 /// <reference lib="deno.ns" />
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { getAbsoluteProxyUrl, buildProxyUrl } from "../../src/constants/config.ts";
+import { getAbsoluteProxyUrl, buildProxyUrl } from "../../../utils/src/config/proxy.ts";
 
 // Helper para injetar um Mock do objeto `location` global (simulando o Browser no Deno)
 function mockGlobalLocation(origin: string, pathname: string) {
@@ -1431,14 +1431,14 @@ Deno.test("Config Utils - buildProxyUrl monta a URI do endpoint corretamente", a
 
 ---
 
-## Arquivo: `tests/utils/push-utils.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/push-utils.test.ts`
 
 ```ts
 // tests/utils/push-utils.test.ts
 /// <reference lib="deno.ns" />
 import { assert, assertEquals } from "@std/assert";
-import { cifrarChaveVapid } from "../../src/utils/push-utils.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+import { cifrarChaveVapid } from "@loco/utils/proxy";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
 
 Deno.test("Push Utils - Blindagem do Servidor (cifrarChaveVapid)", async () => {
   // 1. Cenário: O Cliente PWA acabou de gerar sua chave VAPID privada
@@ -1471,7 +1471,7 @@ Deno.test("Push Utils - Blindagem do Servidor (cifrarChaveVapid)", async () => {
 
 ---
 
-## Arquivo: `tests/utils/db-helpers.test.ts`
+## Arquivo: `monorepo/ui/tests/utils/db-helpers.test.ts`
 
 ```ts
 // tests/utils/db-helpers.test.ts
@@ -1490,8 +1490,8 @@ import {
   salvarChat,
   listarChatPaginado,
   removerTodoHistoricoChat
-} from "../../src/utils/db-helpers.ts";
-import type { ProfileConfig, Chat } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import type { ProfileConfig, Chat } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("DB Helpers - Profile: Deve salvar, buscar e remover o perfil corretamente", async () => {
   const mockProfile: ProfileConfig = {
@@ -1580,13 +1580,13 @@ Deno.test("DB Helpers - Chat: Deve salvar mensagens e retornar paginado corretam
 
 ---
 
-## Arquivo: `tests/handshakes/hand-mensagem-self.test.ts`
+## Arquivo: `monorepo/ui/tests/handshakes/hand-mensagem-self.test.ts`
 
 ```ts
 /// <reference lib="deno.ns" />
 import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
-import type { ProfileConfig, Chat, Handshake } from "../../src/constants/db.ts";
-import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../src/utils/self-contact-utils.ts";
+import type { ProfileConfig, Chat, Handshake } from "../../../utils/src/interfaces/db.ts";
+import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../../utils/src/db/self-contact-utils.ts";
 
 // Helper para substituir assertTrue
 function assertTrue(condition: boolean, msg?: string) {
@@ -1905,7 +1905,7 @@ Deno.test("HAND-MENSAGEM SELF: Contato próprio deve ser identificado corretamen
 
 ---
 
-## Arquivo: `tests/handshakes/integration-shadow-sync.test.ts`
+## Arquivo: `monorepo/ui/tests/handshakes/integration-shadow-sync.test.ts`
 
 ```ts
 // tests/handshakes/integration-shadow-sync.test.ts
@@ -1925,8 +1925,8 @@ import {
   salvarHandshake,
   removerTodoHistoricoChat,
   serializarPublicKeyVapid
-} from "../../src/utils/db-helpers.ts";
-import type { ProfileConfig, Handshake } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import type { ProfileConfig, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao receber mensagem de desconhecido", async () => {
   // 1. SETUP DO "BOB" (O usuário local que vai receber a mensagem de um desconhecido)
@@ -2041,7 +2041,7 @@ Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao rec
 
 ---
 
-## Arquivo: `tests/handshakes/retry-resilience.test.ts`
+## Arquivo: `monorepo/ui/tests/handshakes/retry-resilience.test.ts`
 
 ```ts
 // tests/handshakes/retry-resilience.test.ts
@@ -2059,9 +2059,9 @@ import {
   serializarPublicKeyVapid,
   listarHandshakes,
   removerHandshake
-} from "../../src/utils/db-helpers.ts";
+} from "../../../utils/src/db/mod.ts";
 import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("RETRY RESILIENCE: Re-tentativas de mensagem devem anexar dados de contato (Shadow Sync)", async () => {
   // 🔥 SEGURANÇA CROSS-TEST: Limpa qualquer handshake residual na memória do Fake IndexedDB
@@ -2162,7 +2162,7 @@ Deno.test("RETRY RESILIENCE: Re-tentativas de mensagem devem anexar dados de con
 
 ---
 
-## Arquivo: `tests/handshakes/bidirectional-deletion.test.ts`
+## Arquivo: `monorepo/ui/tests/handshakes/bidirectional-deletion.test.ts`
 
 ```ts
 // tests/handshakes/bidirectional-deletion.test.ts
@@ -2182,8 +2182,8 @@ import {
   buscarChat,
   serializarPublicKeyVapid,
   removerTodoHistoricoChat
-} from "../../src/utils/db-helpers.ts";
-import type { ProfileConfig, Contato, Handshake, Chat } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import type { ProfileConfig, Contato, Handshake, Chat } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamente com validação de autoridade", async () => {
   // 1. SETUP DO "BOB" (O usuário local que receberá a ordem de exclusão)
@@ -2322,7 +2322,7 @@ Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamen
 
 ---
 
-## Arquivo: `tests/handshakes/mtu-splitter.test.ts`
+## Arquivo: `monorepo/ui/tests/handshakes/mtu-splitter.test.ts`
 
 ```ts
 // tests/handshakes/mtu-splitter.test.ts
@@ -2340,9 +2340,9 @@ import {
   removerHandshake, 
   buscarHandshake,
   serializarPublicKeyVapid 
-} from "../../src/utils/db-helpers.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 // Variável para armazenar o fetch original e restaurar depois
 const originalFetch = globalThis.fetch;
@@ -2490,7 +2490,7 @@ Deno.test("ROTEADOR: Splitter de MTU DEVE fragmentar o pacote em dois se a inje�
 
 ---
 
-## Arquivo: `tests/stores/mensagensStore.test.ts`
+## Arquivo: `monorepo/ui/tests/stores/mensagensStore.test.ts`
 
 ```ts
 // tests/stores/mensagensStore.test.ts
@@ -2505,9 +2505,9 @@ import {
   inicializarChat, 
   atualizarOuAdicionarChatAtivo 
 } from "../../src/stores/mensagensStore.ts";
-import { removerTodoHistoricoChat, buscarChat } from "../../src/utils/db-helpers.ts";
-import { contatoSelecionado } from "../../src/signals/state.ts";
-import type { Chat } from "../../src/constants/db.ts";
+import { removerTodoHistoricoChat, buscarChat } from "../../../utils/src/db/mod.ts";
+import { contatoSelecionado } from "../../src/stores/state.ts";
+import type { Chat } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("Store: Mensagens - Deve refletir atualizações no Signal de forma Otimista", async () => {
   const hashContato = "contato-reativo-123";
@@ -2567,145 +2567,16 @@ Deno.test("Store: Mensagens - Não deve sujar o Signal se o chat ativo for difer
 
 ---
 
-## Arquivo: `tests/federation_routing_test.ts`
-
-```ts
-// testes/federation_routing_test.ts
-
-import { assertEquals } from "@std/assert";
-import { handlePing } from "../server/functions/ping.ts";
-import { handlePush } from "../server/functions/push.ts";
-
-Deno.test("Server - Handler /ping deve retornar HTTP 200 com status OK", async () => {
-  const req = new Request("https://proxy.vanaware.com/ping", {
-    method: "POST"});
-  const res = await handlePing(req);
-
-  assertEquals(res.status, 200);
-  const data = await res.json();
-  assertEquals(data.success, true);
-  assertEquals(data.service, "loco-proxy");
-});
-
-Deno.test("Server - Handler /push deve rejeitar payload vazio com HTTP 400", async () => {
-  const req = new Request("https://proxy.vanaware.com/push", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "invalid-json",
-  });
-
-  const res = await handlePush(req);
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error, "Corpo não é JSON válido.");
-});
-```
-
----
-
-## Arquivo: `tests/integration/server-crypto.test.ts`
-
-```ts
-// tests/integration/server-crypto.test.ts
-/// <reference lib="deno.ns" />
-
-import { assert, assertEquals } from "@std/assert";
-import { 
-  generateVAPIDKeys, 
-  generateRSAKeys, 
-  exportKeyToJWK, 
-  minifyRsaPublic, 
-  minifyRsaPrivate,
-  expandRsaPublic // <-- Importação adicionada para reconstruir a chave minificada!
-} from "../../src/utils/crypto-utils.ts";
-import { cifrarChaveVapid } from "../../src/utils/push-utils.ts";
-import { decryptWithServerKey } from "../../server/shared.ts";
-
-Deno.test("INTEGRAÇÃO: Pipeline Criptográfica Completa (Cliente -> PWA -> Servidor)", async () => {
-  // 1. Gera chaves RSA brutas para simular um servidor novo
-  const rawServerKeys = await generateRSAKeys();
-  const rawPublicKeyJwk = await exportKeyToJWK(rawServerKeys.publicKey);
-  const rawPrivateKeyJwk = await exportKeyToJWK(rawServerKeys.privateKey);
-
-  // 2. Simula o processo do deploy.sh minificando as chaves e setando as ENV vars
-  const envMock = {
-    SERVER_PUBLIC_KEY: JSON.stringify(minifyRsaPublic(rawPublicKeyJwk)),
-    SERVER_PRIVATE_KEY: JSON.stringify(minifyRsaPrivate(rawPrivateKeyJwk))
-  };
-
-  // 3. O Cliente arranca e gera a sua chave VAPID
-  const clientVapidKeys = await generateVAPIDKeys();
-  const clientVapidPrivateKeyJwk = await exportKeyToJWK(clientVapidKeys.privateKey);
-
-  // 🔥 SOLUÇÃO: O Cliente (PWA) recebe a chave minificada do Proxy e TEM de a expandir (injetar KTY, ALG, E)
-  const expandedServerPublicKey = expandRsaPublic(JSON.parse(envMock.SERVER_PUBLIC_KEY));
-
-  // Agora sim, a chave expandida é passada para o motor WebCrypto sem dar erro de "KTY missing"
-  const envelopeBase64 = await cifrarChaveVapid(clientVapidPrivateKeyJwk, expandedServerPublicKey);
-
-  assert(typeof envelopeBase64 === "string", "O envelope gerado deve ser uma string Base64");
-  
-  // 4. O Servidor recebe o envelope e tenta decifrá-lo consumindo as ENV vars minificadas
-  const decryptedJwk = await decryptWithServerKey(envMock, envelopeBase64);
-
-  // 5. Verifica se os dados se mantiveram perfeitos durante toda a transação
-  assertEquals(
-    decryptedJwk.d, 
-    clientVapidPrivateKeyJwk.d, 
-    "FALHA FATAL: A chave extraída pelo servidor não corresponde à original!"
-  );
-
-  console.log("✅ Pipeline Criptográfico Uniformizado operando com perfeição!");
-});
-
-Deno.test("INTEGRAÇÃO: Servidor deve rejeitar (Nó Incorreto/OperationError) com Chaves Dessincronizadas", async () => {
-  const keysOntem = await generateRSAKeys();
-  const keysHoje = await generateRSAKeys();
-
-  const envMockHoje = {
-    SERVER_PUBLIC_KEY: JSON.stringify(minifyRsaPublic(await exportKeyToJWK(keysHoje.publicKey))),
-    SERVER_PRIVATE_KEY: JSON.stringify(minifyRsaPrivate(await exportKeyToJWK(keysHoje.privateKey)))
-  };
-
-  const clientVapidKeys = await generateVAPIDKeys();
-  
-  // 🔥 SOLUÇÃO: Expandir a chave minificada de "ontem" antes de o cliente a utilizar
-  const chaveVelhaExpandida = expandRsaPublic(minifyRsaPublic(await exportKeyToJWK(keysOntem.publicKey)));
-
-  // Cliente cifra usando a chave pública expandida de "ontem"
-  const envelopeComChaveVelha = await cifrarChaveVapid(
-    await exportKeyToJWK(clientVapidKeys.privateKey), 
-    chaveVelhaExpandida
-  );
-
-  let deuErro = false;
-  try {
-    // Servidor tenta abrir usando as chaves de "hoje"
-    await decryptWithServerKey(envMockHoje, envelopeComChaveVelha);
-  } catch (error: any) {
-    deuErro = true;
-    assert(
-      error.message.includes("OperationError") || error.message.includes("Nó incorreto") || error.name === "OperationError", 
-      "O erro deveria ser de operação RSA (Nó Incorreto)"
-    );
-  }
-
-  assert(deuErro, "Falha Crítica de Segurança: O Servidor conseguiu abrir um cofre trancado com outra chave!");
-});
-```
-
----
-
-## Arquivo: `tests/integration/e2e-payload-pipeline.test.ts`
+## Arquivo: `monorepo/ui/tests/integration/e2e-payload-pipeline.test.ts`
 
 ```ts
 // tests/integration/e2e-payload-pipeline.test.ts
 /// <reference lib="deno.ns" />
 
 import { assert, assertEquals } from "@std/assert";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK, base64UrlToBuffer } from "../../src/utils/crypto-utils.ts";
-import { cifrarPayloadObj } from "../../src/utils/push-utils.ts";
-import { criarJWT, verificarJWT } from "../../src/utils/jwt-helpers.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK, base64UrlToBuffer } from "../../../utils/src/crypto/mod.ts";
+import { cifrarPayloadObj } from "@loco/utils/proxy";
+import { criarJWT, verificarJWT } from "../../../utils/src/crypto/jwt.ts";
 import { gunzipSync } from "fflate";
 
 Deno.test("INTEGRAÇÃO E2E: Nó A (Compacta, Cifra, Assina) -> Servidor (Cego) -> Nó B (Verifica, Decifra, Descompacta)", async () => {
@@ -2833,7 +2704,7 @@ Deno.test("INTEGRAÇÃO E2E: Nó A (Compacta, Cifra, Assina) -> Servidor (Cego) 
 
 ---
 
-## Arquivo: `tests/integration/proxy-payload.test.ts`
+## Arquivo: `monorepo/ui/tests/integration/proxy-payload.test.ts`
 
 ```ts
 // tests/integration/proxy-payload.test.ts
@@ -2850,9 +2721,9 @@ import {
   serializarPublicKeyVapid, 
   removerHandshake,
   listarHandshakes
-} from "../../src/utils/db-helpers.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+} from "../../../utils/src/db/mod.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -2964,152 +2835,7 @@ Deno.test("INTEGRAÇÃO REAL (Router -> Proxy): O Roteador envia o proxyserver p
 
 ---
 
-## Arquivo: `tests/integration/proxy-validation.test.ts`
-
-```ts
-// tests/integration/proxy-validation.test.ts
-/// <reference lib="deno.ns" />
-
-import { assertEquals } from "@std/assert";
-import { handlePush } from "../../server/functions/push.ts";
-
-// Objeto base 100% válido para usar de modelo nos testes
-const createValidPayload = () => ({
-  subscription: {
-    endpoint: "https://fcm.googleapis.com/fcm/send/token-teste",
-    keys: {
-      p256dh: "p256dh-valido-base64",
-      auth: "auth-valida-base64",
-    },
-    proxyserver: "https://proxy.loco.com",
-  },
-  vapid: {
-    publicKey: { x: "coordenada-x", y: "coordenada-y" },
-    privateKey: "envelope-cifrado-valido",
-  },
-  payloadText: "header.payload.signature",
-});
-
-// Auxiliar para simular a requisição HTTP POST recebida pelo Worker
-function createMockRequest(bodyObj: any): Request {
-  return new Request("https://proxy.loco.com/push", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(bodyObj),
-  });
-}
-
-Deno.test("VALIDAÇÃO NEGATIVA: Servidor deve ACEITAR a estrutura completa preliminarmente", async () => {
-  const payloadValido = createValidPayload();
-  const req = createMockRequest(payloadValido);
-
-  // Executa o handler real do servidor
-  const res = await handlePush(req, {});
-  const data = await res.json();
-
-  // Esperamos que ele passe da trava inicial de validação estrita (HTTP 400).
-  // Ele só falhará depois no RSA/WebPush porque o token/envelope no mock são fictícios, mas NÃO na estrutura de entrada!
-  assertEquals(data.error !== "Estrutura P2P Inválida. Parâmetros em falta em subscription, vapid ou payloadText.", true);
-});
-
-// =========================================================================
-// BATERIA DE TESTES DE REJEIÇÃO DA ESTRUTURA (HTTP 400)
-// =========================================================================
-
-Deno.test("REJEIÇÃO: Deve falhar se 'subscription' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload as any).subscription;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'subscription.endpoint' estiver ausente/vazio", async () => {
-  const payload = createValidPayload();
-  payload.subscription.endpoint = "";
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'subscription.proxyserver' estiver ausente/vazio", async () => {
-  const payload = createValidPayload();
-  payload.subscription.proxyserver = "";
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'subscription.keys.p256dh' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload.subscription.keys as any).p256dh;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'subscription.keys.auth' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload.subscription.keys as any).auth;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'vapid' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload as any).vapid;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'vapid.publicKey' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload.vapid as any).publicKey;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'vapid.privateKey' (envelope) estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload.vapid as any).privateKey;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'payloadText' estiver ausente/vazio", async () => {
-  const payload = createValidPayload();
-  payload.payloadText = "";
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-```
-
----
-
-## Arquivo: `tests/integration/auto-discovery.test.ts`
+## Arquivo: `monorepo/ui/tests/integration/auto-discovery.test.ts`
 
 ```ts
 // tests/integration/auto-discovery.test.ts
@@ -3118,7 +2844,7 @@ Deno.test("REJEIÇÃO: Deve falhar se 'payloadText' estiver ausente/vazio", asyn
 import "fake-indexeddb";
 import { assertEquals } from "@std/assert";
 import { loadAllConfigs, resetConfig, getConfigValue, saveConfig } from "../../src/stores/config-store.ts";
-import { DefaultProxyPath, FallbackAbsoluteProxy } from "../../src/constants/config.ts";
+import { DefaultProxyPath, FallbackAbsoluteProxy } from "../../../utils/src/config/proxy.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -3213,7 +2939,7 @@ Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve reutilizar o ProxyPath salvo no I
 
 ---
 
-## Arquivo: `tests/integration/message-delete-handshake.test.ts`
+## Arquivo: `monorepo/ui/tests/integration/message-delete-handshake.test.ts`
 
 ```ts
 // tests/integration/message-delete-handshake.test.ts
@@ -3232,9 +2958,9 @@ import {
   listarHandshakes,
   salvarContato,
   removerHandshake
-} from "../../src/utils/db-helpers.ts";
+} from "../../../utils/src/db/mod.ts";
 
-import type { Chat, Handshake, Contato } from "../../src/constants/db.ts";
+import type { Chat, Handshake, Contato } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO (Exclusão - Parte 1): Apagar mensagem local deve gerar Handshake de exclusão remota OUT", async () => {
   const contatoHash = "hash-contato-bob-123";
@@ -3362,7 +3088,7 @@ Deno.test("INTEGRAÇÃO (Exclusão - Parte 2): Receber Handshake de exclusão re
 
 ---
 
-## Arquivo: `tests/integration/contact-purge.test.ts`
+## Arquivo: `monorepo/ui/tests/integration/contact-purge.test.ts`
 
 ```ts
 // tests/integration/contact-purge.test.ts
@@ -3386,10 +3112,10 @@ import {
   serializarPublicKeyVapid, 
   listarChatPaginado,
   listarHandshakes
-} from "../../src/utils/db-helpers.ts";
+} from "../../../utils/src/db/mod.ts";
 
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
-import type { Contato, Chat, Handshake } from "../../src/constants/db.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
+import type { Contato, Chat, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO E EXPURGO: Excluir contato deve aplicar Tombstone e apagar histórico antigo em cascata", async () => {
 
@@ -3517,7 +3243,7 @@ Deno.test("INTEGRAÇÃO E EXPURGO: Excluir contato deve aplicar Tombstone e apag
 
 ---
 
-## Arquivo: `tests/integration/remote-purge.test.ts`
+## Arquivo: `monorepo/ui/tests/integration/remote-purge.test.ts`
 
 ```ts
 // tests/integration/remote-purge.test.ts
@@ -3539,10 +3265,10 @@ import {
   listarHandshakes,
   removerHandshake,
   serializarPublicKeyVapid
-} from "../../src/utils/db-helpers.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+} from "../../../utils/src/db/mod.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
 
-import type { Contato, Handshake } from "../../src/constants/db.ts";
+import type { Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 Deno.test("INTEGRAÇÃO (Expurgo Remoto 1): Limpar histórico cria Handshake Único e Apaga no Remoto", async () => {
   const contatoHash = "hash-bob-purge";
@@ -3627,7 +3353,7 @@ Deno.test("INTEGRAÇÃO (Expurgo Remoto 2): Excluir Contato cria Handshake Únic
 
 ---
 
-## Arquivo: `tests/integration/piggyback.test.ts`
+## Arquivo: `monorepo/ui/tests/integration/piggyback.test.ts`
 
 ```ts
 // tests/integration/piggyback.test.ts
@@ -3643,11 +3369,11 @@ import {
   listarHandshakes,
   removerHandshake,
   serializarPublicKeyVapid
-} from "../../src/utils/db-helpers.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../src/utils/crypto-utils.ts";
+} from "../../../utils/src/db/mod.ts";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
 import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
 import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../src/constants/db.ts";
+import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
 
 // Mock da função de fetch para evitar erros de rede e simular sucesso no Proxy
 const originalFetch = globalThis.fetch;

@@ -27,6 +27,30 @@ export function normalizarCaminho(caminho: string): string {
 }
 
 /**
+ * Normaliza um caminho para comparação de prefixos.
+ * Além da normalização básica, remove o prefixo "./" se presente.
+ * 
+ * Exemplo:
+ * - "./monorepo/ui/tests" → "monorepo/ui/tests"
+ * - "monorepo/server" → "monorepo/server"
+ * - "./" → ""
+ * - "." → ""
+ */
+function normalizarPrefixo(caminho: string): string {
+  let normalized = caminho.replace(/\\/g, "/").toLowerCase();
+  // Remove ./ prefixo
+  if (normalized === "./" || normalized === ".") {
+    return "";
+  }
+  if (normalized.startsWith("./")) {
+    normalized = normalized.substring(2);
+  }
+  // Remove trailing slash para comparação
+  normalized = normalized.replace(/\/$/, "");
+  return normalized;
+}
+
+/**
  * Calcula a quantidade mínima de crases necessárias para envolver um texto
  * em um bloco de código markdown, evitando conflitos com crases dentro do texto.
  *
@@ -112,18 +136,17 @@ export function deveIncluirArquivo(
   }
 
   // 🔍 Verifica se está dentro de pastaBase
-  const prefixoBase =
-    config.pastaBase === "./" || config.pastaBase === "."
-      ? ""
-      : normalizarCaminho(config.pastaBase).replace(/\/$/, "") + "/";
+  // 🔥 CORREÇÃO: Usa normalizarPrefixo que remove "./" para comparação consistente
+  const prefixoBase = normalizarPrefixo(config.pastaBase);
+  const prefixoBaseComBarra = prefixoBase !== "" ? prefixoBase + "/" : "";
 
-  if (prefixoBase !== "" && !caminhoNormalizado.startsWith(prefixoBase)) {
+  if (prefixoBaseComBarra !== "" && !caminhoNormalizado.startsWith(prefixoBaseComBarra)) {
     return false;
   }
 
   // 🔍 Extrai o caminho relativo dentro de pastaBase
-  const caminhoInterno = prefixoBase !== ""
-    ? caminhoNormalizado.substring(prefixoBase.length)
+  const caminhoInterno = prefixoBaseComBarra !== ""
+    ? caminhoNormalizado.substring(prefixoBaseComBarra.length)
     : caminhoNormalizado;
 
   // 🔥 CORREÇÃO: Verifica se está NA RAIZ (não tem / no caminhoInterno)

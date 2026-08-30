@@ -2,23 +2,10 @@
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-import { Handshake, Contato } from "../../../utils/src/interfaces/db.ts";
-import { gerarId } from "../utils/id-utils.ts";
-import {
-  buscarHandshake,
-  salvarHandshake,
-  buscarProfile,
-  buscarContatoPorChave,
-  salvarContato,
-  serializarPublicKeyVapid,
-  listarHandshakes,
-  removerHandshake,
-  removerContatoPorHash,
-  removerTodoHistoricoChat
-} from "../utils/db-helpers.ts";
-import { extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "../utils/share-utils.ts";
+import { Handshake, Contato } from "@loco/utils/interfaces";
+import { gerarId, buscarHandshake, salvarHandshake, buscarProfile, buscarContatoPorChave, salvarContato, serializarPublicKeyVapid, listarHandshakes, removerHandshake, removerContatoPorHash, removerTodoHistoricoChat, extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "@loco/utils/db";
 import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
-import { addDebugLog } from "../utils/debug-utils.ts";
+import { addDebugLog } from "@loco/utils/debug";
 
 interface ContatoOutParams {
   function: string;
@@ -29,7 +16,6 @@ interface ContatoOutParams {
 
 export async function ExpurgarHandshakesContato(contatoHash: string) {
   addDebugLog("warn", "HAND-CONTATO", `🗑️ Expurgando handshakes de conexão do contato ${contatoHash}`);
-  
   const todos = await listarHandshakes();
   for (const h of todos) {
     if (h.aud === contatoHash && (h.in?.rotas.contato || h.out?.rotas.contato)) {
@@ -39,38 +25,32 @@ export async function ExpurgarHandshakesContato(contatoHash: string) {
 }
 
 export async function Processar({ in: handshakeId, out: outParams }: { in?: string, out?: ContatoOutParams }) {
-  
   if (handshakeId) {
     const handshake = await buscarHandshake(handshakeId);
     if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
+    
     const contatoReq = handshake.in.rotas.contato;
-
-    // 🔥 NOVO: Tratamento de Exclusão Remota de Contato recebida
+    
     if (contatoReq.removerContato === true) {
       addDebugLog("warn", "HAND-CONTATO", `📩 Comando de EXCLUSÃO DE CONTATO recebido do remoto (aud: ${handshake.aud})`);
-      
-      // Apaga mensagens e o contato silenciosamente
       await removerTodoHistoricoChat(handshake.aud);
       await removerContatoPorHash(handshake.aud);
-      
       if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
         clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
       }
-      
       addDebugLog("success", "HAND-CONTATO", `🗑️ Contato ${handshake.aud} e seu histórico foram expurgados remotamente por solicitação do remetente.`);
       return;
     }
-
+    
     if (Array.isArray(contatoReq.campos) && contatoReq.id) {
       addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
       const contato = await buscarContatoPorChave(handshake.aud);
       const rotasContatoData: Record<string, unknown> = { id: handshake.aud };
-
+      
       if (contato) {
         const camposSet = new Set(contatoReq.campos);
         const cp = await extrairDadosCompactos(contato);
-        
         if (camposSet.has('vapidPublicKey')) rotasContatoData.vp = cp.vp;
         if (camposSet.has('e2ePublicKey')) rotasContatoData.ep = cp.ep;
         if (camposSet.has('subscription')) { rotasContatoData.se = cp.se; rotasContatoData.sp = cp.sp; rotasContatoData.sa = cp.sa; rotasContatoData.ps = cp.ps; }
@@ -79,64 +59,57 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
         if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
       }
-
+      
       handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
       handshake.updatedAt = Date.now();
       await salvarHandshake(handshake);
       setTimeout(() => processarFilaHandshake(), 100);
     }
-
     else if (contatoReq.data) {
       const contato = await buscarContatoPorChave(handshake.aud);
       const profile = await buscarProfile();
-
       if (!contato || !profile) return;
-
+      
       const d = contatoReq.data as Record<string, unknown>;
       const mp = await extrairDadosCompactos(profile);
       let novoMeStatus = contato.me;
-
+      
       if (!d.se) {
         novoMeStatus = 'none'; 
       } else {
         if (d.tr === true) novoMeStatus = 'trusted';
         else novoMeStatus = 'saved';
-
+        
         const d_vp = d.vp as any || { x: d.vx, y: d.vy };
         const d_ep = d.ep as any || { n: d.en };
-
+        
         if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
             d_vp.x !== mp.vp.x || d_vp.y !== mp.vp.y || d_ep.n !== mp.ep.n || d.ve !== mp.ve) {
           novoMeStatus = 'wrong';
         }
       }
-
+      
       if (contato.me !== novoMeStatus) {
         contato.me = novoMeStatus;
         contato.updatedAt = Date.now();
         await salvarContato(contato);
-        
         if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
           const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
           clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
         }
       }
     }
-
     else if (contatoReq.sync) {
       const syncData = contatoReq.sync as unknown as CompactContact;
-      
       if ((syncData as any).vx && !syncData.vp) {
         syncData.vp = { x: (syncData as any).vx, y: (syncData as any).vy };
         syncData.ep = { n: (syncData as any).en };
       }
-
       const expanded = expandirDadosCompactos(syncData);
       const contatoAntigo = await buscarContatoPorChave(handshake.aud);
-      
       const eleConfiaEmMim = syncData.tr === true; 
       const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
-
+      
       const novoContato: Contato = {
         id: handshake.aud,
         vapidPublicKey: expanded.vapidPublicKey!,
@@ -150,14 +123,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         createdAt: contatoAntigo ? contatoAntigo.createdAt : Date.now(),
         updatedAt: Date.now()
       };
-
+      
       await salvarContato(novoContato);
-
       if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
         clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
       }
-
+      
       if (syncData.req) {
         await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
       }
@@ -169,7 +141,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const profile = await buscarProfile();
       if (!profile) return;
       const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
-
       const novoHandshake: Handshake = {
         id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
         out: { status: 'pendente', tentativas: 0, rotas: { contato: { id: meuHash, campos: outParams.campos } } }
@@ -177,21 +148,17 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       await salvarHandshake(novoHandshake);
       setTimeout(() => processarFilaHandshake(), 100);
     }
-
     if (outParams.function === 'enviarSubscription') {
       const profile = await buscarProfile();
       if (!profile) throw new Error("Perfil não encontrado.");
-
       const contatoAlvo = await buscarContatoPorChave(outParams.contato);
       const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
-
       const compactSyncData = await extrairDadosCompactos(profile, !outParams.responder, euConfio);
-
+      
       const novoHandshake: Handshake = {
         id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
         out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData as unknown as Record<string, unknown> } } }
       };
-
       await salvarHandshake(novoHandshake);
       setTimeout(() => processarFilaHandshake(), 100);
     }

@@ -1,6 +1,6 @@
 // src/sw/sw-utils.ts
-import { addDebugLog } from '../utils/debug-utils.ts';
-import { APP_VERSION } from '../constants/version.ts';
+import { addDebugLog } from '@loco/utils/debug';
+import { APP_VERSION } from '@loco/utils/config';
 
 export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   addDebugLog("📡 Verificando suporte ao Service Worker...");

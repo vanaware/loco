@@ -128,10 +128,10 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
   sw: {
     arquivoSaida: "snapshots/sw.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
-    pastaBase: "monorepo/utils",
+    pastaBase: "monorepo/service-worker",
     subpastasPermitidas: ["src", "tests", "docs"],
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
-    incluiVersao: false,
+    incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/service-worker",
     default: false, // ❌ Só roda quando solicitado explicitamente
   },
