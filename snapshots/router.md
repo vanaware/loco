@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: ROUTER
 
-Gerado automaticamente em: 8/26/2026, 8:29:48 PM
+Gerado automaticamente em: 8/30/2026, 1:02:32 AM
 
 ---
 
@@ -3763,7 +3763,7 @@ Para rotas **sem parâmetros**:
 - `params` será sempre `{}`
 - Use o parâmetro `message` da `permissionFn` para filtrar por conteúdo
 - Use variáveis externas (closures, Maps, Sets) para estado compartilhado
-- A lógica de permissão continua sendo `(clientParams, message) => boolean`
+- A lógica de permissão continua sendo `(receiverParams, senderParams, message) => boolean`
 ````
 
 ---
@@ -3875,55 +3875,6 @@ Quando um novo membro entra na sala, o router reavalia o `lastBroadcast` usando 
 
 1. **Mantenha a `PermissionFn` Leve:** Evite operações assíncronas (como consultas ao banco de dados) dentro da `PermissionFn`.
 2. **Use `senderParams` Corretamente:** Sempre passe o terceiro argumento `params` no `group.broadcast(msg, fn, params)`. Sem isso, o `senderParams` será um objeto vazio `{}` e o recurso de "Last Broadcast" não funcionará corretamente.
-```
-
-#### 📄 4. `monorepo/router/docs/simple-permission.md` (Atualizado para Dual Params)
-```markdown
-# Exemplo Simples: Rota `/sala` sem Parâmetros
-
-Quando a rota não tem parâmetros dinâmicos (ex: `/sala`), os objetos `receiverParams` e `senderParams` recebidos pela `permissionFn` serão vazios `{}`. Nesse caso, a filtragem deve ser feita com base no **conteúdo da mensagem** ou em **estado externo**.
-
-## 📄 Arquivo: `monorepo/router/example/sala/main.ts`
-
-```typescript
-import { Router } from "../../src/mod.ts";
-
-const app = new Router("/api", "./public", null);
-const bannedUsers = new Set(["spammer1", "baduser2"]);
-
-app.ws("/sala", (ws, req, _params) => {
-  const user = req.headers.get("x-user-name") ?? "anonimo";
-  const group = app.getWsGroupByPath("/sala");
-  if (!group) return;
-
-  ws.onmessage = (event) => {
-    const message = event.data;
-    
-    group.broadcast(
-      `[${user}]: ${message}`,
-      // ✅ Assinatura Dual: (receiver, sender, message)
-      (_receiver, _sender, msg) => {
-        // Regra 1: Bloquear mensagens com palavra proibida
-        if (msg.toLowerCase().includes("spam")) return false;
-        
-        // Regra 2: Bloquear mensagens de usuários banidos
-        const senderMatch = msg.match(/^\[([^\]]+)\]:/);
-        if (senderMatch && bannedUsers.has(senderMatch[1])) return false;
-        
-        return true;
-      },
-      {} // senderParams vazio, já que não temos params na rota
-    );
-  };
-});
-
-const server = Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
-```
-
-## ✅ Resumo para Rotas sem Parâmetros
-- `receiverParams` e `senderParams` serão `{}`.
-- Use o terceiro parâmetro (`message`) da `permissionFn` para filtrar por conteúdo.
-- A lógica de permissão continua sendo `(receiver, sender, message) => boolean`.
 
 ````
 
@@ -5252,7 +5203,7 @@ Estamos abertos a contribuições! 🚀
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1",
-    "@std/media-types": "jsr:@std/media-types@^1",
+    "@std/media-types": "jsr:@std/media-types@^1", //uso futuro
     "@std/path": "jsr:@std/path@^1",
     "jose": "https://deno.land/x/jose@v5.2.0/index.ts"
   },

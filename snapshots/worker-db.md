@@ -1,5 +1,5 @@
 > **INSTRUÇÃO PARA A IA:** 
-> O texto abaixo contém experimentos e código da área de WORKER-DB.
+> O texto abaixo contém experimentos e código da área de @loco/workerdb
 > O projeto é o **Loco ** estruturado em blocos. 
 > Cada arquivo começa com um título indicando seu caminho relativo exato (ex: `## Arquivo: src/main.ts`).
 > Sempre que sugerir alterações, indique claramente qual arquivo deve ser modificado com base nesses caminhos e forneça o novo código completo do arquivo.
@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WORKERDB
 
-Gerado automaticamente em: 8/23/2026, 5:07:15 PM
+Gerado automaticamente em: 8/30/2026, 1:11:19 AM
 
 ---
 
@@ -42,78 +42,6 @@ export class FakeLocalStorage {
     return Array.from(this.store.keys())[index] ?? null;
   }
 }
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/fake/fake-db.ts`
-
-```ts
-// monorepo/worker-db/src/fake/fake-db.ts
-
-// 1. Injeta o IndexedDB Fake no escopo global (self) do Worker
-import "fake-indexeddb/auto";
-
-import { FakeOPFSDirectory } from "./fake-opfs.ts";
-
-const _self = self as any;
-
-// 2. Injeta OPFS Fake no escopo do Worker
-if (!_self.navigator) _self.navigator = {};
-if (!_self.navigator.storage) _self.navigator.storage = {};
-if (!_self.navigator.storage.getDirectory) {
-  _self.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
-}
-
-// 3. Agora que o ambiente do Worker está perfeitamente simulado,
-// importamos a lógica real do banco de dados. O db.ts vai rodar
-// achando que está em um browser de verdade!
-import "../db.ts";
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/fake/fake-mod.ts`
-
-```ts
-// monorepo/worker-db/src/fake/fake-mod.ts
-
-// 1. Injeta o IndexedDB Fake globalmente (Main Thread)
-import "fake-indexeddb/auto";
-
-import { FakeOPFSDirectory } from "./fake-opfs.ts";
-import { FakeLocalStorage } from "./fake-local-storage.ts";
-
-const _global = globalThis as any;
-
-// 2. Injeta OPFS Fake (Main Thread)
-if (!_global.navigator) _global.navigator = {};
-if (!_global.navigator.storage) _global.navigator.storage = {};
-if (!_global.navigator.storage.getDirectory) {
-  _global.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
-}
-
-// 3. Injeta LocalStorage Fake (Main Thread)
-if (!_global.localStorage || _global.localStorage.constructor.name !== "FakeLocalStorage") {
-  try {
-    Object.defineProperty(_global, "localStorage", {
-      value: new FakeLocalStorage(),
-      writable: true,
-      configurable: true
-    });
-  } catch {
-    _global.localStorage = new FakeLocalStorage();
-  }
-}
-
-// 4. Exportamos tudo do módulo principal para que o demo.ts consuma
-export * from "../mod.ts";
-
-// 5. O PULO DO GATO: Forçamos a inicialização do módulo para usar o Worker Fake.
-// O Deno resolve arquivos .ts nativamente em Workers usando import.meta.url
-import { db } from "../mod.ts";
-const fakeWorkerUrl = new URL("./fake-db.ts", import.meta.url);
-db.init(fakeWorkerUrl);
 ```
 
 ---
@@ -223,7 +151,78 @@ export class FakeOPFSDirectory {
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/utils/id-utils.ts`
+## Arquivo: `monorepo/worker-db/src/fake/fake-worker.ts`
+
+```ts
+// monorepo/worker-db/src/fake/fake-db.ts
+
+// 1. Injeta o IndexedDB Fake no escopo global (self) do Worker
+import "fake-indexeddb/auto";
+
+import { FakeOPFSDirectory } from "./fake-opfs.ts";
+
+const _self = self as any;
+
+// 2. Injeta OPFS Fake no escopo do Worker
+if (!_self.navigator) _self.navigator = {};
+if (!_self.navigator.storage) _self.navigator.storage = {};
+if (!_self.navigator.storage.getDirectory) {
+  _self.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
+}
+
+// 3. Agora que o ambiente do Worker está perfeitamente simulado,
+// importamos a lógica real do banco de dados. O db.ts vai rodar
+// achando que está em um browser de verdade!
+import "../worker.ts";
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/fake/fake-mod.ts`
+
+```ts
+// monorepo/worker-db/src/fake/fake-mod.ts
+// 1. Injeta o IndexedDB Fake globalmente (Main Thread)
+import "fake-indexeddb/auto";
+import { FakeOPFSDirectory } from "./fake-opfs.ts";
+import { FakeLocalStorage } from "./fake-local-storage.ts";
+
+const _global = globalThis as any;
+
+// 2. Injeta OPFS Fake (Main Thread)
+if (!_global.navigator) _global.navigator = {};
+if (!_global.navigator.storage) _global.navigator.storage = {};
+if (!_global.navigator.storage.getDirectory) {
+  _global.navigator.storage.getDirectory = async () => new FakeOPFSDirectory();
+}
+
+// 3. Injeta LocalStorage Fake (Main Thread)
+if (!_global.localStorage || _global.localStorage.constructor.name !== "FakeLocalStorage") {
+  try {
+    Object.defineProperty(_global, "localStorage", {
+      value: new FakeLocalStorage(),
+      writable: true,
+      configurable: true
+    });
+  } catch {
+    _global.localStorage = new FakeLocalStorage();
+  }
+}
+
+// 4. Exportamos tudo do módulo principal para que o demo.ts consuma
+export * from "../mod-main.ts";
+
+// 5. O PULO DO GATO: Forçamos a inicialização do módulo para usar o Worker Fake.
+// 🔥 CORREÇÃO: O arquivo se chama fake-worker.ts, não fake-db.ts
+// O Deno resolve arquivos .ts nativamente em Workers usando import.meta.url
+import { db } from "../mod-main.ts";
+const fakeWorkerUrl = new URL("./fake-worker.ts", import.meta.url);
+db.init(fakeWorkerUrl);
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/utils/id.ts`
 
 ```ts
 // src/utils/id-utils.ts
@@ -307,7 +306,7 @@ export function prepareForSave(key: string | undefined | null, val: any, prefix 
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/utils/opfs_utils.ts`
+## Arquivo: `monorepo/worker-db/src/utils/opfs.ts`
 
 ```ts
 // ## Arquivo: monorepo/worker-db/src/utils/opfs_utils.ts
@@ -408,12 +407,248 @@ export async function downloadOpfsFile(fileName: string): Promise<void> {
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/db.ts`
+## Arquivo: `monorepo/worker-db/src/ls.ts`
+
+```ts
+// ## Arquivo: monorepo/worker-db/src/ls.ts
+import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id.ts";
+import { opfs } from "./mod-main.ts"; // 💎 Proxy Worker-DB: Ponto de acesso unificado e assíncrono
+
+export interface LsStoreOptions {
+  prefix?: string;
+}
+
+function getAllPrefixedEntries(prefix = ""): [string, any][] {
+  const entries: [string, any][] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (!prefix || key.startsWith(prefix))) {
+      const rawVal = localStorage.getItem(key);
+      if (rawVal !== null) {
+        try {
+          entries.push([key, JSON.parse(rawVal)]);
+        } catch {
+          // Ignora itens que não sejam JSON válido
+        }
+      }
+    }
+  }
+  return entries;
+}
+
+function getFormattedItems<T>(prefix = ""): WithId<T>[] {
+  const rawEntries = getAllPrefixedEntries(prefix);
+  return rawEntries.map(([k, v]) => formatDbItem(k, v, prefix));
+}
+
+function resolveKey(key: string, prefix = ""): string {
+  return prefix && !key.startsWith(prefix) ? `${prefix}${key}` : key;
+}
+
+function createScopedLs(prefix = "") {
+  return {
+    get: <T>(key: string): WithId<T> | undefined => {
+      const fullKey = resolveKey(key, prefix);
+      const raw = localStorage.getItem(fullKey);
+      if (raw === null) return undefined;
+      try {
+        return formatDbItem(fullKey, JSON.parse(raw), prefix);
+      } catch {
+        return undefined;
+      }
+    },
+
+    set: <T>(keyOrVal: string | T, val?: T): string => {
+      let key: string | undefined;
+      let targetVal: any;
+
+      if (typeof keyOrVal === "string") {
+        key = keyOrVal;
+        targetVal = val;
+      } else {
+        key = undefined;
+        targetVal = keyOrVal;
+      }
+
+      const { key: finalKey, cleanVal } = prepareForSave(key, targetVal, prefix);
+      localStorage.setItem(finalKey, JSON.stringify(cleanVal));
+      return finalKey;
+    },
+
+    patch: <T extends Record<string, any>, C = any>(
+      key: string, 
+      patchOrFn: Partial<T> | ((prev: WithId<T>, ctx?: C) => T | Partial<T>), 
+      context?: C
+    ): WithId<T> => {
+      const current = createScopedLs(prefix).get<T>(key) || ({} as WithId<T>);
+      let updated: any;
+
+      if (typeof patchOrFn === "function") {
+        updated = patchOrFn(current, context);
+      } else {
+        updated = Object.assign({}, current, patchOrFn);
+      }
+
+      const { key: finalKey, cleanVal } = prepareForSave(key, updated, prefix);
+      localStorage.setItem(finalKey, JSON.stringify(cleanVal));
+      return formatDbItem(finalKey, cleanVal, prefix);
+    },
+
+    delete: (key: string): void => {
+      localStorage.removeItem(resolveKey(key, prefix));
+    },
+
+    getMany: <T>(keys: string[]): (WithId<T> | undefined)[] => {
+      const api = createScopedLs(prefix);
+      return keys.map((k) => api.get<T>(k));
+    },
+
+    setMany: (entries: [string, any][]): void => {
+      const api = createScopedLs(prefix);
+      entries.forEach(([k, v]) => api.set(k, v));
+    },
+
+    deleteMany: (keys: string[]): void => {
+      const api = createScopedLs(prefix);
+      keys.forEach((k) => api.delete(k));
+    },
+
+    keys: (): string[] => {
+      const keysList: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (!prefix || k.startsWith(prefix))) {
+          keysList.push(k);
+        }
+      }
+      return keysList;
+    },
+
+    values: <T>(): T[] => {
+      return getFormattedItems<T>(prefix) as unknown as T[];
+    },
+
+    entries: <T>(): [string, T][] => {
+      return getAllPrefixedEntries(prefix);
+    },
+
+    clear: (): void => {
+      if (!prefix) {
+        localStorage.clear();
+        return;
+      }
+      const keysToRemove = createScopedLs(prefix).keys();
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    },
+
+    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx?: C) => R, context?: C): R => {
+      const items = getFormattedItems<T>(prefix);
+      return fn(items, context);
+    },
+
+    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C): WithId<T>[] => {
+      const items = getFormattedItems<T>(prefix);
+      const selected = fn(items, context);
+      if (!Array.isArray(selected)) {
+        throw new Error("A função em getSome deve retornar um Array.");
+      }
+      return selected;
+    },
+
+    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C): void => {
+      const items = getFormattedItems<T>(prefix);
+      const selected = fn(items, context);
+      if (!Array.isArray(selected)) {
+        throw new Error("A função em delSome deve retornar um Array.");
+      }
+      selected.forEach((item) => {
+        if (!item || item._id === undefined) {
+          throw new Error("Os itens retornados em delSome precisam conter a propriedade '_id'.");
+        }
+        const rawKey = prefix && !item._id.startsWith(prefix) ? `${prefix}${item._id}` : item._id;
+        localStorage.removeItem(rawKey);
+      });
+    },
+
+    setSome: <T, C = any>(
+      selectFn: (items: WithId<T>[], ctx?: C) => WithId<T>[],
+      updateFn: (item: WithId<T>, ctx?: C) => WithId<T>,
+      context?: C
+    ): void => {
+      const items = getFormattedItems<T>(prefix);
+      const selected = selectFn(items, context);
+      if (!Array.isArray(selected)) {
+        throw new Error("A função de seleção em setSome deve retornar um Array.");
+      }
+      selected.forEach((item) => {
+        if (!item || item._id === undefined) {
+          throw new Error("Os itens selecionados em setSome precisam conter a propriedade '_id'.");
+        }
+        const updatedItem = updateFn(item, context);
+        const { key: finalKey, cleanVal } = prepareForSave(undefined, updatedItem, prefix);
+        localStorage.setItem(finalKey, JSON.stringify(cleanVal));
+      });
+    },
+
+    // --- MÉTODOS DE EXPORTAÇÃO / IMPORTAÇÃO ---
+
+    exportLS: (): Record<string, any> => {
+      const allEntries = getAllPrefixedEntries(prefix);
+      return Object.fromEntries(allEntries);
+    },
+
+    importLS: (data: Record<string, any>, clearFirst = false): void => {
+      const api = createScopedLs(prefix);
+      if (clearFirst) api.clear();
+      Object.entries(data).forEach(([k, v]) => api.set(k, v));
+    },
+
+    backupToOpfs: async (recordKey: string, fileName = "backup.json"): Promise<string> => {
+      const data = Object.fromEntries(getAllPrefixedEntries(prefix));
+      const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+      
+      // Instancia o drive OPFS via worker apontando para a pasta física /backup
+      const drive = opfs("LS_SYS", "ls_store", prefix, "backup");
+      await drive.addFile(recordKey, blob, fileName);
+      
+      return `${recordKey}/${fileName}`;
+    },
+
+    restoreFromOpfs: async (recordKey: string, fileName: string, clearFirst = false): Promise<void> => {
+      // Instancia o drive OPFS via worker para leitura da pasta /backup
+      const drive = opfs("LS_SYS", "ls_store", prefix, "backup");
+      
+      const fileBlob = await drive.getFile(recordKey, fileName);
+      const data = JSON.parse(await fileBlob.text());
+      
+      const api = createScopedLs(prefix);
+      if (clearFirst) api.clear();
+      Object.entries(data).forEach(([k, v]) => api.set(k, v));
+    },
+
+    gerarId,
+    gerarIdComPrefixo: () => (prefix ? gerarIdComPrefixo(prefix) : gerarId()),
+  };
+}
+
+export const ls = Object.assign(
+  (prefix = "") => createScopedLs(prefix),
+  createScopedLs()
+);
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/worker.ts`
 
 ```ts
 // ## Arquivo: monorepo/worker-db/src/db.ts
-import { internalAPI } from "./db-sw.ts";
-import type { DbStoreOptions, OpfsStoreOptions } from "./db-sw.ts";
+import { internalAPI } from "./db.ts";
+import type { DbStoreOptions, OpfsStoreOptions } from "./db.ts";
+
+import { APP_VERSION } from "@loco/utils/config";
+
+console.log(`[DB] 🌌 Worker-db carregado (v${APP_VERSION}).`);
 
 self.onmessage = async (e: MessageEvent) => {
   const { requestId, command, args } = e.data;
@@ -433,6 +668,9 @@ self.onmessage = async (e: MessageEvent) => {
     let result;
 
     switch (command) {
+      case "VERSION":
+        result = { version: APP_VERSION };
+        break;
       case "GET":
         result = await internalAPI.get(args.key, dbOpts);
         break;
@@ -556,192 +794,7 @@ self.onmessage = async (e: MessageEvent) => {
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/mod.ts`
-
-```ts
-// ## Arquivo: monorepo/worker-db/src/mod.ts
-import { gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
-import { ls } from "./ls.ts";
-import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./db-sw.ts";
-
-let workerInstance: Worker | null = null;
-let currentWorkerPath: string | URL = "./worker-db.js";
-const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
-
-function getWorker(workerPath?: string | URL): Worker {
-  if (workerPath) {
-    currentWorkerPath = workerPath;
-  }
-  
-  if (!workerInstance) {
-    const workerUrl = typeof currentWorkerPath === "string" ? new URL(currentWorkerPath, import.meta.url) : currentWorkerPath;
-    workerInstance = new Worker(workerUrl, { type: "module" });
-
-    workerInstance.onmessage = (e: MessageEvent) => {
-      const { requestId, success, result, error } = e.data;
-      const promise = pendingRequests.get(requestId);
-      if (promise) {
-        if (success) promise.resolve(result);
-        else promise.reject(new Error(error));
-        pendingRequests.delete(requestId);
-      }
-    };
-
-    workerInstance.onerror = (event) => {
-      console.error("⚠️ Falha crítica no Web Worker:", event.message);
-      pendingRequests.forEach(({ reject }) => reject(new Error("Worker crashed")));
-      pendingRequests.clear();
-      restartWorker();
-    };
-  }
-  return workerInstance;
-}
-
-function restartWorker() {
-  if (workerInstance) {
-    workerInstance.terminate();
-    workerInstance = null;
-  }
-  pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
-  pendingRequests.clear();
-  getWorker(); 
-}
-
-function terminateWorker() {
-  if (workerInstance) {
-    workerInstance.terminate();
-    workerInstance = null;
-  }
-}
-
-function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const requestId = gerarId();
-    pendingRequests.set(requestId, { resolve, reject });
-    try {
-      getWorker().postMessage({ requestId, command, args });
-    } catch (err) {
-      pendingRequests.delete(requestId);
-      reject(err);
-    }
-  });
-}
-
-const globalDbAPI = {
-  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
-  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
-    if (typeof keyOrVal !== "string") {
-      const options = opts || (val as DbStoreOptions) || {};
-      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
-    }
-    return exec<string>("SET", { key: keyOrVal, val, ...opts });
-  },
-  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
-    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
-    const newVal = updater(currentVal);
-    await exec<void>("SET", { key, val: newVal, ...opts });
-  },
-  patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions): Promise<WithId<T>> => {
-    const isFn = typeof patchOrFn === "function";
-    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
-  },
-  delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
-  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
-  setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
-  deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
-  keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
-  values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
-  entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
-  clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
-  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
-  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
-  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
-  setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C, opts?: DbStoreOptions): Promise<void> => exec<void>("SET_SOME", { selectFnStr: selectFn.toString(), updateFnStr: updateFn.toString(), context, ...opts }),
-  exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
-  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
-  backupToOpfs: (key: string, fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { key, fileName, ...opts }),
-  restoreFromOpfs: (key: string, fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { key, fileName, clearFirst, ...opts }),
-
-  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
-  restart: () => restartWorker(),
-  terminate: () => terminateWorker(),
-};
-
-function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
-  const opts: DbStoreOptions = { dbName, storeName, prefix };
-  return {
-    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
-    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
-    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
-    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
-    delete: (key: string) => globalDbAPI.delete(key, opts),
-    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
-    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
-    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
-    keys: () => globalDbAPI.keys(opts),
-    values: <T>() => globalDbAPI.values<T>(opts),
-    entries: <T>() => globalDbAPI.entries<T>(opts),
-    clear: () => globalDbAPI.clear(opts), 
-    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
-    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
-    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
-    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
-    exportDB: () => globalDbAPI.exportDB(opts),
-    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
-    backupToOpfs: (key: string, fileName?: string) => globalDbAPI.backupToOpfs(key, fileName, opts),
-    restoreFromOpfs: (key: string, fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(key, fileName, clearFirst, opts),
-    gerarId,
-    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
-  };
-}
-
-const globalOpfsAPI = {
-  ...globalDbAPI,
-  listFiles: (key: string, opts?: OpfsStoreOptions) => exec<OpfsFileInfo[]>("OPFS_LIST", { key, ...opts }),
-  getFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<File>("OPFS_GET", { key, fileName, ...opts }),
-  addFile: (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_ADD", { key, file, fileName, ...opts }),
-  delFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_DEL", { key, fileName, ...opts }),
-  renFile: (key: string, oldName: string, newName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_REN", { key, oldName, newName, ...opts }),
-  mvFile: (key: string, fileName: string, newKey: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_MV", { key, fileName, newKey, ...opts }),
-  zip: (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false, opts?: OpfsStoreOptions) => exec<void>("OPFS_ZIP", { key, zipName, filesToZip, deleteOriginals, ...opts }),
-  unzip: (key: string, zipName: string, deleteZip = false, opts?: OpfsStoreOptions) => exec<void>("OPFS_UNZIP", { key, zipName, deleteZip, ...opts }),
-  addZip: (key: string, zipName: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_ADDZIP", { key, zipName, file, fileName, ...opts }),
-  delZip: (key: string, zipName: string, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_DELZIP", { key, zipName, fileName, ...opts })
-};
-
-function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
-  const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
-  return {
-    ...createScopedDb(dbName, storeName, prefix), 
-    listFiles: (key: string) => globalOpfsAPI.listFiles(key, opts),
-    getFile: (key: string, fileName: string) => globalOpfsAPI.getFile(key, fileName, opts),
-    addFile: (key: string, file: File | Blob, fileName: string) => globalOpfsAPI.addFile(key, file, fileName, opts),
-    delFile: (key: string, fileName: string) => globalOpfsAPI.delFile(key, fileName, opts),
-    renFile: (key: string, oldName: string, newName: string) => globalOpfsAPI.renFile(key, oldName, newName, opts),
-    mvFile: (key: string, fileName: string, newKey: string) => globalOpfsAPI.mvFile(key, fileName, newKey, opts),
-    zip: (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false) => globalOpfsAPI.zip(key, zipName, filesToZip, deleteOriginals, opts),
-    unzip: (key: string, zipName: string, deleteZip = false) => globalOpfsAPI.unzip(key, zipName, deleteZip, opts),
-    addZip: (key: string, zipName: string, file: File | Blob, fileName: string) => globalOpfsAPI.addZip(key, zipName, file, fileName, opts),
-    delZip: (key: string, zipName: string, fileName: string) => globalOpfsAPI.delZip(key, zipName, fileName, opts)
-  };
-}
-
-export { ls };
-
-export const db = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
-  globalDbAPI
-);
-
-export const opfs = Object.assign(
-  (dbName?: string, storeName?: string, prefix?: string, basePath = "") => createScopedOpfs(dbName, storeName, prefix, basePath),
-  globalOpfsAPI
-);
-```
-
----
-
-## Arquivo: `monorepo/worker-db/src/db-sw.ts`
+## Arquivo: `monorepo/worker-db/src/db.ts`
 
 ```ts
 // ## Arquivo: monorepo/worker-db/src/db-sw.ts
@@ -752,7 +805,7 @@ import {
 } from "idb-keyval";
 import { zipSync, unzipSync } from "fflate";
 
-import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
+import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id.ts";
 
 // ============================================================================
 // DEFINIÇÕES DE TIPOS (Single Source of Truth)
@@ -1206,234 +1259,207 @@ export const opfs = Object.assign((dbName?: string, storeName?: string, prefix?:
 
 ---
 
-## Arquivo: `monorepo/worker-db/src/ls.ts`
+## Arquivo: `monorepo/worker-db/src/rpc.ts`
 
 ```ts
-// ## Arquivo: monorepo/worker-db/src/ls.ts
-import { formatDbItem, prepareForSave, gerarId, gerarIdComPrefixo, type WithId } from "./utils/id-utils.ts";
-import { opfs } from "./mod.ts"; // 💎 Proxy Worker-DB: Ponto de acesso unificado e assíncrono
+// ## Arquivo: monorepo/worker-db/src/rpc.ts
+import { gerarId, gerarIdComPrefixo, type WithId } from "./utils/id.ts";
+import type { DbStoreOptions, OpfsStoreOptions, OpfsFileInfo } from "./db.ts";
 
-export interface LsStoreOptions {
-  prefix?: string;
-}
+let workerInstance: Worker | null = null;
+let currentWorkerPath: string | URL = "./worker-db.js";
+const pendingRequests = new Map<string, { resolve: Function; reject: Function }>();
 
-function getAllPrefixedEntries(prefix = ""): [string, any][] {
-  const entries: [string, any][] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && (!prefix || key.startsWith(prefix))) {
-      const rawVal = localStorage.getItem(key);
-      if (rawVal !== null) {
-        try {
-          entries.push([key, JSON.parse(rawVal)]);
-        } catch {
-          // Ignora itens que não sejam JSON válido
-        }
-      }
-    }
+function getWorker(workerPath?: string | URL): Worker {
+  if (workerPath) {
+    currentWorkerPath = workerPath;
   }
-  return entries;
+  
+  if (!workerInstance) {
+    const workerUrl = typeof currentWorkerPath === "string" ? new URL(currentWorkerPath, import.meta.url) : currentWorkerPath;
+    workerInstance = new Worker(workerUrl, { type: "module" });
+
+    workerInstance.onmessage = (e: MessageEvent) => {
+      const { requestId, success, result, error } = e.data;
+      const promise = pendingRequests.get(requestId);
+      if (promise) {
+        if (success) promise.resolve(result);
+        else promise.reject(new Error(error));
+        pendingRequests.delete(requestId);
+      }
+    };
+
+    workerInstance.onerror = (event) => {
+      console.error("⚠️ Falha crítica no Web Worker:", event.message);
+      pendingRequests.forEach(({ reject }) => reject(new Error("Worker crashed")));
+      pendingRequests.clear();
+      restartWorker();
+    };
+  }
+  return workerInstance;
 }
 
-function getFormattedItems<T>(prefix = ""): WithId<T>[] {
-  const rawEntries = getAllPrefixedEntries(prefix);
-  return rawEntries.map(([k, v]) => formatDbItem(k, v, prefix));
+function restartWorker() {
+  if (workerInstance) {
+    workerInstance.terminate();
+    workerInstance = null;
+  }
+  pendingRequests.forEach(({ reject }) => reject(new Error("Worker foi reiniciado")));
+  pendingRequests.clear();
+  getWorker(); 
 }
 
-function resolveKey(key: string, prefix = ""): string {
-  return prefix && !key.startsWith(prefix) ? `${prefix}${key}` : key;
+function terminateWorker() {
+  if (workerInstance) {
+    workerInstance.terminate();
+    workerInstance = null;
+  }
 }
 
-function createScopedLs(prefix = "") {
+function exec<T>(command: string, args: Record<string, any> = {}): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const requestId = gerarId();
+    pendingRequests.set(requestId, { resolve, reject });
+    try {
+      getWorker().postMessage({ requestId, command, args });
+    } catch (err) {
+      pendingRequests.delete(requestId);
+      reject(err);
+    }
+  });
+}
+
+const globalDbAPI = {
+  get: <T>(key: string, opts?: DbStoreOptions) => exec<WithId<T>>("GET", { key, ...opts }),
+  set: <T>(keyOrVal: string | T, val?: T | DbStoreOptions, opts?: DbStoreOptions) => {
+    if (typeof keyOrVal !== "string") {
+      const options = opts || (val as DbStoreOptions) || {};
+      return exec<string>("SET", { key: undefined, val: keyOrVal, ...options });
+    }
+    return exec<string>("SET", { key: keyOrVal, val, ...opts });
+  },
+  update: async <T>(key: string, updater: (val: WithId<T> | undefined) => T, opts?: DbStoreOptions): Promise<void> => {
+    const currentVal = await exec<WithId<T> | undefined>("GET", { key, ...opts });
+    const newVal = updater(currentVal);
+    await exec<void>("SET", { key, val: newVal, ...opts });
+  },
+  patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C, opts?: DbStoreOptions): Promise<WithId<T>> => {
+    const isFn = typeof patchOrFn === "function";
+    return exec<WithId<T>>("PATCH", { key, patch: isFn ? undefined : patchOrFn, fnStr: isFn ? patchOrFn.toString() : undefined, context, ...opts });
+  },
+  delete: (key: string, opts?: DbStoreOptions) => exec<void>("DELETE", { key, ...opts }),
+  getMany: <T>(keys: string[], opts?: DbStoreOptions) => exec<(WithId<T> | undefined)[]> ("GET_MANY", { keys, ...opts }),
+  setMany: (entries: [string, any][], opts?: DbStoreOptions) => exec<void>("SET_MANY", { entries, ...opts }),
+  deleteMany: (keys: string[], opts?: DbStoreOptions) => exec<void>("DEL_MANY", { keys, ...opts }),
+  keys: (opts?: DbStoreOptions) => exec<string[]>("KEYS", { ...opts }),
+  values: <T>(opts?: DbStoreOptions) => exec<T[]>("VALUES", { ...opts }),
+  entries: <T>(opts?: DbStoreOptions) => exec<[string, T][]>("ENTRIES", { ...opts }),
+  clear: (opts?: DbStoreOptions) => exec<void>("CLEAR", { ...opts }),
+  query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C, opts?: DbStoreOptions): Promise<R> => exec<R>("QUERY", { fnStr: fn.toString(), context, ...opts }),
+  getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<WithId<T>[]> => exec<WithId<T>[]>("GET_SOME", { fnStr: fn.toString(), context, ...opts }),
+  delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C, opts?: DbStoreOptions): Promise<void> => exec<void>("DEL_SOME", { fnStr: fn.toString(), context, ...opts }),
+  setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C, opts?: DbStoreOptions): Promise<void> => exec<void>("SET_SOME", { selectFnStr: selectFn.toString(), updateFnStr: updateFn.toString(), context, ...opts }),
+  exportDB: (opts?: DbStoreOptions) => exec<Record<string, any>>("EXPORT", { ...opts }),
+  importDB: (data: Record<string, any>, clearFirst = false, opts?: DbStoreOptions) => exec<void>("IMPORT", { data, clearFirst, ...opts }),
+  backupToOpfs: (key: string, fileName?: string, opts?: DbStoreOptions) => exec<string>("BACKUP_OPFS", { key, fileName, ...opts }),
+  restoreFromOpfs: (key: string, fileName: string, clearFirst = false, opts?: DbStoreOptions) => exec<void>("RESTORE_OPFS", { key, fileName, clearFirst, ...opts }),
+
+  init: (workerPath?: string | URL) => { getWorker(workerPath); }, 
+  restart: () => restartWorker(),
+  terminate: () => terminateWorker(),
+};
+
+function createScopedDb(dbName?: string, storeName = "keyval", prefix = "") {
+  const opts: DbStoreOptions = { dbName, storeName, prefix };
   return {
-    get: <T>(key: string): WithId<T> | undefined => {
-      const fullKey = resolveKey(key, prefix);
-      const raw = localStorage.getItem(fullKey);
-      if (raw === null) return undefined;
-      try {
-        return formatDbItem(fullKey, JSON.parse(raw), prefix);
-      } catch {
-        return undefined;
-      }
-    },
-
-    set: <T>(keyOrVal: string | T, val?: T): string => {
-      let key: string | undefined;
-      let targetVal: any;
-
-      if (typeof keyOrVal === "string") {
-        key = keyOrVal;
-        targetVal = val;
-      } else {
-        key = undefined;
-        targetVal = keyOrVal;
-      }
-
-      const { key: finalKey, cleanVal } = prepareForSave(key, targetVal, prefix);
-      localStorage.setItem(finalKey, JSON.stringify(cleanVal));
-      return finalKey;
-    },
-
-    patch: <T extends Record<string, any>, C = any>(
-      key: string, 
-      patchOrFn: Partial<T> | ((prev: WithId<T>, ctx?: C) => T | Partial<T>), 
-      context?: C
-    ): WithId<T> => {
-      const current = createScopedLs(prefix).get<T>(key) || ({} as WithId<T>);
-      let updated: any;
-
-      if (typeof patchOrFn === "function") {
-        updated = patchOrFn(current, context);
-      } else {
-        updated = Object.assign({}, current, patchOrFn);
-      }
-
-      const { key: finalKey, cleanVal } = prepareForSave(key, updated, prefix);
-      localStorage.setItem(finalKey, JSON.stringify(cleanVal));
-      return formatDbItem(finalKey, cleanVal, prefix);
-    },
-
-    delete: (key: string): void => {
-      localStorage.removeItem(resolveKey(key, prefix));
-    },
-
-    getMany: <T>(keys: string[]): (WithId<T> | undefined)[] => {
-      const api = createScopedLs(prefix);
-      return keys.map((k) => api.get<T>(k));
-    },
-
-    setMany: (entries: [string, any][]): void => {
-      const api = createScopedLs(prefix);
-      entries.forEach(([k, v]) => api.set(k, v));
-    },
-
-    deleteMany: (keys: string[]): void => {
-      const api = createScopedLs(prefix);
-      keys.forEach((k) => api.delete(k));
-    },
-
-    keys: (): string[] => {
-      const keysList: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && (!prefix || k.startsWith(prefix))) {
-          keysList.push(k);
-        }
-      }
-      return keysList;
-    },
-
-    values: <T>(): T[] => {
-      return getFormattedItems<T>(prefix) as unknown as T[];
-    },
-
-    entries: <T>(): [string, T][] => {
-      return getAllPrefixedEntries(prefix);
-    },
-
-    clear: (): void => {
-      if (!prefix) {
-        localStorage.clear();
-        return;
-      }
-      const keysToRemove = createScopedLs(prefix).keys();
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
-    },
-
-    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx?: C) => R, context?: C): R => {
-      const items = getFormattedItems<T>(prefix);
-      return fn(items, context);
-    },
-
-    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C): WithId<T>[] => {
-      const items = getFormattedItems<T>(prefix);
-      const selected = fn(items, context);
-      if (!Array.isArray(selected)) {
-        throw new Error("A função em getSome deve retornar um Array.");
-      }
-      return selected;
-    },
-
-    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx?: C) => WithId<T>[], context?: C): void => {
-      const items = getFormattedItems<T>(prefix);
-      const selected = fn(items, context);
-      if (!Array.isArray(selected)) {
-        throw new Error("A função em delSome deve retornar um Array.");
-      }
-      selected.forEach((item) => {
-        if (!item || item._id === undefined) {
-          throw new Error("Os itens retornados em delSome precisam conter a propriedade '_id'.");
-        }
-        const rawKey = prefix && !item._id.startsWith(prefix) ? `${prefix}${item._id}` : item._id;
-        localStorage.removeItem(rawKey);
-      });
-    },
-
-    setSome: <T, C = any>(
-      selectFn: (items: WithId<T>[], ctx?: C) => WithId<T>[],
-      updateFn: (item: WithId<T>, ctx?: C) => WithId<T>,
-      context?: C
-    ): void => {
-      const items = getFormattedItems<T>(prefix);
-      const selected = selectFn(items, context);
-      if (!Array.isArray(selected)) {
-        throw new Error("A função de seleção em setSome deve retornar um Array.");
-      }
-      selected.forEach((item) => {
-        if (!item || item._id === undefined) {
-          throw new Error("Os itens selecionados em setSome precisam conter a propriedade '_id'.");
-        }
-        const updatedItem = updateFn(item, context);
-        const { key: finalKey, cleanVal } = prepareForSave(undefined, updatedItem, prefix);
-        localStorage.setItem(finalKey, JSON.stringify(cleanVal));
-      });
-    },
-
-    // --- MÉTODOS DE EXPORTAÇÃO / IMPORTAÇÃO ---
-
-    exportLS: (): Record<string, any> => {
-      const allEntries = getAllPrefixedEntries(prefix);
-      return Object.fromEntries(allEntries);
-    },
-
-    importLS: (data: Record<string, any>, clearFirst = false): void => {
-      const api = createScopedLs(prefix);
-      if (clearFirst) api.clear();
-      Object.entries(data).forEach(([k, v]) => api.set(k, v));
-    },
-
-    backupToOpfs: async (recordKey: string, fileName = "backup.json"): Promise<string> => {
-      const data = Object.fromEntries(getAllPrefixedEntries(prefix));
-      const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
-      
-      // Instancia o drive OPFS via worker apontando para a pasta física /backup
-      const drive = opfs("LS_SYS", "ls_store", prefix, "backup");
-      await drive.addFile(recordKey, blob, fileName);
-      
-      return `${recordKey}/${fileName}`;
-    },
-
-    restoreFromOpfs: async (recordKey: string, fileName: string, clearFirst = false): Promise<void> => {
-      // Instancia o drive OPFS via worker para leitura da pasta /backup
-      const drive = opfs("LS_SYS", "ls_store", prefix, "backup");
-      
-      const fileBlob = await drive.getFile(recordKey, fileName);
-      const data = JSON.parse(await fileBlob.text());
-      
-      const api = createScopedLs(prefix);
-      if (clearFirst) api.clear();
-      Object.entries(data).forEach(([k, v]) => api.set(k, v));
-    },
-
+    get: <T>(key: string) => globalDbAPI.get<T>(key, opts),
+    set: <T>(keyOrVal: string | T, val?: T) => globalDbAPI.set<T>(keyOrVal as any, val as any, opts),
+    update: <T>(key: string, updater: (val: WithId<T> | undefined) => T) => globalDbAPI.update<T>(key, updater, opts),
+    patch: <T extends Record<string, any>, C = any>(key: string, patchOrFn: Partial<T> | ((prev: WithId<T>, ctx: C) => T | Partial<T>), context?: C) => globalDbAPI.patch<T, C>(key, patchOrFn, context, opts),
+    delete: (key: string) => globalDbAPI.delete(key, opts),
+    getMany: <T>(keys: string[]) => globalDbAPI.getMany<T>(keys, opts),
+    setMany: (entries: [string, any][]) => globalDbAPI.setMany(entries, opts),
+    deleteMany: (keys: string[]) => globalDbAPI.deleteMany(keys, opts),
+    keys: () => globalDbAPI.keys(opts),
+    values: <T>() => globalDbAPI.values<T>(opts),
+    entries: <T>() => globalDbAPI.entries<T>(opts),
+    clear: () => globalDbAPI.clear(opts), 
+    query: <T, R, C = any>(fn: (items: WithId<T>[], ctx: C) => R, context?: C) => globalDbAPI.query<T, R, C>(fn, context, opts),
+    getSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.getSome<T, C>(fn, context, opts),
+    delSome: <T, C = any>(fn: (items: WithId<T>[], ctx: C) => WithId<T>[], context?: C) => globalDbAPI.delSome<T, C>(fn, context, opts),
+    setSome: <T, C = any>(selectFn: (items: WithId<T>[], ctx: C) => WithId<T>[], updateFn: (item: WithId<T>, ctx: C) => WithId<T>, context?: C) => globalDbAPI.setSome<T, C>(selectFn, updateFn, context, opts),
+    exportDB: () => globalDbAPI.exportDB(opts),
+    importDB: (data: Record<string, any>, clearFirst = false) => globalDbAPI.importDB(data, clearFirst, opts),
+    backupToOpfs: (key: string, fileName?: string) => globalDbAPI.backupToOpfs(key, fileName, opts),
+    restoreFromOpfs: (key: string, fileName: string, clearFirst = false) => globalDbAPI.restoreFromOpfs(key, fileName, clearFirst, opts),
     gerarId,
-    gerarIdComPrefixo: () => (prefix ? gerarIdComPrefixo(prefix) : gerarId()),
+    gerarIdComPrefixo: () => prefix ? gerarIdComPrefixo(prefix) : gerarId()
   };
 }
 
-export const ls = Object.assign(
-  (prefix = "") => createScopedLs(prefix),
-  createScopedLs()
+const globalOpfsAPI = {
+  ...globalDbAPI,
+  listFiles: (key: string, opts?: OpfsStoreOptions) => exec<OpfsFileInfo[]>("OPFS_LIST", { key, ...opts }),
+  getFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<File>("OPFS_GET", { key, fileName, ...opts }),
+  addFile: (key: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_ADD", { key, file, fileName, ...opts }),
+  delFile: (key: string, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_DEL", { key, fileName, ...opts }),
+  renFile: (key: string, oldName: string, newName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_REN", { key, oldName, newName, ...opts }),
+  mvFile: (key: string, fileName: string, newKey: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_MV", { key, fileName, newKey, ...opts }),
+  zip: (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false, opts?: OpfsStoreOptions) => exec<void>("OPFS_ZIP", { key, zipName, filesToZip, deleteOriginals, ...opts }),
+  unzip: (key: string, zipName: string, deleteZip = false, opts?: OpfsStoreOptions) => exec<void>("OPFS_UNZIP", { key, zipName, deleteZip, ...opts }),
+  addZip: (key: string, zipName: string, file: File | Blob, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_ADDZIP", { key, zipName, file, fileName, ...opts }),
+  delZip: (key: string, zipName: string, fileName: string, opts?: OpfsStoreOptions) => exec<void>("OPFS_DELZIP", { key, zipName, fileName, ...opts })
+};
+
+function createScopedOpfs(dbName?: string, storeName = "keyval", prefix = "", basePath = "") {
+  const opts: OpfsStoreOptions = { dbName, storeName, prefix, basePath };
+  return {
+    ...createScopedDb(dbName, storeName, prefix), 
+    listFiles: (key: string) => globalOpfsAPI.listFiles(key, opts),
+    getFile: (key: string, fileName: string) => globalOpfsAPI.getFile(key, fileName, opts),
+    addFile: (key: string, file: File | Blob, fileName: string) => globalOpfsAPI.addFile(key, file, fileName, opts),
+    delFile: (key: string, fileName: string) => globalOpfsAPI.delFile(key, fileName, opts),
+    renFile: (key: string, oldName: string, newName: string) => globalOpfsAPI.renFile(key, oldName, newName, opts),
+    mvFile: (key: string, fileName: string, newKey: string) => globalOpfsAPI.mvFile(key, fileName, newKey, opts),
+    zip: (key: string, zipName: string, filesToZip?: string[], deleteOriginals = false) => globalOpfsAPI.zip(key, zipName, filesToZip, deleteOriginals, opts),
+    unzip: (key: string, zipName: string, deleteZip = false) => globalOpfsAPI.unzip(key, zipName, deleteZip, opts),
+    addZip: (key: string, zipName: string, file: File | Blob, fileName: string) => globalOpfsAPI.addZip(key, zipName, file, fileName, opts),
+    delZip: (key: string, zipName: string, fileName: string) => globalOpfsAPI.delZip(key, zipName, fileName, opts)
+  };
+}
+
+export const db = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string) => createScopedDb(dbName, storeName, prefix),
+  globalDbAPI
 );
+
+export const opfs = Object.assign(
+  (dbName?: string, storeName?: string, prefix?: string, basePath = "") => createScopedOpfs(dbName, storeName, prefix, basePath),
+  globalOpfsAPI
+);
+
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/mod-main.ts`
+
+```ts
+// ## Arquivo: monorepo/worker-db/src/mod.ts
+
+export { ls } from "./ls.ts";
+export { db as dbsw, opfs as opfssw } from "./db.ts";
+export { db, opfs } from "./rpc.ts";
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/src/mod-sw.ts`
+
+```ts
+// ## Arquivo: monorepo/worker-db/src/mod.ts
+
+export { db, opfs } from "./db.ts";
 ```
 
 ---
@@ -1958,7 +1984,7 @@ Deno.test({
 
 ```ts
 import { assertEquals, assert } from "@std/assert";
-import { gerarId, validarId } from "../src/utils/id-utils.ts";
+import { gerarId, validarId } from "../src/utils/id.ts";
 import { db, ls } from "../src/fake/fake-mod.ts";
 
 Deno.test("MAIN - Validação de Utilitários de ID e Integração Global", () => {
@@ -2291,6 +2317,177 @@ Deno.test({
 
 ---
 
+## Arquivo: `monorepo/worker-db/README.md`
+
+````md
+# 🗄️ Loco PWA - Worker-DB
+
+O **Worker-DB** é o coração da arquitetura *Offline-First* do Loco PWA. Ele provê uma interface unificada, tipada e de altíssima performance para interagir com as APIs de persistência nativas dos navegadores modernos (`IndexedDB`, `LocalStorage` e `Origin Private File System - OPFS`).
+
+Para garantir que a interface de usuário (UI) nunca congele, mesmo durante operações massivas de criptografia E2EE ou I/O de arquivos pesados, **todo o processamento de banco de dados e arquivos ocorre em uma thread separada (Web Worker)**.
+
+---
+
+## ✨ Principais Funcionalidades
+
+- 🧵 **Non-Blocking UI:** Proxy transparente via `postMessage`. A Thread Principal apenas despacha comandos; o Worker faz o trabalho pesado.
+- 🛡️ **Isolamento por Escopos:** Bancos e *Stores* são isolados. Além disso, suportamos `prefixos` dinâmicos para isolar chaves no mesmo store (ex: `MSG_`, `CONFIG_`).
+- 🔑 **Gestão Automática de IDs:** Suporte para inserção usando `_id: "auto"`, convertendo automaticamente para UUIDs curtos e limpando prefixos nos retornos.
+- 🚀 **High Performance OPFS:** Manipulação nativa de arquivos no disco do dispositivo com recuperação estrita sob demanda (evitando vazamentos de memória).
+- 🗜️ **Compressão Nativa (ZIP):** Empacotamento e descompactação de pastas e arquivos no OPFS utilizando a engine `fflate` em background.
+
+---
+
+## 📦 1. Módulo: `db()` (IndexedDB)
+
+O `db()` é a fábrica principal para salvar objetos e metadados persistentes de forma assíncrona. Ideal para Fila de Mensagens, Contatos, e Logs E2EE.
+
+```ts
+import { db } from "./mod.ts";
+
+// Inicializa o Worker Global
+db.init();
+
+// Cria uma instância focada (Database, Store, Prefixo)
+const msgStore = db("LOCO_DATA", "messages", "MSG_");
+
+// CRUD Básico
+const id = await msgStore.set("auto", { text: "Olá", status: "pending" }); // Retorna MSG_xxx
+const msg = await msgStore.get(id); 
+await msgStore.patch(id, { status: "sent" });
+await msgStore.delete(id);
+
+// Operações em Lote e Consultas Remotas no Worker
+await msgStore.setSome(
+  (items) => items.filter(i => i.status === "pending"),
+  (item) => ({ ...item, status: "sent" })
+);
+
+const pendingCount = await msgStore.query((items) => items.filter(i => i.status === "pending").length);
+
+```
+
+---
+
+## 📦 2. Módulo: `ls()` (LocalStorage)
+
+O `ls()` segue exatamente os mesmos padrões e assinaturas do `db()`, mas de forma **síncrona** interagindo com o `localStorage`. Ideal para preferências de tema, estado de autenticação ou configurações rápidas de boot.
+
+```ts
+import { ls } from "./mod.ts";
+
+const prefStore = ls("LOCO_PREF_");
+
+// Uso imediato (Síncrono)
+prefStore.set("config", { theme: "dark" });
+const prefs = prefStore.get("config");
+
+// Backups delegados ao Worker-DB (OPFS)
+await prefStore.backupToOpfs("backups_prefs", "ui_config.json");
+
+```
+
+---
+
+## 📦 3. Módulo: `opfs()` (Sistema de Arquivos Nativo)
+
+A joia da coroa. O `opfs()` **herda tudo do `db()**`, mas estende a API para manipular arquivos físicos no disco. Ele adota o padrão de **Record-Key Isolation**: cada registro do banco de dados ganha a sua própria pasta isolada no FileSystem.
+
+### Inicialização
+
+```ts
+import { opfs } from "./mod.ts";
+
+// Parâmetros: DB, Store, Prefixo de ID, Sub-pasta OPFS base
+const drive = opfs("LOCO_FILES", "attachments", "ATT_", "chats");
+
+```
+
+### Upload e Listagem Leve
+
+Para não sobrecarregar a RAM (caso uma pasta tenha dezenas de arquivos gigantes), o `listFiles` retorna apenas **metadados leves**.
+
+```ts
+const pastaMsgId = "msg_12345";
+
+// Salvando o arquivo no Worker
+await drive.addFile(pastaMsgId, fileInput.files[0], "foto.png");
+
+// Listagem super rápida (apenas name, size, type, lastModified)
+const files = await drive.listFiles(pastaMsgId);
+files.forEach(f => console.log(`${f.name} - ${f.size} bytes`));
+
+```
+
+### Download / Leitura Sob Demanda
+
+O arquivo em si (o `Blob`/`File`) só cruza a ponte do Worker para a Main Thread no momento exato em que for ser exibido ou baixado pelo usuário.
+
+```ts
+const rawFile = await drive.getFile(pastaMsgId, "foto.png");
+const objectUrl = URL.createObjectURL(rawFile);
+
+```
+
+### Gestão e Manipulação
+
+```ts
+await drive.renFile(pastaMsgId, "foto.png", "avatar.png");
+await drive.delFile(pastaMsgId, "avatar.png");
+await drive.mvFile(pastaMsgId, "arquivo.txt", "outra_pasta_destino");
+
+```
+
+---
+
+## 🗜️ 4. API de Compressão ZIP Integrada
+
+Ferramentas nativas do `opfs()` para compactação pesada rodando fora da UI, essencial para rotinas de exportação massiva ou agrupamento de mídias criptografadas E2EE.
+
+```ts
+// 1. Zipar todos (ou alguns) arquivos de um registro (apagando os originais)
+await drive.zip(pastaMsgId, "album.zip", ["foto1.png", "foto2.png"], true);
+
+// 2. Extrair um ZIP já existente na pasta do registro
+await drive.unzip(pastaMsgId, "album.zip");
+
+// 3. Adicionar ou Excluir arquivos de dentro de um ZIP (Mutações sem extração total visível)
+await drive.addZip(pastaMsgId, "album.zip", novoBlob, "foto3.png");
+await drive.delZip(pastaMsgId, "album.zip", "foto1.png");
+
+```
+
+---
+
+## 🔄 5. Backups Automáticos e Recuperação
+
+O sistema possui uma engine unificada para fazer *dump* de stores inteiros (tanto do IndexedDB quanto do LocalStorage) e arquivá-los em segurança no OPFS, em uma pasta global chamada `/backup`.
+
+```ts
+// Gera um snapshot e joga no disco nativo (OPFS) na subpasta /backup/minha_conta
+await msgStore.backupToOpfs("minha_conta", "bkp_v1.json");
+
+// Lê do disco nativo, trunca o banco atual, e insere os dados restaurados
+await msgStore.restoreFromOpfs("minha_conta", "bkp_v1.json", true);
+
+```
+
+---
+
+## 🚧 Roadmap da Camada de Banco
+
+* [x] Abstração de IDB em Web Worker
+* [x] Sincronia de IDs (Prefixo dinâmico, interceptação "auto")
+* [x] Query, SetSome, DelSome (Cálculos de Array isolados no Worker)
+* [x] OPFS Integration (Manipulação de Blobs direto para o FileSystem Nativo)
+* [x] OPFS Zip Compression (Integração com `fflate`)
+* [x] Otimização de Performance OPFS (`listFiles` Metadata-only vs `getFile` sob demanda)
+
+
+````
+
+---
+
 ## Arquivo: `monorepo/worker-db/example/index.html`
 
 ```html
@@ -2403,11 +2600,11 @@ async function prepareAndBuild() {
   console.log("⚙️ Gerando bundle do Worker DB...");
   // @ts-ignore: Deno.bundle API interna
   const result_worker = await Deno.bundle({
-    entrypoints: ["./src/db.ts"],
+    entrypoints: ["./src/worker.ts"],
     outputPath: "./build/worker-db.js",
     platform: "browser",
     format: "esm", 
-    packages: "external",
+    packages: "bundle",
     keepnames: true,
     inlineImports: true,
     codeSplitting: false,
@@ -2425,7 +2622,7 @@ async function prepareAndBuild() {
     outputPath: "./build/sw.js", 
     platform: "browser",
     format: "esm", 
-    packages: "external",
+    packages: "bundle",
     keepnames: true,
     inlineImports: true,
     codeSplitting: false,
@@ -2547,8 +2744,8 @@ runLocoDbDemo();
 // ## Arquivo: monorepo/worker-db/example/sw.ts
 /// <reference lib="webworker" />
 
-import { db } from "../src/db-sw.ts";
-import { listOpfsFiles } from "../src/utils/opfs_utils.ts";
+import { dbsw as db } from "../src/mod-main.ts";
+import { listOpfsFiles } from "../src/utils/opfs.ts";
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -2605,7 +2802,7 @@ sw.addEventListener("message", async (event) => {
 
 ```ts
 // ## Arquivo: monorepo/worker-db/example/main.ts
-import { db, ls, opfs } from "../src/mod.ts";
+import { db, ls, opfs } from "../src/mod-main.ts";
 
 interface LocoMessage {
   _id?: string;
@@ -2927,40 +3124,6 @@ runRealWorldTests()
 
 ---
 
-## Arquivo: `monorepo/worker-db/deno.jsonc`
-
-```json
-{
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-  "imports": {
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle&target=es2022",
-    "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
-    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022",
-
-    "@std/assert": "jsr:@std/assert",
-    "@std/fs": "jsr:@std/fs",
-    "@std/http": "jsr:@std/http",
-    "@std/path": "jsr:@std/path"
-  },
-  "tasks": {
-    "build": "deno run -A --unstable-bundle build.ts",
-    "test": "deno test --allow-env --allow-net --allow-read tests/",
-    "check": "deno check build.ts src/**/*.ts src/**/*.tsx example/**/*.ts tests/**/*.ts",
-    "tests": "deno task check && deno task test",
-    "demo": "deno run --allow-env --allow-read --allow-net ./example/demo.ts",
-    "example": "deno run -A --unstable-bundle ./example/server.ts"
-  }
-}
-```
-
----
-
 ## Arquivo: `monorepo/worker-db/build.ts`
 
 ```ts
@@ -2994,7 +3157,7 @@ const build = async () => {
       outputPath: "../server/build/dist/worker-db.js",
       platform: "browser",
       format: "esm", 
-      packages: "external",
+      packages: "bundle",
       keepnames: true,
       inlineImports: true,
       codeSplitting: false,
@@ -3023,6 +3186,65 @@ const build = async () => {
 };
 
 await build();
+```
+
+---
+
+## Arquivo: `monorepo/worker-db/deno.jsonc`
+
+```json
+{ 
+   "name": "@loco/workerdb",
+   // ----------------------------------------------------------------------
+   // 🔧 Compiler Options específicos do pacote
+   // ----------------------------------------------------------------------
+   "compilerOptions": {
+     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns", "deno.worker"],
+     "strict": true,
+     "noImplicitAny": true,
+     "noUncheckedIndexedAccess": true
+   },
+   "imports": {
+     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+     // 🔥 CORREÇÃO: Removido ?dev e adicionado ?bundle para resolver
+     // circular dependency do fake-indexeddb no Deno 2.x (denonext target).
+     // O ?bundle força o esm.sh a empacotar tudo em um único arquivo,
+     // eliminando o erro "Class extends value undefined".
+     "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle",
+     "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle",
+     "fflate": "https://esm.sh/fflate@0.8.2?target=es2022",
+     "@std/assert": "jsr:@std/assert",
+     "@std/fs": "jsr:@std/fs",
+     "@std/http": "jsr:@std/http",
+     "@std/path": "jsr:@std/path"
+   },
+   "tasks": {
+     "build": "deno run -A --unstable-bundle build.ts",
+     // 🔥 CORREÇÃO: Adicionado --allow-write para permitir testes que
+     // criam arquivos temporários (padrão consistente com @loco/utils)
+     "test": "deno test --allow-env --allow-net --allow-read --allow-write tests/",
+     "check": "deno check build.ts src/**/*.ts src/**/*.tsx example/**/*.ts tests/**/*.ts",
+     "tests": "deno task check && deno task test",
+     "demo": "deno run --allow-env --allow-read --allow-net ./example/demo.ts",
+     "example": "deno run -A --unstable-bundle ./example/server.ts"
+   },
+   // ----------------------------------------------------------------------
+   // 🎯 Exports via subpaths (Deno não suporta conditional exports)
+   //
+   // Uso no código fonte:
+   //   - Main Thread:  import { db, opfs, ls } from "@loco/workerdb";
+   //   - Service Worker: import { dbsw, opfssw } from "@loco/workerdb/sw";
+   //   - Web Worker:   import { dbsw, opfssw } from "@loco/workerdb/sw";
+   // ----------------------------------------------------------------------
+   "exports": {
+     // Entry point padrão — Main Thread (browser)
+     // Retorna db(), opfs(), ls() com Web Worker interno para otimização
+     ".": "./src/mod-main.ts",
+     // Subpath para Service Worker e Web Worker
+     // Retorna db(), opfs() com acesso direto (sem Web Worker interno)
+     "./sw": "./src/mod-sw.ts"
+   },
+ }
 ```
 
 ---

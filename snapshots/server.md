@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: SERVER
 
-Gerado automaticamente em: 8/30/2026, 12:32:32 AM
+Gerado automaticamente em: 8/30/2026, 1:03:21 AM
 
 ---
 
@@ -1116,7 +1116,7 @@ await build();
 {
   "name": "@loco/server",
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns", "deno.unstable"],
     "strict": true,
     "noImplicitAny": true,
     "noUncheckedIndexedAccess": true
@@ -1132,8 +1132,8 @@ await build();
   },
   "tasks": {
     "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "test": "deno test --allow-env --allow-net --allow-read tests/",
-    "check": "deno check build.ts minify-keys.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
+    "test": "deno test --allow-env --allow-net --allow-read --unstable-bundle tests/",
+    "check": "deno check --unstable-bundle build.ts minify-keys.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
     "tests": "deno task check && deno task test",
     "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./src/main.ts",
     "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./src/main.ts",
