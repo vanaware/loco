@@ -5,6 +5,11 @@
  * @description Script de consolidação de contexto para IAs com suporte a parâmetros via CLI.
  * Contém as configurações específicas do projeto Loco e a lógica de execução.
  * A lógica pura reutilizável está em @loco/utils/export.
+ * 
+ * Comportamento:
+ * - Sem args: executa todos os modos com `default !== false`
+ * - Com args: executa apenas os modos solicitados
+ * - Suporta múltiplos modos em uma única execução
  */
 
 import { walk } from "@std/fs/walk";
@@ -14,9 +19,7 @@ import {
   gerarCabecalho,
   formatarArquivoMarkdown,
 } from "@loco/utils/export";
-
 import type { ExportConfig } from "@loco/utils/interfaces"
-
 import { APP_VERSION, EXTENSOES_PADRAO } from "@loco/utils/config";
 
 // ============================================================================
@@ -52,10 +55,10 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "./monorepo/ui/",
     subpastasPermitidas: ["src", "public", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de CÓDIGO FONTE principais da aplicação (UI).",
+    default: true, // ✅ Roda por padrão
   },
   docs: {
     arquivoSaida: "snapshots/docs.md",
@@ -65,122 +68,197 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["readme.md", "readme", "license", "license.md", "license.txt", ".tool-versions"],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém a DOCUMENTAÇÃO e diretrizes arquiteturais do projeto.",
+    default: true, // ✅ Roda por padrão
   },
   tests: {
     arquivoSaida: "snapshots/tests.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "./monorepo/ui/tests",
     subpastasPermitidas: [],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc", "./monorepo/ui/deno.jsonc", "./monorepo/ui/deno.jsonc"],
     arquivosRaizPermitidos: [],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém os TESTES unitários e de integração do projeto.",
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
   server: {
     arquivoSaida: "snapshots/server.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/server",
     subpastasPermitidas: ["src", "tests", "docs"],
-    caminhosAdicionaisPermitidos: [".github/workflows", "deno.json", "deno.jsonc"],
+    caminhosAdicionaisPermitidos: [".github/workflows"],
     arquivosRaizPermitidos: [
       "build.ts", "deno.json", "deno.jsonc", "readme.md",
       "minify-keys.ts", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"
     ],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR @loco/server e CI/CD.",
+    default: true, // ✅ Roda por padrão
   },
   playground: {
     arquivoSaida: "snapshots/playground.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/playground",
     subpastasPermitidas: ["src", "public", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND.",
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
   workerdb: {
     arquivoSaida: "snapshots/worker-db.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/worker-db",
     subpastasPermitidas: ["src", "tests", "docs", "example"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/workerdb",
+    default: true, // ✅ Roda por padrão
   },
   utils: {
     arquivoSaida: "snapshots/utils.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/utils",
     subpastasPermitidas: ["src", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["export.ts", "esbuild.ts", "deno.json", "deno.jsonc"],
+    caminhosAdicionaisPermitidos: ["export.ts", "esbuild.ts"],
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/utils",
+    default: true, // ✅ Roda por padrão
   },
   sw: {
     arquivoSaida: "snapshots/sw.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/utils",
     subpastasPermitidas: ["src", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/service-worker",
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
   router: {
     arquivoSaida: "snapshots/router.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/router",
     subpastasPermitidas: ["src", "tests", "docs", "example"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do ROUTER @loco/router",
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
 };
 
 // ============================================================================
-// 🎯 PARSE DE ARGUMENTOS CLI
+// 🎯 PARSING DE ARGUMENTOS CLI
 // ============================================================================
 
-const argModo = (Deno.args[0]?.toLowerCase() || "ui") as ModoExportacao;
-const modo: ModoExportacao = CONFIGURACOES[argModo] ? argModo : "ui";
-const config = CONFIGURACOES[modo];
+/**
+ * Parseia os argumentos da CLI e determina quais modos devem ser executados.
+ * 
+ * Regras:
+ * - Sem args: executa todos os modos com `default !== false`
+ * - Com args: executa apenas os modos solicitados (na ordem do CONFIG)
+ * - Args desconhecidos são ignorados
+ * 
+ * @param args - Argumentos da CLI
+ * @returns Array de modos a serem executados (na ordem do CONFIG)
+ */
+function parseArgs(args: string[]): ModoExportacao[] {
+  const configKeys = Object.keys(CONFIGURACOES) as ModoExportacao[];
+  
+  // Normaliza args para lowercase
+  const lowerArgs = args.map(a => a.toLowerCase());
+  
+  // Filtra args válidos (que existem no CONFIG)
+  const requestedModos = lowerArgs.filter(
+    arg => configKeys.includes(arg as ModoExportacao)
+  ) as ModoExportacao[];
+  
+  // Se nenhum modo foi solicitado, usa os defaults
+  if (requestedModos.length === 0) {
+    return configKeys.filter(modo => {
+      const config = CONFIGURACOES[modo];
+      return config.default !== false;
+    });
+  }
+  
+  // Retorna na ordem do CONFIG (não na ordem da CLI)
+  return configKeys.filter(modo => requestedModos.includes(modo));
+}
+
+// ============================================================================
+// 🚀 EXECUÇÃO DE UM MODO ESPECÍFICO
+// ============================================================================
+
+async function exportarModo(modo: ModoExportacao): Promise<void> {
+  const config = CONFIGURACOES[modo];
+  const versaoDisplay = config.incluiVersao ? `[v${APP_VERSION}] ` : "";
+  
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`📦 EXPORTANDO MODO: ${modo.toUpperCase()} ${versaoDisplay}`);
+  console.log(`${"=".repeat(60)}`);
+  console.log(`📄 Arquivo de saída: ${config.arquivoSaida}`);
+  console.log(`📁 Pasta base: ${config.pastaBase}`);
+  
+  // Gera o cabeçalho do snapshot
+  let conteudoFinal = gerarCabecalho(config, modo, APP_VERSION);
+  
+  let arquivosIncluidos = 0;
+  
+  // Varre o diretório atual e filtra os arquivos
+  for await (const entry of walk(".", { includeDirs: false })) {
+    const caminhoRelativo = relative(".", entry.path);
+    
+    if (deveIncluirArquivo(caminhoRelativo, config)) {
+      try {
+        console.log(`   ✅ Incluindo: ${caminhoRelativo}`);
+        const conteudoArquivo = await Deno.readTextFile(entry.path);
+        conteudoFinal += formatarArquivoMarkdown(caminhoRelativo, conteudoArquivo);
+        arquivosIncluidos++;
+      } catch (erro) {
+        if (erro instanceof Error) {
+          console.error(`   ❌ Erro ao ler ${caminhoRelativo}:`, erro.message);
+        }
+      }
+    }
+  }
+  
+  // Escreve o arquivo final
+  await Deno.writeTextFile(config.arquivoSaida, conteudoFinal);
+  console.log(`\n✨ Modo ${modo.toUpperCase()} concluído: ${arquivosIncluidos} arquivos exportados para ${config.arquivoSaida}`);
+}
 
 // ============================================================================
 // 🚀 EXECUÇÃO PRINCIPAL
 // ============================================================================
 
 if (import.meta.main) {
-  const versaoDisplay = config.incluiVersao ? `[v${APP_VERSION}] ` : "";
-
-  console.log(
-    `🚀 Iniciando exportação do Loco ${versaoDisplay}no modo: [${modo.toUpperCase()}] -> Gerando '${config.arquivoSaida}'`
-  );
-
-  // Gera o cabeçalho do snapshot
-  let conteudoFinal = gerarCabecalho(config, modo, APP_VERSION);
-
-  // Varre o diretório atual e filtra os arquivos
-  for await (const entry of walk(".", { includeDirs: false })) {
-    const caminhoRelativo = relative(".", entry.path);
-
-    if (deveIncluirArquivo(caminhoRelativo, config)) {
-      try {
-        console.log(` 📄 Incluindo: ${caminhoRelativo}`);
-        const conteudoArquivo = await Deno.readTextFile(entry.path);
-        conteudoFinal += formatarArquivoMarkdown(caminhoRelativo, conteudoArquivo);
-      } catch (erro) {
-        if (erro instanceof Error) {
-          console.error(`❌ Erro ao ler ${caminhoRelativo}:`, erro.message);
-        }
-      }
+  const startTime = performance.now();
+  
+  // Parseia args e determina quais modos executar
+  const modosParaExecutar = parseArgs(Deno.args);
+  
+  console.log("\n🚀 Iniciando Exportação de Contexto Loco");
+  console.log(`📋 Modos a exportar: ${modosParaExecutar.join(", ")}`);
+  console.log(`📌 Versão: v${APP_VERSION}\n`);
+  
+  if (modosParaExecutar.length === 0) {
+    console.log("⚠️ Nenhum modo para executar. Verifique as configurações de 'default' no CONFIG.");
+    Deno.exit(0);
+  }
+  
+  // Executa cada modo sequencialmente
+  for (const modo of modosParaExecutar) {
+    try {
+      await exportarModo(modo);
+    } catch (error) {
+      console.error(`\n🛑 Erro ao exportar modo ${modo}:`, error);
+      Deno.exit(1);
     }
   }
-
-  // Escreve o arquivo final
-  await Deno.writeTextFile(config.arquivoSaida, conteudoFinal);
-  console.log(`\n✨ Prontinho! O arquivo ${config.arquivoSaida} foi gerado com sucesso.`);
+  
+  const elapsed = (performance.now() - startTime).toFixed(0);
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`🎉 EXPORTAÇÃO CONCLUÍDA COM SUCESSO!`);
+  console.log(`⏱️ Tempo total: ${elapsed}ms`);
+  console.log(`${"=".repeat(60)}\n`);
 }

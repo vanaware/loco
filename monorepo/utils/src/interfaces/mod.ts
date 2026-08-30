@@ -319,4 +319,18 @@ export interface ExportConfig {
   incluiVersao: boolean;
   /** Texto de instrução para a IA no cabeçalho */
   instrucaoCustomizada: string;
+  /**
+   * Determina se o modo é incluído automaticamente quando nenhum modo
+   * é especificado via CLI.
+   *
+   * - `true` ou `undefined`: Incluído por padrão (comportamento padrão)
+   * - `false`: Só roda quando explicitamente solicitado via CLI
+   *
+   * @example
+   * ```typescript
+   * ui: { default: true, ... }       // Roda por padrão
+   * tests: { default: false, ... }   // Só roda com: deno task export tests
+   * ```
+   */
+  default?: boolean;
 }

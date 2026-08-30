@@ -8,109 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: UTILS
 
-Gerado automaticamente em: 8/29/2026, 11:44:41 PM
-
----
-
-## Arquivo: `deno.jsonc`
-
-```json
-{
-  // ============================================================================
-  // 🚀 LOCO PWA - Manifesto do Deno
-  // Mensageiro PWA Descentralizado, Offline-First & E2EE
-  // ============================================================================
-
-  // 📋 Metadados do Projeto
-  "name": "@vanaware/loco",
-  "version": "0.3.26-mszev7vv",
-  "exports": "./esbuild.ts",
-  "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
-  "author": "Vanaware",
-  "license": "MIT",
-  
-  "workspace": [
-    "./monorepo/playground",
-    "./monorepo/worker-db",
-    "./monorepo/server",
-    "./monorepo/router",
-    "./monorepo/ui",
-    "./monorepo/utils",
-    "./monorepo/service-worker"
-  ],
-
-  // ⚙️ Configurações Rigorosas do Compilador TypeScript (FASE 4)
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-
-  // 📦 Gerenciamento de Dependências
-  "imports": {
-    "@std/fs": "jsr:@std/fs@^1",
-    "@std/path": "jsr:@std/path@^1",
-
-    "esbuild-wasm": "https://esm.sh/esbuild-wasm@0.24.0"
-  },
-
-  // 🛠️ Scripts de Automação
-  "tasks": {
-    "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check exports/export.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
-    "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write ./export.ts"
-  },
-  "nodeModulesDir": "auto",
-    
- "vendor": true,
-  "allowScripts": ["npm:esbuild@0.28.1", "npm:workerd@1.20260811.1"]
-}
-```
-
----
-
-## Arquivo: `monorepo/utils/deno.jsonc`
-
-```json
-{ "name": "@loco/utils",
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-  "imports": {
-    "@std/assert": "jsr:@std/assert",
-    "@std/testing": "jsr:@std/testing",
-
-    // TODO IA: quando migrar para usar o @loco/workerdb esta biblioteca não será mais necessária
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-
-    // 🔥 ARQUITETURA: Blindagem de Target do CDN (apenas para os ofensores)
-    // Mantemos o target=es2022 apenas nas bibliotecas que puxavam módulos do Node.
-    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022"
-  },
-  "tasks": {
-    "test": "deno test --allow-env --allow-net --allow-read tests/",
-    "check": "deno check src/**/*.ts src/**/*.tsx tests/**/*.ts",
-    "tests": "deno task check && deno task test"
-  },
-  "exports": {
-  ".": "./src/mod.ts",
-  "./config": "./src/config/mod.ts",
-  "./interfaces": "./src/interfaces/mod.ts",
-  "./proxy": "./src/proxy/mod.ts",
-  "./debug": "./src/debug/mod.ts",
-  "./crypto": "./src/crypto/mod.ts",
-  "./build": "./src/esbuild/mod.ts",
-  "./export": "./src/export/mod.ts"
-  }
-}
-```
+Gerado automaticamente em: 8/30/2026, 12:01:22 AM
 
 ---
 
@@ -1626,11 +1524,11 @@ Deno.test("deveIncluirArquivo: Configuração 'docs' deve capturar raiz e subpas
 ```````ts
 /// <reference lib="deno.ns" />
 
-import { describe, it } from "@std/testing/bdd";
+import { describe, it } from "jsr:@std/testing/bdd";
 import {
   assertEquals,
   assertStringIncludes,
-} from "@std/assert";
+} from "jsr:@std/assert";
 import {
   normalizarCaminho,
   calcularCraseWrapper,
@@ -1639,10 +1537,8 @@ import {
   formatarArquivoMarkdown,
   gerarCabecalho,
 } from "../../src/export/mod.ts";
-
-import { EXTENSOES_PADRAO } from "../../src/config/mod.ts"
-
-import type { ExportConfig } from "../../src/interfaces/mod.ts"
+import { EXTENSOES_PADRAO } from "../../src/config/mod.ts";
+import type { ExportConfig } from "../../src/interfaces/mod.ts";
 
 // Helper para criar config customizada em testes
 function makeConfig(overrides: Partial<ExportConfig> = {}): ExportConfig {
@@ -2008,7 +1904,8 @@ describe("formatarArquivoMarkdown", () => {
   it("aumenta crases quando conteúdo tem ```", () => {
     const conteudo = "código com ```\nmais código";
     const resultado = formatarArquivoMarkdown("arquivo.md", conteudo);
-    assertStringIncludes(resultado, "````markdown");
+    // 🔥 CORREÇÃO: A extensão é "md" não "markdown"
+    assertStringIncludes(resultado, "````md");
     assertStringIncludes(resultado, "````");
   });
 
@@ -2261,7 +2158,7 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 
 ## Arquivo: `monorepo/utils/src/interfaces/mod.ts`
 
-```ts
+````ts
 // TODO IA: no novo worker-db, "_id" fixo em "profile" para ProfileConfig
 export interface ProfileConfig {
   name: string;
@@ -2583,8 +2480,22 @@ export interface ExportConfig {
   incluiVersao: boolean;
   /** Texto de instrução para a IA no cabeçalho */
   instrucaoCustomizada: string;
+  /**
+   * Determina se o modo é incluído automaticamente quando nenhum modo
+   * é especificado via CLI.
+   *
+   * - `true` ou `undefined`: Incluído por padrão (comportamento padrão)
+   * - `false`: Só roda quando explicitamente solicitado via CLI
+   *
+   * @example
+   * ```typescript
+   * ui: { default: true, ... }       // Roda por padrão
+   * tests: { default: false, ... }   // Só roda com: deno task export tests
+   * ```
+   */
+  default?: boolean;
 }
-```
+````
 
 ---
 
@@ -3965,37 +3876,37 @@ import { join, isAbsolute } from "@std/path";
 // 📦 TIPOS
 // ============================================================================
 
-import type {
-  ParsedVersion,
-  GlobalTargetConfig,
-  ParsedArgs,
-  TargetConfig,
-} from "../interfaces/mod.ts";
+import type { ParsedVersion, GlobalTargetConfig, ParsedArgs, TargetConfig } from "../interfaces/mod.ts";
 
 // ============================================================================
 // 🔢 FUNÇÕES DE VERSÃO (puras, testáveis)
 // ============================================================================
 
 export function parseVersion(version: string): ParsedVersion {
-  // 🔥 CORREÇÃO: `split("-")[0]` retorna string | undefined com noUncheckedIndexedAccess.
-  // Usamos `?? ""` para garantir uma string, e validamos o formato abaixo.
+  // 🔥 CORREÇÃO: Validação mais rigorosa para formatos inválidos
+  const trimmed = version.trim();
+  if (trimmed !== version) {
+    throw new Error(`❌ Versão não pode ter espaços: ${version}`);
+  }
+
   const versionWithoutHash = version.split("-")[0] ?? "";
+  
+  // 🔥 CORREÇÃO: Verifica se há hífen mas sem hash (ex: "1.2.3-")
+  if (version.includes("-") && version.endsWith("-")) {
+    throw new Error(`❌ Formato de versão inválido (hífen sem hash): ${version}`);
+  }
+
   const parts = versionWithoutHash.split(".");
 
   if (parts.length !== 3) {
     throw new Error(`❌ Formato de versão inválido: ${version}`);
   }
 
-  // Tratamento explícito para noUncheckedIndexedAccess em partes
   const majorStr = parts[0];
   const minorStr = parts[1];
   const patchStr = parts[2];
 
-  if (
-    majorStr === undefined ||
-    minorStr === undefined ||
-    patchStr === undefined
-  ) {
+  if (majorStr === undefined || minorStr === undefined || patchStr === undefined) {
     throw new Error(`❌ Formato de versão inválido: ${version}`);
   }
 
@@ -4025,10 +3936,7 @@ export function extractVersionFromContent(content: string): string | null {
   return match && match[1] ? match[1] : null;
 }
 
-export function replaceVersionInContent(
-  content: string,
-  newVersion: string
-): string {
+export function replaceVersionInContent(content: string, newVersion: string): string {
   return content.replace(
     /"version"\s*:\s*"[^"]+"/,
     `"version": "${newVersion}"`
@@ -4049,66 +3957,45 @@ export function isSafePath(cleanPath: string): boolean {
 // 🎯 PARSING DE ARGUMENTOS CLI (pura, testável)
 // ============================================================================
 
-/**
- * Parseia os argumentos da CLI.
- *
- * Os args apenas SELECIONAM os alvos; a ordem de execução é sempre a do CONFIG.
- * Quando nenhum alvo é especificado, apenas os alvos com `default !== false`
- * E `mode !== 'watch'` são incluídos.
- *
- * Regras de negócio:
- * 1. Alvos com `mode: 'watch'` NUNCA aparecem na lista de targets padrão.
- * 2. Se a flag 'watch' for usada, apenas o PRIMEIRO alvo com `mode: 'watch'`
- *    (na ordem do CONFIG) é executado.
- * 3. É possível solicitar um alvo watch específico pelo nome.
- * 4. Quando o modo watch está ativo, os targets de build são ignorados.
- */
-export function parseArgs(
-  args: string[],
-  config: GlobalTargetConfig
-): ParsedArgs {
+export function parseArgs(args: string[], config: GlobalTargetConfig): ParsedArgs {
   const lowerArgs = args.map(a => a.toLowerCase());
-  const globalNoVersion = lowerArgs.includes("noversion");
-  const isWatchFlag = lowerArgs.includes("watch");
-
+  const globalNoVersion = lowerArgs.includes('noversion');
+  const isWatchFlag = lowerArgs.includes('watch');
   const configKeys = Object.keys(config);
 
-  // Alvos de build padrão:
-  // - NÃO são modo watch (watch nunca é default)
-  // - default !== false
   const defaultTargets = configKeys.filter(t => {
     const cfg = config[t]!;
-    return cfg.mode !== "watch" && cfg.default !== false;
+    return cfg.mode !== 'watch' && cfg.default !== false;
   });
 
-  // Alvos solicitados via CLI (excluindo flags 'noversion' e 'watch')
   const requestedTargets = lowerArgs.filter(
-    arg => !["noversion", "watch"].includes(arg) && configKeys.includes(arg)
+    arg => !['noversion', 'watch'].includes(arg) && configKeys.includes(arg)
   );
 
-  // Determina o alvo watch:
   let watchTarget: string | null = null;
 
   if (isWatchFlag) {
-    // Flag 'watch' → usa o PRIMEIRO alvo com mode: 'watch' (ordem do CONFIG)
-    watchTarget =
-      configKeys.find(t => config[t]!.mode === "watch") ?? null;
-  } else {
+    // 🔥 CORREÇÃO: Usa a ordem do CONFIG, não a ordem da CLI
+    // Encontra o PRIMEIRO alvo com mode: 'watch' na ordem do CONFIG
+    watchTarget = configKeys.find(t => config[t]!.mode === 'watch') ?? null;
+  } else if (requestedTargets.length > 0) {
     // Verifica se algum alvo solicitado tem mode: 'watch'
-    watchTarget =
-      requestedTargets.find(t => config[t]!.mode === "watch") ?? null;
+    // 🔥 CORREÇÃO: Usa a ordem do CONFIG para determinar qual watch executar
+    // Primeiro encontra todos os watches solicitados
+    const requestedWatches = requestedTargets.filter(t => config[t]!.mode === 'watch');
+    if (requestedWatches.length > 0) {
+      // Retorna o PRIMEIRO watch na ordem do CONFIG
+      watchTarget = configKeys.find(t => requestedWatches.includes(t)) ?? null;
+    }
   }
 
-  // Se modo watch está ativo, os targets de build são ignorados
   let finalTargets: string[];
 
   if (watchTarget !== null) {
     finalTargets = [];
   } else if (requestedTargets.length > 0) {
-    // Alvos solicitados, na ordem do CONFIG (pipeline seguro)
     finalTargets = configKeys.filter(t => requestedTargets.includes(t));
   } else {
-    // Nenhum alvo solicitado → usa defaults (que já excluem watch)
     finalTargets = defaultTargets;
   }
 
@@ -4119,19 +4006,14 @@ export function parseArgs(
 // 📂 FUNÇÕES DE FILESYSTEM
 // ============================================================================
 
-export async function cleanTarget(
-  distDir: string,
-  cleanPaths: string[]
-): Promise<void> {
+export async function cleanTarget(distDir: string, cleanPaths: string[]): Promise<void> {
   if (!cleanPaths || cleanPaths.length === 0) return;
 
   console.log(`🧹 Limpando em ${distDir}...`);
 
   for (const cleanPath of cleanPaths) {
     if (!isSafePath(cleanPath)) {
-      console.warn(
-        `   ⚠️ Path perigoso ignorado (traversal/absoluto): "${cleanPath}"`
-      );
+      console.warn(`   ⚠️ Path perigoso ignorado (traversal/absoluto): "${cleanPath}"`);
       continue;
     }
 
@@ -4189,11 +4071,7 @@ export async function listAssetsForCache(
   excludeFiles: string[] = []
 ): Promise<string[]> {
   const assets: string[] = [];
-  const exclude = new Set([
-    ...excludeFiles,
-    "service-worker.js",
-    "service-worker.tmp.js",
-  ]);
+  const exclude = new Set([...excludeFiles, 'service-worker.js', 'service-worker.tmp.js']);
 
   for await (const entry of walk(distDir, { includeDirs: false })) {
     if (
@@ -4202,7 +4080,7 @@ export async function listAssetsForCache(
       !exclude.has(entry.name)
     ) {
       let webPath = entry.path.replace(distDir, "").replace(/\\/g, "/");
-      webPath = webPath.startsWith("/") ? "." + webPath : "./" + webPath;
+      webPath = webPath.startsWith('/') ? '.' + webPath : './' + webPath;
       assets.push(webPath);
     }
   }
@@ -4221,27 +4099,20 @@ export async function copyStaticFiles(
   if (config.publicdir) {
     try {
       await copy(config.publicdir, distDir, { overwrite: true });
-      console.log(
-        `📁 Arquivos de ${config.publicdir} copiados para ${distDir}`
-      );
+      console.log(`📁 Arquivos de ${config.publicdir} copiados para ${distDir}`);
 
       const manifestPath = join(distDir, "manifest.json");
       try {
         const manifestText = await Deno.readTextFile(manifestPath);
         const manifestObj = JSON.parse(manifestText);
         manifestObj.version = appVersion;
-        await Deno.writeTextFile(
-          manifestPath,
-          JSON.stringify(manifestObj, null, 2)
-        );
+        await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
         console.log(`📱 Versão v${appVersion} injetada em manifest.json`);
       } catch {
         // manifest.json não existe
       }
     } catch {
-      console.log(
-        `⚠️ Pasta ${config.publicdir} não encontrada, pulando cópia.`
-      );
+      console.log(`⚠️ Pasta ${config.publicdir} não encontrada, pulando cópia.`);
     }
   }
 
@@ -4252,9 +4123,7 @@ export async function copyStaticFiles(
       await copy(srcHtml, destHtml, { overwrite: true });
       console.log(`📄 index.html copiado de ${srcDir} para ${distDir}`);
     } catch {
-      console.log(
-        `⚠️ ${srcHtml} não encontrado, pulando cópia do HTML.`
-      );
+      console.log(`⚠️ ${srcHtml} não encontrado, pulando cópia do HTML.`);
     }
   }
 }
@@ -4291,12 +4160,12 @@ export async function buildEsbuildOptions(
   }
 
   const optionalProps = [
-    "platform", "format", "bundle", "minify", "sourcemap", "jsx",
-    "jsxImportSource", "conditions", "external", "drop", "metafile",
-    "write", "treeShaking", "legalComments", "keepNames", "splitting",
-    "loader", "alias", "inject", "target", "charset", "logLevel",
-    "logLimit", "logOverride", "entryNames", "chunkNames", "assetNames",
-    "publicPath", "pure",
+    'platform', 'format', 'bundle', 'minify', 'sourcemap', 'jsx',
+    'jsxImportSource', 'conditions', 'external', 'drop', 'metafile',
+    'write', 'treeShaking', 'legalComments', 'keepNames', 'splitting',
+    'loader', 'alias', 'inject', 'target', 'charset', 'logLevel',
+    'logLimit', 'logOverride', 'entryNames', 'chunkNames', 'assetNames',
+    'publicPath', 'pure'
   ];
 
   for (const prop of optionalProps) {
@@ -4305,32 +4174,17 @@ export async function buildEsbuildOptions(
     }
   }
 
-  // Construção segura de banner (evita undefined nas propriedades)
   if (config.banner !== undefined) {
-    const banner: { js?: string; css?: string } = {};
-    if (config.banner.js !== undefined) {
-      banner.js = config.banner.js.replace(/__APP_VERSION__/g, appVersion);
-    }
-    if (config.banner.css !== undefined) {
-      banner.css = config.banner.css.replace(/__APP_VERSION__/g, appVersion);
-    }
-    if (banner.js !== undefined || banner.css !== undefined) {
-      options.banner = banner;
-    }
+    options.banner = {
+      js: config.banner.js?.replace(/__APP_VERSION__/g, appVersion),
+      css: config.banner.css?.replace(/__APP_VERSION__/g, appVersion),
+    };
   }
-
-  // Construção segura de footer (evita undefined nas propriedades)
   if (config.footer !== undefined) {
-    const footer: { js?: string; css?: string } = {};
-    if (config.footer.js !== undefined) {
-      footer.js = config.footer.js.replace(/__APP_VERSION__/g, appVersion);
-    }
-    if (config.footer.css !== undefined) {
-      footer.css = config.footer.css.replace(/__APP_VERSION__/g, appVersion);
-    }
-    if (footer.js !== undefined || footer.css !== undefined) {
-      options.footer = footer;
-    }
+    options.footer = {
+      js: config.footer.js?.replace(/__APP_VERSION__/g, appVersion),
+      css: config.footer.css?.replace(/__APP_VERSION__/g, appVersion),
+    };
   }
 
   options.define = finalDefine;
@@ -4371,14 +4225,8 @@ export async function processTarget(
     console.log(`✅ [${targetName}] Build concluído em ${duration}ms`);
 
     if (config.metafile && result.metafile) {
-      const metafilePath = join(
-        config.distdir,
-        `${targetName}-metafile.json`
-      );
-      await Deno.writeTextFile(
-        metafilePath,
-        JSON.stringify(result.metafile, null, 2)
-      );
+      const metafilePath = join(config.distdir, `${targetName}-metafile.json`);
+      await Deno.writeTextFile(metafilePath, JSON.stringify(result.metafile, null, 2));
       console.log(`📊 Metafile gerado: ${metafilePath}`);
     }
   } catch (error) {
@@ -4406,7 +4254,7 @@ export async function processTarget(
 // 📦 TIPOS E INTERFACES
 // ============================================================================
 
-import type { ExportConfig } from "../interfaces/mod.ts"
+import type { ExportConfig } from "../interfaces/mod.ts";
 
 // ============================================================================
 // 🛠️ FUNÇÕES UTILITÁRIAS PURAS
@@ -4414,7 +4262,7 @@ import type { ExportConfig } from "../interfaces/mod.ts"
 
 /**
  * Normaliza um caminho para comparação consistente.
- * - Converte barras invertidas em barras normais
+ * - Converte barras invertadas em barras normais
  * - Converte para minúsculas
  */
 export function normalizarCaminho(caminho: string): string {
@@ -4422,7 +4270,7 @@ export function normalizarCaminho(caminho: string): string {
 }
 
 /**
- * Calcula a quantidade mínima de crases necessária para envolver um texto
+ * Calcula a quantidade mínima de crases necessárias para envolver um texto
  * em um bloco de código markdown, evitando conflitos com crases dentro do texto.
  *
  * Exemplo:
@@ -4443,7 +4291,6 @@ export function calcularCraseWrapper(texto: string): string {
  */
 export function mapearExtensao(caminhoRelativo: string): string {
   const ext = caminhoRelativo.split(".").pop()?.toLowerCase() || "";
-
   const mapa: Record<string, string> = {
     manifest: "json",
     jsonc: "json",
@@ -4465,9 +4312,13 @@ export function mapearExtensao(caminhoRelativo: string): string {
  * 1. Proteção anti-loop: sempre exclui arquivos em `exports/`
  * 2. Verifica se está em caminhos adicionais permitidos
  * 3. Verifica se está dentro de pastaBase
- * 4. Verifica se é um arquivo raiz permitido
- * 5. Verifica se está em subpasta permitida
+ * 4. Se está NA RAIZ de pastaBase, verifica arquivosRaizPermitidos
+ * 5. Se está em SUBPASTA, verifica subpastasPermitidas
  * 6. Verifica se tem extensão permitida
+ *
+ * Semântica:
+ * - `subpastasPermitidas: []` (vazio) = permite varrer TODAS as subpastas
+ * - `arquivosRaizPermitidos` = lista explícita de arquivos permitidos NA RAIZ
  */
 export function deveIncluirArquivo(
   caminhoRelativo: string,
@@ -4514,18 +4365,26 @@ export function deveIncluirArquivo(
   }
 
   // 🔍 Extrai o caminho relativo dentro de pastaBase
-  const caminhoInterno = caminhoNormalizado.substring(prefixoBase.length);
+  const caminhoInterno = prefixoBase !== ""
+    ? caminhoNormalizado.substring(prefixoBase.length)
+    : caminhoNormalizado;
 
-  // 📄 Verifica se é um arquivo raiz permitido
-  if (config.arquivosRaizPermitidos.includes(caminhoInterno)) {
-    return true;
+  // 🔥 CORREÇÃO: Verifica se está NA RAIZ (não tem / no caminhoInterno)
+  // Arquivos na raiz precisam estar explicitamente em arquivosRaizPermitidos
+  const estaNaRaiz = !caminhoInterno.includes("/");
+
+  if (estaNaRaiz) {
+    // Verifica se está na lista de arquivos raiz permitidos (case insensitive)
+    return config.arquivosRaizPermitidos.some(
+      (raiz) => normalizarCaminho(raiz) === caminhoInterno
+    );
   }
 
-  // 🔍 Verifica se está em subpasta permitida
+  // 🔍 Está em subpasta: verifica subpastasPermitidas
   let emSubpastaPermitida = false;
 
   if (config.subpastasPermitidas.length === 0) {
-    // Se não há subpastas definidas, tudo dentro de pastaBase é permitido
+    // Vazio = permite varrer TODAS as subpastas
     emSubpastaPermitida = true;
   } else {
     emSubpastaPermitida = config.subpastasPermitidas.some((sub) => {
@@ -4603,6 +4462,43 @@ export function formatarArquivoMarkdown(
 
 ```md
 
+```
+
+---
+
+## Arquivo: `monorepo/utils/deno.jsonc`
+
+```json
+{
+  "name": "@loco/utils",
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert",
+    "@std/testing": "jsr:@std/testing",
+    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022"
+  },
+  "tasks": {
+    "test": "deno test --allow-env --allow-net --allow-read --allow-write tests/",
+    "check": "deno check src/**/*.ts src/**/*.tsx tests/**/*.ts",
+    "tests": "deno task check && deno task test"
+  },
+  "exports": {
+    ".": "./src/mod.ts",
+    "./config": "./src/config/mod.ts",
+    "./interfaces": "./src/interfaces/mod.ts",
+    "./proxy": "./src/proxy/mod.ts",
+    "./debug": "./src/debug/mod.ts",
+    "./crypto": "./src/crypto/mod.ts",
+    "./build": "./src/esbuild/mod.ts",
+    "./export": "./src/export/mod.ts"
+  }
+}
 ```
 
 ---
@@ -4859,6 +4755,11 @@ await build();
  * @description Script de consolidação de contexto para IAs com suporte a parâmetros via CLI.
  * Contém as configurações específicas do projeto Loco e a lógica de execução.
  * A lógica pura reutilizável está em @loco/utils/export.
+ * 
+ * Comportamento:
+ * - Sem args: executa todos os modos com `default !== false`
+ * - Com args: executa apenas os modos solicitados
+ * - Suporta múltiplos modos em uma única execução
  */
 
 import { walk } from "@std/fs/walk";
@@ -4868,9 +4769,7 @@ import {
   gerarCabecalho,
   formatarArquivoMarkdown,
 } from "@loco/utils/export";
-
 import type { ExportConfig } from "@loco/utils/interfaces"
-
 import { APP_VERSION, EXTENSOES_PADRAO } from "@loco/utils/config";
 
 // ============================================================================
@@ -4906,10 +4805,10 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "./monorepo/ui/",
     subpastasPermitidas: ["src", "public", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de CÓDIGO FONTE principais da aplicação (UI).",
+    default: true, // ✅ Roda por padrão
   },
   docs: {
     arquivoSaida: "snapshots/docs.md",
@@ -4919,124 +4818,199 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["readme.md", "readme", "license", "license.md", "license.txt", ".tool-versions"],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém a DOCUMENTAÇÃO e diretrizes arquiteturais do projeto.",
+    default: true, // ✅ Roda por padrão
   },
   tests: {
     arquivoSaida: "snapshots/tests.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "./monorepo/ui/tests",
     subpastasPermitidas: [],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc", "./monorepo/ui/deno.jsonc", "./monorepo/ui/deno.jsonc"],
     arquivosRaizPermitidos: [],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém os TESTES unitários e de integração do projeto.",
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
   server: {
     arquivoSaida: "snapshots/server.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/server",
     subpastasPermitidas: ["src", "tests", "docs"],
-    caminhosAdicionaisPermitidos: [".github/workflows", "deno.json", "deno.jsonc"],
+    caminhosAdicionaisPermitidos: [".github/workflows"],
     arquivosRaizPermitidos: [
       "build.ts", "deno.json", "deno.jsonc", "readme.md",
       "minify-keys.ts", "wrangler-worker.toml", "wrangler-pages.toml", "deploy.sh"
     ],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do SERVIDOR @loco/server e CI/CD.",
+    default: true, // ✅ Roda por padrão
   },
   playground: {
     arquivoSaida: "snapshots/playground.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/playground",
     subpastasPermitidas: ["src", "public", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND.",
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
   workerdb: {
     arquivoSaida: "snapshots/worker-db.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/worker-db",
     subpastasPermitidas: ["src", "tests", "docs", "example"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/workerdb",
+    default: true, // ✅ Roda por padrão
   },
   utils: {
     arquivoSaida: "snapshots/utils.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/utils",
     subpastasPermitidas: ["src", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["export.ts", "esbuild.ts", "deno.json", "deno.jsonc"],
+    caminhosAdicionaisPermitidos: ["export.ts", "esbuild.ts"],
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/utils",
+    default: true, // ✅ Roda por padrão
   },
   sw: {
     arquivoSaida: "snapshots/sw.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/utils",
     subpastasPermitidas: ["src", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/service-worker",
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
   router: {
     arquivoSaida: "snapshots/router.md",
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/router",
     subpastasPermitidas: ["src", "tests", "docs", "example"],
-    caminhosAdicionaisPermitidos: ["deno.json", "deno.jsonc"],
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do ROUTER @loco/router",
+    default: false, // ❌ Só roda quando solicitado explicitamente
   },
 };
 
 // ============================================================================
-// 🎯 PARSE DE ARGUMENTOS CLI
+// 🎯 PARSING DE ARGUMENTOS CLI
 // ============================================================================
 
-const argModo = (Deno.args[0]?.toLowerCase() || "ui") as ModoExportacao;
-const modo: ModoExportacao = CONFIGURACOES[argModo] ? argModo : "ui";
-const config = CONFIGURACOES[modo];
+/**
+ * Parseia os argumentos da CLI e determina quais modos devem ser executados.
+ * 
+ * Regras:
+ * - Sem args: executa todos os modos com `default !== false`
+ * - Com args: executa apenas os modos solicitados (na ordem do CONFIG)
+ * - Args desconhecidos são ignorados
+ * 
+ * @param args - Argumentos da CLI
+ * @returns Array de modos a serem executados (na ordem do CONFIG)
+ */
+function parseArgs(args: string[]): ModoExportacao[] {
+  const configKeys = Object.keys(CONFIGURACOES) as ModoExportacao[];
+  
+  // Normaliza args para lowercase
+  const lowerArgs = args.map(a => a.toLowerCase());
+  
+  // Filtra args válidos (que existem no CONFIG)
+  const requestedModos = lowerArgs.filter(
+    arg => configKeys.includes(arg as ModoExportacao)
+  ) as ModoExportacao[];
+  
+  // Se nenhum modo foi solicitado, usa os defaults
+  if (requestedModos.length === 0) {
+    return configKeys.filter(modo => {
+      const config = CONFIGURACOES[modo];
+      return config.default !== false;
+    });
+  }
+  
+  // Retorna na ordem do CONFIG (não na ordem da CLI)
+  return configKeys.filter(modo => requestedModos.includes(modo));
+}
+
+// ============================================================================
+// 🚀 EXECUÇÃO DE UM MODO ESPECÍFICO
+// ============================================================================
+
+async function exportarModo(modo: ModoExportacao): Promise<void> {
+  const config = CONFIGURACOES[modo];
+  const versaoDisplay = config.incluiVersao ? `[v${APP_VERSION}] ` : "";
+  
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`📦 EXPORTANDO MODO: ${modo.toUpperCase()} ${versaoDisplay}`);
+  console.log(`${"=".repeat(60)}`);
+  console.log(`📄 Arquivo de saída: ${config.arquivoSaida}`);
+  console.log(`📁 Pasta base: ${config.pastaBase}`);
+  
+  // Gera o cabeçalho do snapshot
+  let conteudoFinal = gerarCabecalho(config, modo, APP_VERSION);
+  
+  let arquivosIncluidos = 0;
+  
+  // Varre o diretório atual e filtra os arquivos
+  for await (const entry of walk(".", { includeDirs: false })) {
+    const caminhoRelativo = relative(".", entry.path);
+    
+    if (deveIncluirArquivo(caminhoRelativo, config)) {
+      try {
+        console.log(`   ✅ Incluindo: ${caminhoRelativo}`);
+        const conteudoArquivo = await Deno.readTextFile(entry.path);
+        conteudoFinal += formatarArquivoMarkdown(caminhoRelativo, conteudoArquivo);
+        arquivosIncluidos++;
+      } catch (erro) {
+        if (erro instanceof Error) {
+          console.error(`   ❌ Erro ao ler ${caminhoRelativo}:`, erro.message);
+        }
+      }
+    }
+  }
+  
+  // Escreve o arquivo final
+  await Deno.writeTextFile(config.arquivoSaida, conteudoFinal);
+  console.log(`\n✨ Modo ${modo.toUpperCase()} concluído: ${arquivosIncluidos} arquivos exportados para ${config.arquivoSaida}`);
+}
 
 // ============================================================================
 // 🚀 EXECUÇÃO PRINCIPAL
 // ============================================================================
 
 if (import.meta.main) {
-  const versaoDisplay = config.incluiVersao ? `[v${APP_VERSION}] ` : "";
-
-  console.log(
-    `🚀 Iniciando exportação do Loco ${versaoDisplay}no modo: [${modo.toUpperCase()}] -> Gerando '${config.arquivoSaida}'`
-  );
-
-  // Gera o cabeçalho do snapshot
-  let conteudoFinal = gerarCabecalho(config, modo, APP_VERSION);
-
-  // Varre o diretório atual e filtra os arquivos
-  for await (const entry of walk(".", { includeDirs: false })) {
-    const caminhoRelativo = relative(".", entry.path);
-
-    if (deveIncluirArquivo(caminhoRelativo, config)) {
-      try {
-        console.log(` 📄 Incluindo: ${caminhoRelativo}`);
-        const conteudoArquivo = await Deno.readTextFile(entry.path);
-        conteudoFinal += formatarArquivoMarkdown(caminhoRelativo, conteudoArquivo);
-      } catch (erro) {
-        if (erro instanceof Error) {
-          console.error(`❌ Erro ao ler ${caminhoRelativo}:`, erro.message);
-        }
-      }
+  const startTime = performance.now();
+  
+  // Parseia args e determina quais modos executar
+  const modosParaExecutar = parseArgs(Deno.args);
+  
+  console.log("\n🚀 Iniciando Exportação de Contexto Loco");
+  console.log(`📋 Modos a exportar: ${modosParaExecutar.join(", ")}`);
+  console.log(`📌 Versão: v${APP_VERSION}\n`);
+  
+  if (modosParaExecutar.length === 0) {
+    console.log("⚠️ Nenhum modo para executar. Verifique as configurações de 'default' no CONFIG.");
+    Deno.exit(0);
+  }
+  
+  // Executa cada modo sequencialmente
+  for (const modo of modosParaExecutar) {
+    try {
+      await exportarModo(modo);
+    } catch (error) {
+      console.error(`\n🛑 Erro ao exportar modo ${modo}:`, error);
+      Deno.exit(1);
     }
   }
-
-  // Escreve o arquivo final
-  await Deno.writeTextFile(config.arquivoSaida, conteudoFinal);
-  console.log(`\n✨ Prontinho! O arquivo ${config.arquivoSaida} foi gerado com sucesso.`);
+  
+  const elapsed = (performance.now() - startTime).toFixed(0);
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`🎉 EXPORTAÇÃO CONCLUÍDA COM SUCESSO!`);
+  console.log(`⏱️ Tempo total: ${elapsed}ms`);
+  console.log(`${"=".repeat(60)}\n`);
 }
 ```
 
