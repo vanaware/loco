@@ -1,3 +1,4 @@
+// Arquivo: monorepo/playground/src/store/themeStore.ts
 import { signal, effect } from "@preact/signals";
 
 export type ThemeMode = "light" | "dark" | "system";
@@ -19,7 +20,7 @@ const MODE_STORAGE_KEY = "loco_theme_mode";
 const COLOR_STORAGE_KEY = "loco_theme_color";
 
 const initialMode = (localStorage.getItem(MODE_STORAGE_KEY) as ThemeMode) || "system";
-const initialColor = localStorage.getItem(COLOR_STORAGE_KEY) || PRESET_COLORS[0].hex;
+const initialColor = localStorage.getItem(COLOR_STORAGE_KEY) || PRESET_COLORS[0]?.hex || "#006689";
 
 export const themeModeSignal = signal<ThemeMode>(initialMode);
 export const themeColorSignal = signal<string>(initialColor);
@@ -29,7 +30,8 @@ export const themeColorSignal = signal<string>(initialColor);
  */
 function applyBeerTheme(mode: ThemeMode, colorHex: string) {
   if (typeof window === "undefined") return;
-
+  
+  // Tradução da nossa semântica ("system") para a semântica do BeerCSS ("auto")
   const beerMode = mode === "system" ? "auto" : mode;
 
   // 1. Aplicação via API global do JS do BeerCSS
@@ -48,10 +50,8 @@ function applyBeerTheme(mode: ThemeMode, colorHex: string) {
 effect(() => {
   const mode = themeModeSignal.value;
   const color = themeColorSignal.value;
-
   localStorage.setItem(MODE_STORAGE_KEY, mode);
   localStorage.setItem(COLOR_STORAGE_KEY, color);
-
   applyBeerTheme(mode, color);
 });
 

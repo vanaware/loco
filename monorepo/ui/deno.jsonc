@@ -11,7 +11,8 @@
       "dom.iterable",
       "dom.asynciterable",
       "esnext",
-      "deno.ns"
+      "deno.ns",
+      "deno.unstable"
     ],
     "strict": true,
     "noImplicitAny": true,

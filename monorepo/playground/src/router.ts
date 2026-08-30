@@ -1,3 +1,4 @@
+// Arquivo: monorepo/playground/src/router.ts
 import { signal } from "@preact/signals";
 
 export type Route = "chats" | "contacts" | "settings";
@@ -20,16 +21,23 @@ export const ROUTES: RouteConfig[] = [
 
 const VALID_ROUTES = ROUTES.map((r) => r.id);
 
-function parseRoute(): Route {
-  if (typeof globalThis.location === "undefined") {
-    return "chats";
-  }
-
-  const rawHash = globalThis.location.hash.replace(/^#\/?/, "");
+/**
+ * Função pura para extrair e validar a rota a partir de uma string de hash.
+ * Exportada para permitir testes unitários isolados sem dependência do `window.location`.
+ */
+export function parseHash(hash: string): Route {
+  const rawHash = hash.replace(/^#\/?/, "");
   if (rawHash && VALID_ROUTES.includes(rawHash as Route)) {
     return rawHash as Route;
   }
   return "chats";
+}
+
+function parseRoute(): Route {
+  if (typeof globalThis.location === "undefined") {
+    return "chats";
+  }
+  return parseHash(globalThis.location.hash);
 }
 
 // O Signal limpo e global

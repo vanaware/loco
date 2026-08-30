@@ -1,6 +1,5 @@
-// build.ts
+// Arquivo: monorepo/playground/build.ts
 import { ensureDir } from "@std/fs";
-
 
 const clean = async () => {
   try {
@@ -10,10 +9,9 @@ const clean = async () => {
     // diretório não existe, ok
   }
   await ensureDir("./build/dist");
-}
+};
 
 const build = async () => {
-
   console.log("🚀 Iniciando build do Loco PWA...");
   const startTime = performance.now();
 
@@ -21,8 +19,10 @@ const build = async () => {
     // 1. Garante que a pasta de destino exista
     await clean();
 
-    // 3. Compilação da aplicação
+    // 2. Compilação da aplicação
     console.log("⚙️ Gerando bundle da aplicação...");
+    // Nota: O Deno.bundle lê as configs de JSX (react-jsx, preact) 
+    // diretamente do deno.jsonc, não precisamos passá-las aqui.
     const result = await Deno.bundle({
       entrypoints: [
         "./src/main.tsx"
@@ -30,36 +30,30 @@ const build = async () => {
       outputDir: "./build/dist",
       platform: "browser",
       format: "esm",
-      bundle: true,
       minify: false, 
       write: true,   
-      jsx: "automatic",
-      jsxImportSource: "preact",
-      jsxFactory: "h",
-      jsxFragment: "Fragment",
     });
 
     if (!result.success) {
       console.error(result.errors);
       throw new Error("Falha ao gerar bundle pelo compilador interno.");
     }
-    
+
     for (const warning of result.warnings || []) {
       console.warn(warning);
     }
 
-    // 4. Copia o arquivo estático HTML
+    // 3. Copia o arquivo estático HTML
     await Deno.copyFile("./src/index.html", "./build/dist/index.html");
 
     const endTime = performance.now();
     console.log(`✅ Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
     console.log("📁 Saída gerada no diretório: ./build/dist/");
-
   } catch (error) {
     console.error("❌ Erro fatal durante o processo de build:");
     console.error(error);
     Deno.exit(1);
   }
-}
+};
 
 await build();

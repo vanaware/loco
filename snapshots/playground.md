@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: PLAYGROUND
 
-Gerado automaticamente em: 8/20/2026, 9:20:27 PM
+Gerado automaticamente em: 8/30/2026, 1:02:05 AM
 
 ---
 
@@ -182,137 +182,6 @@ export function ChatMaster() {
         </div>
       </div>
     </section>
-  );
-}
-```
-
----
-
-## Arquivo: `monorepo/playground/src/components/SettingsView.tsx`
-
-```tsx
-import {
-  themeModeSignal,
-  themeColorSignal,
-  setThemeMode,
-  setThemeColor,
-  PRESET_COLORS,
-} from "../store/themeStore.ts";
-
-export function SettingsView() {
-  const currentTheme = themeModeSignal.value;
-  const currentColor = themeColorSignal.value;
-
-  return (
-    <>
-        <header className="margin-bottom">
-          <h4 className="bold margin-none">Ajustes e Segurança</h4>
-          <p className="text-secondary">
-            Gerenciamento de tema, paleta dinamicamente injetada, par de chaves ECDH e armazenamento local.
-          </p>
-        </header>
-
-        {/* MODO DE ILUMINAÇÃO */}
-        <article className="small-round padding border">
-          <div className="row">
-            <i>contrast</i>
-            <div className="max">
-              <h6>Modo de Exibição</h6>
-              <p className="small-text text-secondary">
-                Controle a iluminação da interface ou sincronize com o sistema.
-              </p>
-            </div>
-          </div>
-
-          <nav className="group connected">
-            <button
-              className={currentTheme === "light" ? "active" : ""}
-              onClick={() => setThemeMode("light")}
-            >
-              <i>light_mode</i>
-              <span>Claro</span>
-            </button>
-
-            <button
-              className={currentTheme === "dark" ? "active" : ""}
-              onClick={() => setThemeMode("dark")}
-            >
-              <i>dark_mode</i>
-              <span>Escuro</span>
-            </button>
-
-            <button
-              className={currentTheme === "auto" ? "active" : ""}
-              onClick={() => setThemeMode("auto")}
-            >
-              <i>settings_brightness</i>
-              <span>Sistema</span>
-            </button>
-          </nav>
-        </article>
-
-        {/* PALETA MATERIAL YOU */}
-        <article className="small-round padding border">
-          <div className="row">
-            <i>palette</i>
-            <div className="max">
-              <h6>Cor de Destaque (Material You)</h6>
-              <p className="small-text text-secondary">
-                Gere toda a paleta tonal da interface dinamicamente via BeerCSS.
-              </p>
-            </div>
-          </div>
-
-          <nav className="group connected">
-            {PRESET_COLORS.map((preset) => {
-              const isSelected = currentColor === preset.hex;
-              return (
-                <button
-                  key={preset.hex}
-                  className={`chip ${isSelected ? "fill" : "border"}`}
-                  onClick={() => setThemeColor(preset.hex)}
-                >
-                  <span
-                    className="circle tiny margin-right-small"
-                    style={{ backgroundColor: preset.hex }}
-                  ></span>
-                  <span>{preset.name}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </article>
-
-        {/* CRIPTOGRAFIA */}
-        <article className="small-round padding border">
-          <div className="row">
-            <i>key</i>
-            <div className="max">
-              <h6>Par de Chaves E2EE</h6>
-              <p className="small-text">
-                Algoritmo ECDH (P-256) gerado localmente via WebCrypto API.
-              </p>
-            </div>
-            <button className="border round">Renovar Chaves</button>
-          </div>
-        </article>
-
-        {/* ARMAZENAMENTO LOCAL */}
-
-        <article className="small-round padding border">
-          <div className="row">
-            <i>database</i>
-            <div className="max">
-              <h6>Armazenamento Local</h6>
-              <p className="small-text">
-                Sincronização assíncrona via IndexedDB &amp; Service Worker.
-              </p>
-            </div>
-            <button className="border small-round">Limpar Cache</button>
-          </div>
-        </article>
-
-    </>
   );
 }
 ```
@@ -597,6 +466,132 @@ export function NavBar() {
 
 ---
 
+## Arquivo: `monorepo/playground/src/components/SettingsView.tsx`
+
+```tsx
+// Arquivo: monorepo/playground/src/components/SettingsView.tsx
+import {
+   themeModeSignal,
+   themeColorSignal,
+   setThemeMode,
+   setThemeColor,
+   PRESET_COLORS,
+ } from "../store/themeStore.ts";
+ 
+ export function SettingsView() {
+   const currentTheme = themeModeSignal.value;
+   const currentColor = themeColorSignal.value;
+ 
+   return (
+     <>
+         <header className="margin-bottom">
+           <h4 className="bold margin-none">Ajustes e Segurança</h4>
+           <p className="text-secondary">
+             Gerenciamento de tema, paleta dinamicamente injetada, par de chaves ECDH e armazenamento local.
+           </p>
+         </header>
+ 
+         {/* MODO DE ILUMINAÇÃO */}
+         <article className="small-round padding border">
+           <div className="row">
+             <i>contrast</i>
+             <div className="max">
+               <h6>Modo de Exibição</h6>
+               <p className="small-text text-secondary">
+                 Controle a iluminação da interface ou sincronize com o sistema.
+               </p>
+             </div>
+           </div>
+           <nav className="group connected">
+             <button
+               className={currentTheme === "light" ? "active" : ""}
+               onClick={() => setThemeMode("light")}
+             >
+               <i>light_mode</i>
+               <span>Claro</span>
+             </button>
+             <button
+               className={currentTheme === "dark" ? "active" : ""}
+               onClick={() => setThemeMode("dark")}
+             >
+               <i>dark_mode</i>
+               <span>Escuro</span>
+             </button>
+             <button
+               className={currentTheme === "system" ? "active" : ""}
+               onClick={() => setThemeMode("system")}
+             >
+               <i>settings_brightness</i>
+               <span>Sistema</span>
+             </button>
+           </nav>
+         </article>
+ 
+         {/* PALETA MATERIAL YOU */}
+         <article className="small-round padding border">
+           <div className="row">
+             <i>palette</i>
+             <div className="max">
+               <h6>Cor de Destaque (Material You)</h6>
+               <p className="small-text text-secondary">
+                 Gere toda a paleta tonal da interface dinamicamente via BeerCSS.
+               </p>
+             </div>
+           </div>
+           <nav className="group connected">
+             {PRESET_COLORS.map((preset) => {
+               const isSelected = currentColor === preset.hex;
+               return (
+                 <button
+                   key={preset.hex}
+                   className={`chip ${isSelected ? "fill" : "border"}`}
+                   onClick={() => setThemeColor(preset.hex)}
+                 >
+                   <span
+                     className="circle tiny margin-right-small"
+                     style={{ backgroundColor: preset.hex }}
+                   ></span>
+                   <span>{preset.name}</span>
+                 </button>
+               );
+             })}
+           </nav>
+         </article>
+ 
+         {/* CRIPTOGRAFIA */}
+         <article className="small-round padding border">
+           <div className="row">
+             <i>key</i>
+             <div className="max">
+               <h6>Par de Chaves E2EE</h6>
+               <p className="small-text">
+                 Algoritmo ECDH (P-256) gerado localmente via WebCrypto API.
+               </p>
+             </div>
+             <button className="border round">Renovar Chaves</button>
+           </div>
+         </article>
+ 
+         {/* ARMAZENAMENTO LOCAL */}
+         <article className="small-round padding border">
+           <div className="row">
+             <i>database</i>
+             <div className="max">
+               <h6>Armazenamento Local</h6>
+               <p className="small-text">
+                 Sincronização assíncrona via IndexedDB &amp; Service Worker.
+               </p>
+             </div>
+             <button className="border small-round">Limpar Cache</button>
+           </div>
+         </article>
+     </>
+   );
+ }
+```
+
+---
+
 ## Arquivo: `monorepo/playground/src/pages/ChatsPage.tsx`
 
 ```tsx
@@ -848,6 +843,7 @@ export function sendMessage(e: Event) {
 ## Arquivo: `monorepo/playground/src/store/themeStore.ts`
 
 ```ts
+// Arquivo: monorepo/playground/src/store/themeStore.ts
 import { signal, effect } from "@preact/signals";
 
 export type ThemeMode = "light" | "dark" | "system";
@@ -869,7 +865,7 @@ const MODE_STORAGE_KEY = "loco_theme_mode";
 const COLOR_STORAGE_KEY = "loco_theme_color";
 
 const initialMode = (localStorage.getItem(MODE_STORAGE_KEY) as ThemeMode) || "system";
-const initialColor = localStorage.getItem(COLOR_STORAGE_KEY) || PRESET_COLORS[0].hex;
+const initialColor = localStorage.getItem(COLOR_STORAGE_KEY) || PRESET_COLORS[0]?.hex || "#006689";
 
 export const themeModeSignal = signal<ThemeMode>(initialMode);
 export const themeColorSignal = signal<string>(initialColor);
@@ -879,7 +875,8 @@ export const themeColorSignal = signal<string>(initialColor);
  */
 function applyBeerTheme(mode: ThemeMode, colorHex: string) {
   if (typeof window === "undefined") return;
-
+  
+  // Tradução da nossa semântica ("system") para a semântica do BeerCSS ("auto")
   const beerMode = mode === "system" ? "auto" : mode;
 
   // 1. Aplicação via API global do JS do BeerCSS
@@ -898,10 +895,8 @@ function applyBeerTheme(mode: ThemeMode, colorHex: string) {
 effect(() => {
   const mode = themeModeSignal.value;
   const color = themeColorSignal.value;
-
   localStorage.setItem(MODE_STORAGE_KEY, mode);
   localStorage.setItem(COLOR_STORAGE_KEY, color);
-
   applyBeerTheme(mode, color);
 });
 
@@ -911,63 +906,6 @@ export function setThemeMode(mode: ThemeMode) {
 
 export function setThemeColor(colorHex: string) {
   themeColorSignal.value = colorHex;
-}
-```
-
----
-
-## Arquivo: `monorepo/playground/src/router.ts`
-
-```ts
-import { signal } from "@preact/signals";
-
-export type Route = "chats" | "contacts" | "settings";
-
-export interface RouteConfig {
-  id: Route;
-  label: string;
-  icon: string;
-  title: string;
-}
-
-/**
- * REGISTRO CENTRAL DE ROTAS (SSOT para Navegação e UI)
- */
-export const ROUTES: RouteConfig[] = [
-  { id: "chats", label: "Conversas", icon: "chat", title: "Mensagens E2EE" },
-  { id: "contacts", label: "Contatos", icon: "group", title: "Contatos P2P" },
-  { id: "settings", label: "Ajustes", icon: "settings", title: "Ajustes e Segurança" },
-];
-
-const VALID_ROUTES = ROUTES.map((r) => r.id);
-
-function parseRoute(): Route {
-  if (typeof globalThis.location === "undefined") {
-    return "chats";
-  }
-
-  const rawHash = globalThis.location.hash.replace(/^#\/?/, "");
-  if (rawHash && VALID_ROUTES.includes(rawHash as Route)) {
-    return rawHash as Route;
-  }
-  return "chats";
-}
-
-// O Signal limpo e global
-export const activeRoute = signal<Route>(parseRoute());
-
-// Atualiza o estado quando a URL muda nativamente
-if (typeof globalThis.window !== "undefined") {
-  globalThis.addEventListener("hashchange", () => {
-    activeRoute.value = parseRoute();
-  });
-}
-
-// Mutação simples
-export function navigateTo(route: Route) {
-  if (typeof globalThis.location !== "undefined") {
-    globalThis.location.hash = route;
-  }
 }
 ```
 
@@ -996,6 +934,71 @@ export function App() {
       </main>
     </>
   );
+}
+```
+
+---
+
+## Arquivo: `monorepo/playground/src/router.ts`
+
+```ts
+// Arquivo: monorepo/playground/src/router.ts
+import { signal } from "@preact/signals";
+
+export type Route = "chats" | "contacts" | "settings";
+
+export interface RouteConfig {
+  id: Route;
+  label: string;
+  icon: string;
+  title: string;
+}
+
+/**
+ * REGISTRO CENTRAL DE ROTAS (SSOT para Navegação e UI)
+ */
+export const ROUTES: RouteConfig[] = [
+  { id: "chats", label: "Conversas", icon: "chat", title: "Mensagens E2EE" },
+  { id: "contacts", label: "Contatos", icon: "group", title: "Contatos P2P" },
+  { id: "settings", label: "Ajustes", icon: "settings", title: "Ajustes e Segurança" },
+];
+
+const VALID_ROUTES = ROUTES.map((r) => r.id);
+
+/**
+ * Função pura para extrair e validar a rota a partir de uma string de hash.
+ * Exportada para permitir testes unitários isolados sem dependência do `window.location`.
+ */
+export function parseHash(hash: string): Route {
+  const rawHash = hash.replace(/^#\/?/, "");
+  if (rawHash && VALID_ROUTES.includes(rawHash as Route)) {
+    return rawHash as Route;
+  }
+  return "chats";
+}
+
+function parseRoute(): Route {
+  if (typeof globalThis.location === "undefined") {
+    return "chats";
+  }
+  return parseHash(globalThis.location.hash);
+}
+
+// O Signal limpo e global
+export const activeRoute = signal<Route>(parseRoute());
+
+// Atualiza o estado quando a URL muda nativamente
+if (typeof globalThis.window !== "undefined") {
+  globalThis.addEventListener("hashchange", () => {
+    activeRoute.value = parseRoute();
+  });
+}
+
+// Mutação simples
+export function navigateTo(route: Route) {
+  if (typeof globalThis.location !== "undefined") {
+    globalThis.location.hash = route;
+  }
 }
 ```
 
@@ -1102,35 +1105,6 @@ Deno.test("MasterDetail - Retorno à Lista de Conversas", () => {
 
 ---
 
-## Arquivo: `monorepo/playground/tests/router_path_test.ts`
-
-```ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
-import { currentPath, navigateTo } from "../src/router.ts";
-
-Deno.test("Router - Normalização da Rota Raiz ('/')", () => {
-  navigateTo("/");
-  assertEquals(currentPath.value, "/chats");
-});
-
-Deno.test("Router - Navegação para Rota Válida ('/contacts')", () => {
-  navigateTo("/contacts");
-  assertEquals(currentPath.value, "/contacts");
-});
-
-Deno.test("Router - Navegação para Rota Válida ('/settings')", () => {
-  navigateTo("/settings");
-  assertEquals(currentPath.value, "/settings");
-});
-
-Deno.test("Router - Normalização de String Vazia", () => {
-  navigateTo("");
-  assertEquals(currentPath.value, "/chats");
-});
-```
-
----
-
 ## Arquivo: `monorepo/playground/tests/responsive_layout_test.ts`
 
 ```ts
@@ -1232,28 +1206,62 @@ Deno.test("Subcomponentes - Fluxo de Dados entre Signals e Active Contact", () =
 
 ---
 
+## Arquivo: `monorepo/playground/tests/router_path_test.ts`
+
+```ts
+// Arquivo: monorepo/playground/tests/router_path_test.ts
+import { assertEquals } from "jsr:@std/assert@1.0.0";
+import { parseHash } from "../src/router.ts";
+
+Deno.test("Router - parseHash: Hash vazio ou inválido retorna 'chats' (fallback)", () => {
+  assertEquals(parseHash(""), "chats");
+  assertEquals(parseHash("#"), "chats");
+  assertEquals(parseHash("#invalid"), "chats");
+  assertEquals(parseHash("#/unknown"), "chats");
+});
+
+Deno.test("Router - parseHash: Rotas válidas são parseadas corretamente", () => {
+  assertEquals(parseHash("#contacts"), "contacts");
+  assertEquals(parseHash("#settings"), "settings");
+  assertEquals(parseHash("#chats"), "chats");
+});
+
+Deno.test("Router - parseHash: Rotas com barra extra são normalizadas", () => {
+  assertEquals(parseHash("#/contacts"), "contacts");
+  assertEquals(parseHash("#/settings"), "settings");
+});
+```
+
+---
+
 ## Arquivo: `monorepo/playground/tests/router_test.ts`
 
 ```ts
-import { assertEquals } from "jsr:@std/assert@1.0.0";
-import { currentPath, activeRoute, navigateTo, normalizePath } from "../src/router.ts";
+// Arquivo: monorepo/playground/tests/router_test.ts
+import { assertEquals, assertExists } from "jsr:@std/assert@1.0.0";
+import { ROUTES, activeRoute } from "../src/router.ts";
 
-Deno.test("Router - Normalização do caminho raiz e vazios", () => {
-  assertEquals(normalizePath("/"), "/chats");
-  assertEquals(normalizePath(""), "/chats");
-  assertEquals(normalizePath("/contacts"), "/contacts");
+Deno.test("Router - ROUTES deve conter as 3 views principais", () => {
+  assertEquals(ROUTES.length, 3);
+  const ids = ROUTES.map((r) => r.id);
+  assertEquals(ids.includes("chats"), true);
+  assertEquals(ids.includes("contacts"), true);
+  assertEquals(ids.includes("settings"), true);
 });
 
-Deno.test("Router - Navegação para rota '/contacts'", () => {
-  navigateTo("/contacts");
-  assertEquals(currentPath.value, "/contacts");
-  assertEquals(activeRoute.value, "contacts");
+Deno.test("Router - activeRoute deve iniciar com um valor válido em ambiente de teste", () => {
+  // Em ambiente de teste Deno puro, location.hash é vazio ou indefinido, 
+  // então o fallback "chats" deve ser acionado automaticamente.
+  assertExists(activeRoute.value);
+  assertEquals(typeof activeRoute.value, "string");
 });
 
-Deno.test("Router - Navegação para rota '/settings'", () => {
-  navigateTo("/settings");
-  assertEquals(currentPath.value, "/settings");
-  assertEquals(activeRoute.value, "settings");
+Deno.test("Router - Cada RouteConfig deve ter os metadados de UI necessários", () => {
+  for (const route of ROUTES) {
+    assertExists(route.label);
+    assertExists(route.icon);
+    assertExists(route.title);
+  }
 });
 ```
 
@@ -1541,6 +1549,107 @@ Sempre utilize as *queries* de resolução do `esm.sh` (como `?external=preact` 
 
 ---
 
+## Arquivo: `monorepo/playground/docs/00-instruções-IA.md`
+
+````md
+# Diretrizes de Arquitetura: Protótipo PWA Offline-Only (Web Worker + DB Proxy)
+
+## 📌 Contexto
+Você é um assistente de IA especializado em desenvolvimento Front-end. Estamos construindo um protótipo de uma SPA (Single Page Application) PWA que roda 100% no navegador, de forma estritamente **Offline-Only**. 
+
+Para garantir a melhor performance (60 FPS) e facilitar a migração do protótipo para a versão de produção, **toda a camada de persistência e I/O de dados roda fora da thread principal em um Web Worker**, enquanto a interface utiliza **Preact Signals** reativos.
+
+## 🛠️ Stack Tecnológica
+- **Ambiente:** Deno puro (Browser-only, sem servidor backend).
+- **UI Framework:** Preact (com JSX/TSX) + `@preact/signals`.
+- **Estilização/Componentes:** BeerCSS (HTML semântico).
+- **Processamento de Dados:** Web Worker isolado (`worker.ts`).
+- **Banco de Dados Local:** IndexedDB gerenciado via `idb-keyval` (dentro do Worker).
+- **Mocks (Desenvolvimento):** `fake-indexeddb` (injetado dinamicamente no Worker).
+- **Linguagem:** TypeScript estrito (`.ts` e `.tsx`).
+
+---
+
+## 📐 Regras de Ouro (Arquitetura)
+
+### 1. Separação Absoluta da Thread Principal
+- A **Main Thread (UI)** cuida unicamente da renderização do BeerCSS e atualização dos Signals do Preact.
+- A **Worker Thread (`worker.ts`)** executa todo o I/O do IndexedDB e lógicas de dados pesadas.
+- A comunicação entre Main Thread e Worker é envelopada pelo **`dbProxy.ts`**, fornecendo uma API baseada em `Promises` com sintaxe idêntica ao `idb-keyval` (`db.get()`, `db.set()`, etc.).
+
+### 2. Componentes Burros (Dumb Components)
+- Os componentes `.tsx` recebem `props`, consomem os `signals` do `store.ts` e chamam funções do `actions`.
+- NUNCA importe bancos de dados, chame o Web Worker diretamente ou faça requisições de dentro de componentes JSX.
+
+### 3. Aplicativo 100% Offline-Only
+- Não existe API nem backend. Não crie requisições `fetch()`, filas de sincronização de rede ou propriedades de estado de rede (`isSynced`).
+- O **Service Worker** serve apenas para Cache First de arquivos estáticos.
+
+---
+
+## 📁 Estrutura e Papel dos Arquivos
+
+### `config.ts`
+Central de flags do projeto.
+```typescript
+export const APP_CONFIG = {
+  USE_FAKE_DB: true, // Se true, o Worker carrega fake-indexeddb na memória
+};
+
+```
+
+### `types.ts`
+
+Contratos e interfaces de dados reutilizados em todo o projeto.
+
+### `worker.ts` (Thread Secundária)
+
+Serviço de banco de dados genérico rodando no Web Worker. Escuta comandos CRUD (`GET`, `SET`, `UPDATE`, `DELETE`, `CLEAR`) e interage com o `idb-keyval` (ou `fake-indexeddb`).
+
+### `dbProxy.ts` (Main Thread)
+
+A ponte de comunicação. Instancia o `worker.ts` e expõe a API assíncrona para a `store.ts`:
+
+```typescript
+export const db = {
+  get: <T>(key: string) => Promise<T>,
+  set: <T>(key: string, val: T) => Promise<void>,
+  delete: (key: string) => Promise<void>,
+  clear: () => Promise<void>
+};
+
+```
+
+### `store.ts` (Main Thread)
+
+Gerenciador de Estado Global.
+
+* Gerencia os `@preact/signals`.
+* Utiliza `dbProxy.ts` para carregar e gravar dados sem travar a UI.
+* Executa a rotina de "Seed" (população de dados falsos de teste) na inicialização caso esteja em modo FakeDB e o banco esteja vazio.
+
+### `App.tsx` (e componentes `.tsx`)
+
+Camada visual construída exclusivamente com BeerCSS e consumindo o `store.ts`.
+
+---
+
+## 📝 Fluxo de Trabalho ao Criar Novas Features
+
+Quando solicitado a adicionar uma funcionalidade ou tela, siga esta ordem estrita:
+
+1. **`types.ts`**: Declare os tipos e interfaces do modelo de dados.
+2. **`store.ts`**: Adicione o `signal` necessário e a lógica dentro do `actions` usando `await db.set(...)` / `await db.get(...)`.
+3. **Componentes `.tsx**`: Monte a interface semântica em BeerCSS consumindo o `store.ts`.
+
+> **Nota para a IA:** Não modifique `worker.ts` ou `dbProxy.ts` a menos que seja necessário alterar a infraestrutura básica de banco de dados. Eles são genéricos e suportam qualquer entidade.
+
+```
+
+````
+
+---
+
 ## Arquivo: `monorepo/playground/server.ts`
 
 ```ts
@@ -1562,118 +1671,11 @@ Deno.serve({ port: PORT }, (req: Request) => {
 
 ---
 
-## Arquivo: `monorepo/playground/deno.jsonc`
-
-```json
-{
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"],
-    "strict": true
-  },
-  "imports": {
-    "preact": "https://esm.sh/preact@10.19.6",
-    "preact/": "https://esm.sh/preact@10.19.6/",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2?deps=preact@10.19.6"
-  },
-
-  "tasks": {
-    "build": "deno run -A --unstable-bundle build.ts",
-    "serve": "deno run -A server.ts",
-    "dev": "deno run -A --watch server.ts",
-    "test": "deno test --allow-env --allow-net tests/",
-    "check": "deno check build.ts server.ts src/**/*.ts src/**/*.tsx"
-  }
-
-
-}
-```
-
----
-
 ## Arquivo: `monorepo/playground/build.ts`
 
 ```ts
-// build.ts
-import { ensureDir } from "jsr:@std/fs";
-
-import { createCache } from "jsr:@deno/cache-dir";
-import { createGraph } from "jsr:@deno/graph";
-import { parse } from "jsr:@std/jsonc"; // Utilitário oficial para ler arquivos JSONC
-import { toFileUrl, resolve, join } from "jsr:@std/path";
-
-const cache = async () => {
-  console.log("📦 Resolvendo e cacheando dependências remotas...");
-
-  try {
-    // 1. Cria a instância de cache oficial do Deno
-    const fileCache = createCache();
-
-    // 2. Carrega o arquivo deno.jsonc e limpa comentários
-    const configPath = resolve("./deno.jsonc");
-    const configText = await Deno.readTextFile(configPath);
-    const parsedConfig = parse(configText) as { imports?: Record<string, string> };
-    const importsMap = parsedConfig.imports || {};
-
-    // 3. Transforma o caminho relativo da entrada principal em uma URL absoluta "file://"
-    const rootSpecifier = toFileUrl(resolve("./src/main.tsx")).href;
-
-    // 4. Resolve o grafo de módulos utilizando URLs absolutas
-    await createGraph(rootSpecifier, {
-      
-      // CORREÇÃO: Transforma todas as saídas em URLs absolutas válidas
-      resolve: (specifier, referrer) => {
-        let resolved = specifier;
-
-        // Se houver uma correspondência exata no import map
-        if (specifier in importsMap) {
-          resolved = importsMap[specifier];
-        } else {
-          // Trata mapeamentos de diretório (ex: "@/src/" ou "meu-pacote/")
-          for (const [key, value] of Object.entries(importsMap)) {
-            if (key.endsWith("/") && specifier.startsWith(key)) {
-              resolved = specifier.replace(key, value);
-              break;
-            }
-          }
-        }
-
-        // Se o resultado do import map for um caminho local relativo (ex: "./src/")
-        // nós precisamos mesclá-lo com a URL base de quem o chamou (referrer)
-        if (resolved.startsWith("./") || resolved.startsWith("../")) {
-          const referrerUrl = new URL(referrer);
-          // Se o referrer for um arquivo local, resolve com caminhos do sistema
-          if (referrerUrl.protocol === "file:") {
-            const absolutePath = resolve(join(referrerUrl.pathname, "..", resolved));
-            return toFileUrl(absolutePath).href;
-          }
-          // Se for um referrer remoto, resolve usando a classe URL padrão
-          return new URL(resolved, referrer).href;
-        }
-
-        return resolved;
-      },
-      
-      // Faz o download e salva no cache físico (DENO_DIR)
-      load: async (specifier, options) => {
-        // Ignora links acidentais de páginas HTML
-        if (specifier.startsWith("http") && !/\.(ts|tsx|js|jsx|mts|mjs)$/i.test(specifier) && !specifier.includes("jsr:") && !specifier.includes("npm:")) {
-          return {
-            kind: "external",
-            specifier,
-          };
-        }
-        return await fileCache.load(specifier, options);
-      },
-    });
-
-    console.log("✅ Cache pré-aquecido e import map resolvido com sucesso!");
-  } catch (error) {
-    console.error("❌ Erro ao baixar dependências:", error.message);
-    throw new Error("Falha ao colocar dependências em cache. Verifique o seu deno.jsonc.");
-  }
-}
+// Arquivo: monorepo/playground/build.ts
+import { ensureDir } from "@std/fs";
 
 const clean = async () => {
   try {
@@ -1683,10 +1685,9 @@ const clean = async () => {
     // diretório não existe, ok
   }
   await ensureDir("./build/dist");
-}
+};
 
 const build = async () => {
-
   console.log("🚀 Iniciando build do Loco PWA...");
   const startTime = performance.now();
 
@@ -1694,11 +1695,10 @@ const build = async () => {
     // 1. Garante que a pasta de destino exista
     await clean();
 
-    // 2. Pre-aquecimento do cache
-    await cache();
-
-    // 3. Compilação da aplicação
+    // 2. Compilação da aplicação
     console.log("⚙️ Gerando bundle da aplicação...");
+    // Nota: O Deno.bundle lê as configs de JSX (react-jsx, preact) 
+    // diretamente do deno.jsonc, não precisamos passá-las aqui.
     const result = await Deno.bundle({
       entrypoints: [
         "./src/main.tsx"
@@ -1706,39 +1706,66 @@ const build = async () => {
       outputDir: "./build/dist",
       platform: "browser",
       format: "esm",
-      bundle: true,
       minify: false, 
       write: true,   
-      jsx: "automatic",
-      jsxImportSource: "preact",
-      jsxFactory: "h",
-      jsxFragment: "Fragment",
     });
 
     if (!result.success) {
       console.error(result.errors);
       throw new Error("Falha ao gerar bundle pelo compilador interno.");
     }
-    
+
     for (const warning of result.warnings || []) {
       console.warn(warning);
     }
 
-    // 4. Copia o arquivo estático HTML
+    // 3. Copia o arquivo estático HTML
     await Deno.copyFile("./src/index.html", "./build/dist/index.html");
 
     const endTime = performance.now();
     console.log(`✅ Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
     console.log("📁 Saída gerada no diretório: ./build/dist/");
-
   } catch (error) {
     console.error("❌ Erro fatal durante o processo de build:");
     console.error(error);
     Deno.exit(1);
   }
-}
+};
 
 await build();
+```
+
+---
+
+## Arquivo: `monorepo/playground/deno.jsonc`
+
+```json
+// Arquivo: monorepo/playground/deno.jsonc
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns", "deno.unstable"],
+    "strict": true
+  },
+  "imports": {
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/": "https://esm.sh/preact@10.29.7/",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.3.1?deps=preact@10.29.7",
+    "@preact/signals-core": "https://esm.sh/@preact/signals-core@1.10.1",
+    "@std/fs": "jsr:@std/fs",
+    "@std/path": "jsr:@std/path"
+  },
+  "tasks": {
+    "build": "deno run -A --unstable-bundle build.ts",
+    "serve": "deno run -A server.ts",
+    "dev": "deno run -A --watch server.ts",
+    "test": "deno test --allow-env --allow-net tests/",
+    "tests": "deno task check && deno task test",
+    "check": "deno check --unstable-bundle build.ts server.ts src/**/*.ts src/**/*.tsx"
+  }
+}
 ```
 
 ---

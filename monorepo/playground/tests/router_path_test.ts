@@ -1,22 +1,21 @@
+// Arquivo: monorepo/playground/tests/router_path_test.ts
 import { assertEquals } from "jsr:@std/assert@1.0.0";
-import { currentPath, navigateTo } from "../src/router.ts";
+import { parseHash } from "../src/router.ts";
 
-Deno.test("Router - Normalização da Rota Raiz ('/')", () => {
-  navigateTo("/");
-  assertEquals(currentPath.value, "/chats");
+Deno.test("Router - parseHash: Hash vazio ou inválido retorna 'chats' (fallback)", () => {
+  assertEquals(parseHash(""), "chats");
+  assertEquals(parseHash("#"), "chats");
+  assertEquals(parseHash("#invalid"), "chats");
+  assertEquals(parseHash("#/unknown"), "chats");
 });
 
-Deno.test("Router - Navegação para Rota Válida ('/contacts')", () => {
-  navigateTo("/contacts");
-  assertEquals(currentPath.value, "/contacts");
+Deno.test("Router - parseHash: Rotas válidas são parseadas corretamente", () => {
+  assertEquals(parseHash("#contacts"), "contacts");
+  assertEquals(parseHash("#settings"), "settings");
+  assertEquals(parseHash("#chats"), "chats");
 });
 
-Deno.test("Router - Navegação para Rota Válida ('/settings')", () => {
-  navigateTo("/settings");
-  assertEquals(currentPath.value, "/settings");
-});
-
-Deno.test("Router - Normalização de String Vazia", () => {
-  navigateTo("");
-  assertEquals(currentPath.value, "/chats");
+Deno.test("Router - parseHash: Rotas com barra extra são normalizadas", () => {
+  assertEquals(parseHash("#/contacts"), "contacts");
+  assertEquals(parseHash("#/settings"), "settings");
 });
