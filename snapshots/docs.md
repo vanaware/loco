@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: DOCS
 
-Gerado automaticamente em: 8/30/2026, 1:29:21 AM
+Gerado automaticamente em: 8/30/2026, 9:18:48 AM
 
 ---
 

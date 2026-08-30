@@ -78,7 +78,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: [],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém os TESTES unitários e de integração do projeto.",
-    default: false, // ❌ Só roda quando solicitado explicitamente
+    default: true, // ❌ Só roda quando solicitado explicitamente
   },
   server: {
     arquivoSaida: "snapshots/server.md",
@@ -102,7 +102,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND.",
-    default: false, // ❌ Só roda quando solicitado explicitamente
+    default: true, // ❌ Só roda quando solicitado explicitamente
   },
   workerdb: {
     arquivoSaida: "snapshots/worker-db.md",
@@ -133,7 +133,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: true,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/service-worker",
-    default: false, // ❌ Só roda quando solicitado explicitamente
+    default: true, // ❌ Só roda quando solicitado explicitamente
   },
   router: {
     arquivoSaida: "snapshots/router.md",
@@ -143,7 +143,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém os arquivos de configuração e execução do ROUTER @loco/router",
-    default: false, // ❌ Só roda quando solicitado explicitamente
+    default: true, // ❌ Só roda quando solicitado explicitamente
   },
 };
 

@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: SW
 
-Gerado automaticamente em: 8/30/2026, 2:33:18 AM
+Gerado automaticamente em: 8/30/2026, 9:18:49 AM
 
 ---
 
@@ -1354,6 +1354,14 @@ self.addEventListener('message', (event: any) => {
 
 ---
 
+## Arquivo: `monorepo/service-worker/src/mod.ts`
+
+```ts
+export * from "./sw/sw-utils.ts";
+```
+
+---
+
 ## Arquivo: `monorepo/service-worker/tests/handshakes/integration-shadow-sync.test.ts`
 
 ```ts
@@ -2486,7 +2494,6 @@ Deno.test("INTEGRAÇÃO (PIGGYBACK 2): Receber Piggyback DEVE criar contato real
 ```json
 {
    "name": "@loco/service-worker",
-   "exports": "./src/mod.ts",
    "compilerOptions": {
      "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns", "webworker"],
      "strict": true,
@@ -2508,6 +2515,14 @@ Deno.test("INTEGRAÇÃO (PIGGYBACK 2): Receber Piggyback DEVE criar contato real
      "check": "deno check src/**/*.ts tests/**/*.ts",
      "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle ../esbuild.ts sw",
      "tests": "deno task check && deno task test"
+   },
+   "exports": 
+   {
+    "." : "./src/mod.ts",
+    "./handshakes/contato" : "./src/handshakes/hand-contato.ts",
+    "./handshakes/sdp" : "./src/handshakes/hand-sdp.ts",
+    "./handshakes/profile" : "./src/handshakes/hand-profile.ts",
+    "./handshakes/mensagem" : "./src/handshakes/hand-mensagem.ts"
    }
 }
 ```

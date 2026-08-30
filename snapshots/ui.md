@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: UI
 
-Gerado automaticamente em: 8/30/2026, 2:30:40 AM
+Gerado automaticamente em: 8/30/2026, 9:18:48 AM
 
 ---
 
@@ -125,8 +125,8 @@ export function ToastSnackbar() {
 import { signal, computed } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { JSX } from "preact";
-import { buscarChave, salvarChave, criarStore } from "../../../utils/src/db/mod.ts";
-import { DB_NAMES } from "../../../utils/src/interfaces/db.ts";
+import { buscarChave, salvarChave, criarStore } from "@loco/utils/db";
+import { DB_NAMES } from "@loco/utils/config";
 
 export interface DebugLogEntry {
   id: string;
@@ -410,16 +410,18 @@ const styles: Record<string, JSX.CSSProperties> = {
 ## Arquivo: `monorepo/ui/src/components/ShareSection.tsx`
 
 ```tsx
+// Arquivo: monorepo/ui/src/components/ShareSection.tsx
 import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
-import { processarQualquerConvite } from '../../../utils/src/db/share-utils.ts';
+import { processarQualquerConvite } from '@loco/utils/db';
 import { adicionarContato } from '../stores/contatosStore.ts';
-import { serializarPublicKeyVapid } from '../../../utils/src/db/mod.ts';
+import { serializarPublicKeyVapid } from '@loco/utils/db';
 import { showToast, sharePayload } from '../stores/state.ts';
 import { navigate } from '../stores/router.ts';
-import type { Contato } from '../../../utils/src/interfaces/db.ts';
+import type { Contato } from '@loco/utils/interfaces';
 import { profile } from '../stores/profileStore.ts';
-import { ehContatoProprio } from '../../../utils/src/db/self-contact-utils.ts';
+import { ehContatoProprio } from '@loco/utils/db';
+
 
 export function ShareSection() {
   const preview = useSignal<Partial<Contato> | null>(null);
@@ -635,7 +637,7 @@ import { useEffect } from 'preact/hooks';
 import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
 import { showToast, appTheme, AppTheme } from '../stores/state.ts';
 import { navigate } from '../stores/router.ts';
-import { buildProxyUrl, pingProxy } from '../../../utils/src/config/proxy.ts';
+import { buildProxyUrl, pingProxy } from '@loco/utils/config';
 
 export function SettingsSection() {
   const proxyPath = useSignal('');
@@ -1092,22 +1094,22 @@ export function ContatosSection() {
 ## Arquivo: `monorepo/ui/src/components/ChatSection.tsx`
 
 ```tsx
-// src/components/ChatSection.tsx
+// Arquivo: monorepo/ui/src/components/ChatSection.tsx
 import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { contatoSelecionado, showToast } from '../stores/state.ts';
-import { gerarId } from '../../../worker-db/src/utils/id.ts';
-import { 
-  mensagensAtivas, 
-  hasMoreMessages, 
-  isFetchingMensagens, 
-  inicializarChat, 
-  carregarMaisMensagens, 
-  atualizarOuAdicionarChatAtivo, 
+import { gerarId } from '@loco/utils/db';
+import {
+  mensagensAtivas,
+  hasMoreMessages,
+  isFetchingMensagens,
+  inicializarChat,
+  carregarMaisMensagens,
+  atualizarOuAdicionarChatAtivo,
   limparMemoriaChat,
   excluirMensagem
 } from '../stores/mensagensStore.ts';
-import type { Chat } from '../../../utils/src/interfaces/db.ts';
+import type { Chat } from '@loco/utils/interfaces';
 
 export function ChatSection() {
   const inputText = useSignal<string>('');
@@ -1336,9 +1338,9 @@ import { contatosComHash, adicionarContato, removerContatoCompletamente } from '
 import { limparTodoHistorico } from '../stores/mensagensStore.ts';
 import { profile } from '../stores/profileStore.ts';
 import { contatoCompartilharHash, contatoSelecionado, showToast } from '../stores/state.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../../../utils/src/db/share-utils.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '@loco/utils/db';
 import { navigate } from '../stores/router.ts';
-import { ehContatoProprio } from '../../../utils/src/db/self-contact-utils.ts';
+import { ehContatoProprio } from '@loco/utils/db';
 
 export function ContactDetailSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
@@ -1684,7 +1686,7 @@ import { profile } from '../stores/profileStore.ts';
 import { showToast } from '../stores/state.ts';
 import { solicitarArmazenamentoPersistente, repararSubscricaoPush } from '../utils/profile.ts';
 import { DebugPanel } from './DebugPanel.tsx';
-import { APP_VERSION } from '../../../utils/src/config/version.ts'; 
+import { APP_VERSION } from '@loco/utils/config'; 
 import { navigate } from '../stores/router.ts';
 import { loadAllConfigs } from '../stores/config-store.ts';
 
@@ -1985,11 +1987,11 @@ import { profile, carregarProfile, atualizarProfile } from '../stores/profileSto
 import { profileName, profileEmail, addDebugLog, showToast, sharePayload } from '../stores/state.ts';
 import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile.ts';
 import { cifrarChaveVapid } from '@loco/utils/proxy';
-import { salvarProfile, serializarPublicKeyVapid } from '../../../utils/src/db/mod.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '../../../utils/src/db/share-utils.ts';
+import { salvarProfile, serializarPublicKeyVapid } from '@loco/utils/db';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '@loco/utils/db';
 import { adicionarContato } from '../stores/contatosStore.ts';
 import { navigate } from '../stores/router.ts';
-import type { Contato } from '../../../utils/src/interfaces/db.ts';
+import type { Contato } from '@loco/utils/interfaces';
 
 export function ProfileSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);
@@ -2763,14 +2765,14 @@ export function WebTorrentLabsSection() {
 ## Arquivo: `monorepo/ui/src/utils/profile.ts`
 
 ```ts
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from '../../../utils/src/db/mod.ts';
+// Arquivo: monorepo/ui/src/utils/profile.ts
+import { salvarProfile, buscarProfile } from '@loco/utils/db';
 import { cifrarChaveVapid } from '@loco/utils/proxy';
-import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from '../../../utils/src/crypto/mod.ts';
-import type { ProfileConfig } from '../../../utils/src/interfaces/db.ts';
-import { addDebugLog } from '../../../utils/src/debug/mod.ts';
-import { fetchLocoProxy } from '../../../utils/src/config/proxy.ts';
+import { registrarServiceWorker } from "@loco/service-worker";
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from '@loco/utils/crypto';
+import type { ProfileConfig } from '@loco/utils/interfaces';
+import { addDebugLog } from '@loco/utils/debug';
+import { fetchLocoProxy } from '@loco/utils/config';
 import { getConfigValue, saveConfig } from '../stores/config-store.ts';
 
 export async function getServerPublicKey() {
@@ -2785,15 +2787,10 @@ export async function getServerPublicKey() {
   }
 
   addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
-  
   const response = await fetchLocoProxy('/publickey');
-  
   if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  
   const keyData = await response.json();
-  
   await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
-  
   return expandRsaPublic(keyData);
 }
 
@@ -2815,7 +2812,6 @@ export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   return false;
 }
 
-// 🔥 ARQUITETURA: Nova função de auto-healing disparada pelo Painel Avançado
 export async function repararSubscricaoPush(): Promise<boolean> {
   addDebugLog("info", "PROFILE", "Iniciando rotina de reparo da Subscrição Push...");
   try {
@@ -2823,28 +2819,28 @@ export async function repararSubscricaoPush(): Promise<boolean> {
       const perm = await Notification.requestPermission();
       if (perm !== "granted") throw new Error("Permissão de notificação negada pelo usuário.");
     }
-
+    
     const registration = await registrarServiceWorker();
     if (!registration.pushManager) throw new Error("Push API não suportada pelo navegador.");
-
+    
     const p = await buscarProfile();
     if (!p) throw new Error("Perfil local não encontrado. Crie um perfil primeiro.");
-
+    
     let sub = await registration.pushManager.getSubscription();
     if (sub) {
-      await sub.unsubscribe(); // Força a renovação para garantir chaves frescas
+      await sub.unsubscribe();
     }
-
+    
     const rawPublicKey = await window.crypto.subtle.exportKey("raw", await window.crypto.subtle.importKey("jwk", p.vapidPublicKey, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
     sub = await registration.pushManager.subscribe({
       applicationServerKey: new Uint8Array(rawPublicKey),
       userVisibleOnly: true
     });
-
+    
     const p256dhBuffer = sub.getKey('p256dh');
     const authBuffer = sub.getKey('auth');
     if (!p256dhBuffer || !authBuffer) throw new Error("Falha ao extrair chaves da subscrição gerada.");
-
+    
     p.subscription = {
       endpoint: sub.endpoint,
       keys: {
@@ -2854,8 +2850,7 @@ export async function repararSubscricaoPush(): Promise<boolean> {
       proxyserver: p.subscription?.proxyserver || '/'
     };
     p.updatedAt = Date.now();
-
-    // Import dinâmico para evitar dependência circular
+    
     const { atualizarProfile } = await import('../stores/profileStore.ts');
     await atualizarProfile(p);
     
@@ -2869,11 +2864,10 @@ export async function repararSubscricaoPush(): Promise<boolean> {
 
 export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
   addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
   if (!nome || nome.trim() === "") {
     throw new Error("Preencha pelo menos o seu Nome.");
   }
-
+  
   let vapidKeyPair: CryptoKeyPair | undefined = undefined;
   let publicKeyJwk: JsonWebKey | undefined = undefined;
   let privateKeyJwk: JsonWebKey | undefined = undefined;
@@ -2882,22 +2876,19 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
   
   const existingProfile = await buscarProfile();
   
-  // 🔥 CORREÇÃO (TS2322): Define estritamente o tipo da subscription inicializando com um fallback seguro.
-  // Isso impede que o TypeScript avalie finalSubscription como "undefined".
   let finalSubscription: ProfileConfig['subscription'] = existingProfile?.subscription || {
     endpoint: '',
     keys: { p256dh: '', auth: '' },
     proxyserver: '/'
   };
-
+  
   try {
     addDebugLog("Step 1: Registrando Service Worker...");
     const registration = await registrarServiceWorker();
-
+    
     addDebugLog("Step 2: Buscando chave pública do servidor...");
     const serverPublicKeyJwk = await getServerPublicKey();
-
-    // Reutiliza ou gera chaves VAPID
+    
     if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
       publicKeyJwk = existingProfile.vapidPublicKey;
       privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
@@ -2907,8 +2898,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
       privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
     }
-
-    // Reutiliza ou gera chaves E2E
+    
     if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
@@ -2918,18 +2908,16 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       e2ePublicKey = newKeys.publicEncrypt;
       e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
     }
-
+    
     addDebugLog("Step 3: Tentando obter subscription Push...");
     try {
       if (Notification.permission === 'default') {
         await Notification.requestPermission();
       }
-
       if (Notification.permission === 'granted' && registration.pushManager) {
         let existingSubscription = await registration.pushManager.getSubscription();
         let subscriptionValida = false;
-
-        // Se já havia subscrição, valida se o endpoint bate com o que temos guardado
+        
         if (existingSubscription) {
           if (existingProfile?.subscription && existingProfile.subscription.endpoint === existingSubscription.endpoint) {
             subscriptionValida = true;
@@ -2947,7 +2935,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
             userVisibleOnly: true
           });
         }
-
+        
         const p256dhBuffer = existingSubscription.getKey('p256dh');
         const authBuffer = existingSubscription.getKey('auth');
         
@@ -2962,33 +2950,30 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
         throw new Error("Permissão de Push negada ou API indisponível no navegador.");
       }
     } catch (subErr: any) {
-      // 🔥 ONBOARDING SUAVE: Se o Push falhar, deixamos o 'finalSubscription' com o fallback default (sem travar o TS).
       addDebugLog("warn", "PROFILE", "Falha na subscrição Push. Salvando perfil offline-only.", subErr);
     }
-
-    // Type Guard de proteção para o TypeScript aceitar a montagem do objeto sem avisos de undefined
+    
     if (!privateKeyJwk || !publicKeyJwk || !e2ePrivateKeyJwk || !e2ePublicKey) {
       throw new Error("Falha interna: Chaves criptográficas corrompidas ou não geradas.");
     }
-
+    
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
+    
     const profile: ProfileConfig = {
-      name: nome.trim(), 
-      email: email.trim(), 
-      vapidPublicKey: publicKeyJwk, 
+      name: nome.trim(),
+      email: email.trim(),
+      vapidPublicKey: publicKeyJwk,
       vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
-      e2ePublicKey: e2ePublicKey, 
+      vapidPrivateKeyEnvelope: privateKeyEncrypted,
+      e2ePublicKey: e2ePublicKey,
       e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: finalSubscription, // Agora o TS entende que é ProfileConfig['subscription'] estrito
-      createdAt: existingProfile?.createdAt || Date.now(), 
+      subscription: finalSubscription,
+      createdAt: existingProfile?.createdAt || Date.now(),
       updatedAt: Date.now()
     };
-
+    
     await salvarProfile(profile);
     await solicitarArmazenamentoPersistente();
-
     addDebugLog("✅ Perfil gerado/atualizado e persistido com sucesso.");
     return profile;
   } catch (err) {
@@ -3486,1156 +3471,10 @@ label {
 
 ---
 
-## Arquivo: `monorepo/ui/src/app.tsx`
-
-```tsx
-import { render } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
-import { effect } from '@preact/signals';
-import type { ComponentType } from 'preact';
-
-// Componentes da Interface (App Shell & Rotas)
-import { AppSidebar } from './components/AppSidebar.tsx';
-import { MainHeader } from './components/MainHeader.tsx';
-import { ChatSection } from './components/ChatSection.tsx'; 
-import { ContactDetailSection } from './components/ContactDetailSection.tsx';
-import { AdvancedSection } from './components/AdvancedSection.tsx';
-import { ProfileSection } from './components/ProfileSection.tsx';
-import { LogoutSection } from './components/LogoutSection.tsx';
-import { ShareSection } from './components/ShareSection.tsx';
-import { SettingsSection } from './components/SettingsSection.tsx';
-import { ToastSnackbar } from './components/ToastSnackbar.tsx';
-import { WebTorrentLabsSection } from './components/WebTorrentLabsSection.tsx'; 
-
-// Signals e Lógica de Negócio
-import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, appTheme, AppTheme } from './stores/state.ts';
-import { profile, initProfileStore, initContatosStore, initMensagensStore, initTorrentLabsStore, contatosComHash } from './stores/index.ts';
-import { isCarregandoContatos } from './stores/contatosStore.ts';
-import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
-
-// Roteador Reativo
-import { activeView, navigate } from './stores/router.ts';
-
-import "@material/web";
-import './styles.css';
-
-effect(() => {
-  if (typeof document !== 'undefined') {
-    const theme = appTheme.value;
-    if (theme === 'system') {
-      document.documentElement.removeAttribute('data-theme');
-    } else {
-      document.documentElement.setAttribute('data-theme', theme);
-    }
-  }
-});
-
-const HomePlaceholder = () => (
-  <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-on-surface-variant);">
-    <div style="text-align: center;">
-      <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
-      <p style="font-size: 0.9rem;">Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
-    </div>
-  </div>
-);
-
-const PushAlertBanner = () => {
-  const p = profile.value;
-  const _view = activeView.value; 
-  
-  if (!p || !p.name) return null;
-
-  const hasEndpoint = !!(p.subscription && p.subscription.endpoint);
-  const hasPermission = 'Notification' in window && Notification.permission === 'granted';
-
-  if (hasEndpoint && hasPermission) return null;
-
-  return (
-    <div style="background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.85rem; z-index: 50; flex-shrink: 0; border-bottom: 1px solid var(--md-sys-color-error);">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <md-icon style="color: var(--md-sys-color-error);">notifications_off</md-icon>
-        <span><strong>Rede Incompleta:</strong> Você não pode receber notificações ou mensagens diretas.</span>
-      </div>
-      <md-outlined-button onClick={() => navigate('#advanced')} style="flex-shrink: 0; --md-sys-color-outline: var(--md-sys-color-on-error-container); color: var(--md-sys-color-on-error-container);">
-        Corrigir
-      </md-outlined-button>
-    </div>
-  );
-};
-
-// Mapa de Componentes das Rotas
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ViewMap: Record<string, ComponentType<any>> = {
-  'chat': ChatSection,
-  'detail': ContactDetailSection,
-  'advanced': AdvancedSection,
-  'labs': WebTorrentLabsSection, 
-  'profile': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
-  'logout': LogoutSection,
-  'share': ShareSection,
-  'settings': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><SettingsSection/></div></div>,
-  'home': HomePlaceholder,
-};
-
-function App() {
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const init = async () => {
-      const savedTheme = await getConfigValue('APP_THEME');
-      if (savedTheme) appTheme.value = savedTheme as AppTheme;
-
-      addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
-      await loadAllConfigs();
-      await initProfileStore();
-      
-      const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
-      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); 
-      
-      if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
-        navigate('#profile');
-      }
-
-      await initContatosStore();
-      await initMensagensStore();
-      
-      // 🔥 ARQUITETURA: Agora o Labs é inicializado globalmente no Boot!
-      await initTorrentLabsStore();
-      
-      setIsLoading(false);
-    };
-    init();
-  }, []);
-
-  useEffect(() => {
-    if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
-       const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
-       
-       if (hashAlvo) {
-         const contatoExiste = contatosComHash.value.some(c => c.hash === hashAlvo);
-         if (!contatoExiste) {
-           addDebugLog("warn", "ROUTER", "Tentativa de acesso a contato inexistente/excluído. Redirecionando para Home.");
-           navigate(''); 
-         }
-       }
-    }
-  }, [isLoading, isCarregandoContatos.value, activeView.value, contatoSelecionado.value, contatoCompartilharHash.value, contatosComHash.value]);
-
-  if (isLoading) {
-    return (
-      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
-        <md-circular-progress indeterminate></md-circular-progress>
-      </div>
-    );
-  }
-
-  const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
-  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); 
-  const viewToRender = (!isIdentityValid && !isRouteAllowedWithoutProfile) ? 'profile' : activeView.value;
-  
-  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
-  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
-  const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
-  
-  const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
-
-  return (
-    <div style="display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; overflow: hidden;">
-      
-      <PushAlertBanner />
-
-      <div id="app-root" class={`view-mode-${currentMobileView.value}`} style="flex-grow: 1; display: flex; position: relative; min-height: 0;">
-        
-        <AppSidebar isIdentityValid={isIdentityValid} />
-
-        <main class="app-main">
-          <MainHeader />
-          <RouteComponent/>
-        </main>
-
-      </div>
-      <ToastSnackbar/>
-    </div>
-  );
-}
-
-const root = document.getElementById('app');
-if (root) {
-  render(<App/>, root);
-}
-```
-
----
-
 ## Arquivo: `monorepo/ui/src/mod.ts`
 
 ```ts
 
-```
-
----
-
-## Arquivo: `monorepo/ui/src/stores/profileStore.ts`
-
-```ts
-// src/stores/profileStore.ts
-import { signal, batch } from '@preact/signals';
-import { buscarProfile, salvarProfile } from '../../../utils/src/db/mod.ts';
-import type { ProfileConfig } from '../../../utils/src/interfaces/db.ts';
-import { profileName, profileEmail, addDebugLog } from './state.ts';
-
-// Signal dedicado EXCLUSIVAMENTE para indicar operações de I/O no banco
-export const isSavingProfile = signal<boolean>(false);
-export const profile = signal<ProfileConfig | null>(null);
-
-export async function carregarProfile() {
-  try {
-    const p = await buscarProfile();
-    
-    batch(() => {
-      profile.value = p || null;
-      if (p) {
-        profileName.value = p.name;
-        profileEmail.value = p.email;
-      }
-    });
-  } catch (error) {
-    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
-  }
-}
-
-/**
- * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
- */
-export async function atualizarProfile(p: ProfileConfig) {
-  // Trava de segurança apenas para evitar gravações simultâneas cruzadas no IndexedDB
-  if (isSavingProfile.value) {
-      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
-      return; 
-  }
-
-  // 🔥 ARQUITETURA [AUTO-DOWNGRADE]: Deep Check para identificar mudanças críticas na identidade
-  let requiresDowngrade = false;
-  const oldP = profile.value;
-  
-  if (oldP) {
-    if (
-      oldP.vapidPrivateKeyEnvelope !== p.vapidPrivateKeyEnvelope ||
-      oldP.subscription?.endpoint !== p.subscription?.endpoint ||
-      oldP.subscription?.proxyserver !== p.subscription?.proxyserver ||
-      JSON.stringify(oldP.e2ePublicKey) !== JSON.stringify(p.e2ePublicKey) ||
-      JSON.stringify(oldP.vapidPublicKey) !== JSON.stringify(p.vapidPublicKey)
-    ) {
-      requiresDowngrade = true;
-    }
-  }
-
-  // 1. Atualização Otimista na Memória agrupada (Isso garante que a UI reaja instantaneamente)
-  batch(() => {
-    profile.value = { ...p };
-    profileName.value = p.name;
-    profileEmail.value = p.email;
-  });
-
-  // 2. Persistência Isolada com trava reativa
-  isSavingProfile.value = true;
-  try {
-    await salvarProfile(p);
-    
-    // Se a identidade ou rota mudou, notifica a agenda de contatos em background 
-    // Utilizamos o import dinâmico para evitar dependência circular entre stores!
-    if (requiresDowngrade) {
-       addDebugLog("info", "STORE:PROFILE", "Mudança estrutural detectada na identidade. Disparando rebaixamento de confiança...");
-       const { rebaixarConfiancaContatos } = await import('./contatosStore.ts');
-       await rebaixarConfiancaContatos();
-    }
-  } catch (error) {
-    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
-  } finally {
-    isSavingProfile.value = false;
-  }
-}
-
-export async function initProfileStore() {
-  await carregarProfile();
-}
-```
-
----
-
-## Arquivo: `monorepo/ui/src/stores/config-store.ts`
-
-```ts
-// src/stores/config-store.ts
-import { get, set, del, createStore } from "idb-keyval";
-import { DB_NAMES } from "../../../utils/src/interfaces/db.ts";
-import { setProxyPath, getProxyPath, DefaultProxyPath, FallbackAbsoluteProxy, pingProxy } from "../../../utils/src/config/proxy.ts";
-
-const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
-const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
-
-export const CONFIG_KEYS = {
-  PROXY_PATH: "ProxyPath",
-  SERVER_PUBLIC_KEY: "ServerPublicKey", 
-  APP_THEME: "AppTheme",
-} as const;
-
-export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
-  try {
-    const configKey = CONFIG_KEYS[key];
-    
-    if (key === 'PROXY_PATH' && typeof value === 'string') {
-      await setProxyPath(value, true);
-      await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
-      console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
-    } else {
-      await set(configKey, value, configStore);
-    }
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
-    throw error;
-  }
-}
-
-export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
-  try {
-    if (key === 'PROXY_PATH') {
-      // 🔥 UNIFICAÇÃO: Delegamos a leitura do ProxyPath para a fonte primária de verdade em config.ts
-      const path = await getProxyPath();
-      return path;
-    }
-    const configKey = CONFIG_KEYS[key];
-    const value = await get<string>(configKey, configStore);
-    return value !== undefined && value !== null ? value : undefined;
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao carregar configuração:", error);
-    return undefined;
-  }
-}
-
-export async function resetConfig(): Promise<void> {
-  try {
-    await del(CONFIG_KEYS.PROXY_PATH, configStore);
-    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore); 
-    await del(CONFIG_KEYS.APP_THEME, configStore);
-    await setProxyPath(DefaultProxyPath, true); // Persiste o reset no IndexedDB como DefaultProxyPath ("/")
-  } catch (error) {
-    console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
-    throw error;
-  }
-}
-
-/**
- * Carrega as configurações. 
- * Executa o Auto-Discovery de Rede apenas se for a primeira inicialização.
- */
-export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
-  const proxy_path = await getConfigValue('PROXY_PATH');
-  
-  // Se o caminho já existe e é diferente do default não-inicializado, mantém o que está no banco
-  // Nota: No resetConfig, nós removemos a chave fisicamente via `del` para que o Auto-Discovery possa rodar
-  const rawDbValue = await get<string>(CONFIG_KEYS.PROXY_PATH, configStore);
-  
-  if (rawDbValue !== undefined && rawDbValue !== null) {
-    await setProxyPath(rawDbValue, false);
-    return { proxy_path: rawDbValue };
-  }
-
-  console.log(`[AUTO-DISCOVERY] Primeira inicialização detectada. Avaliando ambiente...`);
-  
-  // Testamos a conectividade com o servidor nativo/local PRIMEIRO.
-  const isLocalAlive = await pingProxy(DefaultProxyPath);
-
-  if (isLocalAlive) {
-    console.log(`[AUTO-DISCOVERY] ✅ Servidor nativo da hospedagem respondeu! Mantendo rota relativa.`);
-    await saveConfig('PROXY_PATH', DefaultProxyPath);
-    return { proxy_path: DefaultProxyPath };
-  }
-
-  // Se o ping local falhar e o navegador reportar offline
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    console.warn(`[AUTO-DISCOVERY] 🔌 Offline no primeiro acesso e servidor local não respondeu. Assumindo Fallback.`);
-    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-    return { proxy_path: FallbackAbsoluteProxy };
-  }
-
-  console.log(`[AUTO-DISCOVERY] ⚠️ Servidor nativo indisponível ou estático (Ex: GitHub Pages). Iniciando Fallback...`);
-
-  const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
-  
-  if (isFallbackAlive) {
-    console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Conectado ao nó Edge!`);
-    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-    return { proxy_path: FallbackAbsoluteProxy };
-  }
-
-  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
-  await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
-  return { proxy_path: FallbackAbsoluteProxy };
-}
-```
-
----
-
-## Arquivo: `monorepo/ui/src/stores/mensagensStore.ts`
-
-```ts
-// src/stores/mensagensStore.ts
-import { signal, batch } from '@preact/signals';
-import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '../../../utils/src/db/mod.ts';
-import { ExpurgarMensagens } from '../handshakes/hand-mensagem.ts';
-import type { Chat } from '../../../utils/src/interfaces/db.ts';
-import { contatoSelecionado } from './state.ts';
-
-export const mensagensAtivas = signal<Chat[]>([]);
-export const hasMoreMessages = signal<boolean>(true);
-export const isFetchingMensagens = signal<boolean>(false);
-
-const PAGE_SIZE = 30;
-let currentOffset = 0;
-
-export function limparMemoriaChat() {
-  batch(() => {
-    mensagensAtivas.value = [];
-    hasMoreMessages.value = true;
-    isFetchingMensagens.value = false;
-    currentOffset = 0;
-  });
-}
-
-export async function inicializarChat(contatoHash: string) {
-  limparMemoriaChat();
-  await carregarMaisMensagens(contatoHash);
-}
-
-export async function carregarMaisMensagens(contatoHash: string) {
-  if (isFetchingMensagens.value || !hasMoreMessages.value) return;
-  
-  isFetchingMensagens.value = true;
-
-  try {
-    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
-    
-    if (contatoHash !== contatoSelecionado.value) {
-      return; 
-    }
-    
-    batch(() => {
-      if (novas.length < PAGE_SIZE) {
-        hasMoreMessages.value = false;
-      }
-
-      if (novas.length > 0) {
-        currentOffset += novas.length;
-        const unificadas = [...novas, ...mensagensAtivas.value];
-        mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
-      }
-    });
-  } finally {
-    isFetchingMensagens.value = false;
-  }
-}
-
-export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
-  if (chat.contatoHash === contatoSelecionado.value) {
-    const atual = mensagensAtivas.value;
-    const index = atual.findIndex(m => m.id === chat.id);
-    
-    if (index !== -1) {
-      const nova = [...atual];
-      nova[index] = chat;
-      mensagensAtivas.value = nova;
-    } else {
-      mensagensAtivas.value = [...atual, chat];
-      currentOffset += 1;
-    }
-  }
-
-  await salvarChat(chat);
-}
-
-export async function processarAtualizacaoDeStatusDB(chatId: string) {
-  const chatAtualizado = await buscarChat(chatId);
-  if (chatAtualizado) {
-    await atualizarOuAdicionarChatAtivo(chatAtualizado);
-  } else {
-    // Se a mensagem não está mais no DB ou o histórico foi limpo
-    const atual = mensagensAtivas.value;
-    const existe = atual.some(m => m.id === chatId || chatId === 'ALL_PURGED');
-    if (existe) {
-      batch(() => {
-        mensagensAtivas.value = chatId === 'ALL_PURGED' ? [] : atual.filter(m => m.id !== chatId);
-        currentOffset = chatId === 'ALL_PURGED' ? 0 : Math.max(0, currentOffset - 1);
-      });
-    }
-  }
-}
-
-export async function excluirMensagem(msgId: string, contatoHash: string) {
-  // 1. Otimista (limpa da tela imediatamente)
-  if (contatoSelecionado.value === contatoHash) {
-    batch(() => {
-      mensagensAtivas.value = mensagensAtivas.value.filter(m => m.id !== msgId);
-      currentOffset = Math.max(0, currentOffset - 1);
-    });
-  }
-
-  // 2. Busca a mensagem no banco antes de apagar
-  const msgLocal = await buscarChat(msgId);
-  
-  const deveAvisarRemoto = msgLocal && msgLocal.handshake !== 'self';
-
-  // 3. Apaga do IndexedDB
-  await removerChat(msgId, contatoHash);
-
-  // 4. Delega para o Service Worker enviar a notificação de exclusão remota
-  if (deveAvisarRemoto && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (reg.active) {
-        reg.active.postMessage({
-          type: 'CRIAR_HANDSHAKE_OUT',
-          payload: {
-            rotasModulo: 'mensagem',
-            params: { function: 'excluirMensagem', contato: contatoHash, msgId: msgId }
-          }
-        });
-      }
-    } catch (e) {
-      console.warn("Falha ao enviar handshake de exclusão remota", e);
-    }
-  }
-}
-
-export async function limparTodoHistorico(contatoHash: string) {
-  if (contatoSelecionado.value === contatoHash) {
-    limparMemoriaChat();
-  }
-  // 🔥 Envia 'true' no segundo parâmetro para disparar o Handshake Único de expurgo do histórico no dispositivo remoto
-  await ExpurgarMensagens(contatoHash, true);
-}
-
-export async function initMensagensStore() {}
-```
-
----
-
-## Arquivo: `monorepo/ui/src/stores/contatosStore.ts`
-
-```ts
-// src/stores/contatosStore.ts
-import { signal, computed } from "@preact/signals";
-import {
-  listarContatos,
-  salvarContato,
-  serializarPublicKeyVapid,
-  buscarProfile,
-  removerContatoPorHash,
-  listarHandshakes,
-  removerHandshake,
-  salvarHandshake,
-  buscarContatoPorChave
-} from "../../../utils/src/db/mod.ts";
-import type { Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
-import { addDebugLog } from "../../../utils/src/debug/mod.ts";
-import { gerarContatoProprio } from "../../../utils/src/db/self-contact-utils.ts";
-import { gerarId } from "../../../worker-db/src/utils/id.ts";
-
-import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
-import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
-import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
-
-export type { Contato };
-
-export const isCarregandoContatos = signal<boolean>(false);
-export const contatosRaw = signal<Contato[]>([]);
-
-export const contatosComHash = computed(() => {
-  return contatosRaw.value.map((contato) => ({
-    contato,
-    hash: contato.id,
-  }));
-});
-
-export const contatosMap = computed(() => {
-  const map = new Map<string, Contato>();
-  for (const c of contatosRaw.value) {
-    map.set(c.id, c);
-  }
-  return map;
-});
-
-export async function carregarContatos(): Promise<void> {
-  isCarregandoContatos.value = true;
-  try {
-    const listaCompleta = await listarContatos();
-    const lista = listaCompleta.filter(c => c.me !== 'deleted');
-    
-    const profile = await buscarProfile();
-    if (profile) {
-      const contatoProprio = await gerarContatoProprio(profile);
-      if (contatoProprio) {
-        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
-        if (indexExistente >= 0) {
-          lista[indexExistente] = contatoProprio;
-        } else {
-          lista.push(contatoProprio);
-        }
-      }
-    }
-    
-    contatosRaw.value = lista;
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
-  } finally {
-    isCarregandoContatos.value = false;
-  }
-}
-
-let isContatosListenerInitialized = false;
-
-export async function initContatosStore(): Promise<void> {
-  await carregarContatos();
-
-  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
-    isContatosListenerInitialized = true;
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data?.type === 'CONTATO_ATUALIZADO') {
-        carregarContatos();
-      }
-    });
-  }
-}
-
-export async function adicionarContato(contato: Contato): Promise<void> {
-  try {
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === contato.id);
-    if (index >= 0) {
-      const novaLista = [...atual];
-      novaLista[index] = contato;
-      contatosRaw.value = novaLista;
-    } else {
-      contatosRaw.value = [...atual, contato];
-    }
-
-    await salvarContato(contato);
-    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
-    throw err;
-  }
-}
-
-// 🔥 UTILITÁRIO DE BLINDAGEM: Use essa função exclusivamente quando importar um QR Code!
-export async function importarNovoContato(dadosBasicos: Omit<Contato, 'me' | 'createdAt' | 'updatedAt'>): Promise<void> {
-  const novoContato: Contato = {
-    ...dadosBasicos,
-    me: 'none', // Garante que a primeira interação acionará o mecanismo de Piggybacking
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
-  await adicionarContato(novoContato);
-  addDebugLog("info", "STORE:CONTATO", `Novo contato (${novoContato.name}) importado. Status de sincronia inicializado como 'none'.`);
-}
-
-export function adicionarOuAtualizarContato(contato: Contato): void {
-  adicionarContato(contato).catch((err) => {
-    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
-  });
-}
-
-export async function rebaixarConfiancaContatos(): Promise<void> {
-  try {
-    const atual = contatosRaw.value;
-    if (atual.length === 0) return;
-
-    let mudouAlgum = false;
-    const novaLista = atual.map(c => {
-      if (c.me === 'trusted' || c.me === 'saved') {
-        mudouAlgum = true;
-        return { ...c, me: 'none' as const, updatedAt: Date.now() };
-      }
-      return c;
-    });
-    
-    if (!mudouAlgum) return;
-
-    contatosRaw.value = novaLista;
-    
-    Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
-      addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
-    });
-    
-    addDebugLog("info", "STORE:CONTATO", `Status 'me' rebaixado para 'none' em contatos salvos para forçar o Piggybacking.`);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro crítico ao rebaixar confiança dos contatos", err);
-  }
-}
-
-export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    await removerContatoCompletamente(hash);
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
-  }
-}
-
-export async function removerContatoCompletamente(hash: string, notificarRemoto = true): Promise<void> {
-  try {
-    addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
-
-    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
-    
-    await ExpurgarMensagens(hash, false);
-    await ExpurgarHandshakesContato(hash);
-    await ExpurgarHandshakesProfile(hash);
-    
-    const handshakes = await listarHandshakes();
-    for (const h of handshakes) {
-      if (h.aud === hash) await removerHandshake(h.id);
-    }
-
-    const contatoExistente = await buscarContatoPorChave(hash);
-
-    if (notificarRemoto && contatoExistente) {
-      contatoExistente.me = 'deleted';
-      await salvarContato(contatoExistente);
-      
-      const handshakeDelecao: Handshake = {
-        id: gerarId(),
-        aud: hash,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        out: {
-          status: 'pendente',
-          tentativas: 0,
-          rotas: { contato: { removerContato: true } }
-        }
-      };
-      await salvarHandshake(handshakeDelecao);
-      
-      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.ready;
-        if (reg.active) reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
-      }
-    } else {
-      await removerContatoPorHash(hash);
-    }
-
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
-    throw err;
-  }
-}
-
-export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
-  try {
-    const hash = await serializarPublicKeyVapid(vapidPublicKey);
-    const atual = contatosRaw.value;
-    const index = atual.findIndex(c => c.id === hash);
-    
-    if (index >= 0 && atual[index]) {
-      const contatoAtual = atual[index];
-      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
-      const novaLista = [...atual];
-      novaLista[index] = contatoModificado;
-      contatosRaw.value = novaLista;
-      
-      await salvarContato(contatoModificado);
-    }
-  } catch (err) {
-    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
-  }
-}
-
-export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
-  const atual = contatosRaw.value;
-  const index = atual.findIndex(c => c.id === id);
-  if (index >= 0 && atual[index]) {
-    const contatoAtual = atual[index];
-    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
-    const novaLista = [...atual];
-    novaLista[index] = contatoModificado;
-    contatosRaw.value = novaLista;
-    
-    salvarContato(contatoModificado).catch(err => {
-        addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
-    });
-  }
-}
-```
-
----
-
-## Arquivo: `monorepo/ui/src/stores/torrentLabsStore.ts`
-
-```ts
-// src/stores/torrentLabsStore.ts
-import { signal } from "@preact/signals";
-import { zipSync } from "fflate";
-import { addDebugLog, showToast } from "./state.ts";
-import { salvarNoOPFS, lerDoOPFS, excluirDoOPFS } from "../utils/opfs-utils.ts";
-import { gerarId } from "../../../worker-db/src/utils/id.ts";
-import { 
-  salvarPastaMetadata, 
-  listarTodasAsPastas, 
-  buscarPastaMetadata,
-  removerPastaMetadata
-} from "../../../utils/src/db/mod.ts";
-import type { PastaMetadata, FileMetadata } from "../../../utils/src/interfaces/db.ts";
-
-export const isMotorLigar = signal<boolean>(false);
-export const pastasAtivas = signal<PastaMetadata[]>([]);
-export const progressoMap = signal<Record<string, { progress: number, speed: number, peers: number }>>({});
-
-let client: any = null;
-
-const RELIABLE_TRACKERS = [
-  "wss://tracker.webtorrent.dev:443",
-  "wss://tracker.openwebtorrent.com:443",
-  "wss://open.ftorrent.com:443"
-];
-
-function getClient(): any {
-  if (!client) {
-    const WebTorrentEngine = (globalThis as any).WebTorrent;
-    if (!WebTorrentEngine) {
-      addDebugLog("error", "TORRENT_LAB", "Motor WebTorrent não foi carregado pelo index.html.");
-      throw new Error("Falha no carregamento do WebTorrent.");
-    }
-    client = new WebTorrentEngine();
-    client.on('error', (err: any) => addDebugLog("error", "TORRENT_LAB", `Erro fatal: ${err.message}`));
-  }
-  return client;
-}
-
-export async function carregarPastasDoBanco() {
-  const todas = await listarTodasAsPastas();
-  pastasAtivas.value = todas.sort((a, b) => b.modifiedAt - a.modifiedAt);
-}
-
-// 🔥 ARQUITETURA: Função de inicialização chamada no Boot do App
-export async function initTorrentLabsStore() {
-  await carregarPastasDoBanco();
-}
-
-export async function alternarMotor() {
-  if (isMotorLigar.value) {
-    if (client) {
-      client.destroy();
-      client = null;
-    }
-    isMotorLigar.value = false;
-    progressoMap.value = {};
-    addDebugLog("info", "TORRENT_LAB", "Motor WebTorrent desligado.");
-  } else {
-    isMotorLigar.value = true;
-    addDebugLog("info", "TORRENT_LAB", "Motor WebTorrent ligado. Iniciando resumos...");
-    await carregarPastasDoBanco();
-    for (const pasta of pastasAtivas.value) {
-      if (pasta.status !== 'standby') {
-        reseedPasta(pasta.id); // Força a reconstrução a partir do OPFS
-      }
-    }
-  }
-}
-
-// 🔥 ARQUITETURA: Manifesto Enxuto. Apenas identidade viaja pela rede.
-export async function criarNovaPastaOffline(
-  nomePasta: string, 
-  arquivosInput: FileList | File[], 
-  permissao: 'public' | 'listed' | 'trusted' = 'trusted'
-) {
-  const id = gerarId();
-  const agora = Date.now();
-  const fileArray = Array.from(arquivosInput);
-
-  const fileMetadatas: FileMetadata[] = [];
-  for (const f of fileArray) {
-    await salvarNoOPFS(id, f.name, f);
-    fileMetadatas.push({ name: f.name, size: f.size, type: f.type, createdAt: agora, modifiedAt: agora });
-  }
-
-  const novaPasta: PastaMetadata = {
-    id, name: nomePasta, status: 'standby', complete: 100,
-    permission: permissao, contatos: [], files: fileMetadatas,
-    createdAt: agora, modifiedAt: agora
-  };
-
-  await salvarPastaMetadata(novaPasta);
-  await carregarPastasDoBanco();
-  
-  addDebugLog("success", "TORRENT_LAB", `Pasta '${nomePasta}' criada Offline no OPFS.`);
-  
-  if (isMotorLigar.value) {
-    novaPasta.status = 'seeding';
-    await salvarPastaMetadata(novaPasta);
-    await reseedPasta(id);
-  }
-}
-
-export async function reseedPasta(pastaId: string) {
-  const pasta = await buscarPastaMetadata(pastaId);
-  if (!pasta || pasta.status === 'downloading' || pasta.status === 'standby' || !isMotorLigar.value) return;
-
-  const wt = getClient();
-  const torrentId = pasta.infoHash || pasta.magnetURI;
-  if (torrentId) {
-    const t = wt.get(torrentId);
-    if (t) t.destroy(); // Apaga o torrent velho da memória
-  }
-
-  // 1. Recria o Manifesto JSON enxuto (apenas ID e Nome)
-  const manifesto = { id: pasta.id, name: pasta.name };
-  const manifestBlob = new Blob([JSON.stringify(manifesto, null, 2)], { type: 'application/json' });
-  await salvarNoOPFS(pasta.id, '.loco-manifest.json', manifestBlob);
-
-  // 2. Puxa todos os arquivos do OPFS
-  const filesToSeed: File[] = [];
-  for (const f of pasta.files) {
-    const file = await lerDoOPFS(pasta.id, f.name);
-    if (file) filesToSeed.push(file);
-  }
-  const manifestFile = await lerDoOPFS(pasta.id, '.loco-manifest.json');
-  if (manifestFile) filesToSeed.push(manifestFile);
-
-  // 3. Injeta na Rede (Isso vai gerar um Magnet URI inteiramente novo se o conteúdo mudou)
-  wt.seed(filesToSeed, { announce: RELIABLE_TRACKERS, name: pasta.name }, (torrent: any) => {
-    pasta.magnetURI = torrent.magnetURI;
-    pasta.infoHash = torrent.infoHash;
-    pasta.status = 'seeding';
-    salvarPastaMetadata(pasta).then(() => carregarPastasDoBanco());
-    _anexarEventosTorrent(torrent, pasta.id);
-    addDebugLog("info", "TORRENT_LAB", `Seed da pasta '${pasta.name}' reconstruído.`);
-  });
-}
-
-// 🔥 ARQUITETURA: Travas de Segurança para Mutação
-export async function adicionarArquivosPasta(pastaId: string, novosArquivos: FileList | File[]) {
-  const pasta = await buscarPastaMetadata(pastaId);
-  if (!pasta) return;
-
-  if (pasta.status !== 'standby') {
-    showToast("Coloque a pasta em Standby para adicionar arquivos.", "error");
-    return;
-  }
-
-  const agora = Date.now();
-  const fileArray = Array.from(novosArquivos);
-
-  for (const f of fileArray) {
-    await salvarNoOPFS(pasta.id, f.name, f);
-    const existIndex = pasta.files.findIndex(x => x.name === f.name);
-    const meta: FileMetadata = { name: f.name, size: f.size, type: f.type, createdAt: agora, modifiedAt: agora };
-    if (existIndex >= 0) pasta.files[existIndex] = meta;
-    else pasta.files.push(meta);
-  }
-
-  pasta.modifiedAt = agora;
-  // Limpa o Magnet antigo, pois ele não é mais válido para o novo conjunto de arquivos
-  pasta.magnetURI = undefined; 
-  pasta.infoHash = undefined;
-
-  await salvarPastaMetadata(pasta);
-  await carregarPastasDoBanco();
-  showToast("Arquivos anexados. Ative a pasta para gerar o novo Seed.", "success");
-}
-
-export async function removerArquivoPasta(pastaId: string, fileName: string) {
-  const pasta = await buscarPastaMetadata(pastaId);
-  if (!pasta) return;
-
-  if (pasta.status !== 'standby') {
-    showToast("Coloque a pasta em Standby para excluir arquivos.", "error");
-    return;
-  }
-
-  await excluirDoOPFS(pasta.id, fileName);
-  pasta.files = pasta.files.filter(f => f.name !== fileName);
-  pasta.modifiedAt = Date.now();
-  pasta.magnetURI = undefined;
-  pasta.infoHash = undefined;
-  
-  await salvarPastaMetadata(pasta);
-  await carregarPastasDoBanco();
-  showToast("Arquivo removido. Ative a pasta para gerar o novo Seed.", "info");
-}
-
-export async function atualizarPermissaoPasta(pastaId: string, novaPermissao: 'public' | 'listed' | 'trusted') {
-  const pasta = await buscarPastaMetadata(pastaId);
-  if (!pasta) return;
-
-  pasta.permission = novaPermissao;
-  pasta.modifiedAt = Date.now();
-  await salvarPastaMetadata(pasta);
-  await carregarPastasDoBanco();
-  
-  // 🔥 ARQUITETURA: Mudar permissão não exige reseed, pois não muda o conteúdo do torrent!
-  showToast("Permissão de acesso atualizada internamente.", "success");
-}
-
-export async function baixarArquivoOpfs(pastaId: string, fileName: string) {
-  const file = await lerDoOPFS(pastaId, fileName);
-  if (!file) {
-    showToast("Arquivo não encontrado no disco local.", "error");
-    return;
-  }
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export async function baixarZipPasta(pastaId: string) {
-  const pasta = await buscarPastaMetadata(pastaId);
-  if (!pasta || pasta.files.length === 0) return showToast("A pasta está vazia.", "error");
-
-  showToast("Compactando pasta em ZIP. Aguarde...", "info");
-  
-  try {
-    const zipObj: Record<string, Uint8Array> = {};
-    for (const f of pasta.files) {
-      const file = await lerDoOPFS(pasta.id, f.name);
-      if (file) {
-        zipObj[f.name] = new Uint8Array(await file.arrayBuffer());
-      }
-    }
-    
-    const zipped = zipSync(zipObj);
-    const blob = new Blob([new Uint8Array(zipped)], { type: 'application/zip' });
-    const url = URL.createObjectURL(blob);
-    
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${pasta.name}_P2P.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast("Download do ZIP concluído!", "success");
-  } catch (e: any) {
-    addDebugLog("error", "OPFS", "Falha ao gerar ZIP", e.message);
-    showToast("Erro ao compactar arquivos.", "error");
-  }
-}
-
-export async function adicionarMagnetDownload(magnetURI: string) {
-  if (!isMotorLigar.value) return;
-
-  const wt = getClient();
-  const torrent = wt.add(magnetURI, { announce: RELIABLE_TRACKERS });
-
-  torrent.on('metadata', () => {
-    const manifestTorrentFile = torrent.files.find((f: any) => f.name === '.loco-manifest.json');
-    if (manifestTorrentFile) {
-      manifestTorrentFile.getBuffer(async (err: any, buffer: Uint8Array) => {
-        if (err || !buffer) return;
-        try {
-          const manifestStr = new TextDecoder().decode(buffer);
-          const manifestJson = JSON.parse(manifestStr);
-          const realId = manifestJson.id;
-          const agora = Date.now();
-
-          const existe = await buscarPastaMetadata(realId);
-          if (existe) {
-            torrent.destroy();
-            showToast("Você já possui esta pasta.", "info");
-            return;
-          }
-
-          const fileMetadatas: FileMetadata[] = torrent.files
-            .filter((f: any) => f.name !== '.loco-manifest.json')
-            .map((f: any) => ({
-              name: f.name, size: f.length, type: 'application/octet-stream', 
-              createdAt: agora, modifiedAt: agora
-            }));
-
-          const novaPasta: PastaMetadata = {
-            id: realId, name: manifestJson.name || torrent.name,
-            magnetURI: torrent.magnetURI, infoHash: torrent.infoHash,
-            status: 'downloading', complete: 0,
-            permission: 'trusted', contatos: [], // Padrões locais seguros
-            files: fileMetadatas, createdAt: agora, modifiedAt: agora
-          };
-
-          await salvarPastaMetadata(novaPasta);
-          await carregarPastasDoBanco();
-          _anexarEventosTorrent(torrent, realId);
-
-        } catch (parseErr: any) {
-          addDebugLog("error", "TORRENT_LAB", `Erro de Parse: ${parseErr.message}`);
-        }
-      });
-    }
-  });
-}
-
-export async function alternarStatusPasta(pastaId: string) {
-  const pasta = await buscarPastaMetadata(pastaId);
-  if (!pasta) return;
-
-  if (pasta.status === 'standby') {
-    pasta.status = pasta.complete === 100 ? 'seeding' : 'downloading';
-    await salvarPastaMetadata(pasta);
-    await carregarPastasDoBanco();
-    if (isMotorLigar.value) {
-      if (pasta.status === 'seeding') await reseedPasta(pasta.id);
-      else if (pasta.magnetURI) {
-        const wt = getClient();
-        _anexarEventosTorrent(wt.add(pasta.magnetURI, { announce: RELIABLE_TRACKERS }), pasta.id);
-      }
-    }
-  } else {
-    pasta.status = 'standby';
-    if (client) {
-      const torrentId = pasta.infoHash || pasta.magnetURI;
-      if (torrentId) {
-        const torrentObj = client.get(torrentId);
-        if (torrentObj) torrentObj.destroy();
-      }
-    }
-    const novoMapa = { ...progressoMap.value };
-    delete novoMapa[pastaId];
-    progressoMap.value = novoMapa;
-    
-    await salvarPastaMetadata(pasta);
-    await carregarPastasDoBanco();
-  }
-}
-
-function _anexarEventosTorrent(torrent: any, pastaId: string) {
-  torrent.on('download', () => {
-    progressoMap.value = {
-      ...progressoMap.value,
-      [pastaId]: {
-        progress: Math.round(torrent.progress * 100),
-        speed: torrent.downloadSpeed,
-        peers: torrent.numPeers
-      }
-    };
-  });
-
-  torrent.on('done', async () => {
-    progressoMap.value = { ...progressoMap.value, [pastaId]: { progress: 100, speed: 0, peers: torrent.numPeers } };
-
-    const pasta = await buscarPastaMetadata(pastaId);
-    if (pasta) {
-      pasta.complete = 100;
-      pasta.status = 'seeding';
-      await salvarPastaMetadata(pasta);
-      await carregarPastasDoBanco();
-    }
-
-    for (const file of torrent.files) {
-      if (file.name === '.loco-manifest.json') continue;
-      file.getBlob(async (err: any, blob: Blob | undefined) => {
-        if (!err && blob) await salvarNoOPFS(pastaId, file.name, blob);
-      });
-    }
-  });
-}
 ```
 
 ---
@@ -4657,7 +3496,7 @@ export * from './torrentLabsStore.ts';
 ```ts
 // src/signals/state.ts
 import { signal } from '@preact/signals';
-import { addDebugLog as emitLog } from '../../../utils/src/debug/mod.ts';
+import { addDebugLog as emitLog } from '@loco/utils/debug';
 
 export type AppTheme = 'system' | 'light' | 'dark';
 
@@ -4806,6 +3645,906 @@ export const activeView = computed(() => {
   if (hash === '#settings') return 'settings';
   return 'home';
 });
+```
+
+---
+
+## Arquivo: `monorepo/ui/src/stores/config-store.ts`
+
+```ts
+// Arquivo: monorepo/ui/src/stores/config-store.ts
+import { get, set, del, createStore } from "idb-keyval";
+import { DB_NAMES, DefaultProxyPath, FallbackAbsoluteProxy } from "@loco/utils/config";
+import { setProxyPath, getProxyPath, pingProxy } from "@loco/utils/config";
+
+const CONFIG_STORE_NAME = DB_NAMES.CONFIG;
+const configStore = createStore(CONFIG_STORE_NAME, 'keyval');
+
+export const CONFIG_KEYS = {
+  PROXY_PATH: "ProxyPath",
+  SERVER_PUBLIC_KEY: "ServerPublicKey",
+  APP_THEME: "AppTheme",
+} as const;
+
+export async function saveConfig<K extends keyof typeof CONFIG_KEYS>(key: K, value: string): Promise<void> {
+  try {
+    const configKey = CONFIG_KEYS[key];
+    if (key === 'PROXY_PATH' && typeof value === 'string') {
+      await setProxyPath(value, true);
+      await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
+      console.log("[CONFIG-STORE] 🧹 Chave pública do servidor invalidada devido à troca de proxy.");
+    } else {
+      await set(configKey, value, configStore);
+    }
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao salvar configuração:", error);
+    throw error;
+  }
+}
+
+export async function getConfigValue<K extends keyof typeof CONFIG_KEYS>(key: K): Promise<string | undefined> {
+  try {
+    if (key === 'PROXY_PATH') {
+      const path = await getProxyPath();
+      return path;
+    }
+    const configKey = CONFIG_KEYS[key];
+    const value = await get<string>(configKey, configStore);
+    return value !== undefined && value !== null ? value : undefined;
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao carregar configuração:", error);
+    return undefined;
+  }
+}
+
+export async function resetConfig(): Promise<void> {
+  try {
+    await del(CONFIG_KEYS.PROXY_PATH, configStore);
+    await del(CONFIG_KEYS.SERVER_PUBLIC_KEY, configStore);
+    await del(CONFIG_KEYS.APP_THEME, configStore);
+    await setProxyPath(DefaultProxyPath, true);
+  } catch (error) {
+    console.error("[CONFIG-STORE] Erro ao resetar configurações:", error);
+    throw error;
+  }
+}
+
+export async function loadAllConfigs(): Promise<{ proxy_path?: string }> {
+  const proxy_path = await getConfigValue('PROXY_PATH');
+  const rawDbValue = await get<string>(CONFIG_KEYS.PROXY_PATH, configStore);
+  
+  if (rawDbValue !== undefined && rawDbValue !== null) {
+    await setProxyPath(rawDbValue, false);
+    return { proxy_path: rawDbValue };
+  }
+
+  console.log(`[AUTO-DISCOVERY] Primeira inicialização detectada. Avaliando ambiente...`);
+  const isLocalAlive = await pingProxy(DefaultProxyPath);
+  
+  if (isLocalAlive) {
+    console.log(`[AUTO-DISCOVERY] ✅ Servidor nativo da hospedagem respondeu! Mantendo rota relativa.`);
+    await saveConfig('PROXY_PATH', DefaultProxyPath);
+    return { proxy_path: DefaultProxyPath };
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    console.warn(`[AUTO-DISCOVERY] 🔌 Offline no primeiro acesso e servidor local não respondeu. Assumindo Fallback.`);
+    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+    return { proxy_path: FallbackAbsoluteProxy };
+  }
+
+  console.log(`[AUTO-DISCOVERY] ⚠️ Servidor nativo indisponível ou estático (Ex: GitHub Pages). Iniciando Fallback...`);
+  const isFallbackAlive = await pingProxy(FallbackAbsoluteProxy);
+  
+  if (isFallbackAlive) {
+    console.log(`[AUTO-DISCOVERY] 🛡️ Fallback ativado com sucesso. Conectado ao nó Edge!`);
+    await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+    return { proxy_path: FallbackAbsoluteProxy };
+  }
+
+  console.warn(`[AUTO-DISCOVERY] ❌ Nenhum servidor Proxy respondeu. Definindo Rota Padrão Segura.`);
+  await saveConfig('PROXY_PATH', FallbackAbsoluteProxy);
+  return { proxy_path: FallbackAbsoluteProxy };
+}
+```
+
+---
+
+## Arquivo: `monorepo/ui/src/stores/contatosStore.ts`
+
+```ts
+// Arquivo: monorepo/ui/src/stores/contatosStore.ts
+import { signal, computed } from "@preact/signals";
+import {
+  listarContatos,
+  salvarContato,
+  serializarPublicKeyVapid,
+  buscarProfile,
+  removerContatoPorHash,
+  listarHandshakes,
+  removerHandshake,
+  salvarHandshake,
+  buscarContatoPorChave,
+  gerarId
+} from "@loco/utils/db";
+import type { Contato, Handshake } from "@loco/utils/interfaces";
+import { addDebugLog } from "@loco/utils/debug";
+import { gerarContatoProprio } from "@loco/utils/db";
+import { ExpurgarMensagens } from "@loco/service-worker/handshakes/mensagem";
+import { ExpurgarHandshakesContato } from "@loco/service-worker/handshakes/contato";
+import { ExpurgarHandshakesProfile } from "@loco/service-worker/handshakes/profile";
+
+export type { Contato };
+
+export const isCarregandoContatos = signal<boolean>(false);
+export const contatosRaw = signal<Contato[]>([]);
+
+export const contatosComHash = computed(() => {
+  return contatosRaw.value.map((contato) => ({
+    contato,
+    hash: contato.id,
+  }));
+});
+
+export const contatosMap = computed(() => {
+  const map = new Map<string, Contato>();
+  for (const c of contatosRaw.value) {
+    map.set(c.id, c);
+  }
+  return map;
+});
+
+export async function carregarContatos(): Promise<void> {
+  isCarregandoContatos.value = true;
+  try {
+    const listaCompleta = await listarContatos();
+    const lista = listaCompleta.filter(c => c.me !== 'deleted');
+    const profile = await buscarProfile();
+    
+    if (profile) {
+      const contatoProprio = await gerarContatoProprio(profile);
+      if (contatoProprio) {
+        const indexExistente = lista.findIndex(c => c.id === contatoProprio.id);
+        if (indexExistente >= 0) {
+          lista[indexExistente] = contatoProprio;
+        } else {
+          lista.push(contatoProprio);
+        }
+      }
+    }
+    contatosRaw.value = lista;
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
+  } finally {
+    isCarregandoContatos.value = false;
+  }
+}
+
+let isContatosListenerInitialized = false;
+
+export async function initContatosStore(): Promise<void> {
+  await carregarContatos();
+  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
+    isContatosListenerInitialized = true;
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'CONTATO_ATUALIZADO') {
+        carregarContatos();
+      }
+    });
+  }
+}
+
+export async function adicionarContato(contato: Contato): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === contato.id);
+    if (index >= 0) {
+      const novaLista = [...atual];
+      novaLista[index] = contato;
+      contatosRaw.value = novaLista;
+    } else {
+      contatosRaw.value = [...atual, contato];
+    }
+    await salvarContato(contato);
+    addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", `Erro ao persistir contato ${contato.id}`, err);
+    throw err;
+  }
+}
+
+export async function importarNovoContato(dadosBasicos: Omit<Contato, 'me' | 'createdAt' | 'updatedAt'>): Promise<void> {
+  const novoContato: Contato = {
+    ...dadosBasicos,
+    me: 'none',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await adicionarContato(novoContato);
+  addDebugLog("info", "STORE:CONTATO", `Novo contato (${novoContato.name}) importado. Status de sincronia inicializado como 'none'.`);
+}
+
+export function adicionarOuAtualizarContato(contato: Contato): void {
+  adicionarContato(contato).catch((err) => {
+    addDebugLog("error", "STORE:CONTATO", "Falha assíncrona ao adicionar/atualizar contato", err);
+  });
+}
+
+export async function rebaixarConfiancaContatos(): Promise<void> {
+  try {
+    const atual = contatosRaw.value;
+    if (atual.length === 0) return;
+    let mudouAlgum = false;
+    
+    const novaLista = atual.map(c => {
+      if (c.me === 'trusted' || c.me === 'saved') {
+        mudouAlgum = true;
+        return { ...c, me: 'none' as const, updatedAt: Date.now() };
+      }
+      return c;
+    });
+    
+    if (!mudouAlgum) return;
+    contatosRaw.value = novaLista;
+    
+    Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
+      addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
+    });
+    addDebugLog("info", "STORE:CONTATO", `Status 'me' rebaixado para 'none' em contatos salvos para forçar o Piggybacking.`);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro crítico ao rebaixar confiança dos contatos", err);
+  }
+}
+
+export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    await removerContatoCompletamente(hash);
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao remover contato por chave pública", err);
+  }
+}
+
+export async function removerContatoCompletamente(hash: string, notificarRemoto = true): Promise<void> {
+  try {
+    addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
+    contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
+    
+    await ExpurgarMensagens(hash, false);
+    await ExpurgarHandshakesContato(hash);
+    await ExpurgarHandshakesProfile(hash);
+    
+    const handshakes = await listarHandshakes();
+    for (const h of handshakes) {
+      if (h.aud === hash) await removerHandshake(h.id);
+    }
+    
+    const contatoExistente = await buscarContatoPorChave(hash);
+    if (notificarRemoto && contatoExistente) {
+      contatoExistente.me = 'deleted';
+      await salvarContato(contatoExistente);
+      
+      const handshakeDelecao: Handshake = {
+        id: gerarId(),
+        aud: hash,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        out: {
+          status: 'pendente',
+          tentativas: 0,
+          rotas: { contato: { removerContato: true } }
+        }
+      };
+      await salvarHandshake(handshakeDelecao);
+      
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg.active) reg.active.postMessage({ type: 'PROCESSAR_FILA_HANDSHAKE' });
+      }
+    } else {
+      await removerContatoPorHash(hash);
+    }
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
+    throw err;
+  }
+}
+
+export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): Promise<void> {
+  try {
+    const hash = await serializarPublicKeyVapid(vapidPublicKey);
+    const atual = contatosRaw.value;
+    const index = atual.findIndex(c => c.id === hash);
+    
+    if (index >= 0 && atual[index]) {
+      const contatoAtual = atual[index];
+      const contatoModificado: Contato = { ...contatoAtual, trusted: true, updatedAt: Date.now() };
+      const novaLista = [...atual];
+      novaLista[index] = contatoModificado;
+      contatosRaw.value = novaLista;
+      await salvarContato(contatoModificado);
+    }
+  } catch (err) {
+    addDebugLog("error", "STORE:CONTATO", "Erro ao homologar contato", err);
+  }
+}
+
+export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
+  const atual = contatosRaw.value;
+  const index = atual.findIndex(c => c.id === id);
+  
+  if (index >= 0 && atual[index]) {
+    const contatoAtual = atual[index];
+    const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
+    const novaLista = [...atual];
+    novaLista[index] = contatoModificado;
+    contatosRaw.value = novaLista;
+    
+    salvarContato(contatoModificado).catch(err => {
+      addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
+    });
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/ui/src/stores/torrentLabsStore.ts`
+
+```ts
+// Arquivo: monorepo/ui/src/stores/torrentLabsStore.ts
+import { signal } from "@preact/signals";
+import { zipSync } from "fflate";
+import { addDebugLog, showToast } from "./state.ts";
+import { salvarNoOPFS, lerDoOPFS, excluirDoOPFS } from "../worker-opfs/opfs-utils.ts";
+import {
+  salvarPastaMetadata,
+  listarTodasAsPastas,
+  buscarPastaMetadata,
+  removerPastaMetadata,
+  gerarId
+} from "@loco/utils/db";
+import type { PastaMetadata, FileMetadata } from "@loco/utils/interfaces";
+
+export const isMotorLigar = signal<boolean>(false);
+export const pastasAtivas = signal<PastaMetadata[]>([]);
+export const progressoMap = signal<Record<string, { progress: number, speed: number, peers: number }>>({});
+
+let client: any = null;
+
+const RELIABLE_TRACKERS = [
+  "wss://tracker.webtorrent.dev:443",
+  "wss://tracker.openwebtorrent.com:443",
+  "wss://open.ftorrent.com:443"
+];
+
+function getClient(): any {
+  if (!client) {
+    const WebTorrentEngine = (globalThis as any).WebTorrent;
+    if (!WebTorrentEngine) {
+      addDebugLog("error", "TORRENT_LAB", "Motor WebTorrent não foi carregado pelo index.html.");
+      throw new Error("Falha no carregamento do WebTorrent.");
+    }
+    client = new WebTorrentEngine();
+    client.on('error', (err: any) => addDebugLog("error", "TORRENT_LAB", `Erro fatal: ${err.message}`));
+  }
+  return client;
+}
+
+export async function carregarPastasDoBanco() {
+  const todas = await listarTodasAsPastas();
+  pastasAtivas.value = todas.sort((a, b) => b.modifiedAt - a.modifiedAt);
+}
+
+export async function initTorrentLabsStore() {
+  await carregarPastasDoBanco();
+}
+
+export async function alternarMotor() {
+  if (isMotorLigar.value) {
+    if (client) {
+      client.destroy();
+      client = null;
+    }
+    isMotorLigar.value = false;
+    progressoMap.value = {};
+    addDebugLog("info", "TORRENT_LAB", "Motor WebTorrent desligado.");
+  } else {
+    isMotorLigar.value = true;
+    addDebugLog("info", "TORRENT_LAB", "Motor WebTorrent ligado. Iniciando resumos...");
+    await carregarPastasDoBanco();
+    for (const pasta of pastasAtivas.value) {
+      if (pasta.status !== 'standby') {
+        reseedPasta(pasta.id);
+      }
+    }
+  }
+}
+
+export async function criarNovaPastaOffline(
+  nomePasta: string,
+  arquivosInput: FileList | File[],
+  permissao: 'public' | 'listed' | 'trusted' = 'trusted'
+) {
+  const id = gerarId();
+  const agora = Date.now();
+  const fileArray = Array.from(arquivosInput);
+  const fileMetadatas: FileMetadata[] = [];
+  
+  for (const f of fileArray) {
+    await salvarNoOPFS(id, f.name, f);
+    fileMetadatas.push({ name: f.name, size: f.size, type: f.type, createdAt: agora, modifiedAt: agora });
+  }
+  
+  const novaPasta: PastaMetadata = {
+    id, name: nomePasta, status: 'standby', complete: 100,
+    permission: permissao, contatos: [], files: fileMetadatas,
+    createdAt: agora, modifiedAt: agora
+  };
+  
+  await salvarPastaMetadata(novaPasta);
+  await carregarPastasDoBanco();
+  addDebugLog("success", "TORRENT_LAB", `Pasta '${nomePasta}' criada Offline no OPFS.`);
+  
+  if (isMotorLigar.value) {
+    novaPasta.status = 'seeding';
+    await salvarPastaMetadata(novaPasta);
+    await reseedPasta(id);
+  }
+}
+
+export async function reseedPasta(pastaId: string) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta || pasta.status === 'downloading' || pasta.status === 'standby' || !isMotorLigar.value) return;
+  
+  const wt = getClient();
+  const torrentId = pasta.infoHash || pasta.magnetURI;
+  if (torrentId) {
+    const t = wt.get(torrentId);
+    if (t) t.destroy();
+  }
+  
+  const manifesto = { id: pasta.id, name: pasta.name };
+  const manifestBlob = new Blob([JSON.stringify(manifesto, null, 2)], { type: 'application/json' });
+  await salvarNoOPFS(pasta.id, '.loco-manifest.json', manifestBlob);
+  
+  const filesToSeed: File[] = [];
+  for (const f of pasta.files) {
+    const file = await lerDoOPFS(pasta.id, f.name);
+    if (file) filesToSeed.push(file);
+  }
+  
+  const manifestFile = await lerDoOPFS(pasta.id, '.loco-manifest.json');
+  if (manifestFile) filesToSeed.push(manifestFile);
+  
+  wt.seed(filesToSeed, { announce: RELIABLE_TRACKERS, name: pasta.name }, (torrent: any) => {
+    pasta.magnetURI = torrent.magnetURI;
+    pasta.infoHash = torrent.infoHash;
+    pasta.status = 'seeding';
+    salvarPastaMetadata(pasta).then(() => carregarPastasDoBanco());
+    _anexarEventosTorrent(torrent, pasta.id);
+    addDebugLog("info", "TORRENT_LAB", `Seed da pasta '${pasta.name}' reconstruído.`);
+  });
+}
+
+export async function adicionarArquivosPasta(pastaId: string, novosArquivos: FileList | File[]) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta) return;
+  if (pasta.status !== 'standby') {
+    showToast("Coloque a pasta em Standby para adicionar arquivos.", "error");
+    return;
+  }
+  
+  const agora = Date.now();
+  const fileArray = Array.from(novosArquivos);
+  
+  for (const f of fileArray) {
+    await salvarNoOPFS(pasta.id, f.name, f);
+    const existIndex = pasta.files.findIndex(x => x.name === f.name);
+    const meta: FileMetadata = { name: f.name, size: f.size, type: f.type, createdAt: agora, modifiedAt: agora };
+    if (existIndex >= 0) pasta.files[existIndex] = meta;
+    else pasta.files.push(meta);
+  }
+  
+  pasta.modifiedAt = agora;
+  pasta.magnetURI = undefined;
+  pasta.infoHash = undefined;
+  
+  await salvarPastaMetadata(pasta);
+  await carregarPastasDoBanco();
+  showToast("Arquivos anexados. Ative a pasta para gerar o novo Seed.", "success");
+}
+
+export async function removerArquivoPasta(pastaId: string, fileName: string) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta) return;
+  if (pasta.status !== 'standby') {
+    showToast("Coloque a pasta em Standby para excluir arquivos.", "error");
+    return;
+  }
+  
+  await excluirDoOPFS(pasta.id, fileName);
+  pasta.files = pasta.files.filter(f => f.name !== fileName);
+  pasta.modifiedAt = Date.now();
+  pasta.magnetURI = undefined;
+  pasta.infoHash = undefined;
+  
+  await salvarPastaMetadata(pasta);
+  await carregarPastasDoBanco();
+  showToast("Arquivo removido. Ative a pasta para gerar o novo Seed.", "info");
+}
+
+export async function atualizarPermissaoPasta(pastaId: string, novaPermissao: 'public' | 'listed' | 'trusted') {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta) return;
+  
+  pasta.permission = novaPermissao;
+  pasta.modifiedAt = Date.now();
+  
+  await salvarPastaMetadata(pasta);
+  await carregarPastasDoBanco();
+  showToast("Permissão de acesso atualizada internamente.", "success");
+}
+
+export async function baixarArquivoOpfs(pastaId: string, fileName: string) {
+  const file = await lerDoOPFS(pastaId, fileName);
+  if (!file) {
+    showToast("Arquivo não encontrado no disco local.", "error");
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function baixarZipPasta(pastaId: string) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta || pasta.files.length === 0) return showToast("A pasta está vazia.", "error");
+  
+  showToast("Compactando pasta em ZIP. Aguarde...", "info");
+  try {
+    const zipObj: Record<string, Uint8Array> = {};
+    for (const f of pasta.files) {
+      const file = await lerDoOPFS(pasta.id, f.name);
+      if (file) {
+        zipObj[f.name] = new Uint8Array(await file.arrayBuffer());
+      }
+    }
+    const zipped = zipSync(zipObj);
+    const blob = new Blob([new Uint8Array(zipped)], { type: 'application/zip' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${pasta.name}_P2P.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Download do ZIP concluído!", "success");
+  } catch (e: any) {
+    addDebugLog("error", "OPFS", "Falha ao gerar ZIP", e.message);
+    showToast("Erro ao compactar arquivos.", "error");
+  }
+}
+
+export async function adicionarMagnetDownload(magnetURI: string) {
+  if (!isMotorLigar.value) return;
+  const wt = getClient();
+  const torrent = wt.add(magnetURI, { announce: RELIABLE_TRACKERS });
+  
+  torrent.on('metadata', () => {
+    const manifestTorrentFile = torrent.files.find((f: any) => f.name === '.loco-manifest.json');
+    if (manifestTorrentFile) {
+      manifestTorrentFile.getBuffer(async (err: any, buffer: Uint8Array) => {
+        if (err || !buffer) return;
+        try {
+          const manifestStr = new TextDecoder().decode(buffer);
+          const manifestJson = JSON.parse(manifestStr);
+          const realId = manifestJson.id;
+          const agora = Date.now();
+          
+          const existe = await buscarPastaMetadata(realId);
+          if (existe) {
+            torrent.destroy();
+            showToast("Você já possui esta pasta.", "info");
+            return;
+          }
+          
+          const fileMetadatas: FileMetadata[] = torrent.files
+            .filter((f: any) => f.name !== '.loco-manifest.json')
+            .map((f: any) => ({
+              name: f.name, size: f.length, type: 'application/octet-stream',
+              createdAt: agora, modifiedAt: agora
+            }));
+            
+          const novaPasta: PastaMetadata = {
+            id: realId, name: manifestJson.name || torrent.name,
+            magnetURI: torrent.magnetURI, infoHash: torrent.infoHash,
+            status: 'downloading', complete: 0,
+            permission: 'trusted', contatos: [],
+            files: fileMetadatas, createdAt: agora, modifiedAt: agora
+          };
+          
+          await salvarPastaMetadata(novaPasta);
+          await carregarPastasDoBanco();
+          _anexarEventosTorrent(torrent, realId);
+        } catch (parseErr: any) {
+          addDebugLog("error", "TORRENT_LAB", `Erro de Parse: ${parseErr.message}`);
+        }
+      });
+    }
+  });
+}
+
+export async function alternarStatusPasta(pastaId: string) {
+  const pasta = await buscarPastaMetadata(pastaId);
+  if (!pasta) return;
+  
+  if (pasta.status === 'standby') {
+    pasta.status = pasta.complete === 100 ? 'seeding' : 'downloading';
+    await salvarPastaMetadata(pasta);
+    await carregarPastasDoBanco();
+    
+    if (isMotorLigar.value) {
+      if (pasta.status === 'seeding') await reseedPasta(pasta.id);
+      else if (pasta.magnetURI) {
+        const wt = getClient();
+        _anexarEventosTorrent(wt.add(pasta.magnetURI, { announce: RELIABLE_TRACKERS }), pasta.id);
+      }
+    }
+  } else {
+    pasta.status = 'standby';
+    if (client) {
+      const torrentId = pasta.infoHash || pasta.magnetURI;
+      if (torrentId) {
+        const torrentObj = client.get(torrentId);
+        if (torrentObj) torrentObj.destroy();
+      }
+    }
+    const novoMapa = { ...progressoMap.value };
+    delete novoMapa[pastaId];
+    progressoMap.value = novoMapa;
+    
+    await salvarPastaMetadata(pasta);
+    await carregarPastasDoBanco();
+  }
+}
+
+function _anexarEventosTorrent(torrent: any, pastaId: string) {
+  torrent.on('download', () => {
+    progressoMap.value = {
+      ...progressoMap.value,
+      [pastaId]: {
+        progress: Math.round(torrent.progress * 100),
+        speed: torrent.downloadSpeed,
+        peers: torrent.numPeers
+      }
+    };
+  });
+  
+  torrent.on('done', async () => {
+    progressoMap.value = { ...progressoMap.value, [pastaId]: { progress: 100, speed: 0, peers: torrent.numPeers } };
+    const pasta = await buscarPastaMetadata(pastaId);
+    if (pasta) {
+      pasta.complete = 100;
+      pasta.status = 'seeding';
+      await salvarPastaMetadata(pasta);
+      await carregarPastasDoBanco();
+    }
+    
+    for (const file of torrent.files) {
+      if (file.name === '.loco-manifest.json') continue;
+      file.getBlob(async (err: any, blob: Blob | undefined) => {
+        if (!err && blob) await salvarNoOPFS(pastaId, file.name, blob);
+      });
+    }
+  });
+}
+```
+
+---
+
+## Arquivo: `monorepo/ui/src/stores/mensagensStore.ts`
+
+```ts
+// Arquivo: monorepo/ui/src/stores/mensagensStore.ts
+import { signal, batch } from '@preact/signals';
+import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '@loco/utils/db';
+import { ExpurgarMensagens } from '@loco/service-worker/handshakes/mensagem';
+import type { Chat } from '@loco/utils/interfaces';
+import { contatoSelecionado } from './state.ts';
+
+export const mensagensAtivas = signal<Chat[]>([]);
+export const hasMoreMessages = signal<boolean>(true);
+export const isFetchingMensagens = signal<boolean>(false);
+
+const PAGE_SIZE = 30;
+let currentOffset = 0;
+
+export function limparMemoriaChat() {
+  batch(() => {
+    mensagensAtivas.value = [];
+    hasMoreMessages.value = true;
+    isFetchingMensagens.value = false;
+    currentOffset = 0;
+  });
+}
+
+export async function inicializarChat(contatoHash: string) {
+  limparMemoriaChat();
+  await carregarMaisMensagens(contatoHash);
+}
+
+export async function carregarMaisMensagens(contatoHash: string) {
+  if (isFetchingMensagens.value || !hasMoreMessages.value) return;
+  isFetchingMensagens.value = true;
+  try {
+    const novas = await listarChatPaginado(contatoHash, PAGE_SIZE, currentOffset);
+    if (contatoHash !== contatoSelecionado.value) {
+      return;
+    }
+    batch(() => {
+      if (novas.length < PAGE_SIZE) {
+        hasMoreMessages.value = false;
+      }
+      if (novas.length > 0) {
+        currentOffset += novas.length;
+        const unificadas = [...novas, ...mensagensAtivas.value];
+        mensagensAtivas.value = unificadas.sort((a, b) => a.createdAt - b.createdAt);
+      }
+    });
+  } finally {
+    isFetchingMensagens.value = false;
+  }
+}
+
+export async function atualizarOuAdicionarChatAtivo(chat: Chat) {
+  if (chat.contatoHash === contatoSelecionado.value) {
+    const atual = mensagensAtivas.value;
+    const index = atual.findIndex(m => m.id === chat.id);
+    if (index !== -1) {
+      const nova = [...atual];
+      nova[index] = chat;
+      mensagensAtivas.value = nova;
+    } else {
+      mensagensAtivas.value = [...atual, chat];
+      currentOffset += 1;
+    }
+  }
+  await salvarChat(chat);
+}
+
+export async function processarAtualizacaoDeStatusDB(chatId: string) {
+  const chatAtualizado = await buscarChat(chatId);
+  if (chatAtualizado) {
+    await atualizarOuAdicionarChatAtivo(chatAtualizado);
+  } else {
+    const atual = mensagensAtivas.value;
+    const existe = atual.some(m => m.id === chatId || chatId === 'ALL_PURGED');
+    if (existe) {
+      batch(() => {
+        mensagensAtivas.value = chatId === 'ALL_PURGED' ? [] : atual.filter(m => m.id !== chatId);
+        currentOffset = chatId === 'ALL_PURGED' ? 0 : Math.max(0, currentOffset - 1);
+      });
+    }
+  }
+}
+
+export async function excluirMensagem(msgId: string, contatoHash: string) {
+  if (contatoSelecionado.value === contatoHash) {
+    batch(() => {
+      mensagensAtivas.value = mensagensAtivas.value.filter(m => m.id !== msgId);
+      currentOffset = Math.max(0, currentOffset - 1);
+    });
+  }
+  
+  const msgLocal = await buscarChat(msgId);
+  const deveAvisarRemoto = msgLocal && msgLocal.handshake !== 'self';
+  
+  await removerChat(msgId, contatoHash);
+  
+  if (deveAvisarRemoto && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'CRIAR_HANDSHAKE_OUT',
+          payload: {
+            rotasModulo: 'mensagem',
+            params: { function: 'excluirMensagem', contato: contatoHash, msgId: msgId }
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Falha ao enviar handshake de exclusão remota", e);
+    }
+  }
+}
+
+export async function limparTodoHistorico(contatoHash: string) {
+  if (contatoSelecionado.value === contatoHash) {
+    limparMemoriaChat();
+  }
+  await ExpurgarMensagens(contatoHash, true);
+}
+
+export async function initMensagensStore() {}
+```
+
+---
+
+## Arquivo: `monorepo/ui/src/stores/profileStore.ts`
+
+```ts
+// Arquivo: monorepo/ui/src/stores/profileStore.ts
+import { signal, batch } from '@preact/signals';
+import { buscarProfile, salvarProfile } from '@loco/utils/db';
+import type { ProfileConfig } from '@loco/utils/interfaces';
+import { profileName, profileEmail, addDebugLog } from './state.ts';
+
+export const isSavingProfile = signal<boolean>(false);
+export const profile = signal<ProfileConfig | null>(null);
+
+export async function carregarProfile() {
+  try {
+    const p = await buscarProfile();
+    batch(() => {
+      profile.value = p || null;
+      if (p) {
+        profileName.value = p.name;
+        profileEmail.value = p.email;
+      }
+    });
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha ao carregar perfil do DB", error);
+  }
+}
+
+export async function atualizarProfile(p: ProfileConfig) {
+  if (isSavingProfile.value) {
+    addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
+    return;
+  }
+
+  let requiresDowngrade = false;
+  const oldP = profile.value;
+  if (oldP) {
+    if (
+      oldP.vapidPrivateKeyEnvelope !== p.vapidPrivateKeyEnvelope ||
+      oldP.subscription?.endpoint !== p.subscription?.endpoint ||
+      oldP.subscription?.proxyserver !== p.subscription?.proxyserver ||
+      JSON.stringify(oldP.e2ePublicKey) !== JSON.stringify(p.e2ePublicKey) ||
+      JSON.stringify(oldP.vapidPublicKey) !== JSON.stringify(p.vapidPublicKey)
+    ) {
+      requiresDowngrade = true;
+    }
+  }
+
+  batch(() => {
+    profile.value = { ...p };
+    profileName.value = p.name;
+    profileEmail.value = p.email;
+  });
+
+  isSavingProfile.value = true;
+  try {
+    await salvarProfile(p);
+    if (requiresDowngrade) {
+      addDebugLog("info", "STORE:PROFILE", "Mudança estrutural detectada na identidade. Disparando rebaixamento de confiança...");
+      const { rebaixarConfiancaContatos } = await import('./contatosStore.ts');
+      await rebaixarConfiancaContatos();
+    }
+  } catch (error) {
+    addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);
+  } finally {
+    isSavingProfile.value = false;
+  }
+}
+
+export async function initProfileStore() {
+  await carregarProfile();
+}
 ```
 
 ---
@@ -5037,8 +4776,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
 
 ```ts
 // src/utils/opfs-utils.ts
-import { addDebugLog } from "../../../utils/src/debug/mod.ts";
-import { APP_VERSION } from "../../../utils/src/config/version.ts";
+import { addDebugLog } from "@loco/utils/debug";
+import { APP_VERSION } from "@loco/utils/config";
 
 let opfsWorker: Worker | null = null;
 let messageIdCounter = 0;
@@ -5145,55 +4884,204 @@ export async function excluirTodoChatDoOPFS(chatHash: string): Promise<boolean> 
 
 ---
 
+## Arquivo: `monorepo/ui/src/app.tsx`
+
+```tsx
+// Arquivo: monorepo/ui/src/app.tsx
+import { render } from 'preact';
+import { useEffect, useState } from 'preact/hooks';
+import { effect } from '@preact/signals';
+import type { ComponentType } from 'preact';
+
+// Componentes da Interface (App Shell & Rotas)
+import { AppSidebar } from './components/AppSidebar.tsx';
+import { MainHeader } from './components/MainHeader.tsx';
+import { ChatSection } from './components/ChatSection.tsx';
+import { ContactDetailSection } from './components/ContactDetailSection.tsx';
+import { AdvancedSection } from './components/AdvancedSection.tsx';
+import { ProfileSection } from './components/ProfileSection.tsx';
+import { LogoutSection } from './components/LogoutSection.tsx';
+import { ShareSection } from './components/ShareSection.tsx';
+import { SettingsSection } from './components/SettingsSection.tsx';
+import { ToastSnackbar } from './components/ToastSnackbar.tsx';
+import { WebTorrentLabsSection } from './components/WebTorrentLabsSection.tsx';
+
+// Signals e Lógica de Negócio
+import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, appTheme, AppTheme } from './stores/state.ts';
+import { profile, initProfileStore, initContatosStore, initMensagensStore, initTorrentLabsStore, contatosComHash } from './stores/mod.ts';
+import { isCarregandoContatos } from './stores/contatosStore.ts';
+import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
+
+// Roteador Reativo
+import { activeView, navigate } from './stores/router.ts';
+import "@material/web";
+import './styles.css';
+
+effect(() => {
+  if (typeof document !== 'undefined') {
+    const theme = appTheme.value;
+    if (theme === 'system') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  }
+});
+
+const HomePlaceholder = () => (
+  <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-on-surface-variant);">
+    <div style="text-align: center;">
+      <md-icon style="font-size: 4rem; opacity: 0.3;">forum</md-icon>
+      <p style="font-size: 0.9rem;">Clique em um contato na barra lateral<br/>para conversar ou ver seu cartão de indicação.</p>
+    </div>
+  </div>
+);
+
+const PushAlertBanner = () => {
+  const p = profile.value;
+  const _view = activeView.value;
+  if (!p || !p.name) return null;
+
+  const hasEndpoint = !!(p.subscription && p.subscription.endpoint);
+  const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+
+  if (hasEndpoint && hasPermission) return null;
+
+  return (
+    <div style="background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.85rem; z-index: 50; flex-shrink: 0; border-bottom: 1px solid var(--md-sys-color-error);">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <md-icon style="color: var(--md-sys-color-error);">notifications_off</md-icon>
+        <span><strong>Rede Incompleta:</strong> Você não pode receber notificações ou mensagens diretas.</span>
+      </div>
+      <md-outlined-button onClick={() => navigate('#advanced')} style="flex-shrink: 0; --md-sys-color-outline: var(--md-sys-color-on-error-container); color: var(--md-sys-color-on-error-container);">
+        Corrigir
+      </md-outlined-button>
+    </div>
+  );
+};
+
+const ViewMap: Record<string, ComponentType<any>> = {
+  'chat': ChatSection,
+  'detail': ContactDetailSection,
+  'advanced': AdvancedSection,
+  'labs': WebTorrentLabsSection,
+  'profile': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
+  'logout': LogoutSection,
+  'share': ShareSection,
+  'settings': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><SettingsSection/></div></div>,
+  'home': HomePlaceholder,
+};
+
+function App() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const init = async () => {
+      const savedTheme = await getConfigValue('APP_THEME');
+      if (savedTheme) appTheme.value = savedTheme as AppTheme;
+      
+      addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
+      await loadAllConfigs();
+      await initProfileStore();
+      
+      const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
+      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value);
+      
+      if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
+        navigate('#profile');
+      }
+      
+      await initContatosStore();
+      await initMensagensStore();
+      await initTorrentLabsStore();
+      
+      setIsLoading(false);
+    };
+    init();
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
+      const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
+      if (hashAlvo) {
+        const contatoExiste = contatosComHash.value.some(c => c.hash === hashAlvo);
+        if (!contatoExiste) {
+          addDebugLog("warn", "ROUTER", "Tentativa de acesso a contato inexistente/excluído. Redirecionando para Home.");
+          navigate('');
+        }
+      }
+    }
+  }, [isLoading, isCarregandoContatos.value, activeView.value, contatoSelecionado.value, contatoCompartilharHash.value, contatosComHash.value]);
+
+  if (isLoading) {
+    return (
+      <div style="display: flex; height: 100vh; justify-content: center; align-items: center;">
+        <md-circular-progress indeterminate></md-circular-progress>
+      </div>
+    );
+  }
+
+  const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
+  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value);
+  const viewToRender = (!isIdentityValid && !isRouteAllowedWithoutProfile) ? 'profile' : activeView.value;
+
+  const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
+  const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
+  const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
+  
+  const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
+
+  return (
+    <div style="display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; overflow: hidden;">
+      <PushAlertBanner />
+      <div id="app-root" class={`view-mode-${currentMobileView.value}`} style="flex-grow: 1; display: flex; position: relative; min-height: 0;">
+        <AppSidebar isIdentityValid={isIdentityValid} />
+        <main class="app-main">
+          <MainHeader />
+          <RouteComponent/>
+        </main>
+      </div>
+      <ToastSnackbar/>
+    </div>
+  );
+}
+
+const root = document.getElementById('app');
+if (root) {
+  render(<App/>, root);
+}
+```
+
+---
+
 ## Arquivo: `monorepo/ui/tests/stores/mensagensStore.test.ts`
 
 ```ts
-// tests/stores/mensagensStore.test.ts
+// Arquivo: monorepo/ui/tests/stores/mensagensStore.test.ts
 /// <reference lib="deno.ns" />
-
-// 🔥 Injetamos o Fake IndexedDB para que o store consiga persistir os dados na RAM
-import "fake-indexeddb";
-
+import "fake-indexeddb/auto";
 import { assertEquals, assert } from "@std/assert";
-import { 
-  mensagensAtivas, 
-  inicializarChat, 
-  atualizarOuAdicionarChatAtivo 
-} from "../../src/stores/mensagensStore.ts";
-import { removerTodoHistoricoChat, buscarChat } from "../../../utils/src/db/mod.ts";
+import { mensagensAtivas, inicializarChat, atualizarOuAdicionarChatAtivo } from "../../src/stores/mensagensStore.ts";
+import { removerTodoHistoricoChat, buscarChat } from "@loco/utils/db";
 import { contatoSelecionado } from "../../src/stores/state.ts";
-import type { Chat } from "../../../utils/src/interfaces/db.ts";
+import type { Chat } from "@loco/utils/interfaces";
 
 Deno.test("Store: Mensagens - Deve refletir atualizações no Signal de forma Otimista", async () => {
   const hashContato = "contato-reativo-123";
   await removerTodoHistoricoChat(hashContato);
   
-  // 1. Simulamos a UI definindo o contato ativo
   contatoSelecionado.value = hashContato;
-  
-  // 2. Inicializa o chat (o Signal mensagensAtivas deve zerar)
   await inicializarChat(hashContato);
-  assertEquals(mensagensAtivas.value.length, 0, "O Signal deve iniciar vazio");
+  assertEquals(mensagensAtivas.value.length, 0);
   
-  const novaMsg: Chat = {
-    id: "msg-signal-01",
-    contatoHash: hashContato,
-    conteudo: "Teste de Reatividade com Signals!",
-    tipo: 'out',
-    createdAt: Date.now(),
-    handshake: "hand-01"
-  };
-
-  // 3. Adicionamos a mensagem via Store
+  const novaMsg: Chat = { id: "msg-signal-01", contatoHash: hashContato, conteudo: "Teste de Reatividade com Signals!", tipo: 'out', createdAt: Date.now(), handshake: "hand-01" };
   await atualizarOuAdicionarChatAtivo(novaMsg);
   
-  // 4. VERIFICAÇÃO 1 (Reatividade): O Signal atualizou na memória?
-  assertEquals(mensagensAtivas.value.length, 1, "O Signal deve conter 1 mensagem");
-  assertEquals(mensagensAtivas.value[0]!.conteudo, "Teste de Reatividade com Signals!", "O conteúdo no Signal deve bater");
-
-  // 5. VERIFICAÇÃO 2 (Persistência): A mensagem realmente foi pro banco em background?
+  assertEquals(mensagensAtivas.value.length, 1);
+  assertEquals(mensagensAtivas.value[0]!.conteudo, "Teste de Reatividade com Signals!");
+  
   const msgNoBanco = await buscarChat("msg-signal-01");
-  assert(msgNoBanco !== undefined, "A mensagem DEVE ter sido salva no IndexedDB em background");
+  assert(msgNoBanco !== undefined);
   assertEquals(msgNoBanco.conteudo, "Teste de Reatividade com Signals!");
 });
 
@@ -5204,19 +5092,10 @@ Deno.test("Store: Mensagens - Não deve sujar o Signal se o chat ativo for difer
   contatoSelecionado.value = hashContatoAtivo;
   await inicializarChat(hashContatoAtivo);
   
-  const msgParaOutro: Chat = {
-    id: "msg-signal-02",
-    contatoHash: hashOutroContato, // Mensagem de OUTRO contato chegando em background
-    conteudo: "Isso não deve aparecer na tela A",
-    tipo: 'in',
-    createdAt: Date.now(),
-    handshake: "hand-02"
-  };
-
+  const msgParaOutro: Chat = { id: "msg-signal-02", contatoHash: hashOutroContato, conteudo: "Isso não deve aparecer na tela A", tipo: 'in', createdAt: Date.now(), handshake: "hand-02" };
   await atualizarOuAdicionarChatAtivo(msgParaOutro);
   
-  // O Signal NÃO deve ter sido alterado, pois a UI está focada no contato-A
-  assertEquals(mensagensAtivas.value.length, 0, "O Signal não deve receber mensagens de um chat inativo");
+  assertEquals(mensagensAtivas.value.length, 0);
 });
 ```
 
@@ -5225,20 +5104,17 @@ Deno.test("Store: Mensagens - Não deve sujar o Signal se o chat ativo for difer
 ## Arquivo: `monorepo/ui/tests/integration/auto-discovery.test.ts`
 
 ```ts
-// tests/integration/auto-discovery.test.ts
+// Arquivo: monorepo/ui/tests/integration/auto-discovery.test.ts
 /// <reference lib="deno.ns" />
-
-import "fake-indexeddb";
+import "fake-indexeddb/auto";
 import { assertEquals } from "@std/assert";
 import { loadAllConfigs, resetConfig, getConfigValue, saveConfig } from "../../src/stores/config-store.ts";
-import { DefaultProxyPath, FallbackAbsoluteProxy } from "../../../utils/src/config/proxy.ts";
+import { DefaultProxyPath, FallbackAbsoluteProxy } from "@loco/utils/config";
 
 const originalFetch = globalThis.fetch;
 
 Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve selecionar Rota Relativa quando o servidor nativo responde ao /ping", async () => {
-  await resetConfig(); // Garante banco limpo e reseta a chave
-
-  // Simula que o servidor local/nativo (DefaultProxyPath) está ONLINE e é um loco-proxy válido
+  await resetConfig();
   globalThis.fetch = async (input: string | URL | Request): Promise<Response> => {
     const urlStr = input.toString();
     if (urlStr.includes("/ping")) {
@@ -5252,11 +5128,7 @@ Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve selecionar Rota Relativa quando o
 
   try {
     const config = await loadAllConfigs();
-    
-    // Deve ter preferido o servidor relativo nativo ("/")
     assertEquals(config.proxy_path, DefaultProxyPath);
-    
-    // Verifica se salvou e retornou a decisão no IndexedDB
     const savedInDb = await getConfigValue("PROXY_PATH");
     assertEquals(savedInDb, DefaultProxyPath);
   } finally {
@@ -5266,30 +5138,20 @@ Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve selecionar Rota Relativa quando o
 
 Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve fazer Fallback quando o servidor nativo falha mas o Fallback responde", async () => {
   await resetConfig();
-
-  // Simula que o servidor local falha/dá 500, mas o Fallback responde com sucesso
   globalThis.fetch = async (input: string | URL | Request): Promise<Response> => {
     const urlStr = input.toString();
-    
-    // Se a chamada for para o Fallback remoto
     if (urlStr.includes(FallbackAbsoluteProxy) && urlStr.includes("/ping")) {
       return new Response(JSON.stringify({ success: true, service: "loco-proxy", timestamp: Date.now() }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
-
-    // Se for o local/relativo, falha
     return new Response("Internal Server Error", { status: 500 });
   };
 
   try {
     const config = await loadAllConfigs();
-    
-    // Deve ter ativado o Fallback remoto
     assertEquals(config.proxy_path, FallbackAbsoluteProxy);
-    
-    // E ter salvo no IndexedDB
     const savedInDb = await getConfigValue("PROXY_PATH");
     assertEquals(savedInDb, FallbackAbsoluteProxy);
   } finally {
@@ -5299,11 +5161,9 @@ Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve fazer Fallback quando o servidor 
 
 Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve reutilizar o ProxyPath salvo no IndexedDB sem re-testar se já configurado", async () => {
   await resetConfig();
-
-  // 1. Força a gravação prévia de um proxy customizado no banco
   const customProxy = "https://meu-proxy-customizado.com";
   await saveConfig("PROXY_PATH", customProxy);
-
+  
   let fetchChamado = false;
   globalThis.fetch = async (): Promise<Response> => {
     fetchChamado = true;
@@ -5312,11 +5172,7 @@ Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve reutilizar o ProxyPath salvo no I
 
   try {
     const config = await loadAllConfigs();
-    
-    // Retorna a configuração já existente
     assertEquals(config.proxy_path, customProxy);
-    
-    // NÃO deve ter feito chamadas de ping de rede para auto-discovery
     assertEquals(fetchChamado, false, "Auto-Discovery não deveria disparar requisições de rede se a rota já está salva no banco.");
   } finally {
     globalThis.fetch = originalFetch;
@@ -5326,86 +5182,113 @@ Deno.test("INTEGRAÇÃO (Auto-Discovery): Deve reutilizar o ProxyPath salvo no I
 
 ---
 
+## Arquivo: `monorepo/ui/tests/integration/contact-purge.test.ts`
+
+```ts
+// Arquivo: monorepo/ui/tests/integration/contact-purge.test.ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists } from "@std/assert";
+import { removerContatoCompletamente, contatosRaw } from "../../src/stores/contatosStore.ts";
+import { 
+  salvarContato, salvarChat, salvarHandshake, buscarContatoPorChave, buscarChat, 
+  buscarHandshake, serializarPublicKeyVapid, listarChatPaginado, listarHandshakes 
+} from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
+import type { Contato, Chat, Handshake } from "@loco/utils/interfaces";
+
+Deno.test("INTEGRAÇÃO E EXPURGO: Excluir contato deve aplicar Tombstone e apagar histórico antigo em cascata", async () => {
+  const vapidKeys = await generateVAPIDKeys();
+  const e2eKeys = await generateE2EEKeys();
+  const pubVapidJwk = await exportKeyToJWK(vapidKeys.publicKey);
+  const contatoHash = await serializarPublicKeyVapid(pubVapidJwk);
+  
+  const novoContato: Contato = {
+    id: contatoHash, name: "Contato Para Exclusão", email: "expurgo@loco.pwa",
+    vapidPublicKey: pubVapidJwk, e2ePublicKey: e2eKeys.publicEncrypt,
+    subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/token-expurgo", keys: { p256dh: "p256dh", auth: "auth" }, proxyserver: "https://proxy.loco.com" },
+    vapidPrivateKeyEnvelope: "envelope-cifrado", trusted: true, me: "saved",
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  await salvarContato(novoContato);
+  contatosRaw.value = [novoContato];
+
+  const msg1: Chat = { id: "msg-expurgo-1", contatoHash, conteudo: "Mensagem enviada 1", tipo: "out", createdAt: Date.now(), handshake: "handshake-msg-1" };
+  const msg2: Chat = { id: "msg-expurgo-2", contatoHash, conteudo: "Mensagem recebida 2", tipo: "in", createdAt: Date.now() + 100, handshake: "handshake-msg-2" };
+  await salvarChat(msg1); await salvarChat(msg2);
+
+  const handContato: Handshake = { id: "handshake-contato-id", aud: contatoHash, createdAt: Date.now(), updatedAt: Date.now(), out: { status: "enviado", tentativas: 1, rotas: { contato: { id: contatoHash } } } };
+  const handProfile: Handshake = { id: "handshake-profile-id", aud: contatoHash, createdAt: Date.now(), updatedAt: Date.now(), out: { status: "enviado", tentativas: 1, rotas: { profile: { campos: ["name"] } } } };
+  const handMensagem: Handshake = { id: "handshake-msg-1", aud: contatoHash, createdAt: Date.now(), updatedAt: Date.now(), out: { status: "enviado", tentativas: 1, rotas: { mensagem: { enviada: "msg-expurgo-1" } } } };
+  await salvarHandshake(handContato); await salvarHandshake(handProfile); await salvarHandshake(handMensagem);
+
+  assertExists(await buscarContatoPorChave(contatoHash));
+  assertExists(await buscarChat("msg-expurgo-1"));
+
+  await removerContatoCompletamente(contatoHash);
+
+  const contatoNoDb = await buscarContatoPorChave(contatoHash);
+  assertExists(contatoNoDb);
+  assertEquals(contatoNoDb.me, "deleted");
+  assertEquals(contatosRaw.value.some(c => c.id === contatoHash), false);
+
+  assertEquals(await buscarChat("msg-expurgo-1"), undefined);
+  assertEquals(await buscarChat("msg-expurgo-2"), undefined);
+  assertEquals((await listarChatPaginado(contatoHash, 30, 0)).length, 0);
+
+  assertEquals(await buscarHandshake("handshake-contato-id"), undefined);
+  assertEquals(await buscarHandshake("handshake-profile-id"), undefined);
+  assertEquals(await buscarHandshake("handshake-msg-1"), undefined);
+
+  const allHandshakes = await listarHandshakes();
+  const handshakeDelecao = allHandshakes.find(h => h.aud === contatoHash && h.out?.rotas?.contato?.removerContato === true);
+  assertExists(handshakeDelecao);
+});
+```
+
+---
+
 ## Arquivo: `monorepo/ui/tests/integration/message-delete-handshake.test.ts`
 
 ```ts
-// tests/integration/message-delete-handshake.test.ts
+// Arquivo: monorepo/ui/tests/integration/message-delete-handshake.test.ts
 /// <reference lib="deno.ns" />
-
-import "fake-indexeddb";
+import "fake-indexeddb/auto";
 import { assertEquals, assertExists } from "@std/assert";
-
 import { excluirMensagem } from "../../src/stores/mensagensStore.ts";
-import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
-import { 
-  salvarChat, 
-  buscarChat, 
-  salvarHandshake, 
-  buscarHandshake, 
-  listarHandshakes,
-  salvarContato,
-  removerHandshake
-} from "../../../utils/src/db/mod.ts";
-
-import type { Chat, Handshake, Contato } from "../../../utils/src/interfaces/db.ts";
+import { Processar as ProcessarMensagem } from "@loco/service-worker/handshakes/mensagem";
+import { salvarChat, buscarChat, salvarHandshake, buscarHandshake, listarHandshakes, salvarContato, removerHandshake } from "@loco/utils/db";
+import type { Chat, Handshake, Contato } from "@loco/utils/interfaces";
 
 Deno.test("INTEGRAÇÃO (Exclusão - Parte 1): Apagar mensagem local deve gerar Handshake de exclusão remota OUT", async () => {
   const contatoHash = "hash-contato-bob-123";
   const msgId = "msg-para-deletar-456";
-
-  // 1. Salva uma mensagem no banco local
-  const msg: Chat = {
-    id: msgId,
-    contatoHash: contatoHash,
-    conteudo: "Mensagem que será apagada bidirecionalmente",
-    tipo: "out",
-    createdAt: Date.now(),
-    handshake: "handshake-original-envio"
-  };
+  
+  const msg: Chat = { id: msgId, contatoHash, conteudo: "Mensagem que será apagada bidirecionalmente", tipo: "out", createdAt: Date.now(), handshake: "handshake-original-envio" };
   await salvarChat(msg);
+  assertExists(await buscarChat(msgId));
 
-  // Garante que existia antes
-  assertExists(await buscarChat(msgId), "A mensagem deveria existir no banco antes de ser excluída.");
-
-  // Mock básico do Service Worker para capturar a mensagem postada da UI
   let mensagemSWCapturada: any = null;
   if (typeof navigator !== "undefined") {
-    (navigator as any).serviceWorker = {
-      ready: Promise.resolve({
-        active: {
-          postMessage: (data: any) => {
-            mensagemSWCapturada = data;
-          }
-        }
-      })
-    };
+    (navigator as any).serviceWorker = { ready: Promise.resolve({ active: { postMessage: (data: any) => { mensagemSWCapturada = data; } } }) };
   }
 
-  // 2. Executa a exclusão da mensagem
   await excluirMensagem(msgId, contatoHash);
-
-  // 3. Valida se a mensagem foi apagada do banco local
   const msgNoDb = await buscarChat(msgId);
-  assertEquals(msgNoDb, undefined, "A mensagem deveria ter sido removida do IndexedDB local.");
+  assertEquals(msgNoDb, undefined);
 
-  // 4. PROVA: Valida se a UI notificou o Service Worker para criar a rota de exclusão remota
-  assertExists(mensagemSWCapturada, "O comando de exclusão não foi enviado ao Service Worker!");
+  assertExists(mensagemSWCapturada);
   assertEquals(mensagemSWCapturada.type, "CRIAR_HANDSHAKE_OUT");
   assertEquals(mensagemSWCapturada.payload.rotasModulo, "mensagem");
   assertEquals(mensagemSWCapturada.payload.params.function, "excluirMensagem");
   assertEquals(mensagemSWCapturada.payload.params.msgId, msgId);
 
-  // 5. Simula a ação que o SW faz ao receber esse evento 'CRIAR_HANDSHAKE_OUT'
   await ProcessarMensagem({ out: mensagemSWCapturada.payload.params });
-
-  // 6. PROVA FINAL: Verifica se o Handshake OUT com rota { mensagem: { excluida: msgId } } foi gravado no banco
   const handshakes = await listarHandshakes();
   const handshakeExclusao = handshakes.find(h => h.aud === contatoHash && h.out?.rotas.mensagem?.excluida === msgId);
-
-  assertExists(handshakeExclusao, "O Handshake de saída com a instrução 'excluida' não foi encontrado na fila!");
+  assertExists(handshakeExclusao);
   assertEquals(handshakeExclusao.out?.status, "pendente");
 
-  // Limpeza
   for (const h of handshakes) await removerHandshake(h.id);
 });
 
@@ -5414,217 +5297,29 @@ Deno.test("INTEGRAÇÃO (Exclusão - Parte 2): Receber Handshake de exclusão re
   const msgIdRecebida = "msg-recebida-alice-101";
   const handshakeInId = "handshake-in-exclusao-999";
 
-  // 1. Salva o contato para autoridade de exclusão
   const contato: Contato = {
-    id: contatoHash,
-    name: "Alice",
-    email: "alice@loco.pwa",
-    vapidPublicKey: {} as any,
-    e2ePublicKey: {} as any,
+    id: contatoHash, name: "Alice", email: "alice@loco.pwa",
+    vapidPublicKey: {} as any, e2ePublicKey: {} as any,
     subscription: { endpoint: "ep", keys: { p256dh: "p", auth: "a" }, proxyserver: "ps" },
-    vapidPrivateKeyEnvelope: "env",
-    trusted: true,
-    me: "saved",
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    vapidPrivateKeyEnvelope: "env", trusted: true, me: "saved", createdAt: Date.now(), updatedAt: Date.now()
   };
   await salvarContato(contato);
 
-  // 2. Salva uma mensagem recebida anteriormente de Alice
-  const msgRecebida: Chat = {
-    id: msgIdRecebida,
-    contatoHash: contatoHash,
-    conteudo: "Mensagem que a Alice decidiu apagar remotamente",
-    tipo: "in",
-    createdAt: Date.now(),
-    handshake: "handshake-original-recebimento"
-  };
+  const msgRecebida: Chat = { id: msgIdRecebida, contatoHash, conteudo: "Mensagem que a Alice decidiu apagar remotamente", tipo: "in", createdAt: Date.now(), handshake: "handshake-original-recebimento" };
   await salvarChat(msgRecebida);
+  assertExists(await buscarChat(msgIdRecebida));
 
-  assertExists(await buscarChat(msgIdRecebida), "A mensagem recebida deveria existir no banco.");
-
-  // 3. Simula a chegada de um Handshake IN de exclusão processado pelo Roteador SW
   const handshakeIn: Handshake = {
-    id: handshakeInId,
-    aud: contatoHash, // Veio da Alice
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    in: {
-      status: "recebido",
-      tentativas: 0,
-      rotas: {
-        mensagem: {
-          excluida: msgIdRecebida // Instrução remota de exclusão
-        }
-      }
-    }
+    id: handshakeInId, aud: contatoHash, createdAt: Date.now(), updatedAt: Date.now(),
+    in: { status: "recebido", tentativas: 0, rotas: { mensagem: { excluida: msgIdRecebida } } }
   };
   await salvarHandshake(handshakeIn);
 
-  // 4. Executa o processador oficial do módulo 'hand-mensagem.ts'
   await ProcessarMensagem({ in: handshakeInId });
-
-  // 5. PROVA MATEMÁTICA: A mensagem recebida da Alice foi permanentemente apagada do IndexedDB?
   const msgAposProcessar = await buscarChat(msgIdRecebida);
-  assertEquals(msgAposProcessar, undefined, "FALHA: O processador de Handshake IN não apagou a mensagem do IndexedDB!");
+  assertEquals(msgAposProcessar, undefined);
 
-  // Limpeza
   await removerHandshake(handshakeInId);
-});
-```
-
----
-
-## Arquivo: `monorepo/ui/tests/integration/contact-purge.test.ts`
-
-```ts
-// tests/integration/contact-purge.test.ts
-/// <reference lib="deno.ns" />
-
-import "fake-indexeddb";
-import { assertEquals, assertExists } from "@std/assert";
-
-import { 
-  removerContatoCompletamente, 
-  contatosRaw 
-} from "../../src/stores/contatosStore.ts";
-
-import { 
-  salvarContato, 
-  salvarChat, 
-  salvarHandshake, 
-  buscarContatoPorChave, 
-  buscarChat, 
-  buscarHandshake, 
-  serializarPublicKeyVapid, 
-  listarChatPaginado,
-  listarHandshakes
-} from "../../../utils/src/db/mod.ts";
-
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
-import type { Contato, Chat, Handshake } from "../../../utils/src/interfaces/db.ts";
-
-Deno.test("INTEGRAÇÃO E EXPURGO: Excluir contato deve aplicar Tombstone e apagar histórico antigo em cascata", async () => {
-
-  // =========================================================================
-  // 1. SETUP DE DADOS PARA O CONTATO (ALVO DO EXPURGO)
-  // =========================================================================
-  const vapidKeys = await generateVAPIDKeys();
-  const e2eKeys = await generateE2EEKeys();
-  const pubVapidJwk = await exportKeyToJWK(vapidKeys.publicKey);
-  const contatoHash = await serializarPublicKeyVapid(pubVapidJwk);
-
-  const novoContato: Contato = {
-    id: contatoHash,
-    name: "Contato Para Exclusão",
-    email: "expurgo@loco.pwa",
-    vapidPublicKey: pubVapidJwk,
-    e2ePublicKey: e2eKeys.publicEncrypt,
-    subscription: {
-      endpoint: "https://fcm.googleapis.com/fcm/send/token-expurgo",
-      keys: { p256dh: "p256dh", auth: "auth" },
-      proxyserver: "https://proxy.loco.com"
-    },
-    vapidPrivateKeyEnvelope: "envelope-cifrado",
-    trusted: true,
-    me: "saved",
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
-
-  await salvarContato(novoContato);
-  contatosRaw.value = [novoContato];
-
-  // =========================================================================
-  // 2. SETUP DE MENSAGENS VINCULADAS
-  // =========================================================================
-  const msg1: Chat = {
-    id: "msg-expurgo-1",
-    contatoHash: contatoHash,
-    conteudo: "Mensagem enviada 1",
-    tipo: "out",
-    createdAt: Date.now(),
-    handshake: "handshake-msg-1"
-  };
-
-  const msg2: Chat = {
-    id: "msg-expurgo-2",
-    contatoHash: contatoHash,
-    conteudo: "Mensagem recebida 2",
-    tipo: "in",
-    createdAt: Date.now() + 100,
-    handshake: "handshake-msg-2"
-  };
-
-  await salvarChat(msg1);
-  await salvarChat(msg2);
-
-  // =========================================================================
-  // 3. SETUP DE HANDSHAKES ANTIGOS VINCULADOS
-  // =========================================================================
-  const handContato: Handshake = {
-    id: "handshake-contato-id",
-    aud: contatoHash,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    out: { status: "enviado", tentativas: 1, rotas: { contato: { id: contatoHash } } }
-  };
-
-  const handProfile: Handshake = {
-    id: "handshake-profile-id",
-    aud: contatoHash,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    out: { status: "enviado", tentativas: 1, rotas: { profile: { campos: ["name"] } } }
-  };
-
-  const handMensagem: Handshake = {
-    id: "handshake-msg-1",
-    aud: contatoHash,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    out: { status: "enviado", tentativas: 1, rotas: { mensagem: { enviada: "msg-expurgo-1" } } }
-  };
-
-  await salvarHandshake(handContato);
-  await salvarHandshake(handProfile);
-  await salvarHandshake(handMensagem);
-
-  // SANITY CHECK
-  assertExists(await buscarContatoPorChave(contatoHash), "O contato deveria existir antes do expurgo.");
-  assertExists(await buscarChat("msg-expurgo-1"), "A mensagem 1 deveria existir.");
-
-  // =========================================================================
-  // 4. EXECUÇÃO DO EXPURGO
-  // =========================================================================
-  await removerContatoCompletamente(contatoHash); // Default: notificarRemoto = true
-
-  // =========================================================================
-  // 5. VALIDAÇÃO DA ARQUITETURA
-  // =========================================================================
-
-  // A) O Contato foi removido do Signal da UI, mas virou uma Lápide (Tombstone) no DB?
-  const contatoNoDb = await buscarContatoPorChave(contatoHash);
-  assertExists(contatoNoDb, "O registro do contato deve permanecer fisicamente para envio da notificação.");
-  assertEquals(contatoNoDb.me, "deleted", "O status do contato não foi alterado para Lápide (Tombstone)!");
-  assertEquals(contatosRaw.value.some(c => c.id === contatoHash), false, "O contato continuou visível na UI!");
-
-  // B) As Mensagens antigas foram totalmente removidas?
-  assertEquals(await buscarChat("msg-expurgo-1"), undefined, "A mensagem 1 não foi apagada.");
-  assertEquals(await buscarChat("msg-expurgo-2"), undefined, "A mensagem 2 não foi apagada.");
-  assertEquals((await listarChatPaginado(contatoHash, 30, 0)).length, 0, "O índice não foi limpo.");
-
-  // C) Os Handshakes antigos foram expurgados?
-  assertEquals(await buscarHandshake("handshake-contato-id"), undefined, "Handshake antigo de contato não foi removido.");
-  assertEquals(await buscarHandshake("handshake-profile-id"), undefined, "Handshake antigo de perfil não foi removido.");
-  assertEquals(await buscarHandshake("handshake-msg-1"), undefined, "Handshake antigo de mensagem não foi removido.");
-
-  // D) O *NOVO* Handshake de exclusão remota foi criado?
-  const allHandshakes = await listarHandshakes();
-  const handshakeDelecao = allHandshakes.find(h => h.aud === contatoHash && h.out?.rotas?.contato?.removerContato === true);
-  assertExists(handshakeDelecao, "O novo handshake de deleção remota não foi gerado na fila!");
-
-  console.log("✅ Expurgo validado: Lápide criada, histórico varrido e Handshake de notificação de exclusão remota enfileirado!");
 });
 ```
 
@@ -5633,108 +5328,265 @@ Deno.test("INTEGRAÇÃO E EXPURGO: Excluir contato deve aplicar Tombstone e apag
 ## Arquivo: `monorepo/ui/tests/integration/remote-purge.test.ts`
 
 ```ts
-// tests/integration/remote-purge.test.ts
+// Arquivo: monorepo/ui/tests/integration/remote-purge.test.ts
 /// <reference lib="deno.ns" />
-
-import "fake-indexeddb";
+import "fake-indexeddb/auto";
 import { assertEquals, assertExists } from "@std/assert";
-
 import { limparTodoHistorico } from "../../src/stores/mensagensStore.ts";
 import { removerContatoCompletamente } from "../../src/stores/contatosStore.ts";
-import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
-import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
-import { 
-  salvarChat, 
-  buscarChat, 
-  salvarContato, 
-  buscarContatoPorChave, 
-  salvarHandshake, 
-  listarHandshakes,
-  removerHandshake,
-  serializarPublicKeyVapid
-} from "../../../utils/src/db/mod.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
-
-import type { Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
+import { Processar as ProcessarMensagem } from "@loco/service-worker/handshakes/mensagem";
+import { Processar as ProcessarContato } from "@loco/service-worker/handshakes/contato";
+import { salvarChat, buscarChat, salvarContato, buscarContatoPorChave, salvarHandshake, listarHandshakes, removerHandshake, serializarPublicKeyVapid } from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
+import type { Contato, Handshake } from "@loco/utils/interfaces";
 
 Deno.test("INTEGRAÇÃO (Expurgo Remoto 1): Limpar histórico cria Handshake Único e Apaga no Remoto", async () => {
   const contatoHash = "hash-bob-purge";
-
   await salvarChat({ id: "m1", contatoHash, conteudo: "1", tipo: "out", createdAt: Date.now(), handshake: "h1" });
   await salvarChat({ id: "m2", contatoHash, conteudo: "2", tipo: "in", createdAt: Date.now(), handshake: "h2" });
-
+  
   await limparTodoHistorico(contatoHash);
-
+  
   const handshakes = await listarHandshakes();
   const handPurge = handshakes.find(h => h.aud === contatoHash && h.out?.rotas.mensagem?.limparHistorico === true);
+  assertExists(handPurge);
   
-  assertExists(handPurge, "O Handshake único de expurgo de histórico não foi gerado!");
-
-  const handIn: Handshake = {
-    id: "hand-in-purge",
-    aud: contatoHash,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    in: { status: "recebido", tentativas: 0, rotas: { mensagem: { limparHistorico: true } } }
-  };
+  const handIn: Handshake = { id: "hand-in-purge", aud: contatoHash, createdAt: Date.now(), updatedAt: Date.now(), in: { status: "recebido", tentativas: 0, rotas: { mensagem: { limparHistorico: true } } } };
   await salvarHandshake(handIn);
-
   await ProcessarMensagem({ in: "hand-in-purge" });
-
+  
   assertEquals(await buscarChat("m1"), undefined);
   assertEquals(await buscarChat("m2"), undefined);
-
+  
   for (const h of await listarHandshakes()) await removerHandshake(h.id);
 });
 
 Deno.test("INTEGRAÇÃO (Expurgo Remoto 2): Excluir Contato cria Handshake Único de Remoção de Perfil no Remoto", async () => {
-  
-  // 🔥 CORREÇÃO: Usar chaves reais para o hash criptográfico funcionar!
   const vapidKeys = await generateVAPIDKeys();
   const pubVapid = await exportKeyToJWK(vapidKeys.publicKey);
   const contatoHash = await serializarPublicKeyVapid(pubVapid);
-
-  // 1. Salva o contato com as chaves válidas
+  
   const contato: Contato = {
-    id: contatoHash, 
-    name: "Alice", 
-    email: "a@a.com",
-    vapidPublicKey: pubVapid, 
-    e2ePublicKey: {} as any, // E2E não interfere no Hash ID
+    id: contatoHash, name: "Alice", email: "a@a.com",
+    vapidPublicKey: pubVapid, e2ePublicKey: {} as any,
     subscription: { endpoint: "e", keys: { p256dh: "p", auth: "a" }, proxyserver: "ps" },
-    vapidPrivateKeyEnvelope: "e", 
-    trusted: true, 
-    me: "saved", 
-    createdAt: Date.now(), 
-    updatedAt: Date.now()
+    vapidPrivateKeyEnvelope: "e", trusted: true, me: "saved", createdAt: Date.now(), updatedAt: Date.now()
   };
   await salvarContato(contato);
-
-  // 2. Exclui o contato
+  
   await removerContatoCompletamente(contatoHash, true);
-
-  // 3. Verifica se gerou o Handshake de remoção remota
+  
   const handshakes = await listarHandshakes();
   const handDelete = handshakes.find(h => h.aud === contatoHash && h.out?.rotas.contato?.removerContato === true);
-
-  assertExists(handDelete, "O Handshake único de exclusão de contato não foi gerado!");
-
-  // 4. Simula a chegada da exclusão remota no celular do outro usuário
-  const handIn: Handshake = {
-    id: "hand-in-del-contact",
-    aud: contatoHash,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    in: { status: "recebido", tentativas: 0, rotas: { contato: { removerContato: true } } }
-  };
+  assertExists(handDelete);
+  
+  const handIn: Handshake = { id: "hand-in-del-contact", aud: contatoHash, createdAt: Date.now(), updatedAt: Date.now(), in: { status: "recebido", tentativas: 0, rotas: { contato: { removerContato: true } } } };
   await salvarHandshake(handIn);
-
   await ProcessarContato({ in: "hand-in-del-contact" });
-
-  // 5. Verifica se o perfil no outro celular foi apagado fisicamente
+  
   assertEquals(await buscarContatoPorChave(contatoHash), undefined);
-
+  
   for (const h of await listarHandshakes()) await removerHandshake(h.id);
+});
+```
+
+---
+
+## Arquivo: `monorepo/ui/tests/utils/db-helpers.test.ts.ts`
+
+```ts
+// Arquivo: monorepo/ui/tests/utils/db-helpers.test.ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists } from "@std/assert";
+import { salvarProfile, buscarProfile, removerProfile, salvarChat, listarChatPaginado, removerTodoHistoricoChat } from "@loco/utils/db";
+import type { ProfileConfig, Chat } from "@loco/utils/interfaces";
+
+Deno.test("DB Helpers - Profile: Deve salvar, buscar e remover o perfil corretamente", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Arquiteto Loco", email: "arq@loco.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "123", y: "456" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "789" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "envelope_cifrado",
+    e2ePublicKey: { kty: "RSA", n: "abc", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "def" } as JsonWebKey,
+    subscription: { endpoint: "https://push.com/123", keys: { p256dh: "p256", auth: "auth" }, proxyserver: "https://loco.proxy" },
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  
+  await salvarProfile(mockProfile);
+  const profileSalvo = await buscarProfile();
+  assertExists(profileSalvo);
+  assertEquals(profileSalvo.name, "Arquiteto Loco");
+  assertEquals(profileSalvo.vapidPublicKey.kty, "EC");
+  
+  await removerProfile();
+  const profileRemovido = await buscarProfile();
+  assertEquals(profileRemovido, undefined);
+});
+
+Deno.test("DB Helpers - Chat: Deve salvar mensagens e retornar paginado corretamente", async () => {
+  const contatoHash = "hash-contato-paginacao-123";
+  await removerTodoHistoricoChat(contatoHash);
+  
+  const totalMensagens = 35;
+  for (let i = 1; i <= totalMensagens; i++) {
+    const msg: Chat = { id: `msg-${i.toString().padStart(2, '0')}`, contatoHash, conteudo: `Mensagem de teste número ${i}`, tipo: 'out', createdAt: 10000 + i, handshake: `hand-${i}` };
+    await salvarChat(msg);
+  }
+  
+  const pagina1 = await listarChatPaginado(contatoHash, 30, 0);
+  assertEquals(pagina1.length, 30);
+  assertEquals(pagina1[pagina1.length - 1]!.id, "msg-35");
+  assertEquals(pagina1[0]!.id, "msg-06");
+  
+  const pagina2 = await listarChatPaginado(contatoHash, 30, 30);
+  assertEquals(pagina2.length, 5);
+  
+  const paginaVazia = await listarChatPaginado(contatoHash, 30, 35);
+  assertEquals(paginaVazia.length, 0);
+  
+  await removerTodoHistoricoChat(contatoHash);
+  const paginaPosExclusao = await listarChatPaginado(contatoHash, 30, 0);
+  assertEquals(paginaPosExclusao.length, 0);
+});
+```
+
+---
+
+## Arquivo: `monorepo/ui/tests/utils/self-contact.test.ts`
+
+```ts
+// Arquivo: monorepo/ui/tests/utils/self-contact.test.ts
+/// <reference lib="deno.ns" />
+import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
+import type { ProfileConfig, Contato } from "@loco/utils/interfaces";
+import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "@loco/utils/db";
+
+async function serializarPublicKeyVapidMock(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(raw));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function assertTrue(condition: boolean, msg?: string) { assert(condition, msg); }
+
+Deno.test("SELF-CONTACT: Deve gerar contato próprio válido a partir do profile", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "João Silva", email: "joao@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "abc123", y: "def456" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "encrypted-key-data",
+    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://push.example.com/subscription", keys: { p256dh: "p256dh-key", auth: "auth-key" } },
+    createdAt: Date.now() - 10000, updatedAt: Date.now(),
+  };
+  
+  const contatoProprio = await gerarContatoProprio(mockProfile);
+  assertExists(contatoProprio);
+  assertEquals(contatoProprio.name, "João Silva (Eu)");
+  assertEquals(contatoProprio.trusted, true);
+  assertEquals(contatoProprio.me, "trusted");
+  
+  const hashEsperado = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  assertEquals(contatoProprio.id, hashEsperado);
+});
+
+Deno.test("SELF-CONTACT: Deve retornar null se profile for inválido", async () => {
+  const contatoNull = await gerarContatoProprio(null as any);
+  assertEquals(contatoNull, null);
+});
+
+Deno.test("SELF-CONTACT: Deve identificar corretamente se contato é o próprio usuário", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Maria Santos", email: "maria@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "xyz789", y: "uvw012" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "encrypted",
+    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://push.example.com/sub", keys: { p256dh: "key1", auth: "key2" } },
+    createdAt: Date.now(), updatedAt: Date.now(),
+  };
+  
+  const meuHash = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  const ehEu = await ehContatoProprio(meuHash, mockProfile);
+  assertTrue(ehEu);
+  
+  const ehOutro = await ehContatoProprio("outro-hash", mockProfile);
+  assertFalse(ehOutro);
+});
+
+Deno.test("SELF-CONTACT: Deve obter hash próprio corretamente", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Pedro Oliveira", email: "pedro@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "hash-test-x", y: "hash-test-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "env",
+    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com", keys: { p256dh: "p", auth: "a" } },
+    createdAt: Date.now(), updatedAt: Date.now(),
+  };
+  
+  const hashObtido = await obterHashProprio(mockProfile);
+  const hashEsperado = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  assertEquals(hashObtido, hashEsperado);
+});
+```
+
+---
+
+## Arquivo: `monorepo/ui/tests/utils/share-utils.test.ts`
+
+```ts
+// Arquivo: monorepo/ui/tests/utils/share-utils.test.ts
+/// <reference lib="deno.ns" />
+import { assert, assertEquals, assertRejects } from "@std/assert";
+import { gerarLinkConviteWeb, processarQualquerConvite, extrairDadosCompactos, expandirDadosCompactos } from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
+import type { ProfileConfig, Contato } from "@loco/utils/interfaces";
+
+const mockContatos = new Map<string, Contato>();
+async function salvarContatoMock(contato: Contato): Promise<void> { mockContatos.set(contato.id, contato); }
+async function buscarContatoPorChaveMock(hash: string): Promise<Contato | null> { return mockContatos.get(hash) || null; }
+
+async function serializarPublicKeyVapidMock(key: JsonWebKey): Promise<string> {
+  const data = `${key.x}:${key.y}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato", async () => {
+  const userA: ProfileConfig = {
+    name: "Usuário A", email: "usuario.a@teste.com",
+    vapidPublicKey: {} as JsonWebKey, vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "",
+    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint-a", keys: { p256dh: "p256dh-a", auth: "auth-a" }, proxyserver: "https://mock.loco.proxy" },
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  
+  const [vapidKeysA, e2eKeysA] = await Promise.all([generateVAPIDKeys(), generateE2EEKeys()]);
+  userA.vapidPublicKey = await exportKeyToJWK(vapidKeysA.publicKey);
+  userA.vapidPrivateKeyJwk = await exportKeyToJWK(vapidKeysA.privateKey);
+  userA.e2ePublicKey = e2eKeysA.publicEncrypt;
+  userA.e2ePrivateKeyJwk = e2eKeysA.privateDecryptJwk;
+  
+  const compactDataA = await extrairDadosCompactos(userA);
+  assertEquals(compactDataA.nm, "Usuário A");
+  
+  const cjwtUrl = await gerarLinkConviteWeb(userA, userA.vapidPrivateKeyJwk, userA.vapidPublicKey, 'http://test.localhost');
+  assert(cjwtUrl.includes("#share="));
+  
+  const cjwtToken = cjwtUrl.split("#share=")[1];
+  const importedContato = await processarQualquerConvite(cjwtToken);
+  assertEquals(importedContato.name, "Usuário A");
+  
+  await assertRejects(
+    async () => await processarQualquerConvite("token-invalido-abc123"),
+    Error,
+    "O link ou código colado não é um convite válido do Loco."
+  );
 });
 ```
 
@@ -6032,6 +5884,9 @@ await build();
     "@material/web": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
     
+
+    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle",
+    "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle",
     // 🔥 ARQUITETURA: Blindagem de Target do CDN (apenas para os ofensores)
     // Mantemos o target=es2022 apenas nas bibliotecas que puxavam módulos do Node.
     "fflate": "https://esm.sh/fflate@0.8.2?target=es2022"
