@@ -1,9 +1,6 @@
-// tests/integration/proxy-payload.test.ts
 /// <reference lib="deno.ns" />
-
-import "fake-indexeddb";
+import "fake-indexeddb/auto";
 import { assert, assertEquals, assertExists } from "@std/assert";
-
 import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
 import { 
   salvarProfile, 
@@ -12,18 +9,16 @@ import {
   serializarPublicKeyVapid, 
   removerHandshake,
   listarHandshakes
-} from "../../../utils/src/db/mod.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
+} from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
+import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
 
 const originalFetch = globalThis.fetch;
 
-Deno.test("INTEGRAÇÃO REAL (Router -> Proxy): O Roteador envia o proxyserver padronizado dentro de subscription", async () => {
-  
+Deno.test("INTEGRAÇÃO REAL: Roteador envia proxyserver padronizado dentro de subscription", async () => {
   const aliceVapid = await generateVAPIDKeys();
   const aliceE2E = await generateE2EEKeys();
   const alicePubVapid = await exportKeyToJWK(aliceVapid.publicKey);
-
   const bobVapid = await generateVAPIDKeys();
   const bobE2E = await generateE2EEKeys();
   const bobPubVapid = await exportKeyToJWK(bobVapid.publicKey);
@@ -78,7 +73,7 @@ Deno.test("INTEGRAÇÃO REAL (Router -> Proxy): O Roteador envia o proxyserver p
       rotas: {
         mensagem: {
           enviada: "msg-123",
-          conteudo: "Olá Bob! Testando o proxyserver padronizado no subscription!"
+          conteudo: "Olá Bob! Testando o proxyserver padronizado!"
         }
       }
     }
@@ -95,27 +90,19 @@ Deno.test("INTEGRAÇÃO REAL (Router -> Proxy): O Roteador envia o proxyserver p
 
   try {
     await processarFilaHandshake();
+    assertExists(requestInterceptada, "Roteador não realizou fetch!");
 
-    assertExists(requestInterceptada, "O Roteador não realizou a chamada de rede (fetch)!");
-
-    // A) O Subscription padronizado com endpoint, keys e proxyserver
     assertExists(requestInterceptada.subscription);
     assertEquals(requestInterceptada.subscription.endpoint, contatoBob.subscription.endpoint);
-    
-    // 🔥 PROVA MATEMÁTICA: O proxyserver está perfeitamente padronizado dentro de subscription!
-    assertEquals(requestInterceptada.subscription.proxyserver, contatoBob.subscription.proxyserver, "O proxyserver DEVE estar dentro de subscription");
+    assertEquals(requestInterceptada.subscription.proxyserver, contatoBob.subscription.proxyserver);
 
-    // B) Credenciais VAPID do destinatário
     assertExists(requestInterceptada.vapid);
     assertEquals(requestInterceptada.vapid.publicKey.x, bobPubVapid.x);
     assertEquals(requestInterceptada.vapid.privateKey, contatoBob.vapidPrivateKeyEnvelope);
 
-    // C) JWT Payload
     assertExists(requestInterceptada.payloadText);
-
   } finally {
     globalThis.fetch = originalFetch;
-    
     const fila = await listarHandshakes();
     for (const h of fila) {
       await removerHandshake(h.id);

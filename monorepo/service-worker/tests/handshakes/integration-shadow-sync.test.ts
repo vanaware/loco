@@ -1,9 +1,5 @@
-// tests/handshakes/integration-shadow-sync.test.ts
 /// <reference lib="deno.ns" />
-
-// Injeta o Fake IndexedDB para simular o banco de dados do navegador no ambiente de testes do Deno
-import "fake-indexeddb";
-
+import "fake-indexeddb/auto";
 import { assertEquals, assert, assertExists } from "@std/assert";
 import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
@@ -15,11 +11,11 @@ import {
   salvarHandshake,
   removerTodoHistoricoChat,
   serializarPublicKeyVapid
-} from "../../../utils/src/db/mod.ts";
-import type { ProfileConfig, Handshake } from "../../../utils/src/interfaces/db.ts";
+} from "@loco/utils/db";
+import type { ProfileConfig, Handshake } from "@loco/utils/interfaces";
 
 Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao receber mensagem de desconhecido", async () => {
-  // 1. SETUP DO "BOB" (O usuário local que vai receber a mensagem de um desconhecido)
+  // 1. SETUP DO "BOB"
   const bobProfile: ProfileConfig = {
     name: "Bob",
     email: "bob@loco.pwa",
@@ -36,37 +32,33 @@ Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao rec
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
-  await salvarProfile(bobProfile); // Salva o perfil do Bob no IndexedDB local
+  await salvarProfile(bobProfile);
 
-  // 2. PREPARAÇÃO DA IDENTIDADE DE "ALICE" (A remetente desconhecida)
+  // 2. PREPARAÇÃO DA IDENTIDADE DE "ALICE"
   const aliceVapidPublic: JsonWebKey = {
     kty: "EC",
     crv: "P-256",
     x: "alice-x-coordinate-base64url",
     y: "alice-y-coordinate-base64url"
   };
-
-  // 🔥 Calculamos o hash SHA-256 real da chave da Alice para bater com o comportamento interno do salvarContato
   const aliceHashId = await serializarPublicKeyVapid(aliceVapidPublic);
-  await removerTodoHistoricoChat(aliceHashId); // Garante ambiente limpo
+  await removerTodoHistoricoChat(aliceHashId);
 
-  // 3. SIMULAÇÃO DO PACOTE RECEBIDO NA REDE (Handshake IN)
-  // A Alice percebeu que o Bob não a tem salva, então ela anexou o "sync" de contato junto com a "mensagem".
+  // 3. SIMULAÇÃO DO PACOTE RECEBIDO
   const handshakeRecebidoId = "handshake-in-001";
   const handshakeSimulado: Handshake = {
     id: handshakeRecebidoId,
-    aud: aliceHashId, // Quem mandou foi a Alice (ID derivado da chave VAPID)
+    aud: aliceHashId,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     in: {
       status: 'recebido',
       tentativas: 0,
       rotas: {
-        // A Alice mandou os dados dela e pediu reciprocidade (req: true)
         contato: {
           sync: {
             req: true,
-            tr: true, // A Alice confia no Bob
+            tr: true,
             em: "alice@loco.pwa",
             nm: "Alice Desconhecida",
             vp: { x: "alice-x-coordinate-base64url", y: "alice-y-coordinate-base64url" },
@@ -78,7 +70,6 @@ Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao rec
             ps: "https://loco.proxy"
           }
         },
-        // A Alice mandou a mensagem em si
         mensagem: {
           enviada: "msg-alice-001",
           conteudo: "Oi Bob! Sou eu, a Alice. Salva meu contato!"
@@ -86,44 +77,29 @@ Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao rec
       }
     }
   };
-
-  // Salva o Handshake de entrada na fila local do Bob
   await salvarHandshake(handshakeSimulado);
 
-  // 4. EXECUÇÃO DOS PROCESSADORES (Simulando o orquestrador sw-handshakes.ts)
-  
-  // Passo 4.1: Processa o Contato
+  // 4. EXECUÇÃO DOS PROCESSADORES
   await ProcessarContato({ in: handshakeRecebidoId });
-  
-  // Passo 4.2: Processa a Mensagem
   await ProcessarMensagem({ in: handshakeRecebidoId });
 
-  // 5. VERIFICAÇÕES DE INTEGRIDADE DA ARQUITETURA
-  
-  // Verificação A: A Alice foi salva no banco de contatos do Bob pelo Hash SHA-256?
+  // 5. VERIFICAÇÕES
   const contatoAlice = await buscarContatoPorChave(aliceHashId);
-  assertExists(contatoAlice, "O contato da Alice deve ter sido criado e encontrado pelo Hash VAPID");
-  assertEquals(contatoAlice.name, "Alice Desconhecida", "O nome do contato deve ter sido preenchido");
-  assertEquals(contatoAlice.trusted, false, "CRÍTICO: Um contato criado via Shadow Sync DEVE ser classificado como NÃO CONFIÁVEL por padrão de segurança");
-  
-  // Verificação B: A mensagem da Alice foi salva no Chat do Bob vinculada ao Hash correto?
-  const mensagemAlice = await buscarChat("msg-alice-001");
-  assertExists(mensagemAlice, "A mensagem deve ter sido salva no IndexedDB do Chat");
-  assertEquals(mensagemAlice.conteudo, "Oi Bob! Sou eu, a Alice. Salva meu contato!");
-  assertEquals(mensagemAlice.contatoHash, aliceHashId, "A mensagem deve estar vinculada ao hash do novo contato criado");
+  assertExists(contatoAlice, "O contato da Alice deve ter sido criado");
+  assertEquals(contatoAlice.name, "Alice Desconhecida");
+  assertEquals(contatoAlice.trusted, false, "Contato via Shadow Sync DEVE ser NÃO CONFIÁVEL");
 
-  // Verificação C: O Bob gerou as respostas automáticas de saída (Handshakes OUT)?
+  const mensagemAlice = await buscarChat("msg-alice-001");
+  assertExists(mensagemAlice);
+  assertEquals(mensagemAlice.conteudo, "Oi Bob! Sou eu, a Alice. Salva meu contato!");
+  assertEquals(mensagemAlice.contatoHash, aliceHashId);
+
   const todosHandshakes = await listarHandshakes();
   const handshakesDeSaida = todosHandshakes.filter(h => h.out && h.aud === aliceHashId);
-  
-  // Esperamos 2 handshakes de saída para a Alice:
-  // 1 para devolver o Contato do Bob (pois req era true)
-  // 1 para dar o Auto-Ack (entregue) da Mensagem
-  assert(handshakesDeSaida.length >= 2, "O sistema deve ter enfileirado respostas automáticas para a Alice");
+  assert(handshakesDeSaida.length >= 2, "Deve ter enfileirado respostas automáticas");
 
   const temRespostaDeContato = handshakesDeSaida.some(h => h.out?.rotas?.contato?.sync !== undefined);
   const temRespostaDeMensagem = handshakesDeSaida.some(h => h.out?.rotas?.mensagem?.data !== undefined);
-
-  assertEquals(temRespostaDeContato, true, "O Bob deve ter enfileirado o envio dos seus dados de perfil para a Alice (Reciprocidade)");
-  assertEquals(temRespostaDeMensagem, true, "O Bob deve ter enfileirado o recibo de 'Entregue' para a Alice (Auto-Ack)");
+  assertEquals(temRespostaDeContato, true, "Deve ter enfileirado reciprocidade");
+  assertEquals(temRespostaDeMensagem, true, "Deve ter enfileirado Auto-Ack");
 });

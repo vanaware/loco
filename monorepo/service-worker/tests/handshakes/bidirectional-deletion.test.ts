@@ -1,25 +1,20 @@
-// tests/handshakes/bidirectional-deletion.test.ts
 /// <reference lib="deno.ns" />
-
-// Injeta o Fake IndexedDB para simular o banco de dados do navegador no Deno
-import "fake-indexeddb";
-
-import { assertEquals, assertExists, assert } from "@std/assert";
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists } from "@std/assert";
 import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
 import { 
   salvarProfile, 
   salvarContato, 
   salvarHandshake, 
-  buscarHandshake,
   salvarChat,
   buscarChat,
   serializarPublicKeyVapid,
   removerTodoHistoricoChat
-} from "../../../utils/src/db/mod.ts";
-import type { ProfileConfig, Contato, Handshake, Chat } from "../../../utils/src/interfaces/db.ts";
+} from "@loco/utils/db";
+import type { ProfileConfig, Contato, Handshake, Chat } from "@loco/utils/interfaces";
 
 Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamente com validação de autoridade", async () => {
-  // 1. SETUP DO "BOB" (O usuário local que receberá a ordem de exclusão)
+  // 1. SETUP DO "BOB"
   const bobProfile: ProfileConfig = {
     name: "Bob",
     email: "bob@loco.pwa",
@@ -38,10 +33,9 @@ Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamen
   };
   await salvarProfile(bobProfile);
 
-  // 2. SETUP DA "ALICE" (A remetente legítima)
+  // 2. SETUP DA "ALICE"
   const aliceVapidPublic: JsonWebKey = { kty: "EC", crv: "P-256", x: "alice-x", y: "alice-y" };
   const aliceHash = await serializarPublicKeyVapid(aliceVapidPublic);
-
   const aliceContato: Contato = {
     id: aliceHash,
     name: "Alice",
@@ -56,12 +50,11 @@ Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamen
     updatedAt: Date.now()
   };
   await salvarContato(aliceContato);
-  await removerTodoHistoricoChat(aliceHash); // Limpa resíduos
+  await removerTodoHistoricoChat(aliceHash);
 
-  // 3. SETUP DO "CHARLIE" (O atacante / contato malicioso)
+  // 3. SETUP DO "CHARLIE"
   const charlieVapidPublic: JsonWebKey = { kty: "EC", crv: "P-256", x: "charlie-x", y: "charlie-y" };
   const charlieHash = await serializarPublicKeyVapid(charlieVapidPublic);
-
   const charlieContato: Contato = {
     id: charlieHash,
     name: "Charlie",
@@ -77,30 +70,26 @@ Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamen
   };
   await salvarContato(charlieContato);
 
-  // 4. MENSAGEM NO BANCO: Alice e Bob possuem uma mensagem no histórico
+  // 4. MENSAGEM NO BANCO
   const msgTargetId = "msg-alvo-123";
   const chatAliceBob: Chat = {
     id: msgTargetId,
-    contatoHash: aliceHash, // A mensagem pertence ao chat com a Alice
+    contatoHash: aliceHash,
     conteudo: "Mensagem super secreta que precisa sumir!",
-    tipo: 'in', // Alice enviou para Bob
+    tipo: 'in',
     createdAt: Date.now(),
     handshake: "hand-original-001"
   };
   await salvarChat(chatAliceBob);
 
-  // VERIFICAÇÃO INICIAL: A mensagem existe no banco do Bob?
   let msgNoBanco = await buscarChat(msgTargetId);
-  assertExists(msgNoBanco, "A mensagem deve existir inicialmente no banco do Bob");
+  assertExists(msgNoBanco, "A mensagem deve existir inicialmente");
 
-  // =========================================================================
-  // CENÁRIO 1: SEGURANÇA (Charlie tenta apagar a mensagem da Alice)
-  // =========================================================================
-  
+  // CENÁRIO 1: Charlie tenta apagar (SEM AUTORIDADE)
   const handshakeAtaqueId = "handshake-attack-001";
   const handshakeAtaque: Handshake = {
     id: handshakeAtaqueId,
-    aud: charlieHash, // Charlie é o autor do handshake
+    aud: charlieHash,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     in: {
@@ -108,28 +97,22 @@ Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamen
       tentativas: 0,
       rotas: {
         mensagem: {
-          excluida: msgTargetId // Charlie tenta apagar a mensagem da Alice
+          excluida: msgTargetId
         }
       }
     }
   };
   await salvarHandshake(handshakeAtaque);
-
-  // Processa o ataque
   await ProcessarMensagem({ in: handshakeAtaqueId });
 
-  // A MENSAGEM DEVE CONTINUAR LÁ!
   msgNoBanco = await buscarChat(msgTargetId);
-  assertExists(msgNoBanco, "FALHA DE SEGURANÇA: A mensagem foi apagada por um contato sem autoridade sobre o chat!");
+  assertExists(msgNoBanco, "FALHA DE SEGURANÇA: Mensagem foi apagada por contato sem autoridade!");
 
-  // =========================================================================
-  // CENÁRIO 2: CAMINHO FELIZ (Alice manda apagar a própria mensagem do chat)
-  // =========================================================================
-  
+  // CENÁRIO 2: Alice manda apagar (COM AUTORIDADE)
   const handshakeLegitimoId = "handshake-legitimo-001";
   const handshakeLegitimo: Handshake = {
     id: handshakeLegitimoId,
-    aud: aliceHash, // Alice é a autora do handshake
+    aud: aliceHash,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     in: {
@@ -137,17 +120,14 @@ Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamen
       tentativas: 0,
       rotas: {
         mensagem: {
-          excluida: msgTargetId // Alice manda apagar a mensagem dela
+          excluida: msgTargetId
         }
       }
     }
   };
   await salvarHandshake(handshakeLegitimo);
-
-  // Processa o pedido legítimo
   await ProcessarMensagem({ in: handshakeLegitimoId });
 
-  // A MENSAGEM DEVE TER SUMIDO!
   msgNoBanco = await buscarChat(msgTargetId);
-  assertEquals(msgNoBanco, undefined, "SUCESSO: A mensagem deve ser completamente deletada do IndexedDB quando a ordem vem da contraparte correta.");
+  assertEquals(msgNoBanco, undefined, "Mensagem deve ser deletada quando ordem vem da contraparte correta");
 });

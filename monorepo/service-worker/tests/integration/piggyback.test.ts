@@ -1,7 +1,5 @@
-// tests/integration/piggyback.test.ts
 /// <reference lib="deno.ns" />
-
-import "fake-indexeddb";
+import "fake-indexeddb/auto";
 import { assertEquals, assertExists } from "@std/assert";
 import { 
   salvarProfile, 
@@ -11,24 +9,23 @@ import {
   listarHandshakes,
   removerHandshake,
   serializarPublicKeyVapid
-} from "../../../utils/src/db/mod.ts";
-import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "../../../utils/src/crypto/mod.ts";
+} from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
 import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
 import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
-import type { ProfileConfig, Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
+import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
 
-// Mock da função de fetch para evitar erros de rede e simular sucesso no Proxy
 const originalFetch = globalThis.fetch;
 
-Deno.test("INTEGRAÇÃO (PIGGYBACK 1): Mensagem para contato 'me: none' DEVE forçar a injeção do Piggyback", async () => {
+Deno.test("INTEGRAÇÃO (PIGGYBACK 1): Mensagem para contato 'me: none' DEVE forçar injeção do Piggyback", async () => {
   globalThis.fetch = async () => new Response("OK", { status: 200 });
 
-  // 1. SETUP: Perfil da Alice (Remetente)
+  // 1. SETUP: Perfil da Alice
   const aliceVapid = await generateVAPIDKeys();
   const aliceE2e = await generateE2EEKeys();
   const alicePubVapid = await exportKeyToJWK(aliceVapid.publicKey);
   const alicePrivVapid = await exportKeyToJWK(aliceVapid.privateKey);
-  
+
   const aliceProfile: ProfileConfig = {
     name: "Alice Original",
     email: "alice@loco.pwa",
@@ -42,7 +39,7 @@ Deno.test("INTEGRAÇÃO (PIGGYBACK 1): Mensagem para contato 'me: none' DEVE for
   };
   await salvarProfile(aliceProfile);
 
-  // 2. SETUP: Alice adiciona Bob, mas ele não tem os dados dela (me: 'none')
+  // 2. SETUP: Bob não tem dados da Alice (me: 'none')
   const bobVapid = await generateVAPIDKeys();
   const bobE2e = await generateE2EEKeys();
   const bobPubVapid = await exportKeyToJWK(bobVapid.publicKey);
@@ -53,47 +50,43 @@ Deno.test("INTEGRAÇÃO (PIGGYBACK 1): Mensagem para contato 'me: none' DEVE for
     vapidPublicKey: bobPubVapid, e2ePublicKey: bobE2e.publicEncrypt,
     subscription: { endpoint: "https://fcm-bob", keys: { p256dh: "p", auth: "a" }, proxyserver: "proxy" },
     vapidPrivateKeyEnvelope: "env", trusted: true, 
-    me: "none", // 🔥 REGRA CHAVE: Bob não sabe quem é a Alice!
+    me: "none",
     createdAt: Date.now(), updatedAt: Date.now()
   };
   await salvarContato(bobContato);
 
-  // 3. AÇÃO: Alice envia uma mensagem para Bob
+  // 3. AÇÃO: Alice envia mensagem
   const msgHandshake: Handshake = {
     id: "hand-msg-alice-bob", aud: bobHash, createdAt: Date.now(), updatedAt: Date.now(),
     out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: "msg-123", conteudo: "Oi Bob!" } } }
   };
   await salvarHandshake(msgHandshake);
 
-  // 4. PROCESSAMENTO: O SW Roteador entra em ação
+  // 4. PROCESSAMENTO
   await processarFilaHandshake();
 
-  // 5. PROVA: O SW da Alice injetou os dados do perfil (Piggyback) na rota de contato antes de enviar?
+  // 5. PROVA
   const handshakes = await listarHandshakes();
   const sentHandshake = handshakes.find(h => h.id === "hand-msg-alice-bob");
-  
-  assertExists(sentHandshake?.out?.rotas?.contato?.sync, "FALHA: O Piggyback (rota sync) NÃO foi injetado na mensagem de saída!");
-  assertEquals((sentHandshake.out.rotas.contato.sync as any).nm, "Alice Original", "O nome da Alice não foi embutido no Piggyback.");
+  assertExists(sentHandshake?.out?.rotas?.contato?.sync, "Piggyback NÃO foi injetado!");
+  assertEquals((sentHandshake.out.rotas.contato.sync as any).nm, "Alice Original");
 
   for (const h of handshakes) await removerHandshake(h.id);
   globalThis.fetch = originalFetch;
 });
 
-Deno.test("INTEGRAÇÃO (PIGGYBACK 2): Receber um Piggyback DEVE criar o contato real no destino", async () => {
-  // 1. SETUP: Cria chaves criptográficas REAIS para que o Hash ID funcione no IndexedDB
+Deno.test("INTEGRAÇÃO (PIGGYBACK 2): Receber Piggyback DEVE criar contato real no destino", async () => {
+  // 1. SETUP
   const aliceVapid = await generateVAPIDKeys();
   const aliceE2e = await generateE2EEKeys();
   const alicePubVapid = await exportKeyToJWK(aliceVapid.publicKey);
-  
-  // 🔥 CORREÇÃO: aliceE2e.publicEncrypt já é um JWK nativamente!
   const alicePubE2e = aliceE2e.publicEncrypt; 
   const aliceHash = await serializarPublicKeyVapid(alicePubVapid);
 
-  // Verifica que a Alice não existe no banco do Bob
   let aliceNoDb = await buscarContatoPorChave(aliceHash);
-  assertEquals(aliceNoDb, undefined, "Alice não deveria existir no celular do Bob ainda.");
+  assertEquals(aliceNoDb, undefined, "Alice não deveria existir ainda");
 
-  // 2. AÇÃO: Bob recebe um Handshake contendo a rota 'sync' (O Piggyback)
+  // 2. AÇÃO: Bob recebe Piggyback
   const incomingHandshake: Handshake = {
     id: "hand-in-piggyback", aud: aliceHash, createdAt: Date.now(), updatedAt: Date.now(),
     in: {
@@ -112,15 +105,14 @@ Deno.test("INTEGRAÇÃO (PIGGYBACK 2): Receber um Piggyback DEVE criar o contato
   };
   await salvarHandshake(incomingHandshake);
 
-  // 3. PROCESSAMENTO: O módulo de Contatos processa a entrada
+  // 3. PROCESSAMENTO
   await ProcessarContato({ in: incomingHandshake.id });
 
-  // 4. PROVA: O contato da Alice foi criado fisicamente a partir do Piggyback com o Hash correto?
+  // 4. PROVA
   aliceNoDb = await buscarContatoPorChave(aliceHash);
-  
-  assertExists(aliceNoDb, "FALHA: O Contato da Alice NÃO foi criado a partir do Piggyback recebido!");
-  assertEquals(aliceNoDb.name, "Alice Nova", "O nome não foi extraído corretamente.");
-  assertEquals(aliceNoDb.me, "saved", "O status de relacionamento 'me' deveria iniciar como 'saved' após a ingestão de um Piggyback comum.");
+  assertExists(aliceNoDb, "Contato da Alice NÃO foi criado!");
+  assertEquals(aliceNoDb.name, "Alice Nova");
+  assertEquals(aliceNoDb.me, "saved");
 
   await removerHandshake(incomingHandshake.id);
 });

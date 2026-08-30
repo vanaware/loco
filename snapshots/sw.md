@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: SW
 
-Gerado automaticamente em: 8/30/2026, 1:28:04 AM
+Gerado automaticamente em: 8/30/2026, 2:12:58 AM
 
 ---
 
@@ -1354,6 +1354,1133 @@ self.addEventListener('message', (event: any) => {
 
 ---
 
+## Arquivo: `monorepo/service-worker/tests/handshakes/integration-shadow-sync.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assert, assertExists } from "@std/assert";
+import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
+import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
+import { 
+  salvarProfile, 
+  buscarContatoPorChave, 
+  buscarChat, 
+  listarHandshakes, 
+  salvarHandshake,
+  removerTodoHistoricoChat,
+  serializarPublicKeyVapid
+} from "@loco/utils/db";
+import type { ProfileConfig, Handshake } from "@loco/utils/interfaces";
+
+Deno.test("INTEGRAÇÃO: Shadow Sync - Deve criar contato não-confiável ao receber mensagem de desconhecido", async () => {
+  // 1. SETUP DO "BOB"
+  const bobProfile: ProfileConfig = {
+    name: "Bob",
+    email: "bob@loco.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "bob-x-coord", y: "bob-y-coord" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "bob-priv-key" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env-bob",
+    e2ePublicKey: { kty: "RSA", n: "bob-rsa-n-modulo", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "bob-rsa-priv-d" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/bob",
+      keys: { p256dh: "p256-bob", auth: "auth-bob" },
+      proxyserver: "https://loco.proxy"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(bobProfile);
+
+  // 2. PREPARAÇÃO DA IDENTIDADE DE "ALICE"
+  const aliceVapidPublic: JsonWebKey = {
+    kty: "EC",
+    crv: "P-256",
+    x: "alice-x-coordinate-base64url",
+    y: "alice-y-coordinate-base64url"
+  };
+  const aliceHashId = await serializarPublicKeyVapid(aliceVapidPublic);
+  await removerTodoHistoricoChat(aliceHashId);
+
+  // 3. SIMULAÇÃO DO PACOTE RECEBIDO
+  const handshakeRecebidoId = "handshake-in-001";
+  const handshakeSimulado: Handshake = {
+    id: handshakeRecebidoId,
+    aud: aliceHashId,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: {
+      status: 'recebido',
+      tentativas: 0,
+      rotas: {
+        contato: {
+          sync: {
+            req: true,
+            tr: true,
+            em: "alice@loco.pwa",
+            nm: "Alice Desconhecida",
+            vp: { x: "alice-x-coordinate-base64url", y: "alice-y-coordinate-base64url" },
+            ep: { n: "alice-rsa-n-modulo" },
+            se: "https://push.com/alice",
+            sp: "alice-p256-key",
+            sa: "alice-auth-secret",
+            ve: "env-alice",
+            ps: "https://loco.proxy"
+          }
+        },
+        mensagem: {
+          enviada: "msg-alice-001",
+          conteudo: "Oi Bob! Sou eu, a Alice. Salva meu contato!"
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeSimulado);
+
+  // 4. EXECUÇÃO DOS PROCESSADORES
+  await ProcessarContato({ in: handshakeRecebidoId });
+  await ProcessarMensagem({ in: handshakeRecebidoId });
+
+  // 5. VERIFICAÇÕES
+  const contatoAlice = await buscarContatoPorChave(aliceHashId);
+  assertExists(contatoAlice, "O contato da Alice deve ter sido criado");
+  assertEquals(contatoAlice.name, "Alice Desconhecida");
+  assertEquals(contatoAlice.trusted, false, "Contato via Shadow Sync DEVE ser NÃO CONFIÁVEL");
+
+  const mensagemAlice = await buscarChat("msg-alice-001");
+  assertExists(mensagemAlice);
+  assertEquals(mensagemAlice.conteudo, "Oi Bob! Sou eu, a Alice. Salva meu contato!");
+  assertEquals(mensagemAlice.contatoHash, aliceHashId);
+
+  const todosHandshakes = await listarHandshakes();
+  const handshakesDeSaida = todosHandshakes.filter(h => h.out && h.aud === aliceHashId);
+  assert(handshakesDeSaida.length >= 2, "Deve ter enfileirado respostas automáticas");
+
+  const temRespostaDeContato = handshakesDeSaida.some(h => h.out?.rotas?.contato?.sync !== undefined);
+  const temRespostaDeMensagem = handshakesDeSaida.some(h => h.out?.rotas?.mensagem?.data !== undefined);
+  assertEquals(temRespostaDeContato, true, "Deve ter enfileirado reciprocidade");
+  assertEquals(temRespostaDeMensagem, true, "Deve ter enfileirado Auto-Ack");
+});
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/tests/handshakes/retry-resilience.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists, assert } from "@std/assert";
+import { 
+  salvarProfile, 
+  salvarContato, 
+  salvarHandshake, 
+  buscarHandshake,
+  serializarPublicKeyVapid,
+  listarHandshakes,
+  removerHandshake
+} from "@loco/utils/db";
+import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
+
+Deno.test("RETRY RESILIENCE: Re-tentativas devem anexar dados de contato (Shadow Sync)", async () => {
+  // Limpa handshakes órfãos
+  const handshakesOrfaos = await listarHandshakes();
+  for (const orfao of handshakesOrfaos) {
+    await removerHandshake(orfao.id);
+  }
+
+  // 1. Setup do Profile local (Alice)
+  const localProfile: ProfileConfig = {
+    name: "Alice",
+    email: "alice@test.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "alice-x-coord", y: "alice-y-coord" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "alice-d-priv" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env-alice",
+    e2ePublicKey: { kty: "RSA", n: "alice-rsa-n", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "alice-rsa-d" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/alice",
+      keys: { p256dh: "p256", auth: "auth" },
+      proxyserver: "https://loco.proxy"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(localProfile);
+
+  // 2. Setup do Contato salvo (Bob)
+  const bobVapidPublic: JsonWebKey = { kty: "EC", crv: "P-256", x: "bob-x-coord", y: "bob-y-coord" };
+  const bobHash = await serializarPublicKeyVapid(bobVapidPublic);
+  const bobContato: Contato = {
+    id: bobHash,
+    name: "Bob",
+    email: "bob@test.pwa",
+    vapidPublicKey: bobVapidPublic,
+    e2ePublicKey: { kty: "RSA", n: "bob-rsa-n", e: "AQAB" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/bob",
+      keys: { p256dh: "p256-bob", auth: "auth-bob" },
+      proxyserver: "https://loco.proxy"
+    },
+    vapidPrivateKeyEnvelope: "env-bob",
+    trusted: true,
+    me: 'saved',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(bobContato);
+
+  // 3. Handshake de mensagem com tentativas = 1
+  const handshakeRetryId = "handshake-retry-001";
+  const handshakeRetry: Handshake = {
+    id: handshakeRetryId,
+    aud: bobHash,
+    createdAt: Date.now() - 120000,
+    updatedAt: Date.now() - 120000,
+    out: {
+      status: 'pendente',
+      tentativas: 1,
+      rotas: {
+        mensagem: {
+          enviada: "msg-retry-123",
+          conteudo: "Tentando novamente entregar esta mensagem!"
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeRetry);
+
+  // 4. Executa o processador
+  await processarFilaHandshake();
+
+  // 5. Verificações
+  const handshakeAposProcessamento = await buscarHandshake(handshakeRetryId);
+  assertExists(handshakeAposProcessamento);
+
+  assertEquals(
+    handshakeAposProcessamento.out!.tentativas, 
+    2, 
+    "Tentativas deve ter sido incrementada de 1 para 2"
+  );
+
+  assertExists(
+    handshakeAposProcessamento.out!.rotas.contato, 
+    "Rota de contato DEVE ter sido injetada"
+  );
+  assertExists(
+    handshakeAposProcessamento.out!.rotas.contato.sync, 
+    "Dados compactos do perfil devem estar presentes"
+  );
+});
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/tests/handshakes/bidirectional-deletion.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists } from "@std/assert";
+import { Processar as ProcessarMensagem } from "../../src/handshakes/hand-mensagem.ts";
+import { 
+  salvarProfile, 
+  salvarContato, 
+  salvarHandshake, 
+  salvarChat,
+  buscarChat,
+  serializarPublicKeyVapid,
+  removerTodoHistoricoChat
+} from "@loco/utils/db";
+import type { ProfileConfig, Contato, Handshake, Chat } from "@loco/utils/interfaces";
+
+Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamente com validação de autoridade", async () => {
+  // 1. SETUP DO "BOB"
+  const bobProfile: ProfileConfig = {
+    name: "Bob",
+    email: "bob@loco.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "bob-x", y: "bob-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "bob-priv" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env-bob",
+    e2ePublicKey: { kty: "RSA", n: "bob-n", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "bob-rsa-priv" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/bob",
+      keys: { p256dh: "p256", auth: "auth" },
+      proxyserver: "https://loco.proxy"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(bobProfile);
+
+  // 2. SETUP DA "ALICE"
+  const aliceVapidPublic: JsonWebKey = { kty: "EC", crv: "P-256", x: "alice-x", y: "alice-y" };
+  const aliceHash = await serializarPublicKeyVapid(aliceVapidPublic);
+  const aliceContato: Contato = {
+    id: aliceHash,
+    name: "Alice",
+    email: "alice@loco.pwa",
+    vapidPublicKey: aliceVapidPublic,
+    e2ePublicKey: { kty: "RSA", n: "alice-n", e: "AQAB" } as JsonWebKey,
+    subscription: { endpoint: "https://push.com/alice", keys: { p256dh: "p256", auth: "auth" } },
+    vapidPrivateKeyEnvelope: "env-alice",
+    trusted: true,
+    me: 'trusted',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(aliceContato);
+  await removerTodoHistoricoChat(aliceHash);
+
+  // 3. SETUP DO "CHARLIE"
+  const charlieVapidPublic: JsonWebKey = { kty: "EC", crv: "P-256", x: "charlie-x", y: "charlie-y" };
+  const charlieHash = await serializarPublicKeyVapid(charlieVapidPublic);
+  const charlieContato: Contato = {
+    id: charlieHash,
+    name: "Charlie",
+    email: "charlie@loco.pwa",
+    vapidPublicKey: charlieVapidPublic,
+    e2ePublicKey: { kty: "RSA", n: "charlie-n", e: "AQAB" } as JsonWebKey,
+    subscription: { endpoint: "https://push.com/charlie", keys: { p256dh: "p256", auth: "auth" } },
+    vapidPrivateKeyEnvelope: "env-charlie",
+    trusted: true,
+    me: 'trusted',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(charlieContato);
+
+  // 4. MENSAGEM NO BANCO
+  const msgTargetId = "msg-alvo-123";
+  const chatAliceBob: Chat = {
+    id: msgTargetId,
+    contatoHash: aliceHash,
+    conteudo: "Mensagem super secreta que precisa sumir!",
+    tipo: 'in',
+    createdAt: Date.now(),
+    handshake: "hand-original-001"
+  };
+  await salvarChat(chatAliceBob);
+
+  let msgNoBanco = await buscarChat(msgTargetId);
+  assertExists(msgNoBanco, "A mensagem deve existir inicialmente");
+
+  // CENÁRIO 1: Charlie tenta apagar (SEM AUTORIDADE)
+  const handshakeAtaqueId = "handshake-attack-001";
+  const handshakeAtaque: Handshake = {
+    id: handshakeAtaqueId,
+    aud: charlieHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: {
+      status: 'recebido',
+      tentativas: 0,
+      rotas: {
+        mensagem: {
+          excluida: msgTargetId
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeAtaque);
+  await ProcessarMensagem({ in: handshakeAtaqueId });
+
+  msgNoBanco = await buscarChat(msgTargetId);
+  assertExists(msgNoBanco, "FALHA DE SEGURANÇA: Mensagem foi apagada por contato sem autoridade!");
+
+  // CENÁRIO 2: Alice manda apagar (COM AUTORIDADE)
+  const handshakeLegitimoId = "handshake-legitimo-001";
+  const handshakeLegitimo: Handshake = {
+    id: handshakeLegitimoId,
+    aud: aliceHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    in: {
+      status: 'recebido',
+      tentativas: 0,
+      rotas: {
+        mensagem: {
+          excluida: msgTargetId
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeLegitimo);
+  await ProcessarMensagem({ in: handshakeLegitimoId });
+
+  msgNoBanco = await buscarChat(msgTargetId);
+  assertEquals(msgNoBanco, undefined, "Mensagem deve ser deletada quando ordem vem da contraparte correta");
+});
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/tests/handshakes/mtu-splitter.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assert, assertEquals } from "@std/assert";
+import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { 
+  salvarProfile, 
+  salvarContato, 
+  salvarHandshake, 
+  listarHandshakes, 
+  removerHandshake, 
+  buscarHandshake,
+  serializarPublicKeyVapid 
+} from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
+import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
+
+const originalFetch = globalThis.fetch;
+
+async function setupMockDb(hasProxy: boolean) {
+  const vapidKeys = await generateVAPIDKeys();
+  const e2eKeys = await generateE2EEKeys();
+  const pubVapid = await exportKeyToJWK(vapidKeys.publicKey);
+  const contatoHash = await serializarPublicKeyVapid(pubVapid);
+
+  const profile: ProfileConfig = {
+    name: "Arquiteto",
+    email: "arq@loco.pwa",
+    vapidPublicKey: pubVapid,
+    vapidPrivateKeyJwk: await exportKeyToJWK(vapidKeys.privateKey),
+    vapidPrivateKeyEnvelope: "envelope-ficticio",
+    e2ePublicKey: e2eKeys.publicEncrypt,
+    e2ePrivateKeyJwk: e2eKeys.privateDecryptJwk,
+    subscription: {
+      endpoint: "https://push.test/meu-endpoint",
+      keys: { p256dh: "k", auth: "a" },
+      proxyserver: hasProxy ? "https://meu-proxy.com" : ""
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(profile);
+
+  const contato: Contato = {
+    id: contatoHash, 
+    name: "Destinatario",
+    email: "dest@loco.pwa",
+    vapidPublicKey: pubVapid,
+    e2ePublicKey: e2eKeys.publicEncrypt,
+    subscription: { endpoint: "https://push.test/dest", keys: { p256dh: "k", auth: "a" }, proxyserver: "https://proxy-dele.com" },
+    vapidPrivateKeyEnvelope: "env",
+    trusted: true,
+    me: 'none', 
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(contato);
+
+  return { profile, contato, contatoHash };
+}
+
+Deno.test("ROTEADOR: Sanity Check DEVE bloquear injeção de PIG se perfil não tiver Proxy", async () => {
+  const { contatoHash } = await setupMockDb(false);
+  globalThis.fetch = () => Promise.resolve(new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+  const handshakeId = "handshake-sanity-1";
+  const handshake: Handshake = {
+    id: handshakeId,
+    aud: contatoHash, 
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    out: {
+      status: 'pendente',
+      tentativas: 0,
+      rotas: { mensagem: { conteudo: "Olá!" } }
+    }
+  };
+  await salvarHandshake(handshake);
+
+  try {
+    await processarFilaHandshake();
+    const processado = await buscarHandshake(handshakeId);
+    assertEquals(processado?.out?.status, 'enviado');
+    assertEquals(processado?.out?.rotas?.contato?.sync, undefined, "Sanity Check FALHOU: Injetou PIG sem Proxy!");
+    const todos = await listarHandshakes();
+    assertEquals(todos.length, 1, "Não deveria ter gerado handshake extra");
+  } finally {
+    await removerHandshake(handshakeId);
+  }
+});
+
+Deno.test("ROTEADOR: Splitter de MTU DEVE fragmentar pacote se PIG ultrapassar 4KB", async () => {
+  const { contatoHash } = await setupMockDb(true);
+  let chamadasDeRede = 0;
+  globalThis.fetch = () => {
+    chamadasDeRede++;
+    return Promise.resolve(new Response(JSON.stringify({ success: true }), { status: 200 }));
+  };
+
+  const bytesAleatorios = crypto.getRandomValues(new Uint8Array(1400));
+  let binaryString = "";
+  for (const byte of bytesAleatorios) {
+    binaryString += String.fromCharCode(byte);
+  }
+  const mensagemGigante = btoa(binaryString);
+
+  const handshakeId = "handshake-gigante-1";
+  const handshake: Handshake = {
+    id: handshakeId,
+    aud: contatoHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    out: {
+      status: 'pendente',
+      tentativas: 0,
+      rotas: { mensagem: { conteudo: mensagemGigante } }
+    }
+  };
+  await salvarHandshake(handshake);
+
+  try {
+    await processarFilaHandshake();
+    const hOriginal = await buscarHandshake(handshakeId);
+    assertEquals(hOriginal?.out?.status, 'enviado');
+    assertEquals(hOriginal?.out?.rotas?.contato?.sync, undefined);
+
+    const filaCompleta = await listarHandshakes();
+    const handshakesNovos = filaCompleta.filter(h => h.id !== handshakeId);
+    assertEquals(handshakesNovos.length, 1, "Deveria ter criado 1 novo handshake para o PIG");
+
+    const handshakeFragmentado = handshakesNovos[0];
+    assert(handshakeFragmentado !== undefined);
+    assertEquals(handshakeFragmentado.out?.status, 'pendente');
+    assert(handshakeFragmentado.out?.rotas?.contato?.sync !== undefined);
+    assertEquals(chamadasDeRede, 1, "Apenas o primeiro pacote deveria ter sido enviado");
+
+    await removerHandshake(handshakeFragmentado.id);
+  } finally {
+    await removerHandshake(handshakeId);
+    globalThis.fetch = originalFetch; 
+  }
+});
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/tests/handshakes/hand-mensagem-self.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
+import type { ProfileConfig, Chat, Handshake } from "@loco/utils/interfaces";
+import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "@loco/utils/db";
+
+// Helper para substituir assertTrue
+function assertTrue(condition: boolean, msg?: string) {
+  assert(condition, msg);
+}
+
+// Mock storage para simular IndexedDB
+const mockChats = new Map<string, Chat>();
+const mockHandshakes = new Map<string, Handshake>();
+
+async function salvarChatMock(chat: Chat): Promise<void> {
+  mockChats.set(chat.id, chat);
+}
+
+// Mock profile consistente para todos os testes
+const mockProfile: ProfileConfig = {
+  name: "Usuário Teste",
+  email: "teste@example.com",
+  vapidPublicKey: {
+    kty: "EC",
+    crv: "P-256",
+    x: "test-x-value",
+    y: "test-y-value",
+  } as JsonWebKey,
+  vapidPrivateKeyJwk: {} as JsonWebKey,
+  vapidPrivateKeyEnvelope: "encrypted",
+  e2ePublicKey: {} as JsonWebKey,
+  e2ePrivateKeyJwk: {} as JsonWebKey,
+  subscription: {
+    endpoint: "https://push.example.com/sub",
+    keys: { p256dh: "p256dh", auth: "auth" },
+  },
+  createdAt: Date.now() - 10000,
+  updatedAt: Date.now(),
+};
+
+// Helper para calcular hash
+async function calcularHashVapid(jwk: JsonWebKey): Promise<string> {
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(raw));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+Deno.test("HAND-MENSAGEM SELF: Deve identificar envio para si mesmo", async () => {
+  const meuHash = await obterHashProprio(mockProfile);
+  assertExists(meuHash);
+  const outroHash = "hash-de-outro-contato";
+  const ehParaMim = await ehContatoProprio(meuHash, mockProfile);
+  const ehParaOutro = await ehContatoProprio(outroHash, mockProfile);
+  assertTrue(ehParaMim, "Deve identificar como envio para si mesmo");
+  assertFalse(ehParaOutro, "Não deve identificar como envio para si mesmo");
+});
+
+Deno.test("HAND-MENSAGEM SELF: Simulação de envio de mensagem para si mesmo", async () => {
+  mockChats.clear();
+  mockHandshakes.clear();
+  const meuHash = await obterHashProprio(mockProfile);
+  assertExists(meuHash);
+  const conteudoMensagem = "Esta é uma mensagem de teste para mim mesmo";
+  const msgId = `msg-self-${Date.now()}`;
+  const agora = Date.now();
+
+  const chatAuto: Chat = {
+    id: msgId,
+    contatoHash: meuHash,
+    conteudo: conteudoMensagem,
+    tipo: 'out',
+    createdAt: agora,
+    sentAt: agora,
+    receivedAt: agora,
+    readAt: agora,
+    notifiedAt: agora,
+    handshake: 'self'
+  };
+  await salvarChatMock(chatAuto);
+
+  const savedChat = mockChats.get(msgId);
+  assertExists(savedChat, "Mensagem deve ser salva no banco em memória");
+  assertEquals(savedChat.id, msgId);
+  assertEquals(savedChat.conteudo, conteudoMensagem);
+  assertEquals(savedChat.tipo, 'out');
+  assertEquals(savedChat.contatoHash, meuHash);
+
+  assertExists(savedChat.sentAt, "sentAt deve existir");
+  assertExists(savedChat.receivedAt, "receivedAt deve existir");
+  assertExists(savedChat.readAt, "readAt deve existir");
+  assertExists(savedChat.notifiedAt, "notifiedAt deve existir");
+
+  assertEquals(savedChat.sentAt, savedChat.receivedAt);
+  assertEquals(savedChat.receivedAt, savedChat.readAt);
+  assertEquals(savedChat.readAt, savedChat.notifiedAt);
+  assertEquals(savedChat.handshake, 'self', "Handshake deve ser 'self'");
+  assertEquals(mockHandshakes.size, 0, "Map de handshakes deve estar vazio");
+});
+
+Deno.test("HAND-MENSAGEM SELF: Mensagem normal para outro contato cria handshake", async () => {
+  mockChats.clear();
+  mockHandshakes.clear();
+  const outroHash = "hash-de-outra-pessoa";
+  const conteudoMensagem = "Mensagem para outra pessoa";
+  const msgId = `msg-normal-${Date.now()}`;
+  const handId = `hand-${Date.now()}`;
+  const agora = Date.now();
+
+  const chatOut: Chat = {
+    id: msgId,
+    contatoHash: outroHash,
+    conteudo: conteudoMensagem,
+    tipo: 'out',
+    createdAt: agora,
+    handshake: handId
+  };
+
+  const handshakeNormal: Handshake = {
+    id: handId,
+    aud: outroHash,
+    createdAt: agora,
+    updatedAt: agora,
+    out: {
+      status: 'pendente',
+      tentativas: 0,
+      rotas: {
+        mensagem: {
+          enviada: msgId,
+          conteudo: conteudoMensagem
+        }
+      }
+    }
+  };
+
+  await salvarChatMock(chatOut);
+  mockHandshakes.set(handId, handshakeNormal);
+
+  const savedChat = mockChats.get(msgId);
+  const savedHandshake = mockHandshakes.get(handId);
+
+  assertExists(savedChat);
+  assertEquals(savedChat.id, msgId);
+
+  assertFalse(!!savedChat.sentAt, "sentAt não deve existir ainda");
+  assertFalse(!!savedChat.receivedAt, "receivedAt não deve existir ainda");
+  assertFalse(!!savedChat.readAt, "readAt não deve existir ainda");
+
+  assertExists(savedHandshake, "Handshake deve ser criado para envio normal");
+  assertEquals(savedHandshake.id, handId);
+  assertEquals(savedHandshake.aud, outroHash);
+  assertEquals(savedHandshake.out?.status, 'pendente');
+});
+
+Deno.test("HAND-MENSAGEM SELF: Comparação entre auto-mensagem e mensagem normal", async () => {
+  mockChats.clear();
+  mockHandshakes.clear();
+  const meuHash = await obterHashProprio(mockProfile);
+  const outroHash = "hash-terceiro";
+  const agora = Date.now();
+
+  const autoMsg: Chat = {
+    id: `auto-${agora}`,
+    contatoHash: meuHash!,
+    conteudo: "Para mim",
+    tipo: 'out',
+    createdAt: agora,
+    sentAt: agora,
+    receivedAt: agora,
+    readAt: agora,
+    notifiedAt: agora,
+    handshake: 'self'
+  };
+
+  const normalMsg: Chat = {
+    id: `normal-${agora}`,
+    contatoHash: outroHash,
+    conteudo: "Para outro",
+    tipo: 'out',
+    createdAt: agora,
+    handshake: `hand-${agora}`
+  };
+
+  await salvarChatMock(autoMsg);
+  await salvarChatMock(normalMsg);
+
+  const savedAuto = mockChats.get(autoMsg.id);
+  const savedNormal = mockChats.get(normalMsg.id);
+
+  assertExists(savedAuto);
+  assertExists(savedNormal);
+
+  assertEquals(savedAuto.handshake, 'self');
+  assertExists(savedAuto.sentAt);
+  assertExists(savedAuto.receivedAt);
+  assertExists(savedAuto.readAt);
+  assertExists(savedAuto.notifiedAt);
+
+  assertEquals(savedNormal.handshake, `hand-${agora}`);
+  assertFalse(!!savedNormal.sentAt);
+  assertFalse(!!savedNormal.receivedAt);
+  assertFalse(!!savedNormal.readAt);
+  assertFalse(!!savedNormal.notifiedAt);
+
+  assertEquals(savedAuto.tipo, savedNormal.tipo, "Ambas são 'out'");
+  assertEquals(savedAuto.createdAt, savedNormal.createdAt);
+});
+
+Deno.test("HAND-MENSAGEM SELF: Múltiplas auto-mensagens não criam handshakes", async () => {
+  mockChats.clear();
+  mockHandshakes.clear();
+  const meuHash = await obterHashProprio(mockProfile);
+  assertExists(meuHash);
+  const mensagens = [
+    "Primeira mensagem para mim",
+    "Segunda mensagem para mim",
+    "Terceira mensagem para mim"
+  ];
+
+  let index = 0;
+  for (const conteudo of mensagens) {
+    const msg: Chat = {
+      id: `auto-msg-${index}-${Date.now()}`,
+      contatoHash: meuHash,
+      conteudo: conteudo,
+      tipo: 'out',
+      createdAt: Date.now(),
+      sentAt: Date.now(),
+      receivedAt: Date.now(),
+      readAt: Date.now(),
+      notifiedAt: Date.now(),
+      handshake: 'self'
+    };
+    await salvarChatMock(msg);
+    index++;
+  }
+
+  assertEquals(mockChats.size, mensagens.length);
+  assertEquals(mockHandshakes.size, 0, "Nenhum handshake deve ser criado para auto-mensagens");
+
+  for (const [_id, chat] of mockChats.entries()) {
+    assertExists(chat.sentAt);
+    assertExists(chat.receivedAt);
+    assertExists(chat.readAt);
+    assertExists(chat.notifiedAt);
+    assertEquals(chat.handshake, 'self');
+  }
+});
+
+Deno.test("HAND-MENSAGEM SELF: Contato próprio deve ser identificado corretamente", async () => {
+  const contatoProprio = await gerarContatoProprio(mockProfile);
+  assertExists(contatoProprio);
+
+  assertEquals(contatoProprio.name, "Usuário Teste (Eu)");
+  assertEquals(contatoProprio.me, 'trusted');
+  assertTrue(contatoProprio.trusted);
+
+  const hashCalculado = await calcularHashVapid(mockProfile.vapidPublicKey);
+  assertEquals(contatoProprio.id, hashCalculado);
+
+  const ehEu = await ehContatoProprio(contatoProprio.id, mockProfile);
+  assertTrue(ehEu);
+  const naoEhEu = await ehContatoProprio("outro-hash", mockProfile);
+  assertFalse(naoEhEu);
+});
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/tests/integration/e2e-payload-pipeline.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { assert, assertEquals } from "@std/assert";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK, base64UrlToBuffer } from "@loco/utils/crypto";
+import { cifrarPayloadObj } from "@loco/utils/proxy";
+import { criarJWT, verificarJWT } from "@loco/utils/crypto";
+import { gunzipSync } from "fflate";
+
+Deno.test("INTEGRAÇÃO E2E: Nó A (Compacta, Cifra, Assina) -> Servidor -> Nó B (Verifica, Decifra, Descompacta)", async () => {
+  // 1. SETUP DOS NÓS
+  const aliceVapid = await generateVAPIDKeys();
+  const aliceVapidPubJwk = await exportKeyToJWK(aliceVapid.publicKey);
+  const aliceVapidPrivJwk = await exportKeyToJWK(aliceVapid.privateKey);
+  const bobE2E = await generateE2EEKeys();
+
+  const payloadOriginal = {
+    mensagem: { conteudo: "Mensagem Ultra Secreta! ".repeat(50) },
+    contato: { sync: { nome: "Alice_PWA" } }
+  };
+
+  // 2. NÓ A PREPARA O PACOTE
+  const envelopeCifrado = await cifrarPayloadObj(payloadOriginal, bobE2E.publicEncrypt);
+  assert(envelopeCifrado.i && envelopeCifrado.d && envelopeCifrado.k);
+
+  const jwtPayload = { 
+    sub: "hand", 
+    aud: "hash-do-bob", 
+    jti: "handshake-123", 
+    ct: JSON.stringify(envelopeCifrado) 
+  };
+  const jwtString = await criarJWT(jwtPayload, aliceVapidPrivJwk, { kid: aliceVapidPubJwk });
+
+  // 3. SERVIDOR PROXY (cego)
+  const tamanhoTransferencia = new Blob([jwtString]).size;
+  console.log(`\n📦 Tamanho do pacote: ${tamanhoTransferencia} bytes`);
+  assert(tamanhoTransferencia < 4096, "Pacote deve ser menor que 4KB");
+
+  // 4. NÓ B RECEBE E ABRE
+  const jwtDecodificado = await verificarJWT(jwtString);
+  assertEquals(jwtDecodificado.header.alg, "ES256");
+  assertEquals(jwtDecodificado.payload.aud, "hash-do-bob");
+
+  const ctRecebido = JSON.parse(jwtDecodificado.payload.ct);
+
+  const bobPrivateDecryptKey = await crypto.subtle.importKey(
+    "jwk", 
+    bobE2E.privateDecryptJwk, 
+    { name: "RSA-OAEP", hash: "SHA-256" }, 
+    true, 
+    ["decrypt"]
+  );
+
+  const ivBytes = new Uint8Array(base64UrlToBuffer(ctRecebido.i));
+  const dadosBytes = new Uint8Array(base64UrlToBuffer(ctRecebido.d));
+  const chaveAesCifradaBytes = new Uint8Array(base64UrlToBuffer(ctRecebido.k));
+
+  const aesChaveCruaBuffer = await crypto.subtle.decrypt(
+    { name: "RSA-OAEP" }, 
+    bobPrivateDecryptKey, 
+    chaveAesCifradaBytes
+  );
+
+  const chaveSimetricaAes = await crypto.subtle.importKey(
+    "raw", 
+    aesChaveCruaBuffer, 
+    { name: "AES-GCM", length: 256 }, 
+    false, 
+    ["decrypt"]
+  );
+
+  const textoDecifradoBuffer = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: ivBytes }, 
+    chaveSimetricaAes, 
+    dadosBytes
+  );
+
+  const decompressed = gunzipSync(new Uint8Array(textoDecifradoBuffer));
+  const rotasObj = JSON.parse(new TextDecoder().decode(decompressed));
+
+  // 5. PROVA MATEMÁTICA
+  assertEquals(
+    rotasObj.mensagem.conteudo, 
+    payloadOriginal.mensagem.conteudo, 
+    "Mensagem foi corrompida!"
+  );
+  assertEquals(
+    rotasObj.contato.sync.nome, 
+    "Alice_PWA", 
+    "Piggyback falhou!"
+  );
+  console.log("✅ Pipeline E2E operando perfeitamente!");
+});
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/tests/integration/proxy-payload.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assert, assertEquals, assertExists } from "@std/assert";
+import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { 
+  salvarProfile, 
+  salvarContato, 
+  salvarHandshake, 
+  serializarPublicKeyVapid, 
+  removerHandshake,
+  listarHandshakes
+} from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
+import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
+
+const originalFetch = globalThis.fetch;
+
+Deno.test("INTEGRAÇÃO REAL: Roteador envia proxyserver padronizado dentro de subscription", async () => {
+  const aliceVapid = await generateVAPIDKeys();
+  const aliceE2E = await generateE2EEKeys();
+  const alicePubVapid = await exportKeyToJWK(aliceVapid.publicKey);
+  const bobVapid = await generateVAPIDKeys();
+  const bobE2E = await generateE2EEKeys();
+  const bobPubVapid = await exportKeyToJWK(bobVapid.publicKey);
+  const bobHash = await serializarPublicKeyVapid(bobPubVapid);
+
+  const myProfile: ProfileConfig = {
+    name: "Alice",
+    email: "alice@loco.pwa",
+    vapidPublicKey: alicePubVapid,
+    vapidPrivateKeyJwk: await exportKeyToJWK(aliceVapid.privateKey),
+    vapidPrivateKeyEnvelope: "envelope-cifrado-da-alice",
+    e2ePublicKey: aliceE2E.publicEncrypt,
+    e2ePrivateKeyJwk: aliceE2E.privateDecryptJwk,
+    subscription: {
+      endpoint: "https://push.alice.com",
+      keys: { p256dh: "alice-p256dh", auth: "alice-auth" },
+      proxyserver: "https://proxy.loco.com"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(myProfile);
+
+  const contatoBob: Contato = {
+    id: bobHash,
+    name: "Bob",
+    email: "bob@loco.pwa",
+    vapidPublicKey: bobPubVapid,
+    e2ePublicKey: bobE2E.publicEncrypt,
+    subscription: {
+      endpoint: "https://fcm.googleapis.com/fcm/send/bob-token-secreto",
+      keys: { p256dh: "bob-p256dh", auth: "bob-auth" },
+      proxyserver: "https://proxy.loco.com"
+    },
+    vapidPrivateKeyEnvelope: "envelope-cifrado-do-bob",
+    trusted: true,
+    me: 'none', 
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarContato(contatoBob);
+
+  const handshakeId = "handshake-teste-payload";
+  const handshakeOut: Handshake = {
+    id: handshakeId,
+    aud: bobHash,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    out: {
+      status: 'pendente',
+      tentativas: 0,
+      rotas: {
+        mensagem: {
+          enviada: "msg-123",
+          conteudo: "Olá Bob! Testando o proxyserver padronizado!"
+        }
+      }
+    }
+  };
+  await salvarHandshake(handshakeOut);
+
+  let requestInterceptada: any = null;
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    if (init && init.body) {
+      requestInterceptada = JSON.parse(init.body as string);
+    }
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  };
+
+  try {
+    await processarFilaHandshake();
+    assertExists(requestInterceptada, "Roteador não realizou fetch!");
+
+    assertExists(requestInterceptada.subscription);
+    assertEquals(requestInterceptada.subscription.endpoint, contatoBob.subscription.endpoint);
+    assertEquals(requestInterceptada.subscription.proxyserver, contatoBob.subscription.proxyserver);
+
+    assertExists(requestInterceptada.vapid);
+    assertEquals(requestInterceptada.vapid.publicKey.x, bobPubVapid.x);
+    assertEquals(requestInterceptada.vapid.privateKey, contatoBob.vapidPrivateKeyEnvelope);
+
+    assertExists(requestInterceptada.payloadText);
+  } finally {
+    globalThis.fetch = originalFetch;
+    const fila = await listarHandshakes();
+    for (const h of fila) {
+      await removerHandshake(h.id);
+    }
+  }
+});
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/tests/integration/piggyback.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists } from "@std/assert";
+import { 
+  salvarProfile, 
+  salvarContato, 
+  buscarContatoPorChave, 
+  salvarHandshake, 
+  listarHandshakes,
+  removerHandshake,
+  serializarPublicKeyVapid
+} from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
+import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
+import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
+
+const originalFetch = globalThis.fetch;
+
+Deno.test("INTEGRAÇÃO (PIGGYBACK 1): Mensagem para contato 'me: none' DEVE forçar injeção do Piggyback", async () => {
+  globalThis.fetch = async () => new Response("OK", { status: 200 });
+
+  // 1. SETUP: Perfil da Alice
+  const aliceVapid = await generateVAPIDKeys();
+  const aliceE2e = await generateE2EEKeys();
+  const alicePubVapid = await exportKeyToJWK(aliceVapid.publicKey);
+  const alicePrivVapid = await exportKeyToJWK(aliceVapid.privateKey);
+
+  const aliceProfile: ProfileConfig = {
+    name: "Alice Original",
+    email: "alice@loco.pwa",
+    vapidPublicKey: alicePubVapid,
+    vapidPrivateKeyJwk: alicePrivVapid,
+    vapidPrivateKeyEnvelope: "envelope-falso",
+    e2ePublicKey: aliceE2e.publicEncrypt,
+    e2ePrivateKeyJwk: {} as any,
+    subscription: { endpoint: "https://fcm", keys: { p256dh: "p", auth: "a" }, proxyserver: "proxy" },
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  await salvarProfile(aliceProfile);
+
+  // 2. SETUP: Bob não tem dados da Alice (me: 'none')
+  const bobVapid = await generateVAPIDKeys();
+  const bobE2e = await generateE2EEKeys();
+  const bobPubVapid = await exportKeyToJWK(bobVapid.publicKey);
+  const bobHash = await serializarPublicKeyVapid(bobPubVapid);
+
+  const bobContato: Contato = {
+    id: bobHash, name: "Bob", email: "bob@loco.pwa",
+    vapidPublicKey: bobPubVapid, e2ePublicKey: bobE2e.publicEncrypt,
+    subscription: { endpoint: "https://fcm-bob", keys: { p256dh: "p", auth: "a" }, proxyserver: "proxy" },
+    vapidPrivateKeyEnvelope: "env", trusted: true, 
+    me: "none",
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  await salvarContato(bobContato);
+
+  // 3. AÇÃO: Alice envia mensagem
+  const msgHandshake: Handshake = {
+    id: "hand-msg-alice-bob", aud: bobHash, createdAt: Date.now(), updatedAt: Date.now(),
+    out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: "msg-123", conteudo: "Oi Bob!" } } }
+  };
+  await salvarHandshake(msgHandshake);
+
+  // 4. PROCESSAMENTO
+  await processarFilaHandshake();
+
+  // 5. PROVA
+  const handshakes = await listarHandshakes();
+  const sentHandshake = handshakes.find(h => h.id === "hand-msg-alice-bob");
+  assertExists(sentHandshake?.out?.rotas?.contato?.sync, "Piggyback NÃO foi injetado!");
+  assertEquals((sentHandshake.out.rotas.contato.sync as any).nm, "Alice Original");
+
+  for (const h of handshakes) await removerHandshake(h.id);
+  globalThis.fetch = originalFetch;
+});
+
+Deno.test("INTEGRAÇÃO (PIGGYBACK 2): Receber Piggyback DEVE criar contato real no destino", async () => {
+  // 1. SETUP
+  const aliceVapid = await generateVAPIDKeys();
+  const aliceE2e = await generateE2EEKeys();
+  const alicePubVapid = await exportKeyToJWK(aliceVapid.publicKey);
+  const alicePubE2e = aliceE2e.publicEncrypt; 
+  const aliceHash = await serializarPublicKeyVapid(alicePubVapid);
+
+  let aliceNoDb = await buscarContatoPorChave(aliceHash);
+  assertEquals(aliceNoDb, undefined, "Alice não deveria existir ainda");
+
+  // 2. AÇÃO: Bob recebe Piggyback
+  const incomingHandshake: Handshake = {
+    id: "hand-in-piggyback", aud: aliceHash, createdAt: Date.now(), updatedAt: Date.now(),
+    in: {
+      status: 'recebido', tentativas: 0,
+      rotas: {
+        contato: {
+          sync: {
+            nm: "Alice Nova", em: "alice@loco.pwa",
+            vp: { x: alicePubVapid.x!, y: alicePubVapid.y! }, 
+            ep: { n: alicePubE2e.n!, e: alicePubE2e.e! },
+            se: "https://fcm-alice", sp: "p256", sa: "auth", ps: "proxy", ve: "env", tr: false
+          }
+        }
+      }
+    }
+  };
+  await salvarHandshake(incomingHandshake);
+
+  // 3. PROCESSAMENTO
+  await ProcessarContato({ in: incomingHandshake.id });
+
+  // 4. PROVA
+  aliceNoDb = await buscarContatoPorChave(aliceHash);
+  assertExists(aliceNoDb, "Contato da Alice NÃO foi criado!");
+  assertEquals(aliceNoDb.name, "Alice Nova");
+  assertEquals(aliceNoDb.me, "saved");
+
+  await removerHandshake(incomingHandshake.id);
+});
+```
+
+---
+
 ## Arquivo: `monorepo/service-worker/deno.jsonc`
 
 ```json
@@ -1372,11 +2499,13 @@ self.addEventListener('message', (event: any) => {
      "@std/http": "jsr:@std/http@^1",
      "@std/path": "jsr:@std/path@^1",
      "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-     "fflate": "https://esm.sh/fflate@0.8.2?target=es2022"
+     "fflate": "https://esm.sh/fflate@0.8.2?target=es2022",
+     "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle",
+     "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle",
    },
    "tasks": {
-     "test": "deno test --allow-env --allow-net tests/",
-     "check": "deno check src/**/*.ts src/**/*.tsx tests/**/*.ts",
+     "test": "deno test --allow-env --allow-net --allow-read --allow-write tests/",
+     "check": "deno check src/**/*.ts tests/**/*.ts",
      "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle ../esbuild.ts sw",
      "tests": "deno task check && deno task test"
    }
