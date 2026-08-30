@@ -7,6 +7,7 @@
   },
   "imports": {
     "@std/assert": "jsr:@std/assert",
+    "@std/testing": "jsr:@std/testing",
 
     // 🔥 ARQUITETURA: Blindagem de Target do CDN (apenas para os ofensores)
     // Mantemos o target=es2022 apenas nas bibliotecas que puxavam módulos do Node.
@@ -23,6 +24,7 @@
   "./interfaces": "./src/interfaces/mod.ts",
   "./proxy": "./src/proxy/mod.ts",
   "./debug": "./src/debug/mod.ts",
-  "./crypto": "./src/crypto/mod.ts"
+  "./crypto": "./src/crypto/mod.ts",
+  "./build": "./src/esbuild/mod.ts"
   }
 }

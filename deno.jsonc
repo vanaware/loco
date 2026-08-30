@@ -7,14 +7,12 @@
   // 📋 Metadados do Projeto
   "name": "@vanaware/loco",
   "version": "0.3.26-mszev7vv",
-  "exports": "./main.ts",
+  "exports": "./esbuild.ts",
   "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
   "author": "Vanaware",
   "license": "MIT",
   
   "workspace": [
-    "proto/_template",
-    "proto/01-push-messaging",
     "./monorepo/playground",
     "./monorepo/worker-db",
     "./monorepo/server",
@@ -36,30 +34,8 @@
 
   // 📦 Gerenciamento de Dependências
   "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
     "@std/fs": "jsr:@std/fs@^1",
-    "@std/http": "jsr:@std/http@^1",
     "@std/path": "jsr:@std/path@^1",
-    "@std/http/file-server": "jsr:@std/http@^1/file-server",
-    
-    // 🔥 ARQUITETURA: Preact limpo e deduplicado
-    // Removemos o target=es2022 do Preact e forçamos os signals a usarem a mesma instância (deps).
-    "preact": "https://esm.sh/preact@10.29.7",
-    "preact/hooks": "https://esm.sh/preact@10.29.7/hooks",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
-    "@preact/signals": "https://esm.sh/@preact/signals@1.2.2?deps=preact@10.29.7",
-    
-    "qrcode-generator": "https://esm.sh/qrcode-generator@1.4.4",
-    "@material/web": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
-    "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
-    
-    // 🔥 ARQUITETURA: Blindagem de Target do CDN (apenas para os ofensores)
-    // Mantemos o target=es2022 apenas nas bibliotecas que puxavam módulos do Node.
-    "fflate": "https://esm.sh/fflate@0.8.2?target=es2022",
-    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle&target=es2022",
-    
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
-    "wrangler": "npm:wrangler@^4.123.0",
 
     "esbuild-wasm": "https://esm.sh/esbuild-wasm@0.24.0"
   },
@@ -71,7 +47,6 @@
     "tests": "deno task check && deno task test",
     "export": "deno run --allow-read --allow-write exports/export.ts"
   },
-  "exclude": ["build/", "public/"],
   "nodeModulesDir": "auto",
     
  "vendor": true,

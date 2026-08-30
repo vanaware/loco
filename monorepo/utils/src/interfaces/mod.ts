@@ -172,3 +172,112 @@ export interface DebugLogPayload {
   message: string;
   details?: unknown;
 }
+
+// ============================================================================
+// 📦 TIPOS ESBUILD
+// ============================================================================
+
+export interface ParsedVersion {
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+export interface ParsedArgs {
+  /** Alvos de build a processar (exclui alvos watch) */
+  targets: string[];
+  /** Flag global para não incrementar versão */
+  globalNoVersion: boolean;
+  /** Nome do alvo watch a executar, ou null se não estiver em modo watch */
+  watchTarget: string | null;
+}
+
+/** Modo de operação do alvo */
+export type TargetMode = 'build' | 'watch';
+
+export interface TargetConfig {
+  // --- Configurações de Pipeline (Pré/Post Build) ---
+  publicdir?: string;
+  srcdir: string;
+  distdir: string;
+  indexHtml?: boolean;
+  clean?: string[];
+
+  /**
+   * Determina se o alvo é incluído automaticamente quando nenhum alvo
+   * é especificado via CLI.
+   *
+   * - `true` ou `undefined`: Incluído por padrão (comportamento padrão)
+   * - `false`: Só roda quando explicitamente solicitado via CLI
+   *
+   * ⚠️ Esta propriedade é IGNORADA para alvos com `mode: 'watch'`.
+   * Alvos watch nunca são incluídos na lista de targets padrão.
+   *
+   * @example
+   * ```typescript
+   * ui: { default: true, ... }       // Roda por padrão
+   * admin: { default: false, ... }   // Só roda com: deno task build admin
+   * ```
+   */
+  default?: boolean;
+
+  /**
+   * Modo de operação do alvo.
+   *
+   * - `'build'`: Alvo normal de build (padrão). Compila e termina.
+   * - `'watch'`: Modo de desenvolvimento contínuo. Monitora mudanças
+   *   e rebuilda automaticamente. O processo fica vivo até Ctrl+C.
+   *
+   * ⚠️ Se múltiplos alvos tiverem `mode: 'watch'`, apenas o PRIMEIRO
+   * (na ordem do CONFIG) é executado quando a flag `watch` é usada.
+   * Para usar um watch específico, solicite-o pelo nome.
+   *
+   * @example
+   * ```typescript
+   * ui: { mode: 'build', ... }       // Build normal (padrão)
+   * 'watch-ui': { mode: 'watch', ... }    // Watch principal
+   * 'watch-admin': { mode: 'watch', ... } // Watch secundário
+   * ```
+   */
+  mode?: TargetMode;
+
+  // --- Configurações do Esbuild (TODAS configuráveis) ---
+  entryPoints: string[];
+  platform?: "browser" | "node" | "neutral";
+  format?: "esm" | "iife" | "cjs";
+  bundle?: boolean;
+  minify?: boolean;
+  sourcemap?: boolean | "linked" | "inline" | "external";
+  jsx?: "automatic" | "transform" | "preserve";
+  jsxImportSource?: string;
+  conditions?: string[];
+  define?: Record<string, string>;
+  drop?: string[];
+  external?: string[];
+  metafile?: boolean;
+  write?: boolean;
+  treeShaking?: boolean;
+  legalComments?: "none" | "inline" | "eof" | "linked" | "external";
+  keepNames?: boolean;
+  outfile?: string;
+  splitting?: boolean;
+  loader?: Record<string, string>;
+  alias?: Record<string, string>;
+  inject?: string[];
+  banner?: { js?: string; css?: string };
+  footer?: { js?: string; css?: string };
+  target?: string | string[];
+  charset?: "ascii" | "utf8";
+  logLevel?: "verbose" | "debug" | "info" | "warning" | "error" | "silent";
+  logLimit?: number;
+  logOverride?: Record<string, string>;
+  entryNames?: string;
+  chunkNames?: string;
+  assetNames?: string;
+  publicPath?: string;
+  pure?: string[];
+}
+
+export interface GlobalTargetConfig {
+  [targetName: string]: TargetConfig;
+}

@@ -26,5 +26,6 @@
     "clean": "deno clean && rm -rf ./build && mkdir -p ./build/dist",
     "deploy": "./deploy.sh"
   },
-  "exports":"./src/worker.ts"
+  "exports":"./src/worker.ts",
+  "exclude": ["./build/"],
 }
