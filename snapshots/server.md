@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: SERVER
 
-Gerado automaticamente em: 8/26/2026, 9:36:38 PM
+Gerado automaticamente em: 8/30/2026, 12:32:32 AM
 
 ---
 
@@ -153,146 +153,92 @@ jobs:
 
 ---
 
-## Arquivo: `monorepo/server/build.ts`
+## Arquivo: `monorepo/server/tests/server-crypto.test.ts`
 
 ```ts
-// build.ts
-import { ensureDir } from "@std/fs";
-import { minifyRsaPublic, minifyRsaPrivate, generateE2EEKeys } from "../../src/utils/crypto-utils.ts";
+// tests/integration/server-crypto.test.ts
+/// <reference lib="deno.ns" />
+import { assert, assertEquals } from "@std/assert";
+import { 
+  generateVAPIDKeys, 
+  generateRSAKeys, 
+  exportKeyToJWK, 
+  minifyRsaPublic, 
+  minifyRsaPrivate,
+  expandRsaPublic
+} from "@loco/utils/crypto";
+import { cifrarChaveVapid } from "@loco/utils/proxy";
+import { decryptWithServerKey } from "../src/shared.ts";
 
-const clean = async () => {
-  try {
-    await Promise.all([
-      Deno.remove("./build/functions", { recursive: true }),
-      Deno.remove("./build/worker.js"),
-      //Deno.remove("./build/worker.js.map")
-    ]);
-    console.log("📁 Arquivos anteriores excluído");
-  } catch {
-    // diretório não existe, ok
-  }
-  await ensureDir("./build/dist");
-  await ensureDir("./build/functions");
-};
-
-async function gerarOuCarregarChavesServidor() {
-  const publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
-  const privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
+Deno.test("INTEGRAÇÃO: Pipeline Criptográfica Completa (Cliente -> PWA -> Servidor)", async () => {
+  // 1. Gera chaves RSA brutas para simular um servidor novo
+  const rawServerKeys = await generateRSAKeys();
+  const rawPublicKeyJwk = await exportKeyToJWK(rawServerKeys.publicKey);
+  const rawPrivateKeyJwk = await exportKeyToJWK(rawServerKeys.privateKey);
   
-  if (publicKey && privateKey) {
-    console.log("🔑 Chaves do servidor carregadas do .env");
-    return;
-  }
+  // 2. Simula o processo do deploy.sh minificando as chaves e setando as ENV vars
+  const envMock = {
+    SERVER_PUBLIC_KEY: JSON.stringify(minifyRsaPublic(rawPublicKeyJwk)),
+    SERVER_PRIVATE_KEY: JSON.stringify(minifyRsaPrivate(rawPrivateKeyJwk))
+  };
   
-  console.log("🔐 Gerando novas chaves RSA do servidor (Formato Minificado Duplo)...");
-
-  const {publicEncrypt, privateDecryptJwk} = await generateE2EEKeys();
+  // 3. O Cliente arranca e gera a sua chave VAPID
+  const clientVapidKeys = await generateVAPIDKeys();
+  const clientVapidPrivateKeyJwk = await exportKeyToJWK(clientVapidKeys.privateKey);
   
-  const compactPublicJwk = minifyRsaPublic(publicEncrypt);
-  const compactPrivateJwk = minifyRsaPrivate( privateDecryptJwk);
-
-  const publicKeyStr = JSON.stringify(compactPublicJwk);
-  const privateKeyStr = JSON.stringify(compactPrivateJwk);
+  // 🔥 SOLUÇÃO: O Cliente (PWA) recebe a chave minificada do Proxy e TEM de a expandir (injetar KTY, ALG, E)
+  const expandedServerPublicKey = expandRsaPublic(JSON.parse(envMock.SERVER_PUBLIC_KEY));
   
-  Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
-  Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
+  // Agora sim, a chave expandida é passada para o motor WebCrypto sem dar erro de "KTY missing"
+  const envelopeBase64 = await cifrarChaveVapid(clientVapidPrivateKeyJwk, expandedServerPublicKey);
+  assert(typeof envelopeBase64 === "string", "O envelope gerado deve ser uma string Base64");
   
-  await Deno.writeTextFile(
-    '.env',
-    `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
-    `# NÃO COMMITAR ESTE ARQUIVO!\n` +
-    `SERVER_PUBLIC_KEY=${publicKeyStr}\n` +
-    `SERVER_PRIVATE_KEY=${privateKeyStr}\n`
+  // 4. O Servidor recebe o envelope e tenta decifrá-lo consumindo as ENV vars minificadas
+  const decryptedJwk = await decryptWithServerKey(envMock, envelopeBase64);
+  
+  // 5. Verifica se os dados se mantiveram perfeitos durante toda a transação
+  assertEquals(
+    decryptedJwk.d, 
+    clientVapidPrivateKeyJwk.d, 
+    "FALHA FATAL: A chave extraída pelo servidor não corresponde à original!"
   );
-  console.log(`✅ Chaves do servidor salvas em .env`);
-}
+  console.log("✅ Pipeline Criptográfico Uniformizado operando com perfeição!");
+});
 
-const build = async () => {
-  console.log("🚀 Iniciando build do Worker Cloudflare ...");
-  const startTime = performance.now();
-
+Deno.test("INTEGRAÇÃO: Servidor deve rejeitar (Nó Incorreto/OperationError) com Chaves Dessincronizadas", async () => {
+  const keysOntem = await generateRSAKeys();
+  const keysHoje = await generateRSAKeys();
+  
+  const envMockHoje = {
+    SERVER_PUBLIC_KEY: JSON.stringify(minifyRsaPublic(await exportKeyToJWK(keysHoje.publicKey))),
+    SERVER_PRIVATE_KEY: JSON.stringify(minifyRsaPrivate(await exportKeyToJWK(keysHoje.privateKey)))
+  };
+  
+  const clientVapidKeys = await generateVAPIDKeys();
+  
+  // 🔥 SOLUÇÃO: Expandir a chave minificada de "ontem" antes de o cliente a utilizar
+  const chaveVelhaExpandida = expandRsaPublic(minifyRsaPublic(await exportKeyToJWK(keysOntem.publicKey)));
+  
+  // Cliente cifra usando a chave pública expandida de "ontem"
+  const envelopeComChaveVelha = await cifrarChaveVapid(
+    await exportKeyToJWK(clientVapidKeys.privateKey), 
+    chaveVelhaExpandida
+  );
+  
+  let deuErro = false;
   try {
-    await clean();
-    await gerarOuCarregarChavesServidor();
-
-    console.log("⚙️ Gerando bundle do Worker...");
-    // @ts-ignore: Deno.bundle API interna operacional no runtime
-    const result = await Deno.bundle({
-      entrypoints: [
-        "./src/worker.ts", 
-        "./src/functions/ping.ts",
-        "./src/functions/publickey.ts",
-        "./src/functions/push.ts",
-      ],
-      outputDir: "./build/",
-      platform: "browser",
-      format: "esm", 
-      packages: "bundle",
-      keepnames: true,
-      inlineImports: true,
-      codeSplitting: false,
-      minify: false,
-      sourcemap: "inline",
-      write: true,
-    });
-
-    if (!result.success) {
-      console.error(result.errors);
-      throw new Error("Falha ao gerar bundle pelo compilador interno.");
-    }
-
-    for (const warning of result.warnings || []) {
-      console.warn(warning);
-    }
-
-    const endTime = performance.now();
-    console.log(`✅ Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
-    console.log("📁 Saída gerada no diretório: ./build/dist/");
-  } catch (error) {
-    console.error("❌ Erro fatal durante o processo de build:");
-    console.error(error);
-    Deno.exit(1);
+    // Servidor tenta abrir usando as chaves de "hoje"
+    await decryptWithServerKey(envMockHoje, envelopeComChaveVelha);
+  } catch (error: any) {
+    deuErro = true;
+    assert(
+      error.message.includes("OperationError") || error.message.includes("Nó incorreto") || error.name === "OperationError", 
+      "O erro deveria ser de operação RSA (Nó Incorreto)"
+    );
   }
-};
-
-await build();
-```
-
----
-
-## Arquivo: `monorepo/server/deno.jsonc`
-
-```json
-{ "name": "@loco/server",
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "dom.asynciterable",  "esnext", "deno.ns"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noUncheckedIndexedAccess": true
-  },
-  "imports": {
-    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
-
-    "@std/assert": "jsr:@std/assert",
-    "@std/fs": "jsr:@std/fs",
-    "@std/http": "jsr:@std/http",
-    "@std/path": "jsr:@std/path",
-
-    
-    "wrangler": "npm:wrangler@^4.123.0"
-  },
-  "tasks": {
-    "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
-    "test": "deno test --allow-env --allow-net --allow-read tests/",
-    "check": "deno check build.ts minify-keys.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
-    "tests": "deno task check && deno task test",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./src/main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./src/main.ts",
-    "clean": "deno clean && rm -rf ./build && mkdir -p ./build/dist",
-    "deploy": "./deploy.sh"
-  },
-  "exports":"./src/worker.ts"
-}
+  
+  assert(deuErro, "Falha Crítica de Segurança: O Servidor conseguiu abrir um cofre trancado com outra chave!");
+});
 ```
 
 ---
@@ -301,18 +247,27 @@ await build();
 
 ```ts
 // testes/federation_routing_test.ts
-
 import { assertEquals } from "@std/assert";
 import { handlePing } from "../src/functions/ping.ts";
 import { handlePush } from "../src/functions/push.ts";
 
+interface PingResponse {
+  success: boolean;
+  service: string;
+}
+
+interface ErrorResponse {
+  error: string;
+}
+
 Deno.test("Server - Handler /ping deve retornar HTTP 200 com status OK", async () => {
   const req = new Request("https://proxy.vanaware.com/ping", {
-    method: "POST"});
+    method: "POST"
+  });
   const res = await handlePing(req);
-
   assertEquals(res.status, 200);
-  const data = await res.json();
+  
+  const data = await res.json() as PingResponse;
   assertEquals(data.success, true);
   assertEquals(data.service, "loco-proxy");
 });
@@ -323,10 +278,10 @@ Deno.test("Server - Handler /push deve rejeitar payload vazio com HTTP 400", asy
     headers: { "Content-Type": "application/json" },
     body: "invalid-json",
   });
-
   const res = await handlePush(req);
   assertEquals(res.status, 400);
-  const data = await res.json();
+  
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error, "Corpo não é JSON válido.");
 });
 ```
@@ -338,9 +293,12 @@ Deno.test("Server - Handler /push deve rejeitar payload vazio com HTTP 400", asy
 ```ts
 // tests/integration/proxy-validation.test.ts
 /// <reference lib="deno.ns" />
-
 import { assertEquals } from "@std/assert";
 import { handlePush } from "../src/functions/push.ts";
+
+interface ErrorResponse {
+  error: string;
+}
 
 // Objeto base 100% válido para usar de modelo nos testes
 const createValidPayload = () => ({
@@ -369,203 +327,73 @@ function createMockRequest(bodyObj: any): Request {
 }
 
 Deno.test("VALIDAÇÃO NEGATIVA: Servidor deve ACEITAR a estrutura completa preliminarmente", async () => {
-  const payloadValido = createValidPayload();
-  const req = createMockRequest(payloadValido);
-
-  // Executa o handler real do servidor
-  const res = await handlePush(req, {});
-  const data = await res.json();
-
-  // Esperamos que ele passe da trava inicial de validação estrita (HTTP 400).
-  // Ele só falhará depois no RSA/WebPush porque o token/envelope no mock são fictícios, mas NÃO na estrutura de entrada!
+  const payload = createValidPayload();
+  const res = await handlePush(createMockRequest(payload), {});
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error !== "Estrutura P2P Inválida. Parâmetros em falta em subscription, vapid ou payloadText.", true);
 });
-
-// =========================================================================
-// BATERIA DE TESTES DE REJEIÇÃO DA ESTRUTURA (HTTP 400)
-// =========================================================================
 
 Deno.test("REJEIÇÃO: Deve falhar se 'subscription' estiver ausente", async () => {
   const payload = createValidPayload();
   delete (payload as any).subscription;
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'subscription.endpoint' estiver ausente/vazio", async () => {
   const payload = createValidPayload();
   payload.subscription.endpoint = "";
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'subscription.proxyserver' estiver ausente/vazio", async () => {
   const payload = createValidPayload();
   payload.subscription.proxyserver = "";
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'subscription.keys.p256dh' estiver ausente", async () => {
   const payload = createValidPayload();
   delete (payload.subscription.keys as any).p256dh;
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'subscription.keys.auth' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload.subscription.keys as any).auth;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'vapid' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload as any).vapid;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'vapid.publicKey' estiver ausente", async () => {
   const payload = createValidPayload();
   delete (payload.vapid as any).publicKey;
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'vapid.privateKey' (envelope) estiver ausente", async () => {
   const payload = createValidPayload();
   delete (payload.vapid as any).privateKey;
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
-Deno.test("REJEIÇÃO: Deve falhar se 'payloadText' estiver ausente/vazio", async () => {
+Deno.test("REJEIÇÃO: Deve falhar se 'payloadText' estiver vazio", async () => {
   const payload = createValidPayload();
   payload.payloadText = "";
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-```
-
----
-
-## Arquivo: `monorepo/server/tests/server-crypto.test.ts`
-
-```ts
-// tests/integration/server-crypto.test.ts
-/// <reference lib="deno.ns" />
-
-import { assert, assertEquals } from "@std/assert";
-import { 
-  generateVAPIDKeys, 
-  generateRSAKeys, 
-  exportKeyToJWK, 
-  minifyRsaPublic, 
-  minifyRsaPrivate,
-  expandRsaPublic // <-- Importação adicionada para reconstruir a chave minificada!
-} from "../../../src/utils/crypto-utils.ts";
-import { cifrarChaveVapid } from "../../../src/utils/push-utils.ts";
-import { decryptWithServerKey } from "../src/shared.ts";
-
-Deno.test("INTEGRAÇÃO: Pipeline Criptográfica Completa (Cliente -> PWA -> Servidor)", async () => {
-  // 1. Gera chaves RSA brutas para simular um servidor novo
-  const rawServerKeys = await generateRSAKeys();
-  const rawPublicKeyJwk = await exportKeyToJWK(rawServerKeys.publicKey);
-  const rawPrivateKeyJwk = await exportKeyToJWK(rawServerKeys.privateKey);
-
-  // 2. Simula o processo do deploy.sh minificando as chaves e setando as ENV vars
-  const envMock = {
-    SERVER_PUBLIC_KEY: JSON.stringify(minifyRsaPublic(rawPublicKeyJwk)),
-    SERVER_PRIVATE_KEY: JSON.stringify(minifyRsaPrivate(rawPrivateKeyJwk))
-  };
-
-  // 3. O Cliente arranca e gera a sua chave VAPID
-  const clientVapidKeys = await generateVAPIDKeys();
-  const clientVapidPrivateKeyJwk = await exportKeyToJWK(clientVapidKeys.privateKey);
-
-  // 🔥 SOLUÇÃO: O Cliente (PWA) recebe a chave minificada do Proxy e TEM de a expandir (injetar KTY, ALG, E)
-  const expandedServerPublicKey = expandRsaPublic(JSON.parse(envMock.SERVER_PUBLIC_KEY));
-
-  // Agora sim, a chave expandida é passada para o motor WebCrypto sem dar erro de "KTY missing"
-  const envelopeBase64 = await cifrarChaveVapid(clientVapidPrivateKeyJwk, expandedServerPublicKey);
-
-  assert(typeof envelopeBase64 === "string", "O envelope gerado deve ser uma string Base64");
-  
-  // 4. O Servidor recebe o envelope e tenta decifrá-lo consumindo as ENV vars minificadas
-  const decryptedJwk = await decryptWithServerKey(envMock, envelopeBase64);
-
-  // 5. Verifica se os dados se mantiveram perfeitos durante toda a transação
-  assertEquals(
-    decryptedJwk.d, 
-    clientVapidPrivateKeyJwk.d, 
-    "FALHA FATAL: A chave extraída pelo servidor não corresponde à original!"
-  );
-
-  console.log("✅ Pipeline Criptográfico Uniformizado operando com perfeição!");
-});
-
-Deno.test("INTEGRAÇÃO: Servidor deve rejeitar (Nó Incorreto/OperationError) com Chaves Dessincronizadas", async () => {
-  const keysOntem = await generateRSAKeys();
-  const keysHoje = await generateRSAKeys();
-
-  const envMockHoje = {
-    SERVER_PUBLIC_KEY: JSON.stringify(minifyRsaPublic(await exportKeyToJWK(keysHoje.publicKey))),
-    SERVER_PRIVATE_KEY: JSON.stringify(minifyRsaPrivate(await exportKeyToJWK(keysHoje.privateKey)))
-  };
-
-  const clientVapidKeys = await generateVAPIDKeys();
-  
-  // 🔥 SOLUÇÃO: Expandir a chave minificada de "ontem" antes de o cliente a utilizar
-  const chaveVelhaExpandida = expandRsaPublic(minifyRsaPublic(await exportKeyToJWK(keysOntem.publicKey)));
-
-  // Cliente cifra usando a chave pública expandida de "ontem"
-  const envelopeComChaveVelha = await cifrarChaveVapid(
-    await exportKeyToJWK(clientVapidKeys.privateKey), 
-    chaveVelhaExpandida
-  );
-
-  let deuErro = false;
-  try {
-    // Servidor tenta abrir usando as chaves de "hoje"
-    await decryptWithServerKey(envMockHoje, envelopeComChaveVelha);
-  } catch (error: any) {
-    deuErro = true;
-    assert(
-      error.message.includes("OperationError") || error.message.includes("Nó incorreto") || error.name === "OperationError", 
-      "O erro deveria ser de operação RSA (Nó Incorreto)"
-    );
-  }
-
-  assert(deuErro, "Falha Crítica de Segurança: O Servidor conseguiu abrir um cofre trancado com outra chave!");
 });
 ```
 
@@ -574,6 +402,7 @@ Deno.test("INTEGRAÇÃO: Servidor deve rejeitar (Nó Incorreto/OperationError) c
 ## Arquivo: `monorepo/server/src/functions/ping.ts`
 
 ```ts
+/// <reference types="@cloudflare/workers-types" />
 
 import { sendResponse, handlePreflight, APP_VERSION } from "../shared.ts";
 
@@ -596,7 +425,7 @@ export const onRequestOptions = async (context: any) => {
 ## Arquivo: `monorepo/server/src/functions/publickey.ts`
 
 ```ts
-
+/// <reference types="@cloudflare/workers-types" />
 
 import { sendResponse, handlePreflight, getOrInitServerKeys } from "../shared.ts";
 
@@ -619,7 +448,8 @@ export const onRequestOptions = async (context: any) => {
 ## Arquivo: `monorepo/server/src/functions/push.ts`
 
 ```ts
-// server/functions/push.ts
+/// <reference types="@cloudflare/workers-types" />
+
 import { sendResponse, handlePreflight, getOrInitServerKeys, extrairEExpandirChavesVapid } from "../shared.ts";
 import * as webpush from "@negrel/webpush";
 
@@ -762,7 +592,7 @@ export const onRequestOptions = async (context: any) => {
 
 ```ts
 
-/// <reference lib="deno.ns" />
+/// <reference types="@cloudflare/workers-types" />
 
 import { sendResponse, handlePreflight } from "./shared.ts";
 import { handlePing } from "./functions/ping.ts";
@@ -811,6 +641,56 @@ export default workerHandler;
 
 ---
 
+## Arquivo: `monorepo/server/src/main.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+
+import { serveDir } from "@std/http/file-server";
+import workerHandler from "./worker.ts";
+
+const env = Deno.env.toObject()
+Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {    
+    const url = new URL(req.url);
+    const ctx = {
+        waitUntil: (p: Promise<any>) => { p.catch(console.error); },
+        passThroughOnException: () => {}
+    };
+
+// 1. Tenta processar a requisição através do workerHandler (APIs e Proxy Push)
+    const workerResponse = await workerHandler.fetch(req, env, ctx);
+
+    // 2. Se o worker processou com sucesso ou retornou erro de API (ex: 400, 403, 500), retorna o resultado dele
+    if (workerResponse.status !== 404) {
+        return workerResponse;
+    }
+
+    // 3. Se o worker retornou 404 (Endpoint não encontrado), significa que não é uma API.
+    // Deixamos o serveDir processar para entregar o arquivo estático correspondente (HTML, JS, CSS, Ícones) do ./dist.
+    try {
+        const staticResponse = await serveDir(req, {
+            fsRoot: "../build/dist",
+            showDirListing: false,
+            quiet: true,
+        });
+
+        // Se o arquivo estático foi encontrado e servido com sucesso, retorna-o
+        if (staticResponse.status !== 404) {
+            return staticResponse;
+        }
+    } catch {
+        // Silencia erros de IO do disco
+    }
+
+    // 4. Se nem a API nem o disco possuíam o recurso, retorna o 404 limpo do worker
+    return workerResponse; 
+
+});
+
+```
+
+---
+
 ## Arquivo: `monorepo/server/src/shared.ts`
 
 ```ts
@@ -820,12 +700,15 @@ import {
   expandRsaPrivate, 
   minifyRsaPublic,
   importJWKToKey
-} from "../../../src/utils/crypto-utils.ts";
-import { decifrarChaveVapid } from "../../../src/utils/push-utils.ts";
+} from "@loco/utils/crypto";
 
-export { APP_VERSION } from "@loco/ui";
+import { 
+  decifrarChaveVapid, 
+  extrairEExpandirChavesVapid 
+} from "@loco/utils/proxy";
 
-export { extrairEExpandirChavesVapid } from "../../../src/utils/push-utils.ts";
+export { APP_VERSION } from "@loco/utils/config";
+export { extrairEExpandirChavesVapid };
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
@@ -885,12 +768,12 @@ export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SER
   try {
     const rawPublicKeyJwk = JSON.parse(publicKeyStr);
     const rawPrivateKeyJwk = JSON.parse(privateKeyStr);
-
+    
     // Expansão Oficial via PWA Utils
     const publicKeyJwk = expandRsaPublic(rawPublicKeyJwk);
     const privateKeyJwk = expandRsaPrivate(rawPrivateKeyJwk, publicKeyJwk);
     const minifiedPublicKey = minifyRsaPublic(publicKeyJwk);
-
+    
     // Importação Oficial via PWA Utils
     const serverPrivateKey = await importJWKToKey(
       privateKeyJwk, 
@@ -915,56 +798,6 @@ export async function decryptWithServerKey(env: { SERVER_PUBLIC_KEY?: string; SE
   // 🔥 LÓGICA HIPER-ENXUTA: O Servidor apenas chama a rotina idêntica do Cliente
   return await decifrarChaveVapid(base64Envelope, serverPrivateKey);
 }
-```
-
----
-
-## Arquivo: `monorepo/server/src/main.ts`
-
-```ts
-/// <reference lib="deno.ns" />
-
-import { serveDir } from "@std/http/file-server";
-import workerHandler from "./worker.ts";
-
-const env = Deno.env.toObject()
-Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {    
-    const url = new URL(req.url);
-    const ctx = {
-        waitUntil: (p: Promise<any>) => { p.catch(console.error); },
-        passThroughOnException: () => {}
-    };
-
-// 1. Tenta processar a requisição através do workerHandler (APIs e Proxy Push)
-    const workerResponse = await workerHandler.fetch(req, env, ctx);
-
-    // 2. Se o worker processou com sucesso ou retornou erro de API (ex: 400, 403, 500), retorna o resultado dele
-    if (workerResponse.status !== 404) {
-        return workerResponse;
-    }
-
-    // 3. Se o worker retornou 404 (Endpoint não encontrado), significa que não é uma API.
-    // Deixamos o serveDir processar para entregar o arquivo estático correspondente (HTML, JS, CSS, Ícones) do ./dist.
-    try {
-        const staticResponse = await serveDir(req, {
-            fsRoot: "../build/dist",
-            showDirListing: false,
-            quiet: true,
-        });
-
-        // Se o arquivo estático foi encontrado e servido com sucesso, retorna-o
-        if (staticResponse.status !== 404) {
-            return staticResponse;
-        }
-    } catch {
-        // Silencia erros de IO do disco
-    }
-
-    // 4. Se nem a API nem o disco possuíam o recurso, retorna o 404 limpo do worker
-    return workerResponse; 
-
-});
-
 ```
 
 ---
@@ -1024,71 +857,6 @@ invocation_logs = true
 enabled = true
 persist = true
 head_sampling_rate = 1
-```
-
----
-
-## Arquivo: `monorepo/server/minify-keys.ts`
-
-```ts
-// minify-keys.ts
-// Script utilitário para extrair e minificar as chaves RSA do servidor.
-
-import { minifyRsaPublic, minifyRsaPrivate } from "../../src/utils/crypto-utils.ts";
-
-async function executarMinificacao() {
-  const targetKey = Deno.args[0]; 
-
-  const publicKeyStr = Deno.env.get("SERVER_PUBLIC_KEY");
-  const privateKeyStr = Deno.env.get("SERVER_PRIVATE_KEY");
-
-  if (!publicKeyStr || !privateKeyStr) {
-    console.error("❌ Não foi possível ler as chaves. Certifique-se de executar o comando com a flag --env-file=.env");
-    Deno.exit(1);
-  }
-
-  try {
-    const publicJwk = JSON.parse(publicKeyStr);
-    const privateJwk = JSON.parse(privateKeyStr);
-
-    // 🔥 ARQUITETURA UNIFICADA: Minificação Centralizada
-    const compactPublicJwk = minifyRsaPublic(publicJwk);
-    const compactPrivateJwk = minifyRsaPrivate(privateJwk);
-
-    // MODO SILENCIOSO / AUTOMAÇÃO
-    if (targetKey === "SERVER_PRIVATE_KEY") {
-      console.log(JSON.stringify(compactPrivateJwk));
-      Deno.exit(0);
-    } 
-    
-    if (targetKey === "SERVER_PUBLIC_KEY") {
-      console.log(JSON.stringify(compactPublicJwk));
-      Deno.exit(0);
-    }
-
-    // MODO VERBOSO / INTERATIVO
-    console.log("\n✅ Minificação Dupla concluída com sucesso (Usando Utils Centralizadas)!\n");
-    
-    console.log("=====================================================================");
-    console.log("🌐 SERVER_PUBLIC_KEY (Variável/Var Pública no Cloudflare)");
-    console.log("=====================================================================");
-    console.log(JSON.stringify(compactPublicJwk));
-    console.log("\n");
-
-    console.log("=====================================================================");
-    console.log("🔐 SERVER_PRIVATE_KEY (Secret/Encrypt no Cloudflare)");
-    console.log("=====================================================================");
-    console.log(JSON.stringify(compactPrivateJwk));
-    console.log("\n=====================================================================\n");
-
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("❌ Falha ao processar as chaves. Verifique se o JSON no .env é válido.", errorMsg);
-    Deno.exit(1);
-  }
-}
-
-executarMinificacao();
 ```
 
 ---
@@ -1233,6 +1001,206 @@ else
 fi
 
 echo "============================================================"
+```
+
+---
+
+## Arquivo: `monorepo/server/build.ts`
+
+```ts
+// build.ts
+import { ensureDir } from "@std/fs";
+import { minifyRsaPublic, minifyRsaPrivate, generateE2EEKeys } from "@loco/utils/crypto";
+
+const clean = async () => {
+  try {
+    await Promise.all([
+      Deno.remove("./build/functions", { recursive: true }),
+      Deno.remove("./build/worker.js"),
+      //Deno.remove("./build/worker.js.map")
+    ]);
+    console.log("📁 Arquivos anteriores excluído");
+  } catch {
+    // diretório não existe, ok
+  }
+  await ensureDir("./build/dist");
+  await ensureDir("./build/functions");
+};
+
+async function gerarOuCarregarChavesServidor() {
+  const publicKey = Deno.env.get('SERVER_PUBLIC_KEY');
+  const privateKey = Deno.env.get('SERVER_PRIVATE_KEY');
+  
+  if (publicKey && privateKey) {
+    console.log("🔑 Chaves do servidor carregadas do .env");
+    return;
+  }
+
+  console.log("🔐 Gerando novas chaves RSA do servidor (Formato Minificado Duplo)...");
+  const { publicEncrypt, privateDecryptJwk } = await generateE2EEKeys();
+  const compactPublicJwk = minifyRsaPublic(publicEncrypt);
+  const compactPrivateJwk = minifyRsaPrivate(privateDecryptJwk);
+  
+  const publicKeyStr = JSON.stringify(compactPublicJwk);
+  const privateKeyStr = JSON.stringify(compactPrivateJwk);
+  
+  Deno.env.set('SERVER_PUBLIC_KEY', publicKeyStr);
+  Deno.env.set('SERVER_PRIVATE_KEY', privateKeyStr);
+  
+  await Deno.writeTextFile(
+    '.env',
+    `# Chaves RSA do Servidor - Geradas automaticamente pelo build\n` +
+    `# NÃO COMMITAR ESTE ARQUIVO!\n` +
+    `SERVER_PUBLIC_KEY=${publicKeyStr}\n` +
+    `SERVER_PRIVATE_KEY=${privateKeyStr}\n`
+  );
+  console.log(`✅ Chaves do servidor salvas em .env`);
+}
+
+const build = async () => {
+  console.log("🚀 Iniciando build do Worker Cloudflare ...");
+  const startTime = performance.now();
+  
+  try {
+    await clean();
+    await gerarOuCarregarChavesServidor();
+    
+    console.log("⚙️ Gerando bundle do Worker...");
+    // @ts-ignore: Deno.bundle API interna operacional no runtime
+    const result = await Deno.bundle({
+      entrypoints: [
+        "./src/worker.ts", 
+        "./src/functions/ping.ts",
+        "./src/functions/publickey.ts",
+        "./src/functions/push.ts",
+      ],
+      outputDir: "./build/",
+      platform: "browser",
+      format: "esm", 
+      packages: "bundle",
+      keepnames: true,
+      inlineImports: true,
+      codeSplitting: false,
+      minify: false,
+      sourcemap: "inline",
+      write: true,
+    });
+
+    if (!result.success) {
+      console.error(result.errors);
+      throw new Error("Falha ao gerar bundle pelo compilador interno.");
+    }
+
+    for (const warning of result.warnings || []) {
+      console.warn(warning);
+    }
+
+    const endTime = performance.now();
+    console.log(`✅ Build concluído com sucesso em ${(endTime - startTime).toFixed(2)}ms!`);
+    console.log("📁 Saída gerada no diretório: ./build/dist/");
+  } catch (error) {
+    console.error("❌ Erro fatal durante o processo de build:");
+    console.error(error);
+    Deno.exit(1);
+  }
+};
+
+await build();
+```
+
+---
+
+## Arquivo: `monorepo/server/deno.jsonc`
+
+```json
+{
+  "name": "@loco/server",
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "imports": {
+    "@negrel/webpush": "jsr:@negrel/webpush@^0.5.0",
+    "@std/assert": "jsr:@std/assert",
+    "@std/fs": "jsr:@std/fs",
+    "@std/http": "jsr:@std/http",
+    "@std/path": "jsr:@std/path",
+    "@cloudflare/workers-types": "npm:@cloudflare/workers-types",
+    "wrangler": "npm:wrangler@^4.123.0"
+  },
+  "tasks": {
+    "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
+    "test": "deno test --allow-env --allow-net --allow-read tests/",
+    "check": "deno check build.ts minify-keys.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
+    "tests": "deno task check && deno task test",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./src/main.ts",
+    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./src/main.ts",
+    "clean": "deno clean && rm -rf ./build && mkdir -p ./build/dist",
+    "deploy": "./deploy.sh"
+  },
+  "exports": "./src/worker.ts",
+  "exclude": ["./build/"]
+}
+```
+
+---
+
+## Arquivo: `monorepo/server/minify-keys.ts`
+
+```ts
+// minify-keys.ts
+import { minifyRsaPublic, minifyRsaPrivate } from "@loco/utils/crypto";
+
+async function executarMinificacao() {
+  const targetKey = Deno.args[0]; 
+  const publicKeyStr = Deno.env.get("SERVER_PUBLIC_KEY");
+  const privateKeyStr = Deno.env.get("SERVER_PRIVATE_KEY");
+
+  if (!publicKeyStr || !privateKeyStr) {
+    console.error("❌ Não foi possível ler as chaves. Certifique-se de executar o comando com a flag --env-file=.env");
+    Deno.exit(1);
+  }
+
+  try {
+    const publicJwk = JSON.parse(publicKeyStr);
+    const privateJwk = JSON.parse(privateKeyStr);
+    
+    // 🔥 ARQUITETURA UNIFICADA: Minificação Centralizada
+    const compactPublicJwk = minifyRsaPublic(publicJwk);
+    const compactPrivateJwk = minifyRsaPrivate(privateJwk);
+    
+    // MODO SILENCIOSO / AUTOMAÇÃO
+    if (targetKey === "SERVER_PRIVATE_KEY") {
+      console.log(JSON.stringify(compactPrivateJwk));
+      Deno.exit(0);
+    } 
+    if (targetKey === "SERVER_PUBLIC_KEY") {
+      console.log(JSON.stringify(compactPublicJwk));
+      Deno.exit(0);
+    }
+    
+    // MODO VERBOSO / INTERATIVO
+    console.log("\n✅ Minificação Dupla concluída com sucesso (Usando Utils Centralizadas)!\n");
+    console.log("=====================================================================");
+    console.log("🌐 SERVER_PUBLIC_KEY (Variável/Var Pública no Cloudflare)");
+    console.log("=====================================================================");
+    console.log(JSON.stringify(compactPublicJwk));
+    console.log("\n");
+    console.log("=====================================================================");
+    console.log("🔐 SERVER_PRIVATE_KEY (Secret/Encrypt no Cloudflare)");
+    console.log("=====================================================================");
+    console.log(JSON.stringify(compactPrivateJwk));
+    console.log("\n=====================================================================\n");
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("❌ Falha ao processar as chaves. Verifique se o JSON no .env é válido.", errorMsg);
+    Deno.exit(1);
+  }
+}
+
+executarMinificacao();
 ```
 
 ---

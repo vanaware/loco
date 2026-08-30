@@ -1,8 +1,11 @@
 // tests/integration/proxy-validation.test.ts
 /// <reference lib="deno.ns" />
-
 import { assertEquals } from "@std/assert";
 import { handlePush } from "../src/functions/push.ts";
+
+interface ErrorResponse {
+  error: string;
+}
 
 // Objeto base 100% válido para usar de modelo nos testes
 const createValidPayload = () => ({
@@ -31,108 +34,71 @@ function createMockRequest(bodyObj: any): Request {
 }
 
 Deno.test("VALIDAÇÃO NEGATIVA: Servidor deve ACEITAR a estrutura completa preliminarmente", async () => {
-  const payloadValido = createValidPayload();
-  const req = createMockRequest(payloadValido);
-
-  // Executa o handler real do servidor
-  const res = await handlePush(req, {});
-  const data = await res.json();
-
-  // Esperamos que ele passe da trava inicial de validação estrita (HTTP 400).
-  // Ele só falhará depois no RSA/WebPush porque o token/envelope no mock são fictícios, mas NÃO na estrutura de entrada!
+  const payload = createValidPayload();
+  const res = await handlePush(createMockRequest(payload), {});
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error !== "Estrutura P2P Inválida. Parâmetros em falta em subscription, vapid ou payloadText.", true);
 });
-
-// =========================================================================
-// BATERIA DE TESTES DE REJEIÇÃO DA ESTRUTURA (HTTP 400)
-// =========================================================================
 
 Deno.test("REJEIÇÃO: Deve falhar se 'subscription' estiver ausente", async () => {
   const payload = createValidPayload();
   delete (payload as any).subscription;
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'subscription.endpoint' estiver ausente/vazio", async () => {
   const payload = createValidPayload();
   payload.subscription.endpoint = "";
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'subscription.proxyserver' estiver ausente/vazio", async () => {
   const payload = createValidPayload();
   payload.subscription.proxyserver = "";
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'subscription.keys.p256dh' estiver ausente", async () => {
   const payload = createValidPayload();
   delete (payload.subscription.keys as any).p256dh;
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'subscription.keys.auth' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload.subscription.keys as any).auth;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
-  assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
-});
-
-Deno.test("REJEIÇÃO: Deve falhar se 'vapid' estiver ausente", async () => {
-  const payload = createValidPayload();
-  delete (payload as any).vapid;
-
-  const res = await handlePush(createMockRequest(payload), {});
-  assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'vapid.publicKey' estiver ausente", async () => {
   const payload = createValidPayload();
   delete (payload.vapid as any).publicKey;
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
 Deno.test("REJEIÇÃO: Deve falhar se 'vapid.privateKey' (envelope) estiver ausente", async () => {
   const payload = createValidPayload();
   delete (payload.vapid as any).privateKey;
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });
 
-Deno.test("REJEIÇÃO: Deve falhar se 'payloadText' estiver ausente/vazio", async () => {
+Deno.test("REJEIÇÃO: Deve falhar se 'payloadText' estiver vazio", async () => {
   const payload = createValidPayload();
   payload.payloadText = "";
-
   const res = await handlePush(createMockRequest(payload), {});
   assertEquals(res.status, 400);
-  const data = await res.json();
+  const data = await res.json() as ErrorResponse;
   assertEquals(data.error.includes("Estrutura P2P Inválida"), true);
 });

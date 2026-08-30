@@ -1,6 +1,6 @@
 // build.ts
 import { ensureDir } from "@std/fs";
-import { minifyRsaPublic, minifyRsaPrivate, generateE2EEKeys } from "../../src/utils/crypto-utils.ts";
+import { minifyRsaPublic, minifyRsaPrivate, generateE2EEKeys } from "@loco/utils/crypto";
 
 const clean = async () => {
   try {
@@ -25,14 +25,12 @@ async function gerarOuCarregarChavesServidor() {
     console.log("🔑 Chaves do servidor carregadas do .env");
     return;
   }
-  
+
   console.log("🔐 Gerando novas chaves RSA do servidor (Formato Minificado Duplo)...");
-
-  const {publicEncrypt, privateDecryptJwk} = await generateE2EEKeys();
-  
+  const { publicEncrypt, privateDecryptJwk } = await generateE2EEKeys();
   const compactPublicJwk = minifyRsaPublic(publicEncrypt);
-  const compactPrivateJwk = minifyRsaPrivate( privateDecryptJwk);
-
+  const compactPrivateJwk = minifyRsaPrivate(privateDecryptJwk);
+  
   const publicKeyStr = JSON.stringify(compactPublicJwk);
   const privateKeyStr = JSON.stringify(compactPrivateJwk);
   
@@ -52,11 +50,11 @@ async function gerarOuCarregarChavesServidor() {
 const build = async () => {
   console.log("🚀 Iniciando build do Worker Cloudflare ...");
   const startTime = performance.now();
-
+  
   try {
     await clean();
     await gerarOuCarregarChavesServidor();
-
+    
     console.log("⚙️ Gerando bundle do Worker...");
     // @ts-ignore: Deno.bundle API interna operacional no runtime
     const result = await Deno.bundle({

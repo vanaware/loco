@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: UTILS
 
-Gerado automaticamente em: 8/30/2026, 12:01:22 AM
+Gerado automaticamente em: 8/30/2026, 12:32:35 AM
 
 ---
 
@@ -1992,11 +1992,9 @@ export const APP_VERSION = "0.3.26-mszev7vv";
 
 ```ts
 // src/constants/config.ts
-
 // TODO IA: todo acesso ao indexded deve ser pela lib db() de @loco/workerdb
 // TODO IA: precisa diferenciar quando a chamada for por um service worker ou web worker usar a função dbsw() e opfssw()
 // TODO IA: se o acesso for pela main thread (browser) usar as funções db(), opfs() e até o ls() se for o caso
-
 import { get as idbGet, set as idbSet, createStore } from "idb-keyval";
 import { 
   DB_NAMES, 
@@ -2019,7 +2017,6 @@ function getConfigStore() {
 async function loadProxyPathFromDB(): Promise<string> {
   const configStore = getConfigStore();
   if (!configStore) return DefaultProxyPath;
-  
   try {
     const stored = await idbGet<any>(PROXY_PATH_KEY, configStore);
     if (stored !== undefined && stored !== null) {
@@ -2040,9 +2037,7 @@ export async function getProxyPath(): Promise<string> {
 
 export async function setProxyPath(path: string, persistToDisk = true): Promise<void> {
   if (_cachedProxyPath === path && persistToDisk) return;
-  
   _cachedProxyPath = path;
-
   if (persistToDisk) {
     const configStore = getConfigStore();
     if (!configStore) return;
@@ -2070,21 +2065,16 @@ function getAppBasePath(): string {
 // 🔥 ARQUITETURA: Resolve e devolve a BASE URl Absoluta do Proxy
 export async function getAbsoluteProxyUrl(specificProxy?: string): Promise<string> {
   let proxyPath = specificProxy !== undefined ? specificProxy : await getProxyPath();
-  
   if (!proxyPath || proxyPath.trim() === '') proxyPath = "/";
-
   if (proxyPath.startsWith('http://') || proxyPath.startsWith('https://')) {
     // 🔥 CORREÇÃO: Uso de /+ para remover múltiplas barras finais
     return proxyPath.replace(/\/+$/, '');
   } 
-
   const origin = typeof globalThis !== 'undefined' && globalThis.location 
     ? globalThis.location.origin 
     : 'http://localhost';
-  
   const appBase = getAppBasePath();
   const cleanProxyPath = proxyPath.replace(/^(\.\/|\.\.\/|\/+)/, '');
-  
   let base = origin + appBase + cleanProxyPath;
   // 🔥 CORREÇÃO: Uso de /+ para remover múltiplas barras finais
   return base.replace(/\/+$/, '');
@@ -2096,16 +2086,13 @@ export async function buildProxyUrl(endpoint: string, specificProxy?: string): P
   return cleanEndpoint ? `${base}/${cleanEndpoint}` : `${base}/`;
 }
 
-
 export async function fetchLocoProxy(endpoint: string, options: FetchProxyOptions = {}): Promise<Response> {
   const { specificProxy, body, headers: _ignorado, ...restOptions } = options;
   const url = await buildProxyUrl(endpoint, specificProxy);
-  
   const blindHeaders = new Headers();
   if (body) {
     blindHeaders.set('Content-Type', 'text/plain');
   }
-
   const finalOptions: RequestInit = {
     method: 'POST', 
     mode: 'cors',
@@ -2113,18 +2100,14 @@ export async function fetchLocoProxy(endpoint: string, options: FetchProxyOption
     headers: blindHeaders,
     ...restOptions
   };
-
   if (body) {
     finalOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
-    
     const payloadSizeBytes = new Blob([finalOptions.body]).size;
     addDebugLog("info", "NETWORK:FETCH", `Tamanho total da requisição HTTP gerada para ${endpoint}: ${payloadSizeBytes} bytes.`);
-
     if (payloadSizeBytes > 8192) {
       throw new Error(`Pacote muito grande (${payloadSizeBytes} bytes). Limite é 8KB.`);
     }
   }
-
   try {
     return await fetch(url, finalOptions);
   } catch (error: any) {
@@ -2132,22 +2115,27 @@ export async function fetchLocoProxy(endpoint: string, options: FetchProxyOption
   }
 }
 
+// 🔥 CORREÇÃO DE TIPAGEM ESTRITA: Interface para o contrato de resposta do /ping
+interface ProxyPingResponse {
+  service?: string;
+  success?: boolean;
+}
+
 export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
-    
     let res = await fetchLocoProxy('/ping', { 
       specificProxy: proxyUrlToCheck,
       signal: controller.signal 
     }).catch(() => null);
-    
     clearTimeout(timeoutId);
-    
     if (!res || !res.ok) return false;
     
-    const data = await res.json();
-    return data && data.service === "loco-proxy";
+    // 🔥 CORREÇÃO: Tipagem explícita do retorno de res.json() para evitar 'unknown'
+    const data = await res.json() as ProxyPingResponse | null;
+    
+    return data?.service === "loco-proxy";
   } catch (err) {
     return false;
   }

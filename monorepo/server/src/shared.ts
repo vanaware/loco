@@ -4,12 +4,15 @@ import {
   expandRsaPrivate, 
   minifyRsaPublic,
   importJWKToKey
-} from "../../../src/utils/crypto-utils.ts";
-import { decifrarChaveVapid } from "../../../src/utils/push-utils.ts";
+} from "@loco/utils/crypto";
 
-export { APP_VERSION } from "@loco/ui";
+import { 
+  decifrarChaveVapid, 
+  extrairEExpandirChavesVapid 
+} from "@loco/utils/proxy";
 
-export { extrairEExpandirChavesVapid } from "../../../src/utils/push-utils.ts";
+export { APP_VERSION } from "@loco/utils/config";
+export { extrairEExpandirChavesVapid };
 
 let serverPrivateKeyCache: CryptoKey | null = null;
 let serverPublicKeyJwkCache: JsonWebKey | null = null;
@@ -69,12 +72,12 @@ export async function getOrInitServerKeys(env: { SERVER_PUBLIC_KEY?: string; SER
   try {
     const rawPublicKeyJwk = JSON.parse(publicKeyStr);
     const rawPrivateKeyJwk = JSON.parse(privateKeyStr);
-
+    
     // Expansão Oficial via PWA Utils
     const publicKeyJwk = expandRsaPublic(rawPublicKeyJwk);
     const privateKeyJwk = expandRsaPrivate(rawPrivateKeyJwk, publicKeyJwk);
     const minifiedPublicKey = minifyRsaPublic(publicKeyJwk);
-
+    
     // Importação Oficial via PWA Utils
     const serverPrivateKey = await importJWKToKey(
       privateKeyJwk, 
