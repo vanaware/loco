@@ -4,7 +4,14 @@
  // ============================================================================
  // 📦 TIPOS
  // ============================================================================
- import type { ParsedVersion, GlobalTargetConfig, ParsedArgs, TargetConfig } from "../interfaces/mod.ts";
+ import type { 
+    ParsedVersion, 
+    GlobalTargetConfig, 
+    DenoBundleGlobalConfig, 
+    ParsedArgs, 
+    TargetConfig, 
+    DenoBundleTargetConfig
+  } from "../interfaces/mod.ts";
  // ============================================================================
  // 🔢 FUNÇÕES DE VERSÃO (puras, testáveis)
  // ============================================================================
@@ -67,7 +74,7 @@
  // ============================================================================
  // 🎯 PARSING DE ARGUMENTOS CLI (pura, testável)
  // ============================================================================
- export function parseArgs(args: string[], config: GlobalTargetConfig): ParsedArgs {
+ export function parseArgs(args: string[], config: GlobalTargetConfig | DenoBundleGlobalConfig): ParsedArgs {
    const lowerArgs = args.map(a => a.toLowerCase());
    const globalNoVersion = lowerArgs.includes('noversion');
    const isWatchFlag = lowerArgs.includes('watch');
@@ -177,7 +184,7 @@
    return assets;
  }
  export async function copyStaticFiles(
-   config: TargetConfig,
+   config: TargetConfig | DenoBundleTargetConfig,
    appVersion: string
  ): Promise<void> {
    const distDir = config.distdir;

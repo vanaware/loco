@@ -336,3 +336,154 @@
     */
    default?: boolean;
  }
+
+ // ============================================================================
+// 📦 TIPOS DENO.BUNDLE (API nativa do Deno 2.x --unstable-bundle)
+// ============================================================================
+
+/** Plataformas suportadas pelo Deno.bundle */
+export type DenoBundlePlatform = "browser" | "deno";
+
+/** Formatos de saída suportados pelo Deno.bundle */
+export type DenoBundleFormat = "esm" | "cjs" | "iife";
+
+/** Estratégias de source map do Deno.bundle */
+export type DenoBundleSourceMap = "linked" | "inline" | "external";
+
+/** Como tratar pacotes/dependências externas */
+export type DenoBundlePackageHandling = "bundle" | "external";
+
+/**
+ * Configuração de um alvo de build usando a API nativa Deno.bundle.
+ *
+ * Interface declarativa e explícita: cada propriedade é listada
+ * diretamente, sem uso de Omit ou herança de outras interfaces.
+ *
+ * Seções:
+ * 1. Pipeline Loco: Pré/pós processamento (cleanup, cópia de estáticos)
+ * 2. Deno.bundle Options: Propriedades passadas para Deno.bundle()
+ * 3. Extensões Loco: Define customizado e opções extras
+ */
+export interface DenoBundleTargetConfig {
+  // ==========================================================================
+  // 🔄 PIPELINE LOCO (Pré/Pós Build)
+  // ==========================================================================
+
+  /** Diretório fonte (onde estão os arquivos de entrada) */
+  srcdir: string;
+
+  /** Diretório de destino (onde o bundle será escrito) */
+  distdir: string;
+
+  /** Diretório de arquivos estáticos públicos (copiados para distdir) */
+  publicdir?: string;
+
+  /** Se deve copiar index.html do srcdir para distdir */
+  indexHtml?: boolean;
+
+  /**
+   * Lista de paths para limpar antes do build (relativos ao distdir).
+   * Use ["."] para esvaziar completamente o diretório.
+   */
+  clean?: string[];
+
+  /**
+   * Incluído automaticamente quando nenhum alvo é especificado via CLI.
+   * - `true` ou `undefined`: Incluído por padrão
+   * - `false`: Só roda quando explicitamente solicitado
+   */
+  default?: boolean;
+
+  /**
+   * Modo de operação do alvo.
+   * - `'build'`: Compila e termina (padrão)
+   * - `'watch'`: ⚠️ NÃO SUPORTADO pelo Deno.bundle — emite aviso e ignora
+   */
+  mode?: "build" | "watch";
+
+  // ==========================================================================
+  // ⚙️ DENO.BUNDLE OPTIONS (API nativa)
+  // Ref: https://docs.deno.com/api/deno/bundler/#Deno.bundle.Options
+  // ==========================================================================
+
+  /** Pontos de entrada do bundle (arquivos TypeScript/JavaScript) */
+  entryPoints: string[];
+
+  /**
+   * Formato de saída do bundle.
+   * - `"esm"`: ES Modules (padrão)
+   * - `"cjs"`: CommonJS
+   * - `"iife"`: Immediately Invoked Function Expression
+   */
+  format?: DenoBundleFormat;
+
+  /**
+   * Plataforma alvo.
+   * - `"browser"`: Otimizado para navegadores (padrão para UI/SW)
+   * - `"deno"`: Otimizado para runtime Deno
+   */
+  platform?: DenoBundlePlatform;
+
+  /** Se deve minificar o output */
+  minify?: boolean;
+
+  /** Preserva nomes originais de funções e classes */
+  keepNames?: boolean;
+
+  /**
+   * Estratégia de source map.
+   * - `"linked"`: Arquivo .map separado com link no bundle
+   * - `"inline"`: Source map embutido no bundle (base64)
+   * - `"external"`: Arquivo .map separado sem link
+   */
+  sourcemap?: DenoBundleSourceMap;
+
+  /** Habilita code splitting (divide o bundle em chunks) */
+  codeSplitting?: boolean;
+
+  /** Se deve inlinar imports externos no bundle */
+  inlineImports?: boolean;
+
+  /**
+   * Como tratar pacotes/dependências externas.
+   * - `"bundle"`: Pacotes são incluídos no bundle (padrão)
+   * - `"external"`: Pacotes são excluídos
+   */
+  packages?: DenoBundlePackageHandling;
+
+  /** Módulos externos a excluir do bundle */
+  external?: string[];
+
+  // ==========================================================================
+  // 🔧 EXTENSÕES LOCO (pré-processamento customizado)
+  // ==========================================================================
+
+  /**
+   * Define customizado para substituição de variáveis em tempo de build.
+   * Aplicado em memória nos OutputFiles ANTES de salvar no disco.
+   *
+   * __APP_VERSION__ é injetado automaticamente — não precisa declarar.
+   *
+   * @example
+   * ```typescript
+   * define: {
+   *   "__DEBUG__": "false",
+   *   "__API_URL__": '"https://api.loco.app"'
+   * }
+   * ```
+   */
+  define?: Record<string, string>;
+
+  /**
+   * Caminho explícito do arquivo de saída (quando há 1 entry point).
+   * Se não especificado, usa outputDir do Deno.bundle.
+   */
+  outfile?: string;
+}
+
+/**
+ * Configuração global de múltiplos alvos de build para Deno.bundle.
+ */
+export interface DenoBundleGlobalConfig {
+  [targetName: string]: DenoBundleTargetConfig;
+}

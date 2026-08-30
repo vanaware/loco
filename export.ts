@@ -108,7 +108,7 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     extensoesPermitidas: EXTENSOES_PADRAO,
     pastaBase: "monorepo/utils",
     subpastasPermitidas: ["src", "tests", "docs"],
-    caminhosAdicionaisPermitidos: ["export.ts", "esbuild.ts"],
+    caminhosAdicionaisPermitidos: ["export.ts", "esbuild.ts", "build.ts"],
     arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de @loco/utils",
