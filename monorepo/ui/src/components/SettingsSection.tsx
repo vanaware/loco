@@ -4,7 +4,7 @@ import { useEffect } from 'preact/hooks';
 import { loadAllConfigs, saveConfig, resetConfig } from '../stores/config-store.ts';
 import { showToast, appTheme, AppTheme } from '../stores/state.ts';
 import { navigate } from '../stores/router.ts';
-import { buildProxyUrl, pingProxy } from '../../../utils/src/config/proxy.ts';
+import { buildProxyUrl, pingProxy } from '@loco/utils/config';
 
 export function SettingsSection() {
   const proxyPath = useSignal('');

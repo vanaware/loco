@@ -1,13 +1,15 @@
+// Arquivo: monorepo/ui/src/components/ShareSection.tsx
 import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
-import { processarQualquerConvite } from '../../../utils/src/db/share-utils.ts';
+import { processarQualquerConvite } from '@loco/utils/db';
 import { adicionarContato } from '../stores/contatosStore.ts';
-import { serializarPublicKeyVapid } from '../../../utils/src/db/mod.ts';
+import { serializarPublicKeyVapid } from '@loco/utils/db';
 import { showToast, sharePayload } from '../stores/state.ts';
 import { navigate } from '../stores/router.ts';
-import type { Contato } from '../../../utils/src/interfaces/db.ts';
+import type { Contato } from '@loco/utils/interfaces';
 import { profile } from '../stores/profileStore.ts';
-import { ehContatoProprio } from '../../../utils/src/db/self-contact-utils.ts';
+import { ehContatoProprio } from '@loco/utils/db';
+
 
 export function ShareSection() {
   const preview = useSignal<Partial<Contato> | null>(null);

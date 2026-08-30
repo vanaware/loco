@@ -1,19 +1,19 @@
-// src/components/ChatSection.tsx
+// Arquivo: monorepo/ui/src/components/ChatSection.tsx
 import { useEffect, useRef } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { contatoSelecionado, showToast } from '../stores/state.ts';
-import { gerarId } from '../../../worker-db/src/utils/id.ts';
-import { 
-  mensagensAtivas, 
-  hasMoreMessages, 
-  isFetchingMensagens, 
-  inicializarChat, 
-  carregarMaisMensagens, 
-  atualizarOuAdicionarChatAtivo, 
+import { gerarId } from '@loco/utils/db';
+import {
+  mensagensAtivas,
+  hasMoreMessages,
+  isFetchingMensagens,
+  inicializarChat,
+  carregarMaisMensagens,
+  atualizarOuAdicionarChatAtivo,
   limparMemoriaChat,
   excluirMensagem
 } from '../stores/mensagensStore.ts';
-import type { Chat } from '../../../utils/src/interfaces/db.ts';
+import type { Chat } from '@loco/utils/interfaces';
 
 export function ChatSection() {
   const inputText = useSignal<string>('');

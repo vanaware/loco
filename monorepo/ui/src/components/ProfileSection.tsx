@@ -7,11 +7,11 @@ import { profile, carregarProfile, atualizarProfile } from '../stores/profileSto
 import { profileName, profileEmail, addDebugLog, showToast, sharePayload } from '../stores/state.ts';
 import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile.ts';
 import { cifrarChaveVapid } from '@loco/utils/proxy';
-import { salvarProfile, serializarPublicKeyVapid } from '../../../utils/src/db/mod.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '../../../utils/src/db/share-utils.ts';
+import { salvarProfile, serializarPublicKeyVapid } from '@loco/utils/db';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '@loco/utils/db';
 import { adicionarContato } from '../stores/contatosStore.ts';
 import { navigate } from '../stores/router.ts';
-import type { Contato } from '../../../utils/src/interfaces/db.ts';
+import type { Contato } from '@loco/utils/interfaces';
 
 export function ProfileSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);

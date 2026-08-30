@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: SW
 
-Gerado automaticamente em: 8/30/2026, 2:12:58 AM
+Gerado automaticamente em: 8/30/2026, 2:33:18 AM
 
 ---
 
@@ -2501,7 +2501,7 @@ Deno.test("INTEGRAÇÃO (PIGGYBACK 2): Receber Piggyback DEVE criar contato real
      "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
      "fflate": "https://esm.sh/fflate@0.8.2?target=es2022",
      "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle",
-     "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle",
+     "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle"
    },
    "tasks": {
      "test": "deno test --allow-env --allow-net --allow-read --allow-write tests/",

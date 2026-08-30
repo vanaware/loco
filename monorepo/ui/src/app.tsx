@@ -1,3 +1,4 @@
+// Arquivo: monorepo/ui/src/app.tsx
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { effect } from '@preact/signals';
@@ -6,7 +7,7 @@ import type { ComponentType } from 'preact';
 // Componentes da Interface (App Shell & Rotas)
 import { AppSidebar } from './components/AppSidebar.tsx';
 import { MainHeader } from './components/MainHeader.tsx';
-import { ChatSection } from './components/ChatSection.tsx'; 
+import { ChatSection } from './components/ChatSection.tsx';
 import { ContactDetailSection } from './components/ContactDetailSection.tsx';
 import { AdvancedSection } from './components/AdvancedSection.tsx';
 import { ProfileSection } from './components/ProfileSection.tsx';
@@ -14,17 +15,16 @@ import { LogoutSection } from './components/LogoutSection.tsx';
 import { ShareSection } from './components/ShareSection.tsx';
 import { SettingsSection } from './components/SettingsSection.tsx';
 import { ToastSnackbar } from './components/ToastSnackbar.tsx';
-import { WebTorrentLabsSection } from './components/WebTorrentLabsSection.tsx'; 
+import { WebTorrentLabsSection } from './components/WebTorrentLabsSection.tsx';
 
 // Signals e Lógica de Negócio
 import { addDebugLog, currentMobileView, contatoSelecionado, contatoCompartilharHash, appTheme, AppTheme } from './stores/state.ts';
-import { profile, initProfileStore, initContatosStore, initMensagensStore, initTorrentLabsStore, contatosComHash } from './stores/index.ts';
+import { profile, initProfileStore, initContatosStore, initMensagensStore, initTorrentLabsStore, contatosComHash } from './stores/mod.ts';
 import { isCarregandoContatos } from './stores/contatosStore.ts';
 import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 
 // Roteador Reativo
 import { activeView, navigate } from './stores/router.ts';
-
 import "@material/web";
 import './styles.css';
 
@@ -50,8 +50,7 @@ const HomePlaceholder = () => (
 
 const PushAlertBanner = () => {
   const p = profile.value;
-  const _view = activeView.value; 
-  
+  const _view = activeView.value;
   if (!p || !p.name) return null;
 
   const hasEndpoint = !!(p.subscription && p.subscription.endpoint);
@@ -72,13 +71,11 @@ const PushAlertBanner = () => {
   );
 };
 
-// Mapa de Componentes das Rotas
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ViewMap: Record<string, ComponentType<any>> = {
   'chat': ChatSection,
   'detail': ContactDetailSection,
   'advanced': AdvancedSection,
-  'labs': WebTorrentLabsSection, 
+  'labs': WebTorrentLabsSection,
   'profile': () => <div style="padding: 16px; display: flex; justify-content: center; overflow-y: auto;"><div style="max-width: 600px; width: 100%;"><ProfileSection/></div></div>,
   'logout': LogoutSection,
   'share': ShareSection,
@@ -93,22 +90,20 @@ function App() {
     const init = async () => {
       const savedTheme = await getConfigValue('APP_THEME');
       if (savedTheme) appTheme.value = savedTheme as AppTheme;
-
+      
       addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
       await loadAllConfigs();
       await initProfileStore();
       
       const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
-      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); 
+      const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value);
       
       if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
         navigate('#profile');
       }
-
+      
       await initContatosStore();
       await initMensagensStore();
-      
-      // 🔥 ARQUITETURA: Agora o Labs é inicializado globalmente no Boot!
       await initTorrentLabsStore();
       
       setIsLoading(false);
@@ -118,15 +113,14 @@ function App() {
 
   useEffect(() => {
     if (!isLoading && !isCarregandoContatos.value && (activeView.value === 'chat' || activeView.value === 'detail')) {
-       const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
-       
-       if (hashAlvo) {
-         const contatoExiste = contatosComHash.value.some(c => c.hash === hashAlvo);
-         if (!contatoExiste) {
-           addDebugLog("warn", "ROUTER", "Tentativa de acesso a contato inexistente/excluído. Redirecionando para Home.");
-           navigate(''); 
-         }
-       }
+      const hashAlvo = activeView.value === 'chat' ? contatoSelecionado.value : contatoCompartilharHash.value;
+      if (hashAlvo) {
+        const contatoExiste = contatosComHash.value.some(c => c.hash === hashAlvo);
+        if (!contatoExiste) {
+          addDebugLog("warn", "ROUTER", "Tentativa de acesso a contato inexistente/excluído. Redirecionando para Home.");
+          navigate('');
+        }
+      }
     }
   }, [isLoading, isCarregandoContatos.value, activeView.value, contatoSelecionado.value, contatoCompartilharHash.value, contatosComHash.value]);
 
@@ -139,9 +133,9 @@ function App() {
   }
 
   const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
-  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value); 
+  const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value);
   const viewToRender = (!isIdentityValid && !isRouteAllowedWithoutProfile) ? 'profile' : activeView.value;
-  
+
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
   const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
   const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
@@ -150,18 +144,13 @@ function App() {
 
   return (
     <div style="display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; overflow: hidden;">
-      
       <PushAlertBanner />
-
       <div id="app-root" class={`view-mode-${currentMobileView.value}`} style="flex-grow: 1; display: flex; position: relative; min-height: 0;">
-        
         <AppSidebar isIdentityValid={isIdentityValid} />
-
         <main class="app-main">
           <MainHeader />
           <RouteComponent/>
         </main>
-
       </div>
       <ToastSnackbar/>
     </div>

@@ -1,4 +1,4 @@
-// src/stores/contatosStore.ts
+// Arquivo: monorepo/ui/src/stores/contatosStore.ts
 import { signal, computed } from "@preact/signals";
 import {
   listarContatos,
@@ -9,16 +9,15 @@ import {
   listarHandshakes,
   removerHandshake,
   salvarHandshake,
-  buscarContatoPorChave
-} from "../../../utils/src/db/mod.ts";
-import type { Contato, Handshake } from "../../../utils/src/interfaces/db.ts";
-import { addDebugLog } from "../../../utils/src/debug/mod.ts";
-import { gerarContatoProprio } from "../../../utils/src/db/self-contact-utils.ts";
-import { gerarId } from "../../../worker-db/src/utils/id.ts";
-
-import { ExpurgarMensagens } from "../handshakes/hand-mensagem.ts";
-import { ExpurgarHandshakesContato } from "../handshakes/hand-contato.ts";
-import { ExpurgarHandshakesProfile } from "../handshakes/hand-profile.ts";
+  buscarContatoPorChave,
+  gerarId
+} from "@loco/utils/db";
+import type { Contato, Handshake } from "@loco/utils/interfaces";
+import { addDebugLog } from "@loco/utils/debug";
+import { gerarContatoProprio } from "@loco/utils/db";
+import { ExpurgarMensagens } from "@loco/service-worker/handshakes/mensagem";
+import { ExpurgarHandshakesContato } from "@loco/service-worker/handshakes/contato";
+import { ExpurgarHandshakesProfile } from "@loco/service-worker/handshakes/profile";
 
 export type { Contato };
 
@@ -45,8 +44,8 @@ export async function carregarContatos(): Promise<void> {
   try {
     const listaCompleta = await listarContatos();
     const lista = listaCompleta.filter(c => c.me !== 'deleted');
-    
     const profile = await buscarProfile();
+    
     if (profile) {
       const contatoProprio = await gerarContatoProprio(profile);
       if (contatoProprio) {
@@ -58,7 +57,6 @@ export async function carregarContatos(): Promise<void> {
         }
       }
     }
-    
     contatosRaw.value = lista;
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
@@ -71,7 +69,6 @@ let isContatosListenerInitialized = false;
 
 export async function initContatosStore(): Promise<void> {
   await carregarContatos();
-
   if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
     isContatosListenerInitialized = true;
     navigator.serviceWorker.addEventListener('message', (event) => {
@@ -93,7 +90,6 @@ export async function adicionarContato(contato: Contato): Promise<void> {
     } else {
       contatosRaw.value = [...atual, contato];
     }
-
     await salvarContato(contato);
     addDebugLog("success", "STORE:CONTATO", `Contato salvo em disco: ${contato.name}`);
   } catch (err) {
@@ -102,11 +98,10 @@ export async function adicionarContato(contato: Contato): Promise<void> {
   }
 }
 
-// 🔥 UTILITÁRIO DE BLINDAGEM: Use essa função exclusivamente quando importar um QR Code!
 export async function importarNovoContato(dadosBasicos: Omit<Contato, 'me' | 'createdAt' | 'updatedAt'>): Promise<void> {
   const novoContato: Contato = {
     ...dadosBasicos,
-    me: 'none', // Garante que a primeira interação acionará o mecanismo de Piggybacking
+    me: 'none',
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
@@ -124,8 +119,8 @@ export async function rebaixarConfiancaContatos(): Promise<void> {
   try {
     const atual = contatosRaw.value;
     if (atual.length === 0) return;
-
     let mudouAlgum = false;
+    
     const novaLista = atual.map(c => {
       if (c.me === 'trusted' || c.me === 'saved') {
         mudouAlgum = true;
@@ -135,13 +130,11 @@ export async function rebaixarConfiancaContatos(): Promise<void> {
     });
     
     if (!mudouAlgum) return;
-
     contatosRaw.value = novaLista;
     
     Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
       addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
     });
-    
     addDebugLog("info", "STORE:CONTATO", `Status 'me' rebaixado para 'none' em contatos salvos para forçar o Piggybacking.`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro crítico ao rebaixar confiança dos contatos", err);
@@ -160,7 +153,6 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
 export async function removerContatoCompletamente(hash: string, notificarRemoto = true): Promise<void> {
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
-
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
     await ExpurgarMensagens(hash, false);
@@ -171,9 +163,8 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
     for (const h of handshakes) {
       if (h.aud === hash) await removerHandshake(h.id);
     }
-
+    
     const contatoExistente = await buscarContatoPorChave(hash);
-
     if (notificarRemoto && contatoExistente) {
       contatoExistente.me = 'deleted';
       await salvarContato(contatoExistente);
@@ -198,7 +189,6 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
     } else {
       await removerContatoPorHash(hash);
     }
-
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro catastrófico ao expurgar contato e histórico", err);
     throw err;
@@ -217,7 +207,6 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
       const novaLista = [...atual];
       novaLista[index] = contatoModificado;
       contatosRaw.value = novaLista;
-      
       await salvarContato(contatoModificado);
     }
   } catch (err) {
@@ -228,6 +217,7 @@ export async function homologarContatoPorPublicKey(vapidPublicKey: JsonWebKey): 
 export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato["me"]): void {
   const atual = contatosRaw.value;
   const index = atual.findIndex(c => c.id === id);
+  
   if (index >= 0 && atual[index]) {
     const contatoAtual = atual[index];
     const contatoModificado: Contato = { ...contatoAtual, me: meStatus, updatedAt: Date.now() };
@@ -236,7 +226,7 @@ export function atualizarStatusVerificacaoContato(id: string, meStatus: Contato[
     contatosRaw.value = novaLista;
     
     salvarContato(contatoModificado).catch(err => {
-        addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
+      addDebugLog("error", "STORE:CONTATO", `Erro ao atualizar status do contato ${id}`, err);
     });
   }
 }

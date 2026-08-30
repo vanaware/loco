@@ -7,9 +7,9 @@ import { contatosComHash, adicionarContato, removerContatoCompletamente } from '
 import { limparTodoHistorico } from '../stores/mensagensStore.ts';
 import { profile } from '../stores/profileStore.ts';
 import { contatoCompartilharHash, contatoSelecionado, showToast } from '../stores/state.ts';
-import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '../../../utils/src/db/share-utils.ts';
+import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb } from '@loco/utils/db';
 import { navigate } from '../stores/router.ts';
-import { ehContatoProprio } from '../../../utils/src/db/self-contact-utils.ts';
+import { ehContatoProprio } from '@loco/utils/db';
 
 export function ContactDetailSection() {
   const qrCodeDataUrl = useSignal<string | null>(null);

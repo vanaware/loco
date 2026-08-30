@@ -5,7 +5,7 @@ import { profile } from '../stores/profileStore.ts';
 import { showToast } from '../stores/state.ts';
 import { solicitarArmazenamentoPersistente, repararSubscricaoPush } from '../utils/profile.ts';
 import { DebugPanel } from './DebugPanel.tsx';
-import { APP_VERSION } from '../../../utils/src/config/version.ts'; 
+import { APP_VERSION } from '@loco/utils/config'; 
 import { navigate } from '../stores/router.ts';
 import { loadAllConfigs } from '../stores/config-store.ts';
 

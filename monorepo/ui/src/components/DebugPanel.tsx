@@ -2,8 +2,8 @@
 import { signal, computed } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { JSX } from "preact";
-import { buscarChave, salvarChave, criarStore } from "../../../utils/src/db/mod.ts";
-import { DB_NAMES } from "../../../utils/src/interfaces/db.ts";
+import { buscarChave, salvarChave, criarStore } from "@loco/utils/db";
+import { DB_NAMES } from "@loco/utils/config";
 
 export interface DebugLogEntry {
   id: string;

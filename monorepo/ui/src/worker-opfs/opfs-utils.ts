@@ -1,6 +1,6 @@
 // src/utils/opfs-utils.ts
-import { addDebugLog } from "../../../utils/src/debug/mod.ts";
-import { APP_VERSION } from "../../../utils/src/config/version.ts";
+import { addDebugLog } from "@loco/utils/debug";
+import { APP_VERSION } from "@loco/utils/config";
 
 let opfsWorker: Worker | null = null;
 let messageIdCounter = 0;

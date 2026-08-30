@@ -1,11 +1,11 @@
-// src/utils/profile-utils.ts
-import { salvarProfile, buscarProfile } from '../../../utils/src/db/mod.ts';
+// Arquivo: monorepo/ui/src/utils/profile.ts
+import { salvarProfile, buscarProfile } from '@loco/utils/db';
 import { cifrarChaveVapid } from '@loco/utils/proxy';
-import { registrarServiceWorker } from "../sw/sw-utils.ts";
-import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from '../../../utils/src/crypto/mod.ts';
-import type { ProfileConfig } from '../../../utils/src/interfaces/db.ts';
-import { addDebugLog } from '../../../utils/src/debug/mod.ts';
-import { fetchLocoProxy } from '../../../utils/src/config/proxy.ts';
+import { registrarServiceWorker } from "@loco/service-worker";
+import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from '@loco/utils/crypto';
+import type { ProfileConfig } from '@loco/utils/interfaces';
+import { addDebugLog } from '@loco/utils/debug';
+import { fetchLocoProxy } from '@loco/utils/config';
 import { getConfigValue, saveConfig } from '../stores/config-store.ts';
 
 export async function getServerPublicKey() {
@@ -20,15 +20,10 @@ export async function getServerPublicKey() {
   }
 
   addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
-  
   const response = await fetchLocoProxy('/publickey');
-  
   if (!response.ok) throw new Error(`Erro ao buscar chave do servidor: ${response.status}`);
-  
   const keyData = await response.json();
-  
   await saveConfig('SERVER_PUBLIC_KEY', JSON.stringify(keyData));
-  
   return expandRsaPublic(keyData);
 }
 
@@ -50,7 +45,6 @@ export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
   return false;
 }
 
-// 🔥 ARQUITETURA: Nova função de auto-healing disparada pelo Painel Avançado
 export async function repararSubscricaoPush(): Promise<boolean> {
   addDebugLog("info", "PROFILE", "Iniciando rotina de reparo da Subscrição Push...");
   try {
@@ -58,28 +52,28 @@ export async function repararSubscricaoPush(): Promise<boolean> {
       const perm = await Notification.requestPermission();
       if (perm !== "granted") throw new Error("Permissão de notificação negada pelo usuário.");
     }
-
+    
     const registration = await registrarServiceWorker();
     if (!registration.pushManager) throw new Error("Push API não suportada pelo navegador.");
-
+    
     const p = await buscarProfile();
     if (!p) throw new Error("Perfil local não encontrado. Crie um perfil primeiro.");
-
+    
     let sub = await registration.pushManager.getSubscription();
     if (sub) {
-      await sub.unsubscribe(); // Força a renovação para garantir chaves frescas
+      await sub.unsubscribe();
     }
-
+    
     const rawPublicKey = await window.crypto.subtle.exportKey("raw", await window.crypto.subtle.importKey("jwk", p.vapidPublicKey, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
     sub = await registration.pushManager.subscribe({
       applicationServerKey: new Uint8Array(rawPublicKey),
       userVisibleOnly: true
     });
-
+    
     const p256dhBuffer = sub.getKey('p256dh');
     const authBuffer = sub.getKey('auth');
     if (!p256dhBuffer || !authBuffer) throw new Error("Falha ao extrair chaves da subscrição gerada.");
-
+    
     p.subscription = {
       endpoint: sub.endpoint,
       keys: {
@@ -89,8 +83,7 @@ export async function repararSubscricaoPush(): Promise<boolean> {
       proxyserver: p.subscription?.proxyserver || '/'
     };
     p.updatedAt = Date.now();
-
-    // Import dinâmico para evitar dependência circular
+    
     const { atualizarProfile } = await import('../stores/profileStore.ts');
     await atualizarProfile(p);
     
@@ -104,11 +97,10 @@ export async function repararSubscricaoPush(): Promise<boolean> {
 
 export async function gerarProfileCompleto(nome: string, email: string = ""): Promise<ProfileConfig> {
   addDebugLog("📦 Gerando/Atualizando perfil unificado...");
-
   if (!nome || nome.trim() === "") {
     throw new Error("Preencha pelo menos o seu Nome.");
   }
-
+  
   let vapidKeyPair: CryptoKeyPair | undefined = undefined;
   let publicKeyJwk: JsonWebKey | undefined = undefined;
   let privateKeyJwk: JsonWebKey | undefined = undefined;
@@ -117,22 +109,19 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
   
   const existingProfile = await buscarProfile();
   
-  // 🔥 CORREÇÃO (TS2322): Define estritamente o tipo da subscription inicializando com um fallback seguro.
-  // Isso impede que o TypeScript avalie finalSubscription como "undefined".
   let finalSubscription: ProfileConfig['subscription'] = existingProfile?.subscription || {
     endpoint: '',
     keys: { p256dh: '', auth: '' },
     proxyserver: '/'
   };
-
+  
   try {
     addDebugLog("Step 1: Registrando Service Worker...");
     const registration = await registrarServiceWorker();
-
+    
     addDebugLog("Step 2: Buscando chave pública do servidor...");
     const serverPublicKeyJwk = await getServerPublicKey();
-
-    // Reutiliza ou gera chaves VAPID
+    
     if (existingProfile && existingProfile.vapidPublicKey && existingProfile.vapidPrivateKeyJwk) {
       publicKeyJwk = existingProfile.vapidPublicKey;
       privateKeyJwk = existingProfile.vapidPrivateKeyJwk;
@@ -142,8 +131,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
       privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
     }
-
-    // Reutiliza ou gera chaves E2E
+    
     if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
       e2ePublicKey = existingProfile.e2ePublicKey;
       e2ePrivateKeyJwk = existingProfile.e2ePrivateKeyJwk;
@@ -153,18 +141,16 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       e2ePublicKey = newKeys.publicEncrypt;
       e2ePrivateKeyJwk = newKeys.privateDecryptJwk;
     }
-
+    
     addDebugLog("Step 3: Tentando obter subscription Push...");
     try {
       if (Notification.permission === 'default') {
         await Notification.requestPermission();
       }
-
       if (Notification.permission === 'granted' && registration.pushManager) {
         let existingSubscription = await registration.pushManager.getSubscription();
         let subscriptionValida = false;
-
-        // Se já havia subscrição, valida se o endpoint bate com o que temos guardado
+        
         if (existingSubscription) {
           if (existingProfile?.subscription && existingProfile.subscription.endpoint === existingSubscription.endpoint) {
             subscriptionValida = true;
@@ -182,7 +168,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
             userVisibleOnly: true
           });
         }
-
+        
         const p256dhBuffer = existingSubscription.getKey('p256dh');
         const authBuffer = existingSubscription.getKey('auth');
         
@@ -197,33 +183,30 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
         throw new Error("Permissão de Push negada ou API indisponível no navegador.");
       }
     } catch (subErr: any) {
-      // 🔥 ONBOARDING SUAVE: Se o Push falhar, deixamos o 'finalSubscription' com o fallback default (sem travar o TS).
       addDebugLog("warn", "PROFILE", "Falha na subscrição Push. Salvando perfil offline-only.", subErr);
     }
-
-    // Type Guard de proteção para o TypeScript aceitar a montagem do objeto sem avisos de undefined
+    
     if (!privateKeyJwk || !publicKeyJwk || !e2ePrivateKeyJwk || !e2ePublicKey) {
       throw new Error("Falha interna: Chaves criptográficas corrompidas ou não geradas.");
     }
-
+    
     const privateKeyEncrypted = await cifrarChaveVapid(privateKeyJwk, serverPublicKeyJwk);
-
+    
     const profile: ProfileConfig = {
-      name: nome.trim(), 
-      email: email.trim(), 
-      vapidPublicKey: publicKeyJwk, 
+      name: nome.trim(),
+      email: email.trim(),
+      vapidPublicKey: publicKeyJwk,
       vapidPrivateKeyJwk: privateKeyJwk,
-      vapidPrivateKeyEnvelope: privateKeyEncrypted, 
-      e2ePublicKey: e2ePublicKey, 
+      vapidPrivateKeyEnvelope: privateKeyEncrypted,
+      e2ePublicKey: e2ePublicKey,
       e2ePrivateKeyJwk: e2ePrivateKeyJwk,
-      subscription: finalSubscription, // Agora o TS entende que é ProfileConfig['subscription'] estrito
-      createdAt: existingProfile?.createdAt || Date.now(), 
+      subscription: finalSubscription,
+      createdAt: existingProfile?.createdAt || Date.now(),
       updatedAt: Date.now()
     };
-
+    
     await salvarProfile(profile);
     await solicitarArmazenamentoPersistente();
-
     addDebugLog("✅ Perfil gerado/atualizado e persistido com sucesso.");
     return profile;
   } catch (err) {

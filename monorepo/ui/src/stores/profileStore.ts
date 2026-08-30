@@ -1,17 +1,15 @@
-// src/stores/profileStore.ts
+// Arquivo: monorepo/ui/src/stores/profileStore.ts
 import { signal, batch } from '@preact/signals';
-import { buscarProfile, salvarProfile } from '../../../utils/src/db/mod.ts';
-import type { ProfileConfig } from '../../../utils/src/interfaces/db.ts';
+import { buscarProfile, salvarProfile } from '@loco/utils/db';
+import type { ProfileConfig } from '@loco/utils/interfaces';
 import { profileName, profileEmail, addDebugLog } from './state.ts';
 
-// Signal dedicado EXCLUSIVAMENTE para indicar operações de I/O no banco
 export const isSavingProfile = signal<boolean>(false);
 export const profile = signal<ProfileConfig | null>(null);
 
 export async function carregarProfile() {
   try {
     const p = await buscarProfile();
-    
     batch(() => {
       profile.value = p || null;
       if (p) {
@@ -24,20 +22,14 @@ export async function carregarProfile() {
   }
 }
 
-/**
- * Atualiza o Profile localmente de forma síncrona e engatilha o DB assíncrono.
- */
 export async function atualizarProfile(p: ProfileConfig) {
-  // Trava de segurança apenas para evitar gravações simultâneas cruzadas no IndexedDB
   if (isSavingProfile.value) {
-      addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
-      return; 
+    addDebugLog("warn", "STORE:PROFILE", "Salvamento de perfil enfileirado/ignorado por concorrência.");
+    return;
   }
 
-  // 🔥 ARQUITETURA [AUTO-DOWNGRADE]: Deep Check para identificar mudanças críticas na identidade
   let requiresDowngrade = false;
   const oldP = profile.value;
-  
   if (oldP) {
     if (
       oldP.vapidPrivateKeyEnvelope !== p.vapidPrivateKeyEnvelope ||
@@ -50,24 +42,19 @@ export async function atualizarProfile(p: ProfileConfig) {
     }
   }
 
-  // 1. Atualização Otimista na Memória agrupada (Isso garante que a UI reaja instantaneamente)
   batch(() => {
     profile.value = { ...p };
     profileName.value = p.name;
     profileEmail.value = p.email;
   });
 
-  // 2. Persistência Isolada com trava reativa
   isSavingProfile.value = true;
   try {
     await salvarProfile(p);
-    
-    // Se a identidade ou rota mudou, notifica a agenda de contatos em background 
-    // Utilizamos o import dinâmico para evitar dependência circular entre stores!
     if (requiresDowngrade) {
-       addDebugLog("info", "STORE:PROFILE", "Mudança estrutural detectada na identidade. Disparando rebaixamento de confiança...");
-       const { rebaixarConfiancaContatos } = await import('./contatosStore.ts');
-       await rebaixarConfiancaContatos();
+      addDebugLog("info", "STORE:PROFILE", "Mudança estrutural detectada na identidade. Disparando rebaixamento de confiança...");
+      const { rebaixarConfiancaContatos } = await import('./contatosStore.ts');
+      await rebaixarConfiancaContatos();
     }
   } catch (error) {
     addDebugLog("error", "STORE:PROFILE", "Falha catastrófica ao persistir perfil no DB.", error);

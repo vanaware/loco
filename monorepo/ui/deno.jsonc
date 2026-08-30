@@ -44,6 +44,9 @@
     "@material/web": "https://esm.sh/@material/web@1.5.1/all.js?bundle",
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
     
+
+    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle",
+    "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle",
     // 🔥 ARQUITETURA: Blindagem de Target do CDN (apenas para os ofensores)
     // Mantemos o target=es2022 apenas nas bibliotecas que puxavam módulos do Node.
     "fflate": "https://esm.sh/fflate@0.8.2?target=es2022"
