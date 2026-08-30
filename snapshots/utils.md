@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: UTILS
 
-Gerado automaticamente em: 8/30/2026, 2:12:50 AM
+Gerado automaticamente em: 8/30/2026, 2:26:12 AM
 
 ---
 
@@ -1915,6 +1915,872 @@ describe("formatarArquivoMarkdown", () => {
   });
 });
 ```````
+
+---
+
+## Arquivo: `monorepo/utils/tests/crypto/jwt.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { assert, assertEquals } from "@std/assert";
+import { criarJWT, verificarJWT, generateVAPIDKeys, exportKeyToJWK } from "@loco/utils/crypto";
+
+Deno.test("JWT Helpers - Pipeline de Criação e Verificação E2E", async () => {
+  const keys = await generateVAPIDKeys();
+  const publicKeyJwk = await exportKeyToJWK(keys.publicKey);
+  const privateKeyJwk = await exportKeyToJWK(keys.privateKey);
+  const payload = { sub: "test", data: "offline-first-loco" };
+  const jwt = await criarJWT(payload, privateKeyJwk, { kid: publicKeyJwk });
+  assert(typeof jwt === "string" && jwt.split('.').length === 3, "JWT deve ser estruturalmente válido");
+  const verified = await verificarJWT(jwt);
+  assert(verified.valid, "A integridade do JWT precisa ser atestada matematicamente.");
+  assertEquals(verified.payload.data, "offline-first-loco", "O payload não pode sofrer mutação no processo de encode/decode.");
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/crypto/utils.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { assertEquals, assert } from "@std/assert";
+import { 
+  minifyVapidPublic, expandVapidPublic,
+  minifyRsaPublic, expandRsaPublic
+} from "@loco/utils/crypto";
+
+Deno.test("Crypto Utils - Minificação e Expansão de VAPID Public (ECDSA P-256)", () => {
+  const mockJwkOriginal: JsonWebKey = {
+    kty: "EC",
+    crv: "P-256",
+    x: "base64Url_String_X_Aqui_Ficticia",
+    y: "base64Url_String_Y_Aqui_Ficticia",
+    ext: true,
+    key_ops: ["verify"]
+  };
+  const minified = minifyVapidPublic(mockJwkOriginal);
+  assert(minified.x === mockJwkOriginal.x, "Deve conter a coordenada X");
+  assert(minified.y === mockJwkOriginal.y, "Deve conter a coordenada Y");
+  assert(minified.kty === undefined, "Não deve conter o kty");
+  assert(minified.crv === undefined, "Não deve conter a curva");
+  const expanded = expandVapidPublic(minified);
+  assertEquals(expanded.kty, "EC");
+  assertEquals(expanded.crv, "P-256");
+  assertEquals(expanded.x, mockJwkOriginal.x);
+  assertEquals(expanded.y, mockJwkOriginal.y);
+  assertEquals(expanded.ext, true);
+  assertEquals(expanded.key_ops, ["verify"]);
+});
+
+Deno.test("Crypto Utils - Minificação e Expansão de RSA Public", () => {
+  const mockRsaOriginal: JsonWebKey = {
+    kty: "RSA",
+    alg: "RSA-OAEP-256",
+    e: "AQAB",
+    n: "modulo_matematico_gigante_aqui",
+    ext: true,
+    key_ops: ["encrypt"]
+  };
+  const minified = minifyRsaPublic(mockRsaOriginal);
+  assert(minified.n === mockRsaOriginal.n, "Deve reter o módulo N");
+  assert(minified.kty === undefined, "Deve omitir a tipagem kty");
+  const expanded = expandRsaPublic(minified);
+  assertEquals(expanded.kty, "RSA");
+  assertEquals(expanded.alg, "RSA-OAEP-256");
+  assertEquals(expanded.e, "AQAB");
+  assertEquals(expanded.n, mockRsaOriginal.n);
+});
+
+Deno.test("Crypto Utils - Expansão de chave já expandida (Idempotência)", () => {
+  const jwk: JsonWebKey = { kty: "RSA", n: "123", e: "AQAB" };
+  const expanded = expandRsaPublic(jwk);
+  assertEquals(expanded, jwk, "A função de expansão deve ser idempotente se a chave não estiver minificada");
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/crypto/aes.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { assertEquals, assert, assertRejects } from "@std/assert";
+import { encryptTextAES, decryptTextAES } from "@loco/utils/crypto";
+
+Deno.test("Crypto AES - Criptografar e Descriptografar texto puro (Roundtrip)", async () => {
+  const secretKey = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+  const plainText = "Mensagem altamente confidencial P2P do Loco!";
+  const { cipherTextBase64, ivBase64 } = await encryptTextAES(secretKey, plainText);
+  assert(cipherTextBase64.length > 0, "O texto cifrado gerado não pode ser vazio");
+  assert(ivBase64.length > 0, "O Vetor de Inicialização (IV) não pode ser vazio");
+  const decryptedText = await decryptTextAES(secretKey, cipherTextBase64, ivBase64);
+  assertEquals(decryptedText, plainText, "O texto decifrado deve ser exatamente igual à mensagem original");
+});
+
+Deno.test("Crypto AES - Deve falhar ao descriptografar com a chave AES incorreta", async () => {
+  const key1 = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const key2 = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const { cipherTextBase64, ivBase64 } = await encryptTextAES(key1, "Segredo do Handshake");
+  await assertRejects(
+    async () => {
+      await decryptTextAES(key2, cipherTextBase64, ivBase64);
+    },
+    Error,
+    "A decodificação falhou",
+    "A função deve rejeitar (throw Error) quando uma chave AES errada tenta abrir o envelope"
+  );
+});
+
+Deno.test("Crypto AES - Deve falhar caso o IV (Vetor de Inicialização) seja adulterado", async () => {
+  const secretKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const { cipherTextBase64 } = await encryptTextAES(secretKey, "Dados sensíveis");
+  const fakeIv = crypto.getRandomValues(new Uint8Array(12));
+  const fakeIvBase64 = btoa(String.fromCharCode(...fakeIv)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  await assertRejects(
+    async () => {
+      await decryptTextAES(secretKey, cipherTextBase64, fakeIvBase64);
+    },
+    Error,
+    "A decodificação falhou",
+    "O AES-GCM deve garantir a integridade e rejeitar a decifragem se o IV for modificado"
+  );
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/proxy/push-utils.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { assert, assertEquals } from "@std/assert";
+import { cifrarChaveVapid } from "@loco/utils/proxy";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
+
+Deno.test("Push Utils - Blindagem do Servidor (cifrarChaveVapid)", async () => {
+  const clientKeys = await generateVAPIDKeys();
+  const clientVapidPrivateJwk = await exportKeyToJWK(clientKeys.privateKey);
+  const serverKeys = await generateE2EEKeys();
+  const serverPublicJwk = serverKeys.publicEncrypt;
+  const envelopeBase64 = await cifrarChaveVapid(clientVapidPrivateJwk, serverPublicJwk);
+  assert(typeof envelopeBase64 === "string", "O envelope gerado deve ser uma string Base64");
+  assert(envelopeBase64.length > 50, "O envelope não pode ser vazio");
+  const envelopeJsonStr = atob(envelopeBase64);
+  const envelopeObj = JSON.parse(envelopeJsonStr);
+  assert(envelopeObj.iv !== undefined, "O envelope deve conter um Vetor de Inicialização (iv)");
+  assert(envelopeObj.dadosCifrados !== undefined, "O envelope deve conter os dados cifrados em AES (dadosCifrados)");
+  assert(envelopeObj.chaveAesCifrada !== undefined, "O envelope deve conter a chave AES trancada pela chave RSA do servidor (chaveAesCifrada)");
+  assertEquals(envelopeObj.iv.length, 24, "O IV em hexadecimal deve ter exatamente 24 caracteres");
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/proxy/webpush-mock.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+/// <reference lib="webworker" />
+import { assertEquals, assert, assertRejects } from "@std/assert";
+import { cifrarPayloadObj } from "@loco/utils/proxy";
+import { generateE2EEKeys } from "@loco/utils/crypto";
+
+interface MockPushCall {
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
+  payloadText: string;
+  vapid: { subject: string; publicKey: JsonWebKey; privateKey: JsonWebKey };
+  timestamp: number;
+}
+
+class EnviarParaProxyMock {
+  private calls: MockPushCall[] = [];
+  private shouldFail = false;
+  private failWith?: Error;
+  private customResponse?: { ok: boolean; status: number; text: string };
+
+  setFailMode(error?: Error) {
+    this.shouldFail = true;
+    this.failWith = error;
+  }
+  setCustomResponse(response: { ok: boolean; status: number; text: string }) {
+    this.customResponse = response;
+  }
+  clear() {
+    this.calls = [];
+    this.shouldFail = false;
+    this.failWith = undefined;
+    this.customResponse = undefined;
+  }
+  getCalls(): MockPushCall[] {
+    return [...this.calls];
+  }
+  getLastCall(): MockPushCall | null {
+    return this.calls.length > 0 ? this.calls[this.calls.length - 1]! : null;
+  }
+  getCallCount(): number {
+    return this.calls.length;
+  }
+  async enviar(
+    subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+    payloadText: string,
+    vapid: { subject: string; publicKey: JsonWebKey; privateKey: JsonWebKey }
+  ): Promise<void> {
+    const call: MockPushCall = { subscription, payloadText, vapid, timestamp: Date.now() };
+    this.calls.push(call);
+    if (this.shouldFail) {
+      const error = this.failWith || new Error("Mock failure");
+      this.shouldFail = false;
+      this.failWith = undefined;
+      throw error;
+    }
+    if (this.customResponse) {
+      if (!this.customResponse.ok) {
+        throw new Error(`HTTP ${this.customResponse.status}: ${this.customResponse.text}`);
+      }
+      return;
+    }
+    return;
+  }
+}
+
+export const mockPushSender = new EnviarParaProxyMock();
+
+Deno.test("EnviarParaProxyMock - captura chamada de envio", async () => {
+  mockPushSender.clear();
+  const subscription = {
+    endpoint: "https://fcm.googleapis.com/fcm/send/test123",
+    keys: { p256dh: "BM8xKzVqP9N2vQJhLkR3mT6wY8zA1bC4dE5fG7hI9jK0lM2nO3pQ4rS5tU6vW7xY8zA", auth: "abc123def456" },
+  };
+  const payloadText = JSON.stringify({ title: "Teste", body: "Olá!" });
+  const vapidKeys = await generateE2EEKeys();
+  const vapid = { subject: "mailto:test@example.com", publicKey: vapidKeys.publicEncrypt, privateKey: vapidKeys.privateDecryptJwk };
+  await mockPushSender.enviar(subscription, payloadText, vapid);
+  const lastCall = mockPushSender.getLastCall();
+  assert(lastCall !== null, "Deve registrar a chamada");
+  assertEquals(lastCall!.subscription.endpoint, subscription.endpoint);
+  assertEquals(lastCall!.payloadText, payloadText);
+  assertEquals(lastCall!.vapid.subject, vapid.subject);
+});
+
+Deno.test("EnviarParaProxyMock - modo de falha", async () => {
+  mockPushSender.clear();
+  mockPushSender.setFailMode(new Error("Falha simulada no envio"));
+  const subscription = { endpoint: "https://example.com/push", keys: { p256dh: "test", auth: "test" } };
+  await assertRejects(
+    async () => {
+      const keys = await generateE2EEKeys();
+      await mockPushSender.enviar(subscription, "payload", {
+        subject: "test", publicKey: keys.publicEncrypt, privateKey: keys.privateDecryptJwk,
+      });
+    },
+    Error,
+    "Falha simulada no envio"
+  );
+  assertEquals(mockPushSender.getCallCount(), 1);
+});
+
+Deno.test("EnviarParaProxyMock - resposta personalizada HTTP 403", async () => {
+  mockPushSender.clear();
+  mockPushSender.setCustomResponse({ ok: false, status: 403, text: "Forbidden - Invalid subscription" });
+  const subscription = { endpoint: "https://example.com/push", keys: { p256dh: "test", auth: "test" } };
+  await assertRejects(
+    async () => {
+      const keys = await generateE2EEKeys();
+      await mockPushSender.enviar(subscription, "payload", {
+        subject: "test", publicKey: keys.publicEncrypt, privateKey: keys.privateDecryptJwk,
+      });
+    },
+    Error,
+    "HTTP 403: Forbidden - Invalid subscription"
+  );
+});
+
+Deno.test("EnviarParaProxyMock - múltiplas chamadas", async () => {
+  mockPushSender.clear();
+  for (let i = 0; i < 5; i++) {
+    const keys = await generateE2EEKeys();
+    await mockPushSender.enviar(
+      { endpoint: `https://example.com/push/${i}`, keys: { p256dh: `key${i}`, auth: `auth${i}` } },
+      `payload-${i}`,
+      { subject: `test${i}@example.com`, publicKey: keys.publicEncrypt, privateKey: keys.privateDecryptJwk }
+    );
+  }
+  assertEquals(mockPushSender.getCallCount(), 5);
+  const calls = mockPushSender.getCalls();
+  for (let i = 0; i < 5; i++) {
+    assertEquals(calls[i]!.subscription.endpoint, `https://example.com/push/${i}`);
+    assertEquals(calls[i]!.payloadText, `payload-${i}`);
+  }
+});
+
+Deno.test("cifrarPayloadObj - criptografia híbrida funcional", async () => {
+  const payloadObj = { title: "Teste de Criptografia", body: "Este é um payload de teste", timestamp: Date.now() };
+  const keys = await generateE2EEKeys();
+  const encrypted = await cifrarPayloadObj(payloadObj, keys.publicEncrypt);
+  assert(encrypted.i, "Deve ter IV (initialization vector)");
+  assert(encrypted.d, "Deve ter dados criptografados");
+  assert(encrypted.k, "Deve ter chave AES criptografada");
+  assertEquals(typeof encrypted.i, "string");
+  assertEquals(typeof encrypted.d, "string");
+  assertEquals(typeof encrypted.k, "string");
+  assert(encrypted.i.length > 0, "IV não pode ser vazio");
+  assert(encrypted.d.length > 0, "Dados criptografados não podem ser vazios");
+  assert(encrypted.k.length > 0, "Chave criptografada não pode ser vazia");
+});
+
+function assertNotEquals(actual: any, expected: any, msg?: string) {
+  if (actual === expected) {
+    throw new Error(msg || `Esperava valores diferentes, mas eram iguais: ${actual}`);
+  }
+}
+
+Deno.test("cifrarPayloadObj - payloads diferentes geram ciphertexts diferentes", async () => {
+  const keys = await generateE2EEKeys();
+  const payload1 = { message: "Hello" };
+  const payload2 = { message: "Hello" };
+  const encrypted1 = await cifrarPayloadObj(payload1, keys.publicEncrypt);
+  const encrypted2 = await cifrarPayloadObj(payload2, keys.publicEncrypt);
+  assertNotEquals(encrypted1.d, encrypted2.d, "Ciphertexts devem ser diferentes devido ao IV aleatório");
+});
+
+Deno.test("Reset do mock entre testes", async () => {
+  mockPushSender.clear();
+  const keys1 = await generateE2EEKeys();
+  await mockPushSender.enviar(
+    { endpoint: "https://test1.com", keys: { p256dh: "k1", auth: "a1" } },
+    "payload1",
+    { subject: "test1@example.com", publicKey: keys1.publicEncrypt, privateKey: keys1.privateDecryptJwk }
+  );
+  assertEquals(mockPushSender.getCallCount(), 1);
+  mockPushSender.clear();
+  assertEquals(mockPushSender.getCallCount(), 0);
+  const keys2 = await generateE2EEKeys();
+  await mockPushSender.enviar(
+    { endpoint: "https://test2.com", keys: { p256dh: "k2", auth: "a2" } },
+    "payload2",
+    { subject: "test2@example.com", publicKey: keys2.publicEncrypt, privateKey: keys2.privateDecryptJwk }
+  );
+  assertEquals(mockPushSender.getCallCount(), 1);
+  assertEquals(mockPushSender.getLastCall()!.payloadText, "payload2");
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/db/db-helpers.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists } from "@std/assert";
+import {
+  salvarProfile,
+  buscarProfile,
+  removerProfile,
+  salvarChat,
+  listarChatPaginado,
+  removerTodoHistoricoChat
+} from "@loco/utils/db";
+import type { ProfileConfig, Chat } from "@loco/utils/interfaces";
+
+Deno.test("DB Helpers - Profile: Deve salvar, buscar e remover o perfil corretamente", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Arquiteto Loco",
+    email: "arq@loco.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "123", y: "456" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "789" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "envelope_cifrado",
+    e2ePublicKey: { kty: "RSA", n: "abc", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "def" } as JsonWebKey,
+    subscription: {
+      endpoint: "https://push.com/123",
+      keys: { p256dh: "p256", auth: "auth" },
+      proxyserver: "https://loco.proxy"
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await salvarProfile(mockProfile);
+  const profileSalvo = await buscarProfile();
+  assertExists(profileSalvo, "O perfil deve existir no IndexedDB da memória");
+  assertEquals(profileSalvo.name, "Arquiteto Loco", "O nome deve ser preservado");
+  assertEquals(profileSalvo.email, "arq@loco.pwa", "O email deve ser preservado");
+  assertEquals(profileSalvo.vapidPublicKey.kty, "EC", "A chave pública VAPID deve ser expandida corretamente");
+  await removerProfile();
+  const profileRemovido = await buscarProfile();
+  assertEquals(profileRemovido, undefined, "O perfil deve retornar undefined após ser apagado");
+});
+
+Deno.test("DB Helpers - Chat: Deve salvar mensagens e retornar paginado corretamente", async () => {
+  const contatoHash = "hash-contato-paginacao-123";
+  await removerTodoHistoricoChat(contatoHash);
+  const totalMensagens = 35;
+  for (let i = 1; i <= totalMensagens; i++) {
+    const msg: Chat = {
+      id: `msg-${i.toString().padStart(2, '0')}`,
+      contatoHash: contatoHash,
+      conteudo: `Mensagem de teste número ${i}`,
+      tipo: 'out',
+      createdAt: 10000 + i,
+      handshake: `hand-${i}`
+    };
+    await salvarChat(msg);
+  }
+  const pagina1 = await listarChatPaginado(contatoHash, 30, 0);
+  assertEquals(pagina1.length, 30, "A primeira página deve trazer exatamente 30 mensagens");
+  assertEquals(pagina1[pagina1.length - 1]!.id, "msg-35", "A última mensagem da página 1 deve ser a mais recente (msg-35)");
+  assertEquals(pagina1[0]!.id, "msg-06", "A primeira mensagem da página 1 deve ser a msg-06");
+  const pagina2 = await listarChatPaginado(contatoHash, 30, 30);
+  assertEquals(pagina2.length, 5, "A segunda página deve trazer as 5 mensagens restantes");
+  assertEquals(pagina2[pagina2.length - 1]!.id, "msg-05", "A última mensagem da página 2 deve ser a msg-05");
+  assertEquals(pagina2[0]!.id, "msg-01", "A primeira mensagem da página 2 deve ser a msg-01");
+  const paginaVazia = await listarChatPaginado(contatoHash, 30, 35);
+  assertEquals(paginaVazia.length, 0, "Deve retornar array vazio se o offset ultrapassar o total de mensagens");
+  await removerTodoHistoricoChat(contatoHash);
+  const paginaPosExclusao = await listarChatPaginado(contatoHash, 30, 0);
+  assertEquals(paginaPosExclusao.length, 0, "O histórico de chat deve estar zerado após o expurgo");
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/db/id-utils.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assert, assertEquals, assertNotEquals } from "@std/assert";
+import { gerarId, gerarIdFallback, validarId } from "@loco/utils/db";
+
+Deno.test("gerarId - Deve gerar um ID no formato string e com tamanho adequado", () => {
+  const id = gerarId();
+  assert(typeof id === "string", "O ID gerado deve ser uma string");
+  assert(id.length > 0 && id.length <= 24, "O tamanho do ID deve estar entre 1 e 24 caracteres");
+});
+
+Deno.test("gerarId - Não deve gerar IDs duplicados em chamadas sequenciais", () => {
+  const id1 = gerarId();
+  const id2 = gerarId();
+  assertNotEquals(id1, id2, "IDs gerados sequencialmente não podem ser idênticos");
+});
+
+Deno.test("gerarIdFallback - Deve funcionar como alternativa segura", () => {
+  const idFallback = gerarIdFallback();
+  assert(typeof idFallback === "string", "O ID de fallback deve ser uma string");
+  assert(idFallback.length > 0, "O ID de fallback não pode ser vazio");
+});
+
+Deno.test("validarId - Deve validar corretamente limites de tamanho", () => {
+  const idValido = gerarId();
+  const idInvalidoLongo = "a".repeat(25);
+  const idInvalidoVazio = "";
+  assertEquals(validarId(idValido), true, "Deve aceitar um ID gerado pela própria função");
+  assertEquals(validarId(idInvalidoLongo), false, "Não deve aceitar IDs maiores que 24 caracteres");
+  assertEquals(validarId(idInvalidoVazio), false, "Não deve aceitar IDs vazios");
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/db/self-contact.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
+import type { ProfileConfig, Contato } from "@loco/utils/interfaces";
+import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "@loco/utils/db";
+
+async function serializarPublicKeyVapidMock(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(raw));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function assertTrue(condition: boolean, msg?: string) {
+  assert(condition, msg);
+}
+
+Deno.test("SELF-CONTACT: Deve gerar contato próprio válido a partir do profile", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "João Silva",
+    email: "joao@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "abc123", y: "def456" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "encrypted-key-data",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://push.example.com/subscription", keys: { p256dh: "p256dh-key", auth: "auth-key" } },
+    createdAt: Date.now() - 10000,
+    updatedAt: Date.now(),
+  };
+  const contatoProprio = await gerarContatoProprio(mockProfile);
+  assertExists(contatoProprio, "Contato próprio deve ser gerado");
+  assertEquals(contatoProprio.name, "João Silva (Eu)", "Nome deve ter sufixo '(Eu)'");
+  assertEquals(contatoProprio.email, mockProfile.email, "Email deve corresponder ao profile");
+  assertEquals(contatoProprio.trusted, true, "Contato próprio deve ser sempre confiável");
+  assertEquals(contatoProprio.me, "trusted", "Status 'me' deve ser 'trusted'");
+  assertEquals(contatoProprio.vapidPublicKey, mockProfile.vapidPublicKey, "Chave VAPID deve ser a mesma do profile");
+  assertEquals(contatoProprio.e2ePublicKey, mockProfile.e2ePublicKey, "Chave E2E deve ser a mesma do profile");
+  const hashEsperado = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  assertEquals(contatoProprio.id, hashEsperado, "ID deve ser o hash da chave pública VAPID");
+});
+
+Deno.test("SELF-CONTACT: Deve retornar null se profile for inválido", async () => {
+  const contatoNull = await gerarContatoProprio(null as any);
+  assertEquals(contatoNull, null, "Deve retornar null para profile nulo");
+  const contatoSemChave = await gerarContatoProprio({ name: "Test", email: "test@test.com" } as any);
+  assertEquals(contatoSemChave, null, "Deve retornar null se não houver chave VAPID");
+});
+
+Deno.test("SELF-CONTACT: Deve identificar corretamente se contato é o próprio usuário", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Maria Santos",
+    email: "maria@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "xyz789", y: "uvw012" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "encrypted",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://push.example.com/sub", keys: { p256dh: "key1", auth: "key2" } },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const meuHash = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  const outroHash = "hash-de-outro-contato-diferente";
+  const ehEu = await ehContatoProprio(meuHash, mockProfile);
+  assertTrue(ehEu, "Deve identificar como próprio usuário");
+  const ehOutro = await ehContatoProprio(outroHash, mockProfile);
+  assertFalse(ehOutro, "Não deve identificar como próprio usuário");
+  const semProfile = await ehContatoProprio(meuHash, null);
+  assertFalse(semProfile, "Deve retornar false se profile for null");
+});
+
+Deno.test("SELF-CONTACT: Deve obter hash próprio corretamente", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Pedro Oliveira",
+    email: "pedro@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "hash-test-x", y: "hash-test-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com", keys: { p256dh: "p", auth: "a" } },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const hashObtido = await obterHashProprio(mockProfile);
+  const hashEsperado = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  assertExists(hashObtido, "Hash deve ser obtido");
+  assertEquals(hashObtido, hashEsperado, "Hash obtido deve corresponder ao hash da chave VAPID");
+  const hashNull = await obterHashProprio(null);
+  assertEquals(hashNull, null, "Deve retornar null se profile for null");
+});
+
+Deno.test("SELF-CONTACT: Contato próprio deve ter todas as propriedades necessárias", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Ana Costa",
+    email: "ana@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "x-value", y: "y-value" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", crv: "P-256", d: "private" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "encrypted-envelope",
+    e2ePublicKey: { kty: "RSA", e: "AQAB", n: "public" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "private" } as JsonWebKey,
+    subscription: { endpoint: "https://push.server.com/endpoint/12345", keys: { p256dh: "base64url-p256dh-key", auth: "base64url-auth-secret" } },
+    createdAt: 1234567890,
+    updatedAt: 1234567890,
+  };
+  const contato = await gerarContatoProprio(mockProfile);
+  assertExists(contato);
+  assertExists(contato.id, "ID deve existir");
+  assertExists(contato.email, "Email deve existir");
+  assertExists(contato.name, "Nome deve existir");
+  assertExists(contato.vapidPublicKey, "vapidPublicKey deve existir");
+  assertExists(contato.e2ePublicKey, "e2ePublicKey deve existir");
+  assertExists(contato.subscription, "subscription deve existir");
+  assertExists(contato.subscription.endpoint, "subscription.endpoint deve existir");
+  assertExists(contato.subscription.keys.p256dh, "subscription.keys.p256dh deve existir");
+  assertExists(contato.subscription.keys.auth, "subscription.keys.auth deve existir");
+  assertExists(contato.vapidPrivateKeyEnvelope, "vapidPrivateKeyEnvelope deve existir");
+  assertEquals(typeof contato.trusted, "boolean", "trusted deve ser boolean");
+  assertExists(contato.me, "me status deve existir");
+  assertExists(contato.createdAt, "createdAt deve existir");
+  assertExists(contato.updatedAt, "updatedAt deve existir");
+});
+
+Deno.test("SELF-CONTACT: Múltiplas chamadas devem gerar contatos consistentes", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Carlos Mendes",
+    email: "carlos@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "consistent-x", y: "consistent-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com", keys: { p256dh: "p", auth: "a" } },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const contato1 = await gerarContatoProprio(mockProfile);
+  const contato2 = await gerarContatoProprio(mockProfile);
+  const contato3 = await gerarContatoProprio(mockProfile);
+  assertExists(contato1);
+  assertExists(contato2);
+  assertExists(contato3);
+  assertEquals(contato1.id, contato2.id, "IDs devem ser iguais");
+  assertEquals(contato2.id, contato3.id, "IDs devem ser iguais");
+  assertEquals(contato1.email, contato2.email, "Emails devem ser iguais");
+  assertEquals(contato1.name, contato3.name, "Nomes devem ser iguais");
+});
+
+Deno.test("SELF-CONTACT: Atualização de profile deve refletir no contato próprio", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Beatriz Lima",
+    email: "beatriz@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "update-x", y: "update-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com", keys: { p256dh: "p", auth: "a" } },
+    createdAt: 1000,
+    updatedAt: 1000,
+  };
+  const contatoAntigo = await gerarContatoProprio(mockProfile);
+  assertExists(contatoAntigo);
+  assertEquals(contatoAntigo.name, "Beatriz Lima (Eu)");
+  assertEquals(contatoAntigo.email, "beatriz@example.com");
+  mockProfile.name = "Bia Lima";
+  mockProfile.email = "bia@example.com";
+  mockProfile.updatedAt = Date.now();
+  const contatoNovo = await gerarContatoProprio(mockProfile);
+  assertExists(contatoNovo);
+  assertEquals(contatoNovo.name, "Bia Lima (Eu)", "Nome deve ser atualizado");
+  assertEquals(contatoNovo.email, "bia@example.com", "Email deve ser atualizado");
+  assertEquals(contatoAntigo.id, contatoNovo.id, "ID deve permanecer o mesmo");
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/db/share-utils.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assert, assertEquals, assertRejects } from "@std/assert";
+import { gerarLinkConviteWeb, processarQualquerConvite, extrairDadosCompactos, expandirDadosCompactos } from "@loco/utils/db";
+import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK, bufferToBase64Url, criarJWT } from "@loco/utils/crypto";
+import type { ProfileConfig, Contato } from "@loco/utils/interfaces";
+import { gzipSync } from "fflate";
+
+const mockContatos = new Map<string, Contato>();
+async function salvarContatoMock(contato: Contato): Promise<void> {
+  mockContatos.set(contato.id, contato);
+}
+async function buscarContatoPorChaveMock(hash: string): Promise<Contato | null> {
+  return mockContatos.get(hash) || null;
+}
+async function serializarPublicKeyVapidMock(key: JsonWebKey): Promise<string> {
+  const data = `${key.x}:${key.y}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+Deno.test("Share Utils - Geração e Importação de cJWT para Profile e Contato", async () => {
+  const userA: ProfileConfig = {
+    name: "Usuário A", email: "usuario.a@teste.com",
+    vapidPublicKey: {} as JsonWebKey, vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "",
+    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint-a", keys: { p256dh: "p256dh-a", auth: "auth-a" }, proxyserver: "https://mock.loco.proxy" },
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  const userB: ProfileConfig = {
+    name: "Usuário B", email: "usuario.b@teste.com",
+    vapidPublicKey: {} as JsonWebKey, vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "",
+    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint-b", keys: { p256dh: "p256dh-b", auth: "auth-b" }, proxyserver: "https://mock.loco.proxy" },
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  const [vapidKeysA, e2eKeysA, vapidKeysB, e2eKeysB] = await Promise.all([
+    generateVAPIDKeys(), generateE2EEKeys(), generateVAPIDKeys(), generateE2EEKeys()
+  ]);
+  userA.vapidPublicKey = await exportKeyToJWK(vapidKeysA.publicKey);
+  userA.vapidPrivateKeyJwk = await exportKeyToJWK(vapidKeysA.privateKey);
+  userA.e2ePublicKey = e2eKeysA.publicEncrypt;
+  userA.e2ePrivateKeyJwk = e2eKeysA.privateDecryptJwk;
+  userB.vapidPublicKey = await exportKeyToJWK(vapidKeysB.publicKey);
+  userB.vapidPrivateKeyJwk = await exportKeyToJWK(vapidKeysB.privateKey);
+  userB.e2ePublicKey = e2eKeysB.publicEncrypt;
+  userB.e2ePrivateKeyJwk = e2eKeysB.privateDecryptJwk;
+
+  const compactDataA = await extrairDadosCompactos(userA);
+  assertEquals(compactDataA.nm, "Usuário A", "Nome deve ser extraído corretamente");
+  assertEquals(compactDataA.em, "usuario.a@teste.com", "Email deve ser extraído corretamente");
+  assertEquals(compactDataA.vp.x, userA.vapidPublicKey.x, "Chave VAPID X deve ser extraída no bloco VP");
+  assertEquals(compactDataA.vp.y, userA.vapidPublicKey.y, "Chave VAPID Y deve ser extraída no bloco VP");
+  assert(compactDataA.ep.n !== undefined, "Módulo 'n' da Chave E2E deve ser extraído no bloco EP");
+
+  const expandedData = expandirDadosCompactos(compactDataA);
+  assertEquals(expandedData.name, "Usuário A", "Nome deve ser expandido corretamente");
+  assertEquals(expandedData.email, "usuario.a@teste.com", "Email deve ser expandido corretamente");
+  assert(expandedData.vapidPublicKey !== undefined, "Chave VAPID deve ser expandida");
+  assert(expandedData.e2ePublicKey !== undefined, "Chave E2E deve ser expandida");
+
+  const cjwtUrl = await gerarLinkConviteWeb(userA, userA.vapidPrivateKeyJwk, userA.vapidPublicKey, 'http://test.localhost');
+  assert(cjwtUrl.includes("#share="), "URL deve conter parâmetro share");
+  const cjwtToken = cjwtUrl.split("#share=")[1];
+  assert(cjwtToken && cjwtToken.length > 0, "cJWT deve ser gerado");
+
+  const importedContato = await processarQualquerConvite(cjwtToken);
+  assertEquals(importedContato.name, "Usuário A", "Nome do contato importado deve bater");
+  assertEquals(importedContato.email, "usuario.a@teste.com", "Email do contato importado deve bater");
+  assert(importedContato.vapidPublicKey !== undefined, "Chave VAPID deve estar presente");
+  assert(importedContato.e2ePublicKey !== undefined, "Chave E2E deve estar presente");
+  assert(importedContato.subscription !== undefined, "Subscription deve estar presente");
+  assertEquals(importedContato.subscription.endpoint, "https://fcm.googleapis.com/fcm/send/test-endpoint-a", "Endpoint deve bater");
+
+  assertEquals((importedContato.vapidPublicKey as JsonWebKey).x, userA.vapidPublicKey.x, "Chave VAPID X deve ser idêntica após importação");
+  assertEquals((importedContato.vapidPublicKey as JsonWebKey).y, userA.vapidPublicKey.y, "Chave VAPID Y deve ser idêntica após importação");
+  assertEquals((importedContato.e2ePublicKey as JsonWebKey).n, userA.e2ePublicKey.n, "Chave E2E N deve ser idêntica após importação");
+
+  const contatoHash = await serializarPublicKeyVapidMock(userA.vapidPublicKey);
+  const novoContato: Contato = {
+    id: contatoHash, name: importedContato.name!, email: importedContato.email!,
+    vapidPublicKey: importedContato.vapidPublicKey!, e2ePublicKey: importedContato.e2ePublicKey!,
+    subscription: importedContato.subscription!, vapidPrivateKeyEnvelope: importedContato.vapidPrivateKeyEnvelope!,
+    trusted: false, me: 'saved', createdAt: Date.now(), updatedAt: Date.now()
+  };
+  await salvarContatoMock(novoContato);
+  const contatoSalvo = await buscarContatoPorChaveMock(contatoHash);
+  assert(contatoSalvo !== null, "Contato deve ser salvo no banco (mock)");
+  assertEquals(contatoSalvo!.name, "Usuário A", "Nome do contato salvo deve bater");
+
+  const contatoDireto = await processarQualquerConvite(cjwtToken);
+  assertEquals(contatoDireto.name, "Usuário A", "cJWT direto deve funcionar");
+
+  const cqrData = await extrairDadosCompactos(userA);
+  const cqrJson = JSON.stringify(cqrData);
+  const cqrBytes = new TextEncoder().encode(cqrJson);
+  const compressed = gzipSync(cqrBytes);
+  const cqrToken = bufferToBase64Url(compressed.buffer as ArrayBuffer);
+  const contatoCqr = await processarQualquerConvite(cqrToken);
+  assertEquals(contatoCqr.name, "Usuário A", "QR Code compacto deve funcionar");
+
+  const extraidos = await extrairDadosCompactos(userA);
+  const jwtPayload = { sub: "contact", ...extraidos, iat: Math.floor(Date.now() / 1000) };
+  const jwtToken = await criarJWT(jwtPayload, userA.vapidPrivateKeyJwk, { kid: userA.vapidPublicKey });
+  const contatoJwt = await processarQualquerConvite(jwtToken);
+  assertEquals(contatoJwt.name, "Usuário A", "JWT não-compresso deve funcionar");
+
+  await assertRejects(
+    async () => await processarQualquerConvite("token-invalido-abc123"),
+    Error,
+    "O link ou código colado não é um convite válido do Loco."
+  );
+});
+
+Deno.test("Share Utils - Reciprocidade na troca de contatos via cJWT", async () => {
+  const userX: ProfileConfig = {
+    name: "Alice", email: "alice@example.com",
+    vapidPublicKey: {} as JsonWebKey, vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "",
+    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com/alice", keys: { p256dh: "alice-p256dh", auth: "alice-auth" }, proxyserver: "https://mock.loco.proxy" },
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  const userY: ProfileConfig = {
+    name: "Bob", email: "bob@example.com",
+    vapidPublicKey: {} as JsonWebKey, vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "",
+    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com/bob", keys: { p256dh: "bob-p256dh", auth: "bob-auth" }, proxyserver: "https://mock.loco.proxy" },
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  const [vapidX, e2eX, vapidY, e2eY] = await Promise.all([
+    generateVAPIDKeys(), generateE2EEKeys(), generateVAPIDKeys(), generateE2EEKeys()
+  ]);
+  userX.vapidPublicKey = await exportKeyToJWK(vapidX.publicKey);
+  userX.vapidPrivateKeyJwk = await exportKeyToJWK(vapidX.privateKey);
+  userX.e2ePublicKey = e2eX.publicEncrypt;
+  userX.e2ePrivateKeyJwk = e2eX.privateDecryptJwk;
+  userY.vapidPublicKey = await exportKeyToJWK(vapidY.publicKey);
+  userY.vapidPrivateKeyJwk = await exportKeyToJWK(vapidY.privateKey);
+  userY.e2ePublicKey = e2eY.publicEncrypt;
+  userY.e2ePrivateKeyJwk = e2eY.privateDecryptJwk;
+
+  const aliceInviteUrl = await gerarLinkConviteWeb(userX, userX.vapidPrivateKeyJwk, userX.vapidPublicKey, 'http://test.localhost');
+  const aliceCjwt = aliceInviteUrl.split("#share=")[1]!;
+  const bobImportouAlice = await processarQualquerConvite(aliceCjwt);
+  assertEquals(bobImportouAlice.name, "Alice", "Bob deve importar Alice corretamente");
+  assertEquals(bobImportouAlice.email, "alice@example.com", "Email deve bater");
+
+  const bobInviteUrl = await gerarLinkConviteWeb(userY, userY.vapidPrivateKeyJwk, userY.vapidPublicKey, 'http://test.localhost');
+  const bobCjwt = bobInviteUrl.split("#share=")[1]!;
+  const aliceImportouBob = await processarQualquerConvite(bobCjwt);
+  assertEquals(aliceImportouBob.name, "Bob", "Alice deve importar Bob corretamente");
+  assertEquals(aliceImportouBob.email, "bob@example.com", "Email deve bater");
+
+  assert((bobImportouAlice.vapidPublicKey as JsonWebKey).x === userX.vapidPublicKey.x, "Bob deve ter a chave pública correta de Alice");
+  assert((aliceImportouBob.vapidPublicKey as JsonWebKey).x === userY.vapidPublicKey.x, "Alice deve ter a chave pública correta de Bob");
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/config/proxy.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { assertEquals } from "@std/assert";
+import { getAbsoluteProxyUrl, buildProxyUrl } from "@loco/utils/config";
+
+function mockGlobalLocation(origin: string, pathname: string) {
+  (globalThis as any).location = { origin, pathname };
+}
+
+Deno.test("Config Utils - getAbsoluteProxyUrl respeita URLs absolutas informadas pelo contato", async () => {
+  const urlDestinoExterna = "https://servidor-amigo.workers.dev";
+  const result = await getAbsoluteProxyUrl(urlDestinoExterna);
+  assertEquals(result, urlDestinoExterna, "Deve retornar a URL absoluta intacta");
+});
+
+Deno.test("Config Utils - getAbsoluteProxyUrl limpa barras duplicadas no final da URL absoluta", async () => {
+  const urlSuja = "https://proxy-baguncado.com//";
+  const result = await getAbsoluteProxyUrl(urlSuja);
+  assertEquals(result, "https://proxy-baguncado.com", "Deve remover barras à direita (trailing slashes)");
+});
+
+Deno.test("Config Utils - getAbsoluteProxyUrl resolve rotas relativas baseado na origem atual do App", async () => {
+  mockGlobalLocation("https://meu-loco-app.com", "/");
+  const rotaRelativaProxy = "/api";
+  const result = await getAbsoluteProxyUrl(rotaRelativaProxy);
+  assertEquals(result, "https://meu-loco-app.com/api", "Deve concatenar a origem local com o caminho do proxy");
+});
+
+Deno.test("Config Utils - getAbsoluteProxyUrl entende quando o PWA é servido a partir de um subdiretório", async () => {
+  mockGlobalLocation("https://usuario.github.io", "/meu-repo/index.html");
+  const rotaRelativaProxy = "/push-handler";
+  const result = await getAbsoluteProxyUrl(rotaRelativaProxy);
+  assertEquals(result, "https://usuario.github.io/meu-repo/push-handler", "Deve respeitar o subdiretório de hospedagem");
+});
+
+Deno.test("Config Utils - buildProxyUrl monta a URI do endpoint corretamente", async () => {
+  const proxyAbsoluto = "https://relay.loco.net";
+  const urlPush = await buildProxyUrl("/push", proxyAbsoluto);
+  const urlPing = await buildProxyUrl("ping", proxyAbsoluto);
+  assertEquals(urlPush, "https://relay.loco.net/push");
+  assertEquals(urlPing, "https://relay.loco.net/ping");
+});
+```
 
 ---
 
@@ -4466,6 +5332,8 @@ export function formatarArquivoMarkdown(
     "@std/assert": "jsr:@std/assert",
     "@std/testing": "jsr:@std/testing",
     "idb-keyval": "https://esm.sh/idb-keyval@6.2.1",
+    "fake-indexeddb": "https://esm.sh/fake-indexeddb@6.2.5?bundle",
+    "fake-indexeddb/auto": "https://esm.sh/fake-indexeddb@6.2.5/auto?bundle",
     "fflate": "https://esm.sh/fflate@0.8.2?target=es2022"
   },
   "tasks": {

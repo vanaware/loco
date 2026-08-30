@@ -1,9 +1,9 @@
-// tests/crypto-utils.test.ts
+/// <reference lib="deno.ns" />
 import { assertEquals, assert } from "@std/assert";
 import { 
   minifyVapidPublic, expandVapidPublic,
   minifyRsaPublic, expandRsaPublic
-} from "../../../utils/src/crypto/mod.ts";
+} from "@loco/utils/crypto";
 
 Deno.test("Crypto Utils - Minificação e Expansão de VAPID Public (ECDSA P-256)", () => {
   const mockJwkOriginal: JsonWebKey = {
@@ -14,15 +14,11 @@ Deno.test("Crypto Utils - Minificação e Expansão de VAPID Public (ECDSA P-256
     ext: true,
     key_ops: ["verify"]
   };
-
-  // Minifica: Deve sobrar apenas X e Y
   const minified = minifyVapidPublic(mockJwkOriginal);
   assert(minified.x === mockJwkOriginal.x, "Deve conter a coordenada X");
   assert(minified.y === mockJwkOriginal.y, "Deve conter a coordenada Y");
   assert(minified.kty === undefined, "Não deve conter o kty");
   assert(minified.crv === undefined, "Não deve conter a curva");
-
-  // Expande: Deve reconstruir a chave perfeitamente
   const expanded = expandVapidPublic(minified);
   assertEquals(expanded.kty, "EC");
   assertEquals(expanded.crv, "P-256");
@@ -41,13 +37,9 @@ Deno.test("Crypto Utils - Minificação e Expansão de RSA Public", () => {
     ext: true,
     key_ops: ["encrypt"]
   };
-
-  // Minifica: Só o módulo 'n' importa em chaves RSA-OAEP padronizadas
   const minified = minifyRsaPublic(mockRsaOriginal);
   assert(minified.n === mockRsaOriginal.n, "Deve reter o módulo N");
   assert(minified.kty === undefined, "Deve omitir a tipagem kty");
-
-  // Expande: Reconstrói o esquema
   const expanded = expandRsaPublic(minified);
   assertEquals(expanded.kty, "RSA");
   assertEquals(expanded.alg, "RSA-OAEP-256");
@@ -58,7 +50,5 @@ Deno.test("Crypto Utils - Minificação e Expansão de RSA Public", () => {
 Deno.test("Crypto Utils - Expansão de chave já expandida (Idempotência)", () => {
   const jwk: JsonWebKey = { kty: "RSA", n: "123", e: "AQAB" };
   const expanded = expandRsaPublic(jwk);
-  
-  // Se eu passar algo que já tem 'kty', ele não deve tentar reconstruir o que não precisa
   assertEquals(expanded, jwk, "A função de expansão deve ser idempotente se a chave não estiver minificada");
 });
