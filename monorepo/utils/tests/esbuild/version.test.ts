@@ -27,14 +27,12 @@ describe("parseVersion", () => {
       { input: "2.0.0-beta.1", expected: { major: 2, minor: 0, patch: 0 } },
       { input: "1.0.0-alpha-beta-1", expected: { major: 1, minor: 0, patch: 0 } },
     ];
-
     for (const { input, expected } of validCases) {
       it(`parseia "${input}" corretamente`, () => {
         assertEquals(parseVersion(input), expected);
       });
     }
   });
-
   describe("casos inválidos", () => {
     const invalidCases = [
       { input: "", desc: "string vazia" },
@@ -47,7 +45,6 @@ describe("parseVersion", () => {
       { input: " 1.2.3", desc: "espaço antes" },
       { input: "1.2.3 ", desc: "espaço depois" },
     ];
-
     for (const { input, desc } of invalidCases) {
       it(`lança erro para ${desc} ("${input}")`, () => {
         assertThrows(() => parseVersion(input), Error);
@@ -60,15 +57,14 @@ describe("formatVersion", () => {
   it("formata com hash fornecido", () => {
     assertEquals(formatVersion(1, 2, 3, "abc"), "1.2.3-abc");
   });
-
   it("gera hash automático quando não fornecido", () => {
     const result = formatVersion(0, 2, 149);
     assertStringIncludes(result, "0.2.149-");
     // Hash deve ter pelo menos alguns caracteres
     const hash = result.split("-")[1];
-    assertEquals(hash.length > 0, true);
+    // 🔥 CORREÇÃO: Tratamento explícito de undefined (noUncheckedIndexedAccess)
+    assertEquals(hash !== undefined && hash.length > 0, true);
   });
-
   it("usa o mesmo hash em chamadas com mesmo parâmetro", () => {
     const hash = "fixedhash";
     assertEquals(
@@ -76,7 +72,6 @@ describe("formatVersion", () => {
       formatVersion(1, 0, 0, hash)
     );
   });
-
   it("lida com números grandes", () => {
     assertEquals(formatVersion(999, 999, 999, "x"), "999.999.999-x");
   });
@@ -89,7 +84,6 @@ describe("extractVersionFromContent", () => {
       "1.2.3"
     );
   });
-
   it("extrai versão de JSONC com comentários", () => {
     const content = `{
       // Comentário
@@ -98,25 +92,21 @@ describe("extractVersionFromContent", () => {
     }`;
     assertEquals(extractVersionFromContent(content), "2.0.0");
   });
-
   it("extrai versão com hash", () => {
     assertEquals(
       extractVersionFromContent(`{ "version": "1.2.3-abc123" }`),
       "1.2.3-abc123"
     );
   });
-
   it("retorna null quando não há versão", () => {
     assertEquals(
       extractVersionFromContent(`{ "name": "loco" }`),
       null
     );
   });
-
   it("retorna null para string vazia", () => {
     assertEquals(extractVersionFromContent(""), null);
   });
-
   it("ignora campos 'version' dentro de strings", () => {
     const content = `{ "name": "tem version: 1.0.0 no nome" }`;
     assertEquals(extractVersionFromContent(content), null);
@@ -135,7 +125,6 @@ describe("replaceVersionInContent", () => {
     assertStringIncludes(result, `"name": "@loco/app"`);
     assertStringIncludes(result, `"imports"`);
   });
-
   it("substitui apenas a primeira ocorrência", () => {
     const content = `{ "version": "1.0.0", "other": "version": "2.0.0" }`;
     const result = replaceVersionInContent(content, "3.0.0");
@@ -154,7 +143,6 @@ describe("currentVersion (integração)", () => {
       await cleanup();
     }
   });
-
   it("lança erro quando arquivo não existe", async () => {
     let threw = false;
     try {
@@ -164,13 +152,11 @@ describe("currentVersion (integração)", () => {
     }
     assertEquals(threw, true);
   });
-
   it("lança erro quando versão não está no arquivo", async () => {
     const { path, cleanup } = await withTempDenoJsonc("1.0.0", { version: undefined });
     try {
       // Reescreve sem version
       await Deno.writeTextFile(path, `{ "name": "loco" }`);
-
       let errorMessage = "";
       try {
         await currentVersion(path);
@@ -190,14 +176,12 @@ describe("incrementVersion (integração)", () => {
     try {
       const newVersion = await incrementVersion("1.2.3", path, "testhash");
       assertEquals(newVersion, "1.2.4-testhash");
-
       const content = await Deno.readTextFile(path);
       assertStringIncludes(content, `"version": "1.2.4-testhash"`);
     } finally {
       await cleanup();
     }
   });
-
   it("preserva outras propriedades do JSON", async () => {
     const { path, cleanup } = await withTempDenoJsonc("0.0.1", {
       name: "@loco/app",
@@ -205,7 +189,6 @@ describe("incrementVersion (integração)", () => {
     });
     try {
       await incrementVersion("0.0.1", path, "x");
-
       const content = await Deno.readTextFile(path);
       assertStringIncludes(content, `"name": "@loco/app"`);
       assertStringIncludes(content, `"preact"`);
@@ -213,16 +196,13 @@ describe("incrementVersion (integração)", () => {
       await cleanup();
     }
   });
-
   it("incrementa múltiplas vezes", async () => {
     const { path, cleanup } = await withTempDenoJsonc("1.0.0");
     try {
       const v1 = await incrementVersion("1.0.0", path, "h1");
       assertEquals(v1, "1.0.1-h1");
-
       const v2 = await incrementVersion(v1, path, "h2");
       assertEquals(v2, "1.0.2-h2");
-
       const v3 = await incrementVersion(v2, path, "h3");
       assertEquals(v3, "1.0.3-h3");
     } finally {

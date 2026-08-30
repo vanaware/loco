@@ -1,13 +1,25 @@
-// src/utils/debug-utils.ts
-
 import { DEBUG_CHANNEL_NAME } from "../config/mod.ts";
-
 import type { DebugLogPayload } from "../interfaces/mod.ts";
 
-// BroadcastChannel é suportado tanto na Window (UI) quanto no ServiceWorker
+// 🔥 Lazy initialization: só cria o channel quando for usado pela primeira vez
 let debugChannel: BroadcastChannel | null = null;
-if (typeof BroadcastChannel !== "undefined") {
-  debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
+
+function getDebugChannel(): BroadcastChannel | null {
+  if (typeof BroadcastChannel === "undefined") {
+    return null;
+  }
+  
+  // Inicializa apenas uma vez, sob demanda
+  if (debugChannel === null) {
+    try {
+      debugChannel = new BroadcastChannel(DEBUG_CHANNEL_NAME);
+    } catch (err) {
+      console.warn("Erro ao criar BroadcastChannel:", err);
+      return null;
+    }
+  }
+  
+  return debugChannel;
 }
 
 /**
@@ -49,8 +61,9 @@ export function addDebugLog(
   };
 
   try {
-    if (debugChannel) {
-      debugChannel.postMessage({
+    const channel = getDebugChannel();
+    if (channel) {
+      channel.postMessage({
         type: "LOCO_DEBUG_LOG",
         entry,
       });

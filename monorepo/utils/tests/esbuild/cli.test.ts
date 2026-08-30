@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 
-import { describe, it } from "jsr:@std/testing/bdd";
-import { assertEquals } from "jsr:@std/assert";
+import { describe, it } from "@std/testing/bdd";
+import { assertEquals } from "@std/assert";
 import { parseArgs } from "@loco/utils/build";
 import type { GlobalTargetConfig } from "../../src/interfaces/mod.ts";
 

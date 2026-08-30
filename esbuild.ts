@@ -1,6 +1,5 @@
 /// <reference lib="deno.ns" />
 
-// @ts-types="https://esm.sh/esbuild-wasm@0.24.0/esbuild.d.ts"
 import * as esbuild from "esbuild-wasm";
 
 import {

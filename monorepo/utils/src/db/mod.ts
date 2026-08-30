@@ -1,7 +1,7 @@
 // src/utils/db-helpers.ts
 import { get, set, createStore, del, entries, values, getMany } from "idb-keyval";
-import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../interfaces/db.ts";
-import type { ProfileConfig, Chat, Contato, Handshake, PastaMetadata } from "../interfaces/db.ts";
+import { STORE_NAMES, KEY_NAMES, DB_NAMES } from "../config/mod.ts";
+import type { ProfileConfig, Chat, Contato, Handshake, PastaMetadata } from "../interfaces/mod.ts";
 import { 
   minifyVapidPublic, expandVapidPublic, 
   minifyVapidPrivate, expandVapidPrivate, 
@@ -12,7 +12,6 @@ import {
 // ============================================================
 // Criação de Stores
 // ============================================================
-
 export function criarStore(nome: string, storeName: string = STORE_NAMES.KEYVAL) {
   return createStore(nome, storeName);
 }
@@ -21,13 +20,13 @@ const storeConfig = criarStore(DB_NAMES.CONFIG);
 export const storeChat = criarStore(DB_NAMES.CHAT); 
 export const storeContatos = criarStore(DB_NAMES.CONTATOS);
 export const storeHandshakes = criarStore(DB_NAMES.HANDSHAKES, STORE_NAMES.KEYVAL);
+
 // 🔥 ARQUITETURA: Store para os metadados de Mídias/Pastas
 export const storeMidias = criarStore(DB_NAMES.MIDIAS);
 
 // ============================================================
 // Funções Genéricas
 // ============================================================
-
 export async function salvarChave<T>(store: any, key: string, value: T): Promise<void> {
   return set(key, value, store);
 }
@@ -51,7 +50,6 @@ export async function listarValores<T>(store: any): Promise<T[]> {
 // ============================================================
 // Interceptadores de Compressão (DB Middlewares)
 // ============================================================
-
 function compactarProfile(p: ProfileConfig): any {
   return {
     ...p,
@@ -93,7 +91,6 @@ function expandirContato(c: any): Contato | undefined {
 // ============================================================
 // Gerenciamento do Perfil (ProfileConfig)
 // ============================================================
-
 export async function salvarProfile(profile: ProfileConfig): Promise<void> {
   profile.updatedAt = Date.now();
   if (!profile.createdAt) {
@@ -115,7 +112,6 @@ export async function buscarChaveDecript(): Promise<CryptoKey | null> {
   try {
     const profile = await buscarProfile();
     if (!profile || !profile.e2ePrivateKeyJwk) return null;
-
     return await crypto.subtle.importKey(
       "jwk",
       profile.e2ePrivateKeyJwk,
@@ -132,14 +128,11 @@ export async function buscarChaveDecript(): Promise<CryptoKey | null> {
 // ============================================================
 // Mensagens de Chat (Novo Formato Unificado + Lazy Loading)
 // ============================================================
-
 export async function salvarChat(chat: Chat): Promise<void> {
   chat.updatedAt = Date.now();
   await salvarChave(storeChat, chat.id, chat);
-
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${chat.contatoHash}`;
   const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  
   if (!index.includes(chat.id)) {
     index.push(chat.id);
     await salvarChave(storeChat, indexKey, index);
@@ -153,15 +146,11 @@ export async function buscarChat(id: string): Promise<Chat | undefined> {
 export async function listarChatPaginado(contatoHash: string, limit: number, offset: number): Promise<Chat[]> {
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
   const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-
   const total = index.length;
   if (total === 0 || offset >= total) return [];
-
   const startIndex = Math.max(0, total - offset - limit);
   const endIndex = total - offset;
-  
   const sliceIds = index.slice(startIndex, endIndex);
-
   const records = await getMany(sliceIds, storeChat);
   return records.filter(Boolean) as Chat[];
 }
@@ -171,7 +160,6 @@ export async function removerChat(id: string, contatoHash: string): Promise<void
   if (chat && chat.handshake && chat.handshake !== 'self') {
     await removerHandshake(chat.handshake);
   }
-
   await removerChave(storeChat, id);
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
   let index = await buscarChave<string[]>(storeChat, indexKey) || [];
@@ -182,7 +170,6 @@ export async function removerChat(id: string, contatoHash: string): Promise<void
 export async function removerTodoHistoricoChat(contatoHash: string): Promise<void> {
   const indexKey = `${KEY_NAMES.CHAT_INDEX}${contatoHash}`;
   const index = await buscarChave<string[]>(storeChat, indexKey) || [];
-  
   for (const id of index) {
     await removerChave(storeChat, id);
   }
@@ -192,7 +179,6 @@ export async function removerTodoHistoricoChat(contatoHash: string): Promise<voi
 // ============================================================
 // Contatos
 // ============================================================
-
 async function sha256(message: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(message);
@@ -202,7 +188,6 @@ async function sha256(message: string): Promise<string> {
 
 export async function serializarPublicKeyVapid(jwk: JsonWebKey): Promise<string> {
   if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  
   const expanded = expandVapidPublic(jwk);
   const raw = `${expanded.kty?.toLowerCase() || ''}|${expanded.crv?.toLowerCase() || ''}|${expanded.x?.toLowerCase() || ''}|${expanded.y?.toLowerCase() || ''}`;
   return await sha256(raw);
@@ -250,7 +235,6 @@ export async function removerContatoPorHash(hash: string): Promise<void> {
 // ============================================================
 // Handshakes
 // ============================================================
-
 export async function salvarHandshake(handshake: Handshake): Promise<void> {
   handshake.updatedAt = Date.now();
   if (!handshake.createdAt) {
@@ -274,7 +258,6 @@ export async function removerHandshake(id: string): Promise<void> {
 // ============================================================
 // Metadados de Mídias e OPFS (Coleções/Pastas P2P)
 // ============================================================
-
 export async function salvarPastaMetadata(pasta: PastaMetadata): Promise<void> {
   pasta.modifiedAt = Date.now();
   await salvarChave(storeMidias, pasta.id, pasta);

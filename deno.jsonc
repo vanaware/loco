@@ -45,7 +45,7 @@
     "test": "deno test --allow-env --allow-net tests/",
     "check": "deno check exports/export.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
     "tests": "deno task check && deno task test",
-    "export": "deno run --allow-read --allow-write exports/export.ts"
+    "export": "deno run --allow-read --allow-write ./export.ts"
   },
   "nodeModulesDir": "auto",
     

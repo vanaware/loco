@@ -1,8 +1,13 @@
 // src/utils/share-utils.ts
 import { gzipSync, gunzipSync } from 'fflate';
-import { criarJWT, verificarJWT, base64UrlToArrayBuffer, arrayBufferToBase64Url } from '../crypto/jwt.ts';
-import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from '../crypto/mod.ts';
-import type { ProfileConfig, Contato } from '../interfaces/db.ts';
+import { criarJWT, verificarJWT } from '../crypto/jwt.ts';
+import { 
+  minifyVapidPublic, expandVapidPublic, 
+  minifyRsaPublic, expandRsaPublic,
+  bufferToBase64Url,
+  base64UrlToBuffer
+} from '../crypto/mod.ts';
+import type { ProfileConfig, Contato } from '../interfaces/mod.ts';
 import { getAbsoluteProxyUrl } from '../config/proxy.ts';
 
 const FCM_PREFIX = "https://fcm.googleapis.com/fcm/send/";
@@ -25,9 +30,7 @@ export interface CompactContact {
 export async function extrairDadosCompactos(target: ProfileConfig | Contato, req = false, tr = false): Promise<CompactContact> {
   let ep = target.subscription.endpoint;
   if (ep.startsWith(FCM_PREFIX)) ep = "1:" + ep.replace(FCM_PREFIX, "");
-
   const absoluteProxy = await getAbsoluteProxyUrl(target.subscription.proxyserver);
-
   return {
     req,
     tr,
@@ -46,7 +49,6 @@ export async function extrairDadosCompactos(target: ProfileConfig | Contato, req
 export function expandirDadosCompactos(c: CompactContact): Partial<Contato> {
   let ep = c.se;
   if (ep.startsWith("1:")) ep = FCM_PREFIX + ep.substring(2);
-
   return {
     email: c.em,
     name: c.nm,
@@ -64,7 +66,7 @@ export async function gerarPayloadQrCodeCompacto(target: ProfileConfig | Contato
   const compact = await extrairDadosCompactos(target);
   const jsonBytes = new TextEncoder().encode(JSON.stringify(compact));
   const compressed = gzipSync(jsonBytes);
-  return arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
+  return bufferToBase64Url(compressed.buffer as ArrayBuffer);
 }
 
 // 🔥 Assíncrono (e já usando a extração assíncrona)
@@ -80,12 +82,10 @@ export async function gerarLinkConviteWeb(
     ...compact,
     iat: Math.floor(Date.now() / 1000)
   };
-
   const jwt = await criarJWT(payload, myVapidPrivateKeyJwk, { kid: myVapidPublicKeyJwk });
   const jwtBytes = new TextEncoder().encode(jwt);
   const compressed = gzipSync(jwtBytes);
-  const cjwt = arrayBufferToBase64Url(compressed.buffer as ArrayBuffer);
-
+  const cjwt = bufferToBase64Url(compressed.buffer as ArrayBuffer);
   const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
   return `${origin}/#share=${cjwt}`;
 }
@@ -94,9 +94,7 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
   let cqr: string | null = null;
   let cjwt: string | null = null;
   let jwt: string | null = null;
-
   const input = rawInput.trim();
-
   try {
     if (input.includes('://') || input.startsWith('http')) {
       const url = new URL(input);
@@ -110,7 +108,6 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
       }
     }
   } catch (e) {}
-
   if (!cqr && !cjwt && !jwt) {
     if (input.includes('#share=')) {
       cjwt = input.split('#share=')[1]?.split('&')[0] || null;
@@ -122,17 +119,15 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
       jwt = input.split('jwt=')[1]?.split('&')[0] || null;
     }
   }
-
   if (!cqr && !cjwt && !jwt && input) {
     if (input.split('.').length === 3 && !input.includes('://')) {
       jwt = input;
     } else {
       try {
         const cleanBase64 = input.replace(/[^A-Za-z0-9\-_]/g, ''); 
-        const compressed = new Uint8Array(base64UrlToArrayBuffer(cleanBase64));
+        const compressed = new Uint8Array(base64UrlToBuffer(cleanBase64));
         const decompressed = gunzipSync(compressed);
         const text = new TextDecoder().decode(decompressed);
-        
         if (text.startsWith('{')) {
           cqr = cleanBase64;
         } else {
@@ -143,15 +138,12 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
       }
     }
   }
-
   let compactData: CompactContact | null = null;
-
   if (!compactData && cjwt) {
     try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cjwt));
+      const compressed = new Uint8Array(base64UrlToBuffer(cjwt));
       const decompressed = gunzipSync(compressed);
       const jsonText = new TextDecoder().decode(decompressed);
-      
       const { payload, valid } = await verificarJWT(jsonText); 
       if (!valid) throw new Error("Assinatura do convite inválida ou corrompida.");
       if (payload) compactData = payload as CompactContact;
@@ -159,14 +151,12 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
       console.warn("Falha ao verificar cjwt:", e);
     }
   }
-
   if (!compactData && cqr) {
     try {
-      const compressed = new Uint8Array(base64UrlToArrayBuffer(cqr));
+      const compressed = new Uint8Array(base64UrlToBuffer(cqr));
       const decompressed = gunzipSync(compressed);
       const jsonText = new TextDecoder().decode(decompressed);
       const parsed = JSON.parse(jsonText);
-      
       if (parsed.vp || (parsed.vx && parsed.vy)) {
         compactData = parsed as CompactContact;
       }
@@ -174,7 +164,6 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
       console.warn("Falha ao ler cqr:", e);
     }
   }
-
   if (!compactData && jwt) {
     try {
       const { payload, valid } = await verificarJWT(jwt);
@@ -184,13 +173,10 @@ export async function processarQualquerConvite(rawInput: string): Promise<Partia
       console.warn("Falha ao verificar jwt:", e);
     }
   }
-
   if (!compactData) throw new Error("O link ou código colado não é um convite válido do Loco.");
-
   if ((compactData as any).vx && !compactData.vp) {
     compactData.vp = { x: (compactData as any).vx, y: (compactData as any).vy };
     compactData.ep = { n: (compactData as any).en };
   }
-
   return expandirDadosCompactos(compactData);
 }

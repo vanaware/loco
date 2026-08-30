@@ -1,5 +1,5 @@
 // src/utils/self-contact-utils.ts
-import type { ProfileConfig, Contato } from '../interfaces/db.ts';
+import type { ProfileConfig, Contato } from '../interfaces/mod.ts';
 
 /**
  * Função interna para serializar chave pública VAPID em hash SHA-256.
@@ -26,10 +26,8 @@ export async function gerarContatoProprio(profile: ProfileConfig): Promise<Conta
   if (!profile || !profile.vapidPublicKey) {
     return null;
   }
-
   try {
     const id = await serializarPublicKeyVapidInterna(profile.vapidPublicKey);
-    
     const contatoProprio: Contato = {
       id,
       email: profile.email,
@@ -43,7 +41,6 @@ export async function gerarContatoProprio(profile: ProfileConfig): Promise<Conta
       createdAt: profile.createdAt,
       updatedAt: Date.now()
     };
-
     return contatoProprio;
   } catch (error) {
     console.error('[SELF-CONTACT] Erro ao gerar contato próprio:', error);
@@ -66,7 +63,6 @@ export async function ehContatoProprio(
   if (!profile || !profile.vapidPublicKey) {
     return false;
   }
-
   try {
     const meuHash = await serializarPublicKeyVapidInterna(profile.vapidPublicKey);
     return contatoHash === meuHash;
@@ -87,7 +83,6 @@ export async function obterHashProprio(profile: ProfileConfig | null): Promise<s
   if (!profile || !profile.vapidPublicKey) {
     return null;
   }
-
   try {
     return await serializarPublicKeyVapidInterna(profile.vapidPublicKey);
   } catch (error) {

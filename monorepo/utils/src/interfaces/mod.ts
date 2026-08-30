@@ -1,5 +1,4 @@
 // TODO IA: no novo worker-db, "_id" fixo em "profile" para ProfileConfig
-
 export interface ProfileConfig {
   name: string;
   email: string;
@@ -21,7 +20,6 @@ export interface ProfileConfig {
 }
 
 // TODO IA: no novo worker-db, "id" deverá ser "_id" para chat
-
 export interface Chat {
   id: string;
   contatoHash: string;
@@ -36,15 +34,14 @@ export interface Chat {
   errorAt?: number;
   handshake: string;
   // 🔥 ARQUITETURA: Ponteiro opcional para a Pasta/Coleção no OPFS
-  metadataId?: string; 
+  metadataId?: string;
 }
 
 export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved' | 'deleted';
 
 // TODO IA: no novo worker-db, "id" deverá ser "_id" para contato
-
 export interface Contato {
-  id: string; 
+  id: string;
   email: string;
   name: string;
   vapidPublicKey: JsonWebKey;
@@ -62,28 +59,26 @@ export interface Contato {
 }
 
 // TODO IA: no novo worker-db, função opfs(), usar interface OpfsFileInfo que já tem em db.ts
-
 // 🔥 ARQUITETURA: Nova Estrutura Baseada em Pastas/Manifestos P2P
 export interface FileMetadata {
-  name: string;      // Nome original (ex: foto.jpg). É o mesmo nome salvo no OPFS dentro da pasta.
-  size: number;      // Tamanho em bytes
-  type: string;      // MIME Type (ex: image/jpeg, video/mp4)
-  createdAt: number; 
+  name: string;
+  size: number;
+  type: string;
+  createdAt: number;
   modifiedAt: number;
 }
 
 // TODO IA: no novo worker-db, função opfs(), "id" deverá ser "_id" para pasta meta data
-
 export interface PastaMetadata {
-  id: string;                                    // ID único da pasta (gerado e espelhado pelo Manifesto JSON)
-  name: string;                                  // Nome da pasta
-  magnetURI?: string;                            // Magnet URI da coleção (opcional se a pasta for estritamente local por enquanto)
-  infoHash?: string;                             // Identificador único da rede BitTorrent (útil para resume e caching)
-  status: 'seeding' | 'downloading' | 'standby'; // Standby: o motor P2P ignora essa pasta ao ligar
-  complete: number;                              // 0 a 100 (% dos bytes baixados)
-  permission: 'public' | 'listed' | 'trusted';   // Controle de distribuição do Handshake do Magnet URI
-  contatos: string[];                            // Array de hashes de contatos com acesso explícito (usado se 'listed')
-  files: FileMetadata[];                         // Lista de arquivos contidos na pasta
+  id: string;
+  name: string;
+  magnetURI?: string;
+  infoHash?: string;
+  status: 'seeding' | 'downloading' | 'standby';
+  complete: number;
+  permission: 'public' | 'listed' | 'trusted';
+  contatos: string[];
+  files: FileMetadata[];
   createdAt: number;
   modifiedAt: number;
 }
@@ -99,25 +94,23 @@ export interface MensagemRouteData {
   enviada?: string;
   conteudo?: string;
   excluida?: string;
-  limparHistorico?: boolean; 
+  limparHistorico?: boolean;
   campos?: string[];
   data?: Record<string, unknown>;
 }
 
-
 export interface ContatoRouteData {
   id?: string;
-  removerContato?: boolean; 
+  removerContato?: boolean;
   campos?: string[];
   data?: Record<string, unknown>;
   sync?: Record<string, unknown>;
 }
 
-
-export interface HandshakeRotas { 
-  profile?: ProfileRouteData; 
-  mensagem?: MensagemRouteData; 
-  contato?: ContatoRouteData; 
+export interface HandshakeRotas {
+  profile?: ProfileRouteData;
+  mensagem?: MensagemRouteData;
+  contato?: ContatoRouteData;
   [key: string]: unknown;
 }
 
@@ -127,26 +120,25 @@ export type StatusOut = 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregu
 export interface FluxoIn {
   status: StatusIn;
   rotas: HandshakeRotas;
-  tentativas: number; 
+  tentativas: number;
   erro?: string;
 }
 
 export interface FluxoOut {
   status: StatusOut;
   rotas: HandshakeRotas;
-  tentativas: number; 
+  tentativas: number;
   erro?: string;
 }
 
 // TODO IA: no novo worker-db, "id" deverá ser "_id" para handshake
-
-export interface Handshake { 
-  id: string; 
-  aud: string; 
-  in?: FluxoIn; 
-  out?: FluxoOut; 
-  createdAt: number; 
-  updatedAt: number; 
+export interface Handshake {
+  id: string;
+  aud: string;
+  in?: FluxoIn;
+  out?: FluxoOut;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface EnvelopeCifrado {
@@ -157,13 +149,12 @@ export interface EnvelopeCifrado {
 
 export interface FetchProxyOptions extends Omit<RequestInit, 'body' | 'headers'> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  body?: any; 
-  specificProxy?: string; 
-  headers?: any; 
+  body?: any;
+  specificProxy?: string;
+  headers?: any;
 }
 
-// TODO IA: no novo worker-db, função ls(), "id" deverá ser "_id" para debug 
-
+// TODO IA: no novo worker-db, função ls(), "id" deverá ser "_id" para debug
 export interface DebugLogPayload {
   id: string;
   timestamp: string;
@@ -176,6 +167,12 @@ export interface DebugLogPayload {
 // ============================================================================
 // 📦 TIPOS ESBUILD
 // ============================================================================
+
+// 🔥 ESTRATÉGIA DE TIPAGEM: Usamos string literals explícitos em vez de
+// `esbuild.LegalComments`, `esbuild.Platform`, etc. porque o esm.sh não
+// re-exporta esses tipos internos do esbuild como membros do namespace.
+// String literals mantêm autocomplete + type-safety e são independentes
+// de como o esm.sh expõe a tipagem.
 
 export interface ParsedVersion {
   major: number;
@@ -195,6 +192,35 @@ export interface ParsedArgs {
 /** Modo de operação do alvo */
 export type TargetMode = 'build' | 'watch';
 
+/** Plataformas suportadas pelo esbuild */
+export type EsbuildPlatform = "browser" | "node" | "neutral";
+
+/** Formatos de saída suportados pelo esbuild */
+export type EsbuildFormat = "esm" | "iife" | "cjs";
+
+/** Estratégias de source map */
+export type EsbuildSourcemap = boolean | "linked" | "inline" | "external";
+
+/** Modos JSX */
+export type EsbuildJsx = "automatic" | "transform" | "preserve";
+
+/** O que fazer com comentários legais */
+export type EsbuildLegalComments = "none" | "inline" | "eof" | "linked" | "external";
+
+/** O que remover do bundle (console, debugger) */
+export type EsbuildDrop = "console" | "debugger";
+
+/** Charset de saída */
+export type EsbuildCharset = "ascii" | "utf8";
+
+/** Níveis de log do esbuild */
+export type EsbuildLogLevel = "verbose" | "debug" | "info" | "warning" | "error" | "silent";
+
+/** Loaders disponíveis para diferentes tipos de arquivo */
+export type EsbuildLoader =
+  | "js" | "jsx" | "ts" | "tsx" | "css" | "json" | "text"
+  | "base64" | "dataurl" | "file" | "binary" | "empty" | "copy";
+
 export interface TargetConfig {
   // --- Configurações de Pipeline (Pré/Post Build) ---
   publicdir?: string;
@@ -212,12 +238,6 @@ export interface TargetConfig {
    *
    * ⚠️ Esta propriedade é IGNORADA para alvos com `mode: 'watch'`.
    * Alvos watch nunca são incluídos na lista de targets padrão.
-   *
-   * @example
-   * ```typescript
-   * ui: { default: true, ... }       // Roda por padrão
-   * admin: { default: false, ... }   // Só roda com: deno task build admin
-   * ```
    */
   default?: boolean;
 
@@ -230,47 +250,39 @@ export interface TargetConfig {
    *
    * ⚠️ Se múltiplos alvos tiverem `mode: 'watch'`, apenas o PRIMEIRO
    * (na ordem do CONFIG) é executado quando a flag `watch` é usada.
-   * Para usar um watch específico, solicite-o pelo nome.
-   *
-   * @example
-   * ```typescript
-   * ui: { mode: 'build', ... }       // Build normal (padrão)
-   * 'watch-ui': { mode: 'watch', ... }    // Watch principal
-   * 'watch-admin': { mode: 'watch', ... } // Watch secundário
-   * ```
    */
   mode?: TargetMode;
 
   // --- Configurações do Esbuild (TODAS configuráveis) ---
   entryPoints: string[];
-  platform?: "browser" | "node" | "neutral";
-  format?: "esm" | "iife" | "cjs";
+  platform?: EsbuildPlatform;
+  format?: EsbuildFormat;
   bundle?: boolean;
   minify?: boolean;
-  sourcemap?: boolean | "linked" | "inline" | "external";
-  jsx?: "automatic" | "transform" | "preserve";
+  sourcemap?: EsbuildSourcemap;
+  jsx?: EsbuildJsx;
   jsxImportSource?: string;
   conditions?: string[];
   define?: Record<string, string>;
-  drop?: string[];
+  drop?: EsbuildDrop[];
   external?: string[];
   metafile?: boolean;
   write?: boolean;
   treeShaking?: boolean;
-  legalComments?: "none" | "inline" | "eof" | "linked" | "external";
+  legalComments?: EsbuildLegalComments;
   keepNames?: boolean;
   outfile?: string;
   splitting?: boolean;
-  loader?: Record<string, string>;
+  loader?: Record<string, EsbuildLoader>;
   alias?: Record<string, string>;
   inject?: string[];
   banner?: { js?: string; css?: string };
   footer?: { js?: string; css?: string };
   target?: string | string[];
-  charset?: "ascii" | "utf8";
-  logLevel?: "verbose" | "debug" | "info" | "warning" | "error" | "silent";
+  charset?: EsbuildCharset;
+  logLevel?: EsbuildLogLevel;
   logLimit?: number;
-  logOverride?: Record<string, string>;
+  logOverride?: Record<string, EsbuildLogLevel>;
   entryNames?: string;
   chunkNames?: string;
   assetNames?: string;
@@ -280,4 +292,31 @@ export interface TargetConfig {
 
 export interface GlobalTargetConfig {
   [targetName: string]: TargetConfig;
+}
+
+// ============================================================================
+// 📦 TIPOS E INTERFACES EXPORT
+// ============================================================================
+
+/**
+ * Configuração de um modo de exportação.
+ * Genérica o suficiente para ser usada em qualquer projeto.
+ */
+export interface ExportConfig {
+  /** Caminho do arquivo de saída (relativo à raiz do projeto) */
+  arquivoSaida: string;
+  /** Extensões de arquivo que devem ser incluídas */
+  extensoesPermitidas: string[];
+  /** Pasta base onde a varredura começa */
+  pastaBase: string;
+  /** Subpastas dentro de pastaBase que devem ser varridas */
+  subpastasPermitidas: string[];
+  /** Caminhos adicionais fora de pastaBase que devem ser incluídos */
+  caminhosAdicionaisPermitidos?: string[];
+  /** Arquivos específicos na raiz de pastaBase que devem ser incluídos */
+  arquivosRaizPermitidos: string[];
+  /** Se deve incluir a versão do app no cabeçalho */
+  incluiVersao: boolean;
+  /** Texto de instrução para a IA no cabeçalho */
+  instrucaoCustomizada: string;
 }

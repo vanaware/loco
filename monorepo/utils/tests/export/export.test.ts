@@ -5,7 +5,8 @@
  */
 
 import { assertEquals } from "@std/assert";
-import { deveIncluirArquivo, CONFIGURACOES } from "../exports/export.ts";
+import { deveIncluirArquivo } from "../../src/export/mod.ts"
+import { CONFIGURACOES } from "../../../../export.ts";
 
 Deno.test("deveIncluirArquivo: Deve BLOQUEAR qualquer arquivo dentro da pasta exports/", () => {
   const config = CONFIGURACOES.server;

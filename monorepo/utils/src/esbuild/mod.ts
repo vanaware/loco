@@ -7,23 +7,43 @@ import { join, isAbsolute } from "@std/path";
 // 📦 TIPOS
 // ============================================================================
 
-import type { ParsedVersion, GlobalTargetConfig, ParsedArgs, TargetConfig } from "../interfaces/mod.ts"
+import type { ParsedVersion, GlobalTargetConfig, ParsedArgs, TargetConfig } from "../interfaces/mod.ts";
 
 // ============================================================================
 // 🔢 FUNÇÕES DE VERSÃO (puras, testáveis)
 // ============================================================================
 
 export function parseVersion(version: string): ParsedVersion {
-  const versionWithoutHash = version.split("-")[0];
+  // 🔥 CORREÇÃO: Validação mais rigorosa para formatos inválidos
+  const trimmed = version.trim();
+  if (trimmed !== version) {
+    throw new Error(`❌ Versão não pode ter espaços: ${version}`);
+  }
+
+  const versionWithoutHash = version.split("-")[0] ?? "";
+  
+  // 🔥 CORREÇÃO: Verifica se há hífen mas sem hash (ex: "1.2.3-")
+  if (version.includes("-") && version.endsWith("-")) {
+    throw new Error(`❌ Formato de versão inválido (hífen sem hash): ${version}`);
+  }
+
   const parts = versionWithoutHash.split(".");
 
   if (parts.length !== 3) {
     throw new Error(`❌ Formato de versão inválido: ${version}`);
   }
 
-  const major = parseInt(parts[0], 10);
-  const minor = parseInt(parts[1], 10);
-  const patch = parseInt(parts[2], 10);
+  const majorStr = parts[0];
+  const minorStr = parts[1];
+  const patchStr = parts[2];
+
+  if (majorStr === undefined || minorStr === undefined || patchStr === undefined) {
+    throw new Error(`❌ Formato de versão inválido: ${version}`);
+  }
+
+  const major = parseInt(majorStr, 10);
+  const minor = parseInt(minorStr, 10);
+  const patch = parseInt(patchStr, 10);
 
   if (isNaN(major) || isNaN(minor) || isNaN(patch)) {
     throw new Error(`❌ Versão contém valores não numéricos: ${version}`);
@@ -68,72 +88,45 @@ export function isSafePath(cleanPath: string): boolean {
 // 🎯 PARSING DE ARGUMENTOS CLI (pura, testável)
 // ============================================================================
 
-/**
- * Parseia os argumentos da CLI.
- *
- * Os args apenas SELECIONAM os alvos; a ordem de execução é sempre a do CONFIG.
- * Quando nenhum alvo é especificado, apenas os alvos com `default !== false`
- * E `mode !== 'watch'` são incluídos.
- *
- * Regras de negócio:
- * 1. Alvos com `mode: 'watch'` NUNCA aparecem na lista de targets padrão.
- * 2. Se a flag 'watch' for usada, apenas o PRIMEIRO alvo com `mode: 'watch'`
- *    (na ordem do CONFIG) é executado.
- * 3. É possível solicitar um alvo watch específico pelo nome.
- * 4. Quando o modo watch está ativo, os targets de build são ignorados.
- *
- * @param args - Argumentos da CLI (ex: Deno.args)
- * @param config - Objeto CONFIG completo com todos os alvos
- * @returns Alvos de build, flags globais e alvo watch (se aplicável)
- *
- * @example
- * ```typescript
- * parseArgs([], CONFIG)                    // Sem args → targets padrão
- * parseArgs(['sw', 'ui'], CONFIG)          // Alvos específicos
- * parseArgs(['watch'], CONFIG)             // Primeiro alvo watch
- * parseArgs(['watch-admin'], CONFIG)       // Alvo watch específico
- * ```
- */
 export function parseArgs(args: string[], config: GlobalTargetConfig): ParsedArgs {
   const lowerArgs = args.map(a => a.toLowerCase());
   const globalNoVersion = lowerArgs.includes('noversion');
   const isWatchFlag = lowerArgs.includes('watch');
-
   const configKeys = Object.keys(config);
 
-  // Alvos de build padrão:
-  // - NÃO são modo watch (watch nunca é default)
-  // - default !== false
   const defaultTargets = configKeys.filter(t => {
-    const cfg = config[t];
+    const cfg = config[t]!;
     return cfg.mode !== 'watch' && cfg.default !== false;
   });
 
-  // Alvos solicitados via CLI (excluindo flags 'noversion' e 'watch')
   const requestedTargets = lowerArgs.filter(
     arg => !['noversion', 'watch'].includes(arg) && configKeys.includes(arg)
   );
 
-  // Determina o alvo watch:
   let watchTarget: string | null = null;
 
   if (isWatchFlag) {
-    // Flag 'watch' → usa o PRIMEIRO alvo com mode: 'watch' (ordem do CONFIG)
-    watchTarget = configKeys.find(t => config[t].mode === 'watch') ?? null;
-  } else {
+    // 🔥 CORREÇÃO: Usa a ordem do CONFIG, não a ordem da CLI
+    // Encontra o PRIMEIRO alvo com mode: 'watch' na ordem do CONFIG
+    watchTarget = configKeys.find(t => config[t]!.mode === 'watch') ?? null;
+  } else if (requestedTargets.length > 0) {
     // Verifica se algum alvo solicitado tem mode: 'watch'
-    watchTarget = requestedTargets.find(t => config[t].mode === 'watch') ?? null;
+    // 🔥 CORREÇÃO: Usa a ordem do CONFIG para determinar qual watch executar
+    // Primeiro encontra todos os watches solicitados
+    const requestedWatches = requestedTargets.filter(t => config[t]!.mode === 'watch');
+    if (requestedWatches.length > 0) {
+      // Retorna o PRIMEIRO watch na ordem do CONFIG
+      watchTarget = configKeys.find(t => requestedWatches.includes(t)) ?? null;
+    }
   }
 
-  // Se modo watch está ativo, os targets de build são ignorados
   let finalTargets: string[];
+
   if (watchTarget !== null) {
     finalTargets = [];
   } else if (requestedTargets.length > 0) {
-    // Alvos solicitados, na ordem do CONFIG (pipeline seguro)
     finalTargets = configKeys.filter(t => requestedTargets.includes(t));
   } else {
-    // Nenhum alvo solicitado → usa defaults (que já excluem watch)
     finalTargets = defaultTargets;
   }
 
@@ -278,7 +271,7 @@ export async function buildEsbuildOptions(
 ): Promise<any> {
   const finalDefine: Record<string, string> = {
     ...config.define,
-    "__APP_VERSION__": JSON.stringify(`v${appVersion}`),
+    __APP_VERSION__: JSON.stringify(`v${appVersion}`),
   };
 
   if (targetName === "sw" && listAssetsFn) {
