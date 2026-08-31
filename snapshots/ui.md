@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: UI
 
-Gerado automaticamente em: 8/30/2026, 9:31:36 AM
+Gerado automaticamente em: 8/30/2026, 10:08:58 PM
 
 ---
 
@@ -5392,149 +5392,6 @@ Deno.test("INTEGRAÇÃO (Expurgo Remoto 2): Excluir Contato cria Handshake Únic
 
 ---
 
-## Arquivo: `monorepo/ui/tests/utils/db-helpers.test.ts.ts`
-
-```ts
-// Arquivo: monorepo/ui/tests/utils/db-helpers.test.ts
-/// <reference lib="deno.ns" />
-import "fake-indexeddb/auto";
-import { assertEquals, assertExists } from "@std/assert";
-import { salvarProfile, buscarProfile, removerProfile, salvarChat, listarChatPaginado, removerTodoHistoricoChat } from "@loco/utils/db";
-import type { ProfileConfig, Chat } from "@loco/utils/interfaces";
-
-Deno.test("DB Helpers - Profile: Deve salvar, buscar e remover o perfil corretamente", async () => {
-  const mockProfile: ProfileConfig = {
-    name: "Arquiteto Loco", email: "arq@loco.pwa",
-    vapidPublicKey: { kty: "EC", crv: "P-256", x: "123", y: "456" } as JsonWebKey,
-    vapidPrivateKeyJwk: { kty: "EC", d: "789" } as JsonWebKey,
-    vapidPrivateKeyEnvelope: "envelope_cifrado",
-    e2ePublicKey: { kty: "RSA", n: "abc", e: "AQAB" } as JsonWebKey,
-    e2ePrivateKeyJwk: { kty: "RSA", d: "def" } as JsonWebKey,
-    subscription: { endpoint: "https://push.com/123", keys: { p256dh: "p256", auth: "auth" }, proxyserver: "https://loco.proxy" },
-    createdAt: Date.now(), updatedAt: Date.now()
-  };
-  
-  await salvarProfile(mockProfile);
-  const profileSalvo = await buscarProfile();
-  assertExists(profileSalvo);
-  assertEquals(profileSalvo.name, "Arquiteto Loco");
-  assertEquals(profileSalvo.vapidPublicKey.kty, "EC");
-  
-  await removerProfile();
-  const profileRemovido = await buscarProfile();
-  assertEquals(profileRemovido, undefined);
-});
-
-Deno.test("DB Helpers - Chat: Deve salvar mensagens e retornar paginado corretamente", async () => {
-  const contatoHash = "hash-contato-paginacao-123";
-  await removerTodoHistoricoChat(contatoHash);
-  
-  const totalMensagens = 35;
-  for (let i = 1; i <= totalMensagens; i++) {
-    const msg: Chat = { id: `msg-${i.toString().padStart(2, '0')}`, contatoHash, conteudo: `Mensagem de teste número ${i}`, tipo: 'out', createdAt: 10000 + i, handshake: `hand-${i}` };
-    await salvarChat(msg);
-  }
-  
-  const pagina1 = await listarChatPaginado(contatoHash, 30, 0);
-  assertEquals(pagina1.length, 30);
-  assertEquals(pagina1[pagina1.length - 1]!.id, "msg-35");
-  assertEquals(pagina1[0]!.id, "msg-06");
-  
-  const pagina2 = await listarChatPaginado(contatoHash, 30, 30);
-  assertEquals(pagina2.length, 5);
-  
-  const paginaVazia = await listarChatPaginado(contatoHash, 30, 35);
-  assertEquals(paginaVazia.length, 0);
-  
-  await removerTodoHistoricoChat(contatoHash);
-  const paginaPosExclusao = await listarChatPaginado(contatoHash, 30, 0);
-  assertEquals(paginaPosExclusao.length, 0);
-});
-```
-
----
-
-## Arquivo: `monorepo/ui/tests/utils/self-contact.test.ts`
-
-```ts
-// Arquivo: monorepo/ui/tests/utils/self-contact.test.ts
-/// <reference lib="deno.ns" />
-import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
-import type { ProfileConfig, Contato } from "@loco/utils/interfaces";
-import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "@loco/utils/db";
-
-async function serializarPublicKeyVapidMock(jwk: JsonWebKey): Promise<string> {
-  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
-  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
-  const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(raw));
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function assertTrue(condition: boolean, msg?: string) { assert(condition, msg); }
-
-Deno.test("SELF-CONTACT: Deve gerar contato próprio válido a partir do profile", async () => {
-  const mockProfile: ProfileConfig = {
-    name: "João Silva", email: "joao@example.com",
-    vapidPublicKey: { kty: "EC", crv: "P-256", x: "abc123", y: "def456" } as JsonWebKey,
-    vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "encrypted-key-data",
-    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
-    subscription: { endpoint: "https://push.example.com/subscription", keys: { p256dh: "p256dh-key", auth: "auth-key" } },
-    createdAt: Date.now() - 10000, updatedAt: Date.now(),
-  };
-  
-  const contatoProprio = await gerarContatoProprio(mockProfile);
-  assertExists(contatoProprio);
-  assertEquals(contatoProprio.name, "João Silva (Eu)");
-  assertEquals(contatoProprio.trusted, true);
-  assertEquals(contatoProprio.me, "trusted");
-  
-  const hashEsperado = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
-  assertEquals(contatoProprio.id, hashEsperado);
-});
-
-Deno.test("SELF-CONTACT: Deve retornar null se profile for inválido", async () => {
-  const contatoNull = await gerarContatoProprio(null as any);
-  assertEquals(contatoNull, null);
-});
-
-Deno.test("SELF-CONTACT: Deve identificar corretamente se contato é o próprio usuário", async () => {
-  const mockProfile: ProfileConfig = {
-    name: "Maria Santos", email: "maria@example.com",
-    vapidPublicKey: { kty: "EC", crv: "P-256", x: "xyz789", y: "uvw012" } as JsonWebKey,
-    vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "encrypted",
-    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
-    subscription: { endpoint: "https://push.example.com/sub", keys: { p256dh: "key1", auth: "key2" } },
-    createdAt: Date.now(), updatedAt: Date.now(),
-  };
-  
-  const meuHash = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
-  const ehEu = await ehContatoProprio(meuHash, mockProfile);
-  assertTrue(ehEu);
-  
-  const ehOutro = await ehContatoProprio("outro-hash", mockProfile);
-  assertFalse(ehOutro);
-});
-
-Deno.test("SELF-CONTACT: Deve obter hash próprio corretamente", async () => {
-  const mockProfile: ProfileConfig = {
-    name: "Pedro Oliveira", email: "pedro@example.com",
-    vapidPublicKey: { kty: "EC", crv: "P-256", x: "hash-test-x", y: "hash-test-y" } as JsonWebKey,
-    vapidPrivateKeyJwk: {} as JsonWebKey, vapidPrivateKeyEnvelope: "env",
-    e2ePublicKey: {} as JsonWebKey, e2ePrivateKeyJwk: {} as JsonWebKey,
-    subscription: { endpoint: "https://example.com", keys: { p256dh: "p", auth: "a" } },
-    createdAt: Date.now(), updatedAt: Date.now(),
-  };
-  
-  const hashObtido = await obterHashProprio(mockProfile);
-  const hashEsperado = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
-  assertEquals(hashObtido, hashEsperado);
-});
-```
-
----
-
 ## Arquivo: `monorepo/ui/tests/utils/share-utils.test.ts`
 
 ```ts
@@ -5692,6 +5549,271 @@ Deno.test("Share Utils - Reciprocidade na troca de contatos via cJWT", async () 
 
   assert((bobImportouAlice.vapidPublicKey as JsonWebKey).x === userX.vapidPublicKey.x, "Bob deve ter a chave pública correta de Alice");
   assert((aliceImportouBob.vapidPublicKey as JsonWebKey).x === userY.vapidPublicKey.x, "Alice deve ter a chave pública correta de Bob");
+});
+```
+
+---
+
+## Arquivo: `monorepo/ui/tests/utils/self-contact.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists, assertFalse, assert } from "@std/assert";
+import type { ProfileConfig, Contato } from "../../../utils/src/interfaces/mod.ts";
+import { gerarContatoProprio, ehContatoProprio, obterHashProprio } from "../../../utils/src/db/self-contact-utils.ts";
+
+async function serializarPublicKeyVapidMock(jwk: JsonWebKey): Promise<string> {
+  if (!jwk) throw new Error("Chave VAPID ausente ao tentar serializar.");
+  const raw = `${jwk.kty?.toLowerCase() || ''}|${jwk.crv?.toLowerCase() || ''}|${jwk.x?.toLowerCase() || ''}|${jwk.y?.toLowerCase() || ''}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(raw));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function assertTrue(condition: boolean, msg?: string) {
+  assert(condition, msg);
+}
+
+Deno.test("SELF-CONTACT: Deve gerar contato próprio válido a partir do profile", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "João Silva",
+    email: "joao@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "abc123", y: "def456" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "encrypted-key-data",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://push.example.com/subscription", keys: { p256dh: "p256dh-key", auth: "auth-key" } },
+    createdAt: Date.now() - 10000,
+    updatedAt: Date.now(),
+  };
+  
+  const contatoProprio = await gerarContatoProprio(mockProfile);
+  assertExists(contatoProprio, "Contato próprio deve ser gerado");
+  assertEquals(contatoProprio.name, "João Silva (Eu)", "Nome deve ter sufixo '(Eu)'");
+  assertEquals(contatoProprio.email, mockProfile.email, "Email deve corresponder ao profile");
+  assertEquals(contatoProprio.trusted, true, "Contato próprio deve ser sempre confiável");
+  assertEquals(contatoProprio.me, "trusted", "Status 'me' deve ser 'trusted'");
+  assertEquals(contatoProprio.vapidPublicKey, mockProfile.vapidPublicKey, "Chave VAPID deve ser a mesma do profile");
+  assertEquals(contatoProprio.e2ePublicKey, mockProfile.e2ePublicKey, "Chave E2E deve ser a mesma do profile");
+  
+  const hashEsperado = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  assertEquals(contatoProprio.id, hashEsperado, "ID deve ser o hash da chave pública VAPID");
+});
+
+Deno.test("SELF-CONTACT: Deve retornar null se profile for inválido", async () => {
+  const contatoNull = await gerarContatoProprio(null as any);
+  assertEquals(contatoNull, null, "Deve retornar null para profile nulo");
+  
+  const contatoSemChave = await gerarContatoProprio({ name: "Test", email: "test@test.com" } as any);
+  assertEquals(contatoSemChave, null, "Deve retornar null se não houver chave VAPID");
+});
+
+Deno.test("SELF-CONTACT: Deve identificar corretamente se contato é o próprio usuário", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Maria Santos",
+    email: "maria@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "xyz789", y: "uvw012" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "encrypted",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://push.example.com/sub", keys: { p256dh: "key1", auth: "key2" } },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  
+  const meuHash = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  const outroHash = "hash-de-outro-contato-diferente";
+  
+  const ehEu = await ehContatoProprio(meuHash, mockProfile);
+  assertTrue(ehEu, "Deve identificar como próprio usuário");
+  
+  const ehOutro = await ehContatoProprio(outroHash, mockProfile);
+  assertFalse(ehOutro, "Não deve identificar como próprio usuário");
+  
+  const semProfile = await ehContatoProprio(meuHash, null);
+  assertFalse(semProfile, "Deve retornar false se profile for null");
+});
+
+Deno.test("SELF-CONTACT: Deve obter hash próprio corretamente", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Pedro Oliveira",
+    email: "pedro@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "hash-test-x", y: "hash-test-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com", keys: { p256dh: "p", auth: "a" } },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  
+  const hashObtido = await obterHashProprio(mockProfile);
+  const hashEsperado = await serializarPublicKeyVapidMock(mockProfile.vapidPublicKey);
+  
+  assertExists(hashObtido, "Hash deve ser obtido");
+  assertEquals(hashObtido, hashEsperado, "Hash obtido deve corresponder ao hash da chave VAPID");
+  
+  const hashNull = await obterHashProprio(null);
+  assertEquals(hashNull, null, "Deve retornar null se profile for null");
+});
+
+Deno.test("SELF-CONTACT: Contato próprio deve ter todas as propriedades necessárias", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Ana Costa",
+    email: "ana@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "x-value", y: "y-value" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", crv: "P-256", d: "private" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "encrypted-envelope",
+    e2ePublicKey: { kty: "RSA", e: "AQAB", n: "public" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "private" } as JsonWebKey,
+    subscription: { endpoint: "https://push.server.com/endpoint/12345", keys: { p256dh: "base64url-p256dh-key", auth: "base64url-auth-secret" } },
+    createdAt: 1234567890,
+    updatedAt: 1234567890,
+  };
+  
+  const contato = await gerarContatoProprio(mockProfile);
+  assertExists(contato);
+  
+  assertExists(contato.id, "ID deve existir");
+  assertExists(contato.email, "Email deve existir");
+  assertExists(contato.name, "Nome deve existir");
+  assertExists(contato.vapidPublicKey, "vapidPublicKey deve existir");
+  assertExists(contato.e2ePublicKey, "e2ePublicKey deve existir");
+  assertExists(contato.subscription, "subscription deve existir");
+  assertExists(contato.subscription.endpoint, "subscription.endpoint deve existir");
+  assertExists(contato.subscription.keys.p256dh, "subscription.keys.p256dh deve existir");
+  assertExists(contato.subscription.keys.auth, "subscription.keys.auth deve existir");
+  assertExists(contato.vapidPrivateKeyEnvelope, "vapidPrivateKeyEnvelope deve existir");
+  
+  assertEquals(typeof contato.trusted, "boolean", "trusted deve ser boolean");
+  assertExists(contato.me, "me status deve existir");
+  assertExists(contato.createdAt, "createdAt deve existir");
+  assertExists(contato.updatedAt, "updatedAt deve existir");
+});
+
+Deno.test("SELF-CONTACT: Múltiplas chamadas devem gerar contatos consistentes", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Carlos Mendes",
+    email: "carlos@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "consistent-x", y: "consistent-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com", keys: { p256dh: "p", auth: "a" } },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  
+  const contato1 = await gerarContatoProprio(mockProfile);
+  const contato2 = await gerarContatoProprio(mockProfile);
+  const contato3 = await gerarContatoProprio(mockProfile);
+  
+  assertExists(contato1);
+  assertExists(contato2);
+  assertExists(contato3);
+  
+  assertEquals(contato1.id, contato2.id, "IDs devem ser iguais");
+  assertEquals(contato2.id, contato3.id, "IDs devem ser iguais");
+  assertEquals(contato1.email, contato2.email, "Emails devem ser iguais");
+  assertEquals(contato1.name, contato3.name, "Nomes devem ser iguais");
+});
+
+Deno.test("SELF-CONTACT: Atualização de profile deve refletir no contato próprio", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Beatriz Lima",
+    email: "beatriz@example.com",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "update-x", y: "update-y" } as JsonWebKey,
+    vapidPrivateKeyJwk: {} as JsonWebKey,
+    vapidPrivateKeyEnvelope: "env",
+    e2ePublicKey: {} as JsonWebKey,
+    e2ePrivateKeyJwk: {} as JsonWebKey,
+    subscription: { endpoint: "https://example.com", keys: { p256dh: "p", auth: "a" } },
+    createdAt: 1000,
+    updatedAt: 1000,
+  };
+  
+  const contatoAntigo = await gerarContatoProprio(mockProfile);
+  assertExists(contatoAntigo);
+  assertEquals(contatoAntigo.name, "Beatriz Lima (Eu)");
+  assertEquals(contatoAntigo.email, "beatriz@example.com");
+  
+  mockProfile.name = "Bia Lima";
+  mockProfile.email = "bia@example.com";
+  mockProfile.updatedAt = Date.now();
+  
+  const contatoNovo = await gerarContatoProprio(mockProfile);
+  assertExists(contatoNovo);
+  assertEquals(contatoNovo.name, "Bia Lima (Eu)", "Nome deve ser atualizado");
+  assertEquals(contatoNovo.email, "bia@example.com", "Email deve ser atualizado");
+  assertEquals(contatoAntigo.id, contatoNovo.id, "ID deve permanecer o mesmo");
+});
+```
+
+---
+
+## Arquivo: `monorepo/ui/tests/utils/db-helpers.test.ts`
+
+```ts
+// Arquivo: monorepo/ui/tests/utils/db-helpers.test.ts
+/// <reference lib="deno.ns" />
+import "fake-indexeddb/auto";
+import { assertEquals, assertExists } from "@std/assert";
+import { salvarProfile, buscarProfile, removerProfile, salvarChat, listarChatPaginado, removerTodoHistoricoChat } from "@loco/utils/db";
+import type { ProfileConfig, Chat } from "@loco/utils/interfaces";
+
+Deno.test("DB Helpers - Profile: Deve salvar, buscar e remover o perfil corretamente", async () => {
+  const mockProfile: ProfileConfig = {
+    name: "Arquiteto Loco", email: "arq@loco.pwa",
+    vapidPublicKey: { kty: "EC", crv: "P-256", x: "123", y: "456" } as JsonWebKey,
+    vapidPrivateKeyJwk: { kty: "EC", d: "789" } as JsonWebKey,
+    vapidPrivateKeyEnvelope: "envelope_cifrado",
+    e2ePublicKey: { kty: "RSA", n: "abc", e: "AQAB" } as JsonWebKey,
+    e2ePrivateKeyJwk: { kty: "RSA", d: "def" } as JsonWebKey,
+    subscription: { endpoint: "https://push.com/123", keys: { p256dh: "p256", auth: "auth" }, proxyserver: "https://loco.proxy" },
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  
+  await salvarProfile(mockProfile);
+  const profileSalvo = await buscarProfile();
+  assertExists(profileSalvo);
+  assertEquals(profileSalvo.name, "Arquiteto Loco");
+  assertEquals(profileSalvo.vapidPublicKey.kty, "EC");
+  
+  await removerProfile();
+  const profileRemovido = await buscarProfile();
+  assertEquals(profileRemovido, undefined);
+});
+
+Deno.test("DB Helpers - Chat: Deve salvar mensagens e retornar paginado corretamente", async () => {
+  const contatoHash = "hash-contato-paginacao-123";
+  await removerTodoHistoricoChat(contatoHash);
+  
+  const totalMensagens = 35;
+  for (let i = 1; i <= totalMensagens; i++) {
+    const msg: Chat = { id: `msg-${i.toString().padStart(2, '0')}`, contatoHash, conteudo: `Mensagem de teste número ${i}`, tipo: 'out', createdAt: 10000 + i, handshake: `hand-${i}` };
+    await salvarChat(msg);
+  }
+  
+  const pagina1 = await listarChatPaginado(contatoHash, 30, 0);
+  assertEquals(pagina1.length, 30);
+  assertEquals(pagina1[pagina1.length - 1]!.id, "msg-35");
+  assertEquals(pagina1[0]!.id, "msg-06");
+  
+  const pagina2 = await listarChatPaginado(contatoHash, 30, 30);
+  assertEquals(pagina2.length, 5);
+  
+  const paginaVazia = await listarChatPaginado(contatoHash, 30, 35);
+  assertEquals(paginaVazia.length, 0);
+  
+  await removerTodoHistoricoChat(contatoHash);
+  const paginaPosExclusao = await listarChatPaginado(contatoHash, 30, 0);
+  assertEquals(paginaPosExclusao.length, 0);
 });
 ```
 

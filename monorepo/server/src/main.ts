@@ -5,9 +5,8 @@ import workerHandler from "./worker.ts";
 
 const env = Deno.env.toObject()
 Deno.serve({ port: Number(env?.PORT || 8000) }, async (req) => {    
-    const url = new URL(req.url);
     const ctx = {
-        waitUntil: (p: Promise<any>) => { p.catch(console.error); },
+        waitUntil: (p: Promise<unknown>) => { p.catch(console.error); },
         passThroughOnException: () => {}
     };
 

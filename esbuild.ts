@@ -81,7 +81,10 @@
      conditions: ["worker"],
      metafile: true,
      write: true,
-     legalComments: "none"
+     legalComments: "none",
+     banner: {
+       js: `/* Loco v__APP_VERSION__ */\n`,
+     },
    },
    sw: {
      mode: 'build',
@@ -100,6 +103,38 @@
      metafile: true,
      write: true,
      legalComments: "none",
+     banner: {
+       js: `/* Loco v__APP_VERSION__ */\n`,
+     },
+   },
+   server: {
+    mode: 'build',
+     default: true,
+     srcdir: "monorepo/server/src",
+     distdir: "monorepo/server/build",
+     clean: ["worker.js", "worker.js.map", "functions"],
+     entryPoints: [
+        "monorepo/server/src/worker.ts", 
+        "monorepo/server/src/functions/ping.ts",
+        "monorepo/server/src/functions/publickey.ts",
+        "monorepo/server/src/functions/push.ts",
+      ],
+     platform: "browser",
+     format: "esm",
+     bundle: true,
+     minify: false,
+     sourcemap: "linked",
+     drop: ["debugger"],
+     conditions: ["worker"],
+     metafile: true,
+     write: true,
+     legalComments: "none",
+     indexHtml: false,
+     keepNames: true,
+     splitting: false,
+     banner: {
+       js: `/* Loco v__APP_VERSION__ */\n`,
+     },
    },
    // ------------------------------------------------------------------
    // 👀 ALVOS WATCH (modo de desenvolvimento contínuo)
@@ -123,6 +158,9 @@
      write: true,
      legalComments: "none",
      outfile: "monorepo/server/build/dist/app.js",
+     banner: {
+       js: `/* Loco v__APP_VERSION__ */\n`,
+     },
    },
    playground: {
      mode: 'watch',

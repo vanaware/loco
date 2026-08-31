@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: UTILS
 
-Gerado automaticamente em: 8/30/2026, 8:59:27 PM
+Gerado automaticamente em: 8/30/2026, 10:08:58 PM
 
 ---
 
@@ -3026,149 +3026,8 @@ export async function pingProxy(proxyUrlToCheck: string): Promise<boolean> {
 ## Arquivo: `monorepo/utils/src/interfaces/mod.ts`
 
 ````ts
-// TODO IA: no novo worker-db, "_id" fixo em "profile" para ProfileConfig
- export interface ProfileConfig {
-   name: string;
-   email: string;
-   vapidPublicKey: JsonWebKey;
-   vapidPrivateKeyJwk: JsonWebKey;
-   vapidPrivateKeyEnvelope: string;
-   e2ePublicKey: JsonWebKey;
-   e2ePrivateKeyJwk: JsonWebKey;
-   subscription: {
-     endpoint: string;
-     keys: {
-       p256dh: string;
-       auth: string;
-     };
-     proxyserver?: string;
-   };
-   createdAt: number;
-   updatedAt: number;
- }
- 
- // TODO IA: no novo worker-db, "id" deverá ser "_id" para chat
- export interface Chat {
-   id: string;
-   contatoHash: string;
-   conteudo: string;
-   tipo: 'in' | 'out';
-   readAt?: number;
-   notifiedAt?: number;
-   receivedAt?: number;
-   sentAt?: number;
-   createdAt: number;
-   updatedAt?: number;
-   errorAt?: number;
-   handshake: string;
-   // 🔥 ARQUITETURA: Ponteiro opcional para a Pasta/Coleção no OPFS
-   metadataId?: string;
- }
- 
- export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved' | 'deleted';
- 
- // TODO IA: no novo worker-db, "id" deverá ser "_id" para contato
- export interface Contato {
-   id: string;
-   email: string;
-   name: string;
-   vapidPublicKey: JsonWebKey;
-   e2ePublicKey: JsonWebKey;
-   subscription: {
-     endpoint: string;
-     keys: { p256dh: string; auth: string };
-     proxyserver?: string;
-   };
-   vapidPrivateKeyEnvelope: string;
-   trusted: boolean;
-   me: MeStatus;
-   createdAt: number;
-   updatedAt: number;
- }
- 
- // TODO IA: no novo worker-db, função opfs(), usar interface OpfsFileInfo que já tem em db.ts
- // 🔥 ARQUITETURA: Nova Estrutura Baseada em Pastas/Manifestos P2P
- export interface FileMetadata {
-   name: string;
-   size: number;
-   type: string;
-   createdAt: number;
-   modifiedAt: number;
- }
- 
- // TODO IA: no novo worker-db, função opfs(), "id" deverá ser "_id" para pasta meta data
- export interface PastaMetadata {
-   id: string;
-   name: string;
-   magnetURI?: string;
-   infoHash?: string;
-   status: 'seeding' | 'downloading' | 'standby';
-   complete: number;
-   permission: 'public' | 'listed' | 'trusted';
-   contatos: string[];
-   files: FileMetadata[];
-   createdAt: number;
-   modifiedAt: number;
- }
- 
- export interface ProfileRouteData {
-   campos?: string[];
-   data?: Record<string, unknown>;
-   id?: string;
- }
- 
- export interface MensagemRouteData {
-   recebida?: string;
-   enviada?: string;
-   conteudo?: string;
-   excluida?: string;
-   limparHistorico?: boolean;
-   campos?: string[];
-   data?: Record<string, unknown>;
- }
- 
- export interface ContatoRouteData {
-   id?: string;
-   removerContato?: boolean;
-   campos?: string[];
-   data?: Record<string, unknown>;
-   sync?: Record<string, unknown>;
- }
- 
- export interface HandshakeRotas {
-   profile?: ProfileRouteData;
-   mensagem?: MensagemRouteData;
-   contato?: ContatoRouteData;
-   [key: string]: unknown;
- }
- 
- export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
- export type StatusOut = 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
- 
- export interface FluxoIn {
-   status: StatusIn;
-   rotas: HandshakeRotas;
-   tentativas: number;
-   erro?: string;
- }
- 
- export interface FluxoOut {
-   status: StatusOut;
-   rotas: HandshakeRotas;
-   tentativas: number;
-   erro?: string;
- }
- 
- // TODO IA: no novo worker-db, "id" deverá ser "_id" para handshake
- export interface Handshake {
-   id: string;
-   aud: string;
-   in?: FluxoIn;
-   out?: FluxoOut;
-   createdAt: number;
-   updatedAt: number;
- }
- 
+export type * from "./db.ts";
+
  export interface EnvelopeCifrado {
    i: string;
    d: string;
@@ -3516,6 +3375,156 @@ export interface DenoBundleGlobalConfig {
   [targetName: string]: DenoBundleTargetConfig;
 }
 ````
+
+---
+
+## Arquivo: `monorepo/utils/src/interfaces/db.ts`
+
+```ts
+// TODO IA: no novo worker-db, "_id" fixo em "profile" para ProfileConfig
+ export interface ProfileConfig {
+   name: string;
+   email: string;
+   vapidPublicKey: JsonWebKey;
+   vapidPrivateKeyJwk: JsonWebKey;
+   vapidPrivateKeyEnvelope: string;
+   e2ePublicKey: JsonWebKey;
+   e2ePrivateKeyJwk: JsonWebKey;
+   subscription: {
+     endpoint: string;
+     keys: {
+       p256dh: string;
+       auth: string;
+     };
+     proxyserver?: string;
+   };
+   createdAt: number;
+   updatedAt: number;
+ }
+ 
+ // TODO IA: no novo worker-db, "id" deverá ser "_id" para chat
+ export interface Chat {
+   id: string;
+   contatoHash: string;
+   conteudo: string;
+   tipo: 'in' | 'out';
+   readAt?: number;
+   notifiedAt?: number;
+   receivedAt?: number;
+   sentAt?: number;
+   createdAt: number;
+   updatedAt?: number;
+   errorAt?: number;
+   handshake: string;
+   // 🔥 ARQUITETURA: Ponteiro opcional para a Pasta/Coleção no OPFS
+   metadataId?: string;
+ }
+ 
+ export type MeStatus = 'trusted' | 'none' | 'wrong' | 'saved' | 'deleted';
+ 
+ // TODO IA: no novo worker-db, "id" deverá ser "_id" para contato
+ export interface Contato {
+   id: string;
+   email: string;
+   name: string;
+   vapidPublicKey: JsonWebKey;
+   e2ePublicKey: JsonWebKey;
+   subscription: {
+     endpoint: string;
+     keys: { p256dh: string; auth: string };
+     proxyserver?: string;
+   };
+   vapidPrivateKeyEnvelope: string;
+   trusted: boolean;
+   me: MeStatus;
+   createdAt: number;
+   updatedAt: number;
+ }
+ 
+ // TODO IA: no novo worker-db, função opfs(), usar interface OpfsFileInfo que já tem em db.ts
+ // 🔥 ARQUITETURA: Nova Estrutura Baseada em Pastas/Manifestos P2P
+ export interface FileMetadata {
+   name: string;
+   size: number;
+   type: string;
+   createdAt: number;
+   modifiedAt: number;
+ }
+ 
+ // TODO IA: no novo worker-db, função opfs(), "id" deverá ser "_id" para pasta meta data
+ export interface PastaMetadata {
+   id: string;
+   name: string;
+   magnetURI?: string;
+   infoHash?: string;
+   status: 'seeding' | 'downloading' | 'standby';
+   complete: number;
+   permission: 'public' | 'listed' | 'trusted';
+   contatos: string[];
+   files: FileMetadata[];
+   createdAt: number;
+   modifiedAt: number;
+ }
+ 
+ export interface ProfileRouteData {
+   campos?: string[];
+   data?: Record<string, unknown>;
+   id?: string;
+ }
+ 
+ export interface MensagemRouteData {
+   recebida?: string;
+   enviada?: string;
+   conteudo?: string;
+   excluida?: string;
+   limparHistorico?: boolean;
+   campos?: string[];
+   data?: Record<string, unknown>;
+ }
+ 
+ export interface ContatoRouteData {
+   id?: string;
+   removerContato?: boolean;
+   campos?: string[];
+   data?: Record<string, unknown>;
+   sync?: Record<string, unknown>;
+ }
+ 
+ export interface HandshakeRotas {
+   profile?: ProfileRouteData;
+   mensagem?: MensagemRouteData;
+   contato?: ContatoRouteData;
+   [key: string]: unknown;
+ }
+ 
+ export type StatusIn = 'recebido' | 'processando' | 'processado' | 'falha';
+ export type StatusOut = 'pendente' | 'enviando' | 'enviado' | 'falha' | 'entregue';
+ 
+ export interface FluxoIn {
+   status: StatusIn;
+   rotas: HandshakeRotas;
+   tentativas: number;
+   erro?: string;
+ }
+ 
+ export interface FluxoOut {
+   status: StatusOut;
+   rotas: HandshakeRotas;
+   tentativas: number;
+   erro?: string;
+ }
+ 
+ // TODO IA: no novo worker-db, "id" deverá ser "_id" para handshake
+ export interface Handshake {
+   id: string;
+   aud: string;
+   in?: FluxoIn;
+   out?: FluxoOut;
+   createdAt: number;
+   updatedAt: number;
+ }
+ 
+```
 
 ---
 
@@ -6077,7 +6086,10 @@ if (import.meta.main) {
      conditions: ["worker"],
      metafile: true,
      write: true,
-     legalComments: "none"
+     legalComments: "none",
+     banner: {
+       js: `/* Loco v__APP_VERSION__ */\n`,
+     },
    },
    sw: {
      mode: 'build',
@@ -6096,6 +6108,38 @@ if (import.meta.main) {
      metafile: true,
      write: true,
      legalComments: "none",
+     banner: {
+       js: `/* Loco v__APP_VERSION__ */\n`,
+     },
+   },
+   server: {
+    mode: 'build',
+     default: true,
+     srcdir: "monorepo/server/src",
+     distdir: "monorepo/server/build",
+     clean: ["worker.js", "worker.js.map", "functions"],
+     entryPoints: [
+        "monorepo/server/src/worker.ts", 
+        "monorepo/server/src/functions/ping.ts",
+        "monorepo/server/src/functions/publickey.ts",
+        "monorepo/server/src/functions/push.ts",
+      ],
+     platform: "browser",
+     format: "esm",
+     bundle: true,
+     minify: false,
+     sourcemap: "linked",
+     drop: ["debugger"],
+     conditions: ["worker"],
+     metafile: true,
+     write: true,
+     legalComments: "none",
+     indexHtml: false,
+     keepNames: true,
+     splitting: false,
+     banner: {
+       js: `/* Loco v__APP_VERSION__ */\n`,
+     },
    },
    // ------------------------------------------------------------------
    // 👀 ALVOS WATCH (modo de desenvolvimento contínuo)
@@ -6119,6 +6163,9 @@ if (import.meta.main) {
      write: true,
      legalComments: "none",
      outfile: "monorepo/server/build/dist/app.js",
+     banner: {
+       js: `/* Loco v__APP_VERSION__ */\n`,
+     },
    },
    playground: {
      mode: 'watch',
@@ -6317,6 +6364,28 @@ const CONFIG: DenoBundleGlobalConfig = {
     format: "iife",
     minify: false,
   },
+  server: {
+    mode: 'build',
+     default: true,
+     srcdir: "monorepo/server/src",
+     distdir: "monorepo/server/build",
+     clean: ["worker.js", "worker.js.map", "functions"],
+     entryPoints: [
+        "monorepo/server/src/worker.ts", 
+        "monorepo/server/src/functions/ping.ts",
+        "monorepo/server/src/functions/publickey.ts",
+        "monorepo/server/src/functions/push.ts",
+      ],
+     platform: "browser",
+     format: "esm",
+     minify: false,
+     sourcemap: "linked",
+     indexHtml: false,
+     keepNames: true,
+     codeSplitting: false,
+     packages: "bundle",
+     inlineImports: true,
+   },
   playground: {
     mode: "build",
     default: false,
