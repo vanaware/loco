@@ -38,7 +38,8 @@ export type ModoExportacao =
   | "workerdb"
   | "utils"
   | "router"
-  | "sw";
+  | "sw"
+  | "webtorrent";
 
 // ============================================================================
 // 📋 CONFIGURAÇÕES ESPECÍFICAS DO LOCO
@@ -91,6 +92,16 @@ export const CONFIGURACOES: Record<ModoExportacao, ExportConfig> = {
     arquivosRaizPermitidos: ["build.ts", "deno.json", "deno.jsonc", "readme.md", "server.ts"],
     incluiVersao: false,
     instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de PLAYGROUND.",
+    default: false, // ❌ Só roda quando solicitado explicitamente
+  },
+  webtorrent: {
+    arquivoSaida: "snapshots/webtorrent.md",
+    extensoesPermitidas: EXTENSOES_PADRAO,
+    pastaBase: "monorepo/webtorrent",
+    subpastasPermitidas: ["src", "public", "tests", "docs"],
+    arquivosRaizPermitidos: ["deno.json", "deno.jsonc", "readme.md", "server.ts"],
+    incluiVersao: false,
+    instrucaoCustomizada: "O texto abaixo contém experimentos e código da área de WEBTORRENT.",
     default: false, // ❌ Só roda quando solicitado explicitamente
   },
   workerdb: {

@@ -6,7 +6,10 @@ import { handlePing } from "./functions/ping.ts";
 import { handlePublicKey } from "./functions/publickey.ts";
 import { handlePush } from "./functions/push.ts";
 
-const workerHandler = {
+import type { ExportedHandler } from "@cloudflare/workers-types";
+
+const workerHandler : ExportedHandler  = {
+  // deno-lint-ignore no-explicit-any
   async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     try {
       const url = new URL(request.url);

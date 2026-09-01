@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: SERVER
 
-Gerado automaticamente em: 8/31/2026, 10:12:25 PM
+Gerado automaticamente em: 8/31/2026, 10:31:55 PM
 
 ---
 
@@ -599,7 +599,10 @@ import { handlePing } from "./functions/ping.ts";
 import { handlePublicKey } from "./functions/publickey.ts";
 import { handlePush } from "./functions/push.ts";
 
-const workerHandler = {
+import type { ExportedHandler } from "@cloudflare/workers-types";
+
+const workerHandler : ExportedHandler  = {
+  // deno-lint-ignore no-explicit-any
   async fetch(request: Request, env: any, _ctx: any): Promise<Response> {
     try {
       const url = new URL(request.url);

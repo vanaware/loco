@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loco — Teste WebTorrent Presença</title>
+
+  <!-- WebTorrent via CDN (mais confiável que esm.sh para esta lib) -->
+  <script src="https://cdn.jsdelivr.net/npm/webtorrent@2.5.1/webtorrent.min.js"></script>
+
+  <!-- Import map para Preact + Signals + htm via esm.sh -->
+  <script type="importmap">
+  {
+    "imports": {
+      "preact": "https://esm.sh/preact@10.25.4",
+      "preact/hooks": "https://esm.sh/preact@10.25.4/hooks",
+      "@preact/signals": "https://esm.sh/@preact/signals@2.0.1",
+      "@preact/signals-core": "https://esm.sh/@preact/signals-core@1.8.0",
+      "htm": "https://esm.sh/htm@3.1.1"
+    }
+  }
+  </script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      padding: 12px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1 { color: #e94560; font-size: 1.4rem; margin-bottom: 12px; }
+    h2 {
+      background: #e94560; color: white;
+      padding: 6px 12px; border-radius: 8px;
+      font-size: 0.9rem; margin: 14px 0 8px;
+    }
+    .card {
+      background: #1a1a2e; border-radius: 12px;
+      padding: 12px; margin-bottom: 10px;
+    }
+    .mono {
+      font-family: 'Courier New', monospace; font-size: 11px;
+      word-break: break-all; background: #0a0a1a;
+      padding: 6px 8px; border-radius: 6px; margin: 4px 0;
+      color: #7fdbca;
+    }
+    button {
+      background: #e94560; color: white; border: none;
+      padding: 8px 14px; border-radius: 8px; cursor: pointer;
+      font-size: 13px; margin: 3px 2px; transition: background 0.2s;
+    }
+    button:hover { background: #c73652; }
+    button:disabled { background: #444; cursor: not-allowed; }
+    button.sec { background: #16213e; border: 1px solid #e94560; }
+    button.sec:hover { background: #1a3a6e; }
+    button.ok { background: #2ecc71; }
+    button.ok:hover { background: #27ae60; }
+    input[type="text"] {
+      background: #0a0a1a; color: #7fdbca; border: 1px solid #333;
+      padding: 8px 10px; border-radius: 8px; width: 100%;
+      font-family: monospace; font-size: 12px; margin: 4px 0;
+    }
+    input[type="text"]:focus { border-color: #e94560; outline: none; }
+    .dot {
+      display: inline-block; width: 10px; height: 10px;
+      border-radius: 50%; margin-right: 6px; vertical-align: middle;
+    }
+    .dot.on { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
+    .dot.off { background: #e74c3c; }
+    .dot.wait { background: #f39c12; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.3; } }
+    .peer-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px; background: #16213e; border-radius: 8px; margin: 4px 0;
+      flex-wrap: wrap; gap: 6px;
+    }
+    .peer-id { font-family: monospace; font-size: 11px; color: #7fdbca; }
+    .log-box {
+      font-family: monospace; font-size: 10px;
+      max-height: 160px; overflow-y: auto;
+      background: #050510; padding: 8px; border-radius: 6px;
+    }
+    .log-line { padding: 1px 0; color: #888; }
+    .log-line .t { color: #555; }
+    .log-line .m { color: #2ecc71; }
+    .log-line .e { color: #e74c3c; }
+    .metric-row {
+      display: flex; justify-content: space-between;
+      padding: 3px 0; font-size: 13px;
+    }
+    .metric-row .l { color: #888; }
+    .metric-row .v { color: #2ecc71; font-family: monospace; }
+    .ping-box {
+      padding: 8px; border-radius: 8px; margin: 6px 0;
+      font-weight: bold; font-size: 13px;
+    }
+    .ping-box.ok { background: #2ecc71; color: #000; }
+    .ping-box.fail { background: #e74c3c; color: #fff; }
+    .ping-box.wait { background: #f39c12; color: #000; }
+    label { font-size: 12px; color: #888; display: block; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

@@ -384,6 +384,7 @@ export async function buildEsbuildOptions(
   config: TargetConfig,
   appVersion: string,
   listAssetsFn?: (distDir: string) => Promise<string[]>
+  // deno-lint-ignore no-explicit-any
 ): Promise<any> {
   const finalDefine: Record<string, string> = {
     ...config.define,
