@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: SERVER
 
-Gerado automaticamente em: 8/30/2026, 10:22:42 PM
+Gerado automaticamente em: 8/31/2026, 10:12:25 PM
 
 ---
 
@@ -1022,17 +1022,17 @@ echo "============================================================"
     "@std/http": "jsr:@std/http",
     "@std/path": "jsr:@std/path",
     "@cloudflare/workers-types": "npm:@cloudflare/workers-types",
-    "wrangler": "npm:wrangler@^4.123.0"
+    "wrangler": "npm:wrangler"
   },
   "tasks": {
     "init": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle init.ts",
     "test": "deno test --allow-env --allow-net --allow-read --unstable-bundle tests/",
-    "check": "deno check --unstable-bundle build.ts minify-keys.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
+    "check": "deno check --unstable-bundle init.ts minify-keys.ts src/**/*.ts src/**/*.tsx tests/**/*.ts",
     "tests": "deno task check && deno task test",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --env-file ./src/main.ts",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./src/main.ts",
+    "start": "deno task init && deno run --allow-read --allow-write --allow-env --allow-net --env-file ./src/main.ts",
+    "dev": "deno task init && deno run --allow-read --allow-write --allow-env --allow-net --env-file --watch ./src/main.ts",
     "clean": "deno clean && rm -rf ./build && mkdir -p ./build/dist",
-    "deploy": "./deploy.sh"
+    "deploy": "deno task init && ./deploy.sh"
   },
   "exports": "./src/worker.ts",
   "exclude": ["./build/"]

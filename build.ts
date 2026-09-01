@@ -2,21 +2,7 @@
 /**
  * @file build.ts
  * @description Build alternativo usando Deno.bundle API nativa (--unstable-bundle)
- *
- * Este é um script ALTERNATIVO ao esbuild.ts oficial do Loco.
- * Usa a API nativa Deno.bundle() sem dependências externas.
- *
- * Toda a lógica de processamento está em @loco/utils/build (bundle.ts).
- * Este arquivo contém apenas:
- * 1. CONFIG declarativo dos alvos
- * 2. Orquestração do pipeline
- *
- * Uso:
- *   deno run --unstable-bundle -A ./build.ts
- *   deno run --unstable-bundle -A ./build.ts ui sw
- *   deno run --unstable-bundle -A ./build.ts noversion
  */
-
 import {
   parseArgs,
   currentVersion,
@@ -29,7 +15,6 @@ import type { DenoBundleGlobalConfig } from "@loco/utils/interfaces";
 // ============================================================================
 // 📦 CONFIGURAÇÃO DECLARATIVA DE BUILDS
 // ============================================================================
-
 const CONFIG: DenoBundleGlobalConfig = {
   ui: {
     mode: "build",
@@ -39,11 +24,15 @@ const CONFIG: DenoBundleGlobalConfig = {
     publicdir: "monorepo/ui/public",
     indexHtml: true,
     clean: ["."],
-    entryPoints: ["monorepo/ui/src/app.tsx"],
+    entryPoints: ["app.tsx"],
     platform: "browser",
     format: "esm",
     minify: false,
     sourcemap: "linked",
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle",
+    inlineImports: true
   },
   worker: {
     mode: "build",
@@ -51,10 +40,16 @@ const CONFIG: DenoBundleGlobalConfig = {
     srcdir: "monorepo/ui/src",
     distdir: "monorepo/server/build/dist",
     clean: ["opfs.worker.js", "opfs.worker.js.map"],
-    entryPoints: ["monorepo/ui/src/worker/opfs.worker.ts"],
+    entryPoints: ["worker-opfs/opfs.worker.ts"],
     platform: "browser",
-    format: "iife",
+    format: "esm",
     minify: false,
+    sourcemap: "linked",
+    indexHtml: false,
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle",
+    inlineImports: true
   },
   sw: {
     mode: "build",
@@ -62,33 +57,39 @@ const CONFIG: DenoBundleGlobalConfig = {
     srcdir: "monorepo/service-worker/src",
     distdir: "monorepo/server/build/dist",
     clean: ["service-worker.js", "service-worker.js.map"],
-    entryPoints: ["monorepo/service-worker/src/service-worker.ts"],
+    entryPoints: ["service-worker.ts"],
     platform: "browser",
-    format: "iife",
+    format: "esm",
     minify: false,
+    sourcemap: "linked",
+    indexHtml: false,
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle",
+    inlineImports: true
   },
   server: {
-    mode: 'build',
-     default: true,
-     srcdir: "monorepo/server/src",
-     distdir: "monorepo/server/build",
-     clean: ["worker.js", "worker.js.map", "functions"],
-     entryPoints: [
-        "monorepo/server/src/worker.ts", 
-        "monorepo/server/src/functions/ping.ts",
-        "monorepo/server/src/functions/publickey.ts",
-        "monorepo/server/src/functions/push.ts",
-      ],
-     platform: "browser",
-     format: "esm",
-     minify: false,
-     sourcemap: "linked",
-     indexHtml: false,
-     keepNames: true,
-     codeSplitting: false,
-     packages: "bundle",
-     inlineImports: true,
-   },
+   mode: 'build',
+    default: true,
+    srcdir: "monorepo/server/src",
+    distdir: "monorepo/server/build",
+    clean: ["worker.js", "worker.js.map", "functions"],
+    entryPoints: [
+       "worker.ts", 
+       "functions/ping.ts",
+       "functions/publickey.ts",
+       "functions/push.ts",
+     ],
+    platform: "browser",
+    format: "esm",
+    minify: false,
+    sourcemap: "linked",
+    indexHtml: false,
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle",
+    inlineImports: true
+  },
   playground: {
     mode: "build",
     default: false,
@@ -97,19 +98,22 @@ const CONFIG: DenoBundleGlobalConfig = {
     publicdir: "monorepo/playground/public",
     indexHtml: true,
     clean: ["."],
-    entryPoints: ["monorepo/playground/src/main.tsx"],
-    outfile: "monorepo/playground/build/dist/main.js",
+    entryPoints: ["main.tsx"],
+    // 🔥 CORREÇÃO: outfile agora é RELATIVO ao distdir
+    outfile: "main.js",
     platform: "browser",
     format: "esm",
     minify: false,
     sourcemap: "linked",
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle"
   },
 };
 
 // ============================================================================
 // 🚀 PIPELINE PRINCIPAL
 // ============================================================================
-
 const DENO_JSONC_PATH = "deno.jsonc";
 
 async function build() {
@@ -122,7 +126,6 @@ async function build() {
   console.log("\n🚀 Iniciando Orquestrador de Build Loco (Deno.bundle API)");
   console.log(`   📦 Motor: Deno.bundle (nativo, --unstable-bundle)`);
 
-  // ⚠️ Watch mode não suportado — emite aviso e encerra
   if (watchTarget) {
     console.log(
       `\n⚠️ AVISO: Modo Watch não suportado pelo Deno.bundle API.`,
@@ -146,15 +149,12 @@ async function build() {
   }
 
   try {
-    // Obter versão atual
     const currentVer = await currentVersion(DENO_JSONC_PATH);
 
-    // Incrementar versão (se aplicável)
     const finalVersion = globalNoVersion
       ? currentVer
       : await incrementVersion(currentVer, DENO_JSONC_PATH);
 
-    // Processar cada alvo de build na ordem do CONFIG
     for (const targetName of targets) {
       const targetConfig = CONFIG[targetName];
       if (!targetConfig) {
@@ -164,7 +164,6 @@ async function build() {
         continue;
       }
 
-      // Para o SW, passa a função de listagem de assets
       const listFn = targetName === "sw" ? listAssetsForCache : undefined;
       await processBundleTarget(targetName, targetConfig, finalVersion, listFn);
     }

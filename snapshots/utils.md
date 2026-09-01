@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: UTILS
 
-Gerado automaticamente em: 8/30/2026, 10:08:58 PM
+Gerado automaticamente em: 8/31/2026, 10:11:18 PM
 
 ---
 
@@ -787,193 +787,6 @@ describe("parseArgs", () => {
 
 ---
 
-## Arquivo: `monorepo/utils/tests/esbuild/integration.test.ts`
-
-```ts
-/// <reference lib="deno.ns" />
-
-import { describe, it } from "@std/testing/bdd";
-import { assertEquals, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
-import { processTarget } from "../../src/esbuild/mod.ts";
-import type { TargetConfig } from "../../src/interfaces/mod.ts";
-import { withFileStructure, fileExists, readText } from "../helpers/fixtures.ts";
-
-describe("processTarget (integração)", () => {
-  it("executa pipeline completo: clean, copy, build", async () => {
-    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
-      "index.html": "<html></html>",
-    });
-    const { dir: publicDir, cleanup: cleanupPublic } = await withFileStructure({
-      "manifest.json": `{ "name": "Loco", "version": "1.0.0" }`,
-    });
-    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({
-      "old-file.js": "should be deleted",
-    });
-    try {
-      const config: TargetConfig = {
-        srcdir: srcDir,
-        distdir: distDir,
-        publicdir: publicDir,
-        indexHtml: true,
-        clean: ["."],
-        entryPoints: ["dummy.ts"],
-      };
-      // Mock esbuild.build
-      const mockBuild = async (options: any) => {
-        // Simula escrita do arquivo de saída
-        const outFile = options.outfile || join(options.outdir, "output.js");
-        await Deno.writeTextFile(outFile, "// bundled code");
-        return { metafile: null, errors: [], warnings: [] };
-      };
-      await processTarget("ui", config, "2.0.0", mockBuild);
-      // Arquivo antigo foi removido (clean: ["."])
-      assertEquals(await fileExists(join(distDir, "old-file.js")), false);
-      // Arquivos estáticos foram copiados
-      assertEquals(await fileExists(join(distDir, "index.html")), true);
-      assertEquals(await fileExists(join(distDir, "manifest.json")), true);
-      // manifest.json foi atualizado
-      const manifest = JSON.parse(await readText(join(distDir, "manifest.json")));
-      assertEquals(manifest.version, "2.0.0");
-      // Bundle foi gerado
-      assertEquals(await fileExists(join(distDir, "output.js")), true);
-    } finally {
-      await cleanupSrc();
-      await cleanupPublic();
-      await cleanupDist();
-    }
-  });
-
-  it("salva metafile quando gerado", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({});
-    try {
-      const config: TargetConfig = {
-        srcdir: "src",
-        distdir: distDir,
-        entryPoints: ["dummy.ts"],
-        metafile: true,
-      };
-      const mockBuild = async () => ({
-        metafile: {
-          inputs: { "src/main.ts": { bytes: 100 } },
-          outputs: { "dist/main.js": { bytes: 500 } },
-        },
-      });
-      await processTarget("ui", config, "1.0.0", mockBuild);
-      const metafilePath = join(distDir, "ui-metafile.json");
-      assertEquals(await fileExists(metafilePath), true);
-      const metafile = JSON.parse(await readText(metafilePath));
-      assertEquals(metafile.inputs["src/main.ts"].bytes, 100);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("não salva metafile quando metafile é false", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({});
-    try {
-      const config: TargetConfig = {
-        srcdir: "src",
-        distdir: distDir,
-        entryPoints: ["dummy.ts"],
-        metafile: false,
-      };
-      const mockBuild = async () => ({
-        metafile: { inputs: {} },
-      });
-      await processTarget("ui", config, "1.0.0", mockBuild);
-      assertEquals(
-        await fileExists(join(distDir, "ui-metafile.json")),
-        false
-      );
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("propaga erro do esbuild.build", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({});
-    try {
-      const config: TargetConfig = {
-        srcdir: "src",
-        distdir: distDir,
-        entryPoints: ["dummy.ts"],
-      };
-      const mockBuild = async () => {
-        throw new Error("Build failed");
-      };
-      let caughtError: Error | null = null;
-      try {
-        await processTarget("ui", config, "1.0.0", mockBuild);
-      } catch (error) {
-        caughtError = error as Error;
-      }
-      assertEquals(caughtError !== null, true);
-      assertStringIncludes(caughtError!.message, "Build failed");
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("usa outfile quando especificado", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({});
-    try {
-      const config: TargetConfig = {
-        srcdir: "src",
-        distdir: distDir,
-        entryPoints: ["dummy.ts"],
-        outfile: join(distDir, "custom-name.js"),
-      };
-      let capturedOptions: any = null;
-      const mockBuild = async (options: any) => {
-        capturedOptions = options;
-        await Deno.writeTextFile(options.outfile, "// code");
-        return {};
-      };
-      await processTarget("ui", config, "1.0.0", mockBuild);
-      assertEquals(capturedOptions.outfile, join(distDir, "custom-name.js"));
-      assertEquals(capturedOptions.outdir, undefined);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("lida com SW injetando assets via listFn", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({
-      "app.js": "code",
-      "index.html": "html",
-      "service-worker.js": "sw",
-    });
-    try {
-      const config: TargetConfig = {
-        srcdir: "src",
-        distdir: distDir,
-        entryPoints: ["sw.ts"],
-      };
-      let capturedDefine: Record<string, string> = {};
-      const mockBuild = async (options: any) => {
-        capturedDefine = options.define;
-        return {};
-      };
-      const mockListFn = async () => ["./app.js", "./index.html"];
-      await processTarget("sw", config, "1.0.0", mockBuild, mockListFn);
-      
-      // 🔥 CORREÇÃO: Tratamento explícito de undefined (noUncheckedIndexedAccess)
-      const generatedAssets = capturedDefine["__GENERATED_ASSETS__"]!;
-      const appVersion = capturedDefine["__APP_VERSION__"]!;
-      
-      const assets = JSON.parse(generatedAssets);
-      assertEquals(assets, ["./app.js", "./index.html"]);
-      assertStringIncludes(appVersion, "v1.0.0");
-    } finally {
-      await cleanup();
-    }
-  });
-});
-```
-
----
-
 ## Arquivo: `monorepo/utils/tests/esbuild/version.test.ts`
 
 ```ts
@@ -1197,267 +1010,782 @@ describe("incrementVersion (integração)", () => {
 
 ```ts
 /// <reference lib="deno.ns" />
- import { describe, it } from "@std/testing/bdd";
- import { assertEquals, assertStringIncludes } from "@std/assert";
- import { buildEsbuildOptions } from "../../src/esbuild/mod.ts";
- import type { TargetConfig } from "../../src/interfaces/mod.ts";
- // Helper para criar config mínimo válida
- function makeConfig(overrides: Partial<TargetConfig> = {}): TargetConfig {
-   return {
-     srcdir: "src",
-     distdir: "dist",
-     entryPoints: ["src/main.tsx"],
-     ...overrides,
-   };
- }
- describe("buildEsbuildOptions", () => {
-   describe("configuração básica", () => {
-     it("usa outfile quando definido", async () => {
-       const config = makeConfig({ outfile: "dist/app.js" });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.outfile, "dist/app.js");
-       assertEquals(options.outdir, undefined);
-     });
-     it("usa distdir como outdir quando outfile não definido", async () => {
-       const config = makeConfig({ distdir: "monorepo/dist" });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.outdir, "monorepo/dist");
-       assertEquals(options.outfile, undefined);
-     });
-     it("entryPoints é sempre preservado", async () => {
-       const config = makeConfig({ entryPoints: ["a.ts", "b.ts"] });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.entryPoints, ["a.ts", "b.ts"]);
-     });
-   });
-   describe("propriedades opcionais", () => {
-     it("inclui platform quando definido", async () => {
-       const config = makeConfig({ platform: "browser" });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.platform, "browser");
-     });
-     it("omite propriedades undefined", async () => {
-       const config = makeConfig();
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.platform, undefined);
-       assertEquals(options.minify, undefined);
-     });
-     it("inclui todas as propriedades configuradas", async () => {
-       const config = makeConfig({
-         platform: "browser",
-         format: "esm",
-         bundle: true,
-         minify: true,
-         sourcemap: "linked",
-         target: "es2022",
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.platform, "browser");
-       assertEquals(options.format, "esm");
-       assertEquals(options.bundle, true);
-       assertEquals(options.minify, true);
-       assertEquals(options.sourcemap, "linked");
-       assertEquals(options.target, "es2022");
-     });
-   });
-   describe("define", () => {
-     it("injeta __APP_VERSION__ com v", async () => {
-       const config = makeConfig();
-       const options = await buildEsbuildOptions("ui", config, "1.2.3-abc");
-       assertEquals(options.define.__APP_VERSION__, '"v1.2.3-abc"');
-     });
-     it("preserva defines customizados do config", async () => {
-       const config = makeConfig({
-         define: {
-           "__FEATURE_X__": "true",
-           "__API_URL__": '"https://api.example.com"',
-         },
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.define.__FEATURE_X__, "true");
-       assertEquals(options.define.__API_URL__, '"https://api.example.com"');
-       assertEquals(options.define.__APP_VERSION__, '"v1.0.0"');
-     });
-   });
-   describe("banner e footer", () => {
-     it("substitui __APP_VERSION__ no banner", async () => {
-       const config = makeConfig({
-         banner: {
-           js: "/* Loco v__APP_VERSION__ */\n",
-         },
-       });
-       const options = await buildEsbuildOptions("ui", config, "2.0.0");
-       assertStringIncludes(options.banner.js, "Loco v2.0.0");
-     });
-     it("substitui múltiplas ocorrências de __APP_VERSION__", async () => {
-       const config = makeConfig({
-         banner: {
-           js: "/* __APP_VERSION__ build __APP_VERSION__ */",
-         },
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       // Substituição global
-       assertEquals(options.banner.js.includes("__APP_VERSION__"), false);
-     });
-     it("substitui __APP_VERSION__ no CSS também", async () => {
-       const config = makeConfig({
-         banner: {
-           css: "/* CSS __APP_VERSION__ */",
-         },
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertStringIncludes(options.banner.css, "CSS 1.0.0");
-     });
-     it("substitui __APP_VERSION__ no footer", async () => {
-       const config = makeConfig({
-         footer: {
-           js: "/* End __APP_VERSION__ */",
-         },
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertStringIncludes(options.footer.js, "End 1.0.0");
-     });
-     it("lida com banner sem js", async () => {
-       const config = makeConfig({
-         banner: { css: "/* css only __APP_VERSION__ */" },
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.banner.js, undefined);
-       assertStringIncludes(options.banner.css, "1.0.0");
-     });
-   });
-   describe("lógica especial para SW", () => {
-     it("injeta __GENERATED_ASSETS__ quando targetName é 'sw'", async () => {
-       const config = makeConfig();
-       const mockListFn = async () => ["./app.js", "./index.html"];
-       const options = await buildEsbuildOptions("sw", config, "1.0.0", mockListFn);
-       const assets = JSON.parse(options.define.__GENERATED_ASSETS__);
-       assertEquals(assets, ["./app.js", "./index.html"]);
-     });
-     it("não injeta __GENERATED_ASSETS__ para outros alvos", async () => {
-       const config = makeConfig();
-       const mockListFn = async () => ["./app.js"];
-       const options = await buildEsbuildOptions("ui", config, "1.0.0", mockListFn);
-       assertEquals(options.define.__GENERATED_ASSETS__, undefined);
-     });
-     it("não injeta __GENERATED_ASSETS__ se listFn não fornecida", async () => {
-       const config = makeConfig();
-       const options = await buildEsbuildOptions("sw", config, "1.0.0");
-       assertEquals(options.define.__GENERATED_ASSETS__, undefined);
-     });
-   });
-   describe("novas opções (1-13)", () => {
-     it("inclui splitting", async () => {
-       const config = makeConfig({ splitting: true });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.splitting, true);
-     });
-     it("inclui loader customizado", async () => {
-       const config = makeConfig({
-         loader: { ".png": "file", ".svg": "dataurl" },
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.loader[".png"], "file");
-     });
-     it("inclui alias", async () => {
-       const config = makeConfig({
-         alias: { "@": "./src", "moment": "dayjs" },
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.alias["@"], "./src");
-       assertEquals(options.alias.moment, "dayjs");
-     });
-     it("inclui inject", async () => {
-       const config = makeConfig({
-         inject: ["./polyfills.ts"],
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.inject, ["./polyfills.ts"]);
-     });
-     it("inclide target como string", async () => {
-       const config = makeConfig({ target: "es2022" });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.target, "es2022");
-     });
-     it("inclui target como array", async () => {
-       const config = makeConfig({ target: ["es2022", "chrome90"] });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.target, ["es2022", "chrome90"]);
-     });
-     it("inclui drop", async () => {
-       const config = makeConfig({ drop: ["console", "debugger"] });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.drop, ["console", "debugger"]);
-     });
-     it("inclui pure", async () => {
-       const config = makeConfig({ pure: ["console.log"] });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.pure, ["console.log"]);
-     });
-     it("inclui logLevel", async () => {
-       const config = makeConfig({ logLevel: "warning" });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.logLevel, "warning");
-     });
-     it("inclui entryNames/chunkNames/assetNames", async () => {
-       const config = makeConfig({
-         entryNames: "[name]-[hash]",
-         chunkNames: "chunks/[name]",
-         assetNames: "assets/[name]",
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.entryNames, "[name]-[hash]");
-       assertEquals(options.chunkNames, "chunks/[name]");
-       assertEquals(options.assetNames, "assets/[name]");
-     });
-   });
-   // ========================================================================
-   // 🔥 PLUGINS (novo)
-   // ========================================================================
-   describe("plugins", () => {
-     it("inclui plugins quando definidos na config", async () => {
-       const mockPlugin = { name: "test-plugin", setup: () => {} };
-       const config = makeConfig({ plugins: [mockPlugin] });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.plugins, [mockPlugin]);
-       assertEquals(options.plugins.length, 1);
-       assertEquals(options.plugins[0].name, "test-plugin");
-     });
-     it("inclui múltiplos plugins na ordem definida", async () => {
-       const plugin1 = { name: "plugin-1", setup: () => {} };
-       const plugin2 = { name: "plugin-2", setup: () => {} };
-       const config = makeConfig({ plugins: [plugin1, plugin2] });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.plugins.length, 2);
-       assertEquals(options.plugins[0].name, "plugin-1");
-       assertEquals(options.plugins[1].name, "plugin-2");
-     });
-     it("omite plugins quando não definidos (undefined)", async () => {
-       const config = makeConfig();
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.plugins, undefined);
-     });
-     it("omite plugins quando array vazio", async () => {
-       const config = makeConfig({ plugins: [] });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.plugins, []);
-     });
-     it("plugins são independentes de outras opções", async () => {
-       const mockPlugin = { name: "my-plugin", setup: () => {} };
-       const config = makeConfig({
-         plugins: [mockPlugin],
-         platform: "browser",
-         bundle: true,
-         minify: true,
-       });
-       const options = await buildEsbuildOptions("ui", config, "1.0.0");
-       assertEquals(options.plugins, [mockPlugin]);
-       assertEquals(options.platform, "browser");
-       assertEquals(options.bundle, true);
-       assertEquals(options.minify, true);
-     });
-   });
- });
+import { describe, it } from "@std/testing/bdd";
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
+import { buildEsbuildOptions } from "../../src/esbuild/mod.ts";
+import type { TargetConfig } from "../../src/interfaces/mod.ts";
+import { withFileStructure } from "../helpers/fixtures.ts";
+
+// Helper para criar config mínima válida com paths que existem
+function makeConfig(dir: string, overrides: Partial<TargetConfig> = {}): TargetConfig {
+  return {
+    srcdir: join(dir, "src"),
+    distdir: "dist",
+    entryPoints: ["main.tsx"],
+    ...overrides,
+  } as TargetConfig;
+}
+
+describe("buildEsbuildOptions", () => {
+  describe("configuração básica", () => {
+    it("usa outfile quando definido", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { outfile: "app.js" });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.outfile, "dist/app.js");
+        assertEquals(options.outdir, undefined);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("usa distdir como outdir quando outfile não definido", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { distdir: "monorepo/dist" });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.outdir, "monorepo/dist");
+        assertEquals(options.outfile, undefined);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("entryPoints é sempre preservado", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/a.ts": "", "src/b.ts": "" });
+      try {
+        const config = makeConfig(dir, { entryPoints: ["a.ts", "b.ts"] });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.entryPoints, [join(dir, "src", "a.ts"), join(dir, "src", "b.ts")]);
+      } finally {
+        await cleanup();
+      }
+    });
+  });
+  describe("propriedades opcionais", () => {
+    it("inclui platform quando definido", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { platform: "browser" });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.platform, "browser");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("omite propriedades undefined", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir);
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.platform, undefined);
+        assertEquals(options.minify, undefined);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui todas as propriedades configuradas", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          platform: "browser",
+          format: "esm",
+          bundle: true,
+          minify: true,
+          sourcemap: "linked",
+          target: "es2022",
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.platform, "browser");
+        assertEquals(options.format, "esm");
+        assertEquals(options.bundle, true);
+        assertEquals(options.minify, true);
+        assertEquals(options.sourcemap, "linked");
+        assertEquals(options.target, "es2022");
+      } finally {
+        await cleanup();
+      }
+    });
+  });
+  describe("define", () => {
+    it("injeta __APP_VERSION__ com v", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir);
+        const options = await buildEsbuildOptions("ui", config, "1.2.3-abc");
+        assertEquals(options.define.__APP_VERSION__, '"v1.2.3-abc"');
+      } finally {
+        await cleanup();
+      }
+    });
+    it("preserva defines customizados do config", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          define: {
+            "__FEATURE_X__": "true",
+            "__API_URL__": '"https://api.example.com"',
+          },
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.define.__FEATURE_X__, "true");
+        assertEquals(options.define.__API_URL__, '"https://api.example.com"');
+        assertEquals(options.define.__APP_VERSION__, '"v1.0.0"');
+      } finally {
+        await cleanup();
+      }
+    });
+  });
+  describe("banner e footer", () => {
+    it("substitui __APP_VERSION__ no banner", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          banner: {
+            js: "/* Loco v__APP_VERSION__ */\n",
+          },
+        });
+        const options = await buildEsbuildOptions("ui", config, "2.0.0");
+        assertStringIncludes(options.banner.js, "Loco v2.0.0");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("substitui múltiplas ocorrências de __APP_VERSION__", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          banner: {
+            js: "/* __APP_VERSION__ build __APP_VERSION__ */",
+          },
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.banner.js.includes("__APP_VERSION__"), false);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("substitui __APP_VERSION__ no CSS também", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          banner: {
+            css: "/* CSS __APP_VERSION__ */",
+          },
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertStringIncludes(options.banner.css, "CSS 1.0.0");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("substitui __APP_VERSION__ no footer", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          footer: {
+            js: "/* End __APP_VERSION__ */",
+          },
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertStringIncludes(options.footer.js, "End 1.0.0");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("lida com banner sem js", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          banner: { css: "/* css only __APP_VERSION__ */" },
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.banner.js, undefined);
+        assertStringIncludes(options.banner.css, "1.0.0");
+      } finally {
+        await cleanup();
+      }
+    });
+  });
+  describe("lógica especial para SW", () => {
+    it("injeta __GENERATED_ASSETS__ quando targetName é 'sw'", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir);
+        const mockListFn = async () => ["./app.js", "./index.html"];
+        const options = await buildEsbuildOptions("sw", config, "1.0.0", mockListFn);
+        const assets = JSON.parse(options.define.__GENERATED_ASSETS__);
+        assertEquals(assets, ["./app.js", "./index.html"]);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("não injeta __GENERATED_ASSETS__ para outros alvos", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir);
+        const mockListFn = async () => ["./app.js"];
+        const options = await buildEsbuildOptions("ui", config, "1.0.0", mockListFn);
+        assertEquals(options.define.__GENERATED_ASSETS__, undefined);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("não injeta __GENERATED_ASSETS__ se listFn não fornecida", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir);
+        const options = await buildEsbuildOptions("sw", config, "1.0.0");
+        assertEquals(options.define.__GENERATED_ASSETS__, undefined);
+      } finally {
+        await cleanup();
+      }
+    });
+  });
+  describe("novas opções (1-13)", () => {
+    it("inclui splitting", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { splitting: true });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.splitting, true);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui loader customizado", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          loader: { ".png": "file", ".svg": "dataurl" },
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.loader[".png"], "file");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui alias", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          alias: { "@": "./src", "moment": "dayjs" },
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.alias["@"], "./src");
+        assertEquals(options.alias.moment, "dayjs");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui inject", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          inject: ["./polyfills.ts"],
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.inject, ["./polyfills.ts"]);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui target como string", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { target: "es2022" });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.target, "es2022");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui target como array", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { target: ["es2022", "chrome90"] });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.target, ["es2022", "chrome90"]);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui drop", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { drop: ["console", "debugger"] });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.drop, ["console", "debugger"]);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui pure", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { pure: ["console.log"] });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.pure, ["console.log"]);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui logLevel", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { logLevel: "warning" });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.logLevel, "warning");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui entryNames/chunkNames/assetNames", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, {
+          entryNames: "[name]-[hash]",
+          chunkNames: "chunks/[name]",
+          assetNames: "assets/[name]",
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.entryNames, "[name]-[hash]");
+        assertEquals(options.chunkNames, "chunks/[name]");
+        assertEquals(options.assetNames, "assets/[name]");
+      } finally {
+        await cleanup();
+      }
+    });
+  });
+  describe("plugins", () => {
+    it("inclui plugins quando definidos na config", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const mockPlugin = { name: "test-plugin", setup: () => {} };
+        const config = makeConfig(dir, { plugins: [mockPlugin] });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.plugins, [mockPlugin]);
+        assertEquals(options.plugins.length, 1);
+        assertEquals(options.plugins[0].name, "test-plugin");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("inclui múltiplos plugins na ordem definida", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const plugin1 = { name: "plugin-1", setup: () => {} };
+        const plugin2 = { name: "plugin-2", setup: () => {} };
+        const config = makeConfig(dir, { plugins: [plugin1, plugin2] });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.plugins.length, 2);
+        assertEquals(options.plugins[0].name, "plugin-1");
+        assertEquals(options.plugins[1].name, "plugin-2");
+      } finally {
+        await cleanup();
+      }
+    });
+    it("omite plugins quando não definidos (undefined)", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir);
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.plugins, undefined);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("omite plugins quando array vazio", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const config = makeConfig(dir, { plugins: [] });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.plugins, []);
+      } finally {
+        await cleanup();
+      }
+    });
+    it("plugins são independentes de outras opções", async () => {
+      const { dir, cleanup } = await withFileStructure({ "src/main.tsx": "" });
+      try {
+        const mockPlugin = { name: "my-plugin", setup: () => {} };
+        const config = makeConfig(dir, {
+          plugins: [mockPlugin],
+          platform: "browser",
+          bundle: true,
+          minify: true,
+        });
+        const options = await buildEsbuildOptions("ui", config, "1.0.0");
+        assertEquals(options.plugins, [mockPlugin]);
+        assertEquals(options.platform, "browser");
+        assertEquals(options.bundle, true);
+        assertEquals(options.minify, true);
+      } finally {
+        await cleanup();
+      }
+    });
+  });
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/esbuild/integration.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { describe, it } from "@std/testing/bdd";
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
+import { processTarget } from "../../src/esbuild/mod.ts";
+import type { TargetConfig } from "../../src/interfaces/mod.ts";
+import { withFileStructure, fileExists, readText } from "../helpers/fixtures.ts";
+
+describe("processTarget (integração)", () => {
+  it("executa pipeline completo: clean, copy, build", async () => {
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "index.html": "<html></html>",
+      "dummy.ts": "// dummy",
+    });
+    const { dir: publicDir, cleanup: cleanupPublic } = await withFileStructure({
+      "manifest.json": `{ "name": "Loco", "version": "1.0.0" }`,
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({
+      "old-file.js": "should be deleted",
+    });
+    try {
+      const config: TargetConfig = {
+        srcdir: srcDir,
+        distdir: distDir,
+        publicdir: publicDir,
+        indexHtml: true,
+        clean: ["."],
+        entryPoints: ["dummy.ts"],
+      };
+      // Mock esbuild.build
+      const mockBuild = async (options: any) => {
+        // Simula escrita do arquivo de saída
+        const outFile = options.outfile || join(options.outdir, "output.js");
+        await Deno.writeTextFile(outFile, "// bundled code");
+        return { metafile: null, errors: [], warnings: [] };
+      };
+      await processTarget("ui", config, "2.0.0", mockBuild);
+      // Arquivo antigo foi removido (clean: ["."])
+      assertEquals(await fileExists(join(distDir, "old-file.js")), false);
+      // Arquivos estáticos foram copiados
+      assertEquals(await fileExists(join(distDir, "index.html")), true);
+      assertEquals(await fileExists(join(distDir, "manifest.json")), true);
+      // manifest.json foi atualizado
+      const manifest = JSON.parse(await readText(join(distDir, "manifest.json")));
+      assertEquals(manifest.version, "2.0.0");
+      // Bundle foi gerado
+      assertEquals(await fileExists(join(distDir, "output.js")), true);
+    } finally {
+      await cleanupSrc();
+      await cleanupPublic();
+      await cleanupDist();
+    }
+  });
+
+  it("salva metafile quando gerado", async () => {
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "dummy.ts": "// dummy",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({});
+    try {
+      const config: TargetConfig = {
+        srcdir: srcDir,
+        distdir: distDir,
+        entryPoints: ["dummy.ts"],
+        metafile: true,
+      };
+      const mockBuild = async () => ({
+        metafile: {
+          inputs: { "src/main.ts": { bytes: 100 } },
+          outputs: { "dist/main.js": { bytes: 500 } },
+        },
+      });
+      await processTarget("ui", config, "1.0.0", mockBuild);
+      const metafilePath = join(distDir, "ui-metafile.json");
+      assertEquals(await fileExists(metafilePath), true);
+      const metafile = JSON.parse(await readText(metafilePath));
+      assertEquals(metafile.inputs["src/main.ts"].bytes, 100);
+    } finally {
+      await cleanupSrc();
+      await cleanupDist();
+    }
+  });
+
+  it("não salva metafile quando metafile é false", async () => {
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "dummy.ts": "// dummy",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({});
+    try {
+      const config: TargetConfig = {
+        srcdir: srcDir,
+        distdir: distDir,
+        entryPoints: ["dummy.ts"],
+        metafile: false,
+      };
+      const mockBuild = async () => ({
+        metafile: { inputs: {} },
+      });
+      await processTarget("ui", config, "1.0.0", mockBuild);
+      assertEquals(
+        await fileExists(join(distDir, "ui-metafile.json")),
+        false
+      );
+    } finally {
+      await cleanupSrc();
+      await cleanupDist();
+    }
+  });
+
+  it("propaga erro do esbuild.build", async () => {
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "dummy.ts": "// dummy",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({});
+    try {
+      const config: TargetConfig = {
+        srcdir: srcDir,
+        distdir: distDir,
+        entryPoints: ["dummy.ts"],
+      };
+      const mockBuild = async () => {
+        throw new Error("Build failed");
+      };
+      let caughtError: Error | null = null;
+      try {
+        await processTarget("ui", config, "1.0.0", mockBuild);
+      } catch (error) {
+        caughtError = error as Error;
+      }
+      assertEquals(caughtError !== null, true);
+      assertStringIncludes(caughtError!.message, "Build failed");
+    } finally {
+      await cleanupSrc();
+      await cleanupDist();
+    }
+  });
+
+  it("usa outfile quando especificado", async () => {
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "dummy.ts": "// dummy",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({});
+    try {
+      const config: TargetConfig = {
+        srcdir: srcDir,
+        distdir: distDir,
+        entryPoints: ["dummy.ts"],
+        outfile: "custom-name.js",
+      };
+      let capturedOptions: any = null;
+      const mockBuild = async (options: any) => {
+        capturedOptions = options;
+        await Deno.writeTextFile(options.outfile, "// code");
+        return {};
+      };
+      await processTarget("ui", config, "1.0.0", mockBuild);
+      assertEquals(capturedOptions.outfile, join(distDir, "custom-name.js"));
+      assertEquals(capturedOptions.outdir, undefined);
+    } finally {
+      await cleanupSrc();
+      await cleanupDist();
+    }
+  });
+
+  it("lida com SW injetando assets via listFn", async () => {
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "sw.ts": "// sw",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({
+      "app.js": "code",
+      "index.html": "html",
+      "service-worker.js": "sw",
+    });
+    try {
+      const config: TargetConfig = {
+        srcdir: srcDir,
+        distdir: distDir,
+        entryPoints: ["sw.ts"],
+      };
+      let capturedDefine: Record<string, string> = {};
+      const mockBuild = async (options: any) => {
+        capturedDefine = options.define;
+        return {};
+      };
+      const mockListFn = async () => ["./app.js", "./index.html"];
+      await processTarget("sw", config, "1.0.0", mockBuild, mockListFn);
+      // 🔥 CORREÇÃO: Tratamento explícito de undefined (noUncheckedIndexedAccess)
+      const generatedAssets = capturedDefine["__GENERATED_ASSETS__"]!;
+      const appVersion = capturedDefine["__APP_VERSION__"]!;
+      const assets = JSON.parse(generatedAssets);
+      assertEquals(assets, ["./app.js", "./index.html"]);
+      assertStringIncludes(appVersion, "v1.0.0");
+    } finally {
+      await cleanupSrc();
+      await cleanupDist();
+    }
+  });
+});
+```
+
+---
+
+## Arquivo: `monorepo/utils/tests/esbuild/output-paths.test.ts`
+
+```ts
+/// <reference lib="deno.ns" />
+import { describe, it } from "@std/testing/bdd";
+import { assertEquals, assertThrows, assertStringIncludes } from "@std/assert";
+import { 
+  validateTargetConfig, 
+  resolveOutputPaths 
+} from "../../src/esbuild/mod.ts";
+import type { TargetConfig } from "../../src/interfaces/mod.ts";
+
+describe("validateTargetConfig", () => {
+  describe("distdir obrigatório", () => {
+    it("lança erro quando publicdir existe mas distdir não", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        publicdir: "public",
+        entryPoints: ["app.tsx"],
+      };
+      assertThrows(
+        () => validateTargetConfig("ui", config),
+        Error,
+        "'distdir'"
+      );
+    });
+    it("lança erro quando indexHtml é true mas distdir não", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        indexHtml: true,
+        entryPoints: ["app.tsx"],
+      };
+      assertThrows(
+        () => validateTargetConfig("ui", config),
+        Error,
+        "'distdir'"
+      );
+    });
+    it("lança erro quando outfile não existe e distdir não", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        entryPoints: ["app.tsx"],
+      };
+      assertThrows(
+        () => validateTargetConfig("ui", config),
+        Error,
+        "'distdir'"
+      );
+    });
+    it("NÃO lança erro quando outfile existe mas distdir não", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        outfile: "/absolute/path/app.js",
+        entryPoints: ["app.tsx"],
+      };
+      // Não deve lançar
+      validateTargetConfig("ui", config);
+    });
+    it("NÃO lança erro quando distdir existe", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        distdir: "dist",
+        entryPoints: ["app.tsx"],
+      };
+      validateTargetConfig("ui", config);
+    });
+  });
+
+  describe("mensagens de erro didáticas", () => {
+    it("lista todos os motivos quando múltiplas condições falham", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        publicdir: "public",
+        indexHtml: true,
+        entryPoints: ["app.tsx"],
+      };
+      try {
+        validateTargetConfig("ui", config);
+      } catch (e) {
+        const msg = (e as Error).message;
+        assertStringIncludes(msg, "'publicdir' está configurado");
+        assertStringIncludes(msg, "'indexHtml' é true");
+        assertStringIncludes(msg, "'outfile' não está configurado");
+      }
+    });
+  });
+});
+
+describe("resolveOutputPaths", () => {
+  describe("outfile relativo ao distdir", () => {
+    it("faz join quando ambos existem", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        distdir: "monorepo/server/build/dist",
+        outfile: "app.js",
+        entryPoints: ["app.tsx"],
+      };
+      const result = resolveOutputPaths(config);
+      assertEquals(result.outfile, "monorepo/server/build/dist/app.js");
+      assertEquals(result.outdir, undefined);
+    });
+    it("faz join com subdiretórios", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        distdir: "dist",
+        outfile: "js/app.js",
+        entryPoints: ["app.tsx"],
+      };
+      const result = resolveOutputPaths(config);
+      assertEquals(result.outfile, "dist/js/app.js");
+    });
+  });
+
+  describe("outfile absoluto (sem distdir)", () => {
+    it("mantém outfile como está quando distdir não existe", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        outfile: "/absolute/path/app.js",
+        entryPoints: ["app.tsx"],
+      };
+      const result = resolveOutputPaths(config);
+      assertEquals(result.outfile, "/absolute/path/app.js");
+      assertEquals(result.outdir, undefined);
+    });
+  });
+
+  describe("distdir como outdir (sem outfile)", () => {
+    it("usa distdir como outdir quando outfile não existe", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        distdir: "dist",
+        entryPoints: ["app.tsx"],
+      };
+      const result = resolveOutputPaths(config);
+      assertEquals(result.outdir, "dist");
+      assertEquals(result.outfile, undefined);
+    });
+  });
+
+  describe("nenhum configurado", () => {
+    it("retorna objeto vazio", () => {
+      const config: TargetConfig = {
+        srcdir: "src",
+        entryPoints: ["app.tsx"],
+      };
+      const result = resolveOutputPaths(config);
+      assertEquals(result.outfile, undefined);
+      assertEquals(result.outdir, undefined);
+    });
+  });
+});
 ```
 
 ---
@@ -3109,8 +3437,8 @@ export type * from "./db.ts";
  export interface TargetConfig {
    // --- Configurações de Pipeline (Pré/Post Build) ---
    publicdir?: string;
-   srcdir: string;
-   distdir: string;
+   srcdir?: string;
+   distdir?: string;
    indexHtml?: boolean;
    clean?: string[];
    /**
@@ -3257,10 +3585,10 @@ export interface DenoBundleTargetConfig {
   // ==========================================================================
 
   /** Diretório fonte (onde estão os arquivos de entrada) */
-  srcdir: string;
+  srcdir?: string;
 
   /** Diretório de destino (onde o bundle será escrito) */
-  distdir: string;
+  distdir?: string;
 
   /** Diretório de arquivos estáticos públicos (copiados para distdir) */
   publicdir?: string;
@@ -4871,336 +5199,524 @@ export function addDebugLog(
 
 ```ts
 /// <reference lib="deno.ns" />
- import { emptyDir, ensureDir, copy, walk } from "@std/fs";
- import { join, isAbsolute } from "@std/path";
- // ============================================================================
- // 📦 TIPOS
- // ============================================================================
- import type { 
-    ParsedVersion, 
-    GlobalTargetConfig, 
-    DenoBundleGlobalConfig, 
-    ParsedArgs, 
-    TargetConfig, 
-    DenoBundleTargetConfig
-  } from "../interfaces/mod.ts";
- // ============================================================================
- // 🔢 FUNÇÕES DE VERSÃO (puras, testáveis)
- // ============================================================================
- export function parseVersion(version: string): ParsedVersion {
-   // 🔥 CORREÇÃO: Validação mais rigorosa para formatos inválidos
-   const trimmed = version.trim();
-   if (trimmed !== version) {
-     throw new Error(`❌ Versão não pode ter espaços: ${version}`);
-   }
-   const versionWithoutHash = version.split("-")[0] ?? "";
-   // 🔥 CORREÇÃO: Verifica se há hífen mas sem hash (ex: "1.2.3-")
-   if (version.includes("-") && version.endsWith("-")) {
-     throw new Error(`❌ Formato de versão inválido (hífen sem hash): ${version}`);
-   }
-   const parts = versionWithoutHash.split(".");
-   if (parts.length !== 3) {
-     throw new Error(`❌ Formato de versão inválido: ${version}`);
-   }
-   const majorStr = parts[0];
-   const minorStr = parts[1];
-   const patchStr = parts[2];
-   if (majorStr === undefined || minorStr === undefined || patchStr === undefined) {
-     throw new Error(`❌ Formato de versão inválido: ${version}`);
-   }
-   const major = parseInt(majorStr, 10);
-   const minor = parseInt(minorStr, 10);
-   const patch = parseInt(patchStr, 10);
-   if (isNaN(major) || isNaN(minor) || isNaN(patch)) {
-     throw new Error(`❌ Versão contém valores não numéricos: ${version}`);
-   }
-   return { major, minor, patch };
- }
- export function formatVersion(
-   major: number,
-   minor: number,
-   patch: number,
-   buildHash?: string
- ): string {
-   const hash = buildHash ?? Date.now().toString(36);
-   return `${major}.${minor}.${patch}-${hash}`;
- }
- export function extractVersionFromContent(content: string): string | null {
-   const match = content.match(/"version"\s*:\s*"([^"]+)"/);
-   return match && match[1] ? match[1] : null;
- }
- export function replaceVersionInContent(content: string, newVersion: string): string {
-   return content.replace(
-     /"version"\s*:\s*"[^"]+"/,
-     `"version": "${newVersion}"`
-   );
- }
- // ============================================================================
- // 🛡️ VALIDAÇÃO DE PATHS (pura, testável)
- // ============================================================================
- export function isSafePath(cleanPath: string): boolean {
-   if (cleanPath.includes("..")) return false;
-   if (isAbsolute(cleanPath)) return false;
-   return true;
- }
- // ============================================================================
- // 🎯 PARSING DE ARGUMENTOS CLI (pura, testável)
- // ============================================================================
- export function parseArgs(args: string[], config: GlobalTargetConfig | DenoBundleGlobalConfig): ParsedArgs {
-   const lowerArgs = args.map(a => a.toLowerCase());
-   const globalNoVersion = lowerArgs.includes('noversion');
-   const isWatchFlag = lowerArgs.includes('watch');
-   const configKeys = Object.keys(config);
-   const defaultTargets = configKeys.filter(t => {
-     const cfg = config[t]!;
-     return cfg.mode !== 'watch' && cfg.default !== false;
-   });
-   const requestedTargets = lowerArgs.filter(
-     arg => !['noversion', 'watch'].includes(arg) && configKeys.includes(arg)
-   );
-   let watchTarget: string | null = null;
-   if (isWatchFlag) {
-     // 🔥 CORREÇÃO: Usa a ordem do CONFIG, não a ordem da CLI
-     // Encontra o PRIMEIRO alvo com mode: 'watch' na ordem do CONFIG
-     watchTarget = configKeys.find(t => config[t]!.mode === 'watch') ?? null;
-   } else if (requestedTargets.length > 0) {
-     // Verifica se algum alvo solicitado tem mode: 'watch'
-     // 🔥 CORREÇÃO: Usa a ordem do CONFIG para determinar qual watch executar
-     // Primeiro encontra todos os watches solicitados
-     const requestedWatches = requestedTargets.filter(t => config[t]!.mode === 'watch');
-     if (requestedWatches.length > 0) {
-       // Retorna o PRIMEIRO watch na ordem do CONFIG
-       watchTarget = configKeys.find(t => requestedWatches.includes(t)) ?? null;
-     }
-   }
-   let finalTargets: string[];
-   if (watchTarget !== null) {
-     finalTargets = [];
-   } else if (requestedTargets.length > 0) {
-     finalTargets = configKeys.filter(t => requestedTargets.includes(t));
-   } else {
-     finalTargets = defaultTargets;
-   }
-   return { targets: finalTargets, globalNoVersion, watchTarget };
- }
- // ============================================================================
- // 📂 FUNÇÕES DE FILESYSTEM
- // ============================================================================
- export async function cleanTarget(distDir: string, cleanPaths: string[]): Promise<void> {
-   if (!cleanPaths || cleanPaths.length === 0) return;
-   console.log(`🧹 Limpando em ${distDir}...`);
-   for (const cleanPath of cleanPaths) {
-     if (!isSafePath(cleanPath)) {
-       console.warn(`   ⚠️ Path perigoso ignorado (traversal/absoluto): "${cleanPath}"`);
-       continue;
-     }
-     if (cleanPath === ".") {
-       try {
-         await emptyDir(distDir);
-         console.log(`   ✅ Diretório esvaziado: ${distDir}`);
-       } catch (error) {
-         console.warn(`   ⚠️ Falha ao esvaziar ${distDir}:`, error);
-       }
-     } else {
-       const fullPath = join(distDir, cleanPath);
-       try {
-         await Deno.stat(fullPath);
-         await Deno.remove(fullPath, { recursive: true });
-         console.log(`   ✅ Removido: ${cleanPath}`);
-       } catch {
-         console.log(`   ⏭️  Não existia: ${cleanPath}`);
-       }
-     }
-   }
- }
- export async function currentVersion(denoJsoncPath: string): Promise<string> {
-   const content = await Deno.readTextFile(denoJsoncPath);
-   const version = extractVersionFromContent(content);
-   if (!version) {
-     throw new Error("❌ Versão não encontrada no deno.jsonc");
-   }
-   console.log(`📌 Versão Atual: v${version}`);
-   return version;
- }
- export async function incrementVersion(
-   version: string,
-   denoJsoncPath: string,
-   buildHash?: string
- ): Promise<string> {
-   const { major, minor, patch } = parseVersion(version);
-   const nextPatch = patch + 1;
-   const newVersion = formatVersion(major, minor, nextPatch, buildHash);
-   let content = await Deno.readTextFile(denoJsoncPath);
-   content = replaceVersionInContent(content, newVersion);
-   await Deno.writeTextFile(denoJsoncPath, content);
-   console.log(`📈 Versão incrementada para: v${newVersion}`);
-   return newVersion;
- }
- export async function listAssetsForCache(
-   distDir: string,
-   excludeFiles: string[] = []
- ): Promise<string[]> {
-   const assets: string[] = [];
-   const exclude = new Set([...excludeFiles, 'service-worker.js', 'service-worker.tmp.js']);
-   for await (const entry of walk(distDir, { includeDirs: false })) {
-     if (
-       !entry.name.endsWith(".map") &&
-       !entry.name.endsWith("metafile.json") &&
-       !exclude.has(entry.name)
-     ) {
-       let webPath = entry.path.replace(distDir, "").replace(/\\/g, "/");
-       webPath = webPath.startsWith('/') ? '.' + webPath : './' + webPath;
-       assets.push(webPath);
-     }
-   }
-   return assets;
- }
- export async function copyStaticFiles(
-   config: TargetConfig | DenoBundleTargetConfig,
-   appVersion: string
- ): Promise<void> {
-   const distDir = config.distdir;
-   const srcDir = config.srcdir;
-   await ensureDir(distDir);
-   if (config.publicdir) {
-     try {
-       await copy(config.publicdir, distDir, { overwrite: true });
-       console.log(`📁 Arquivos de ${config.publicdir} copiados para ${distDir}`);
-       const manifestPath = join(distDir, "manifest.json");
-       try {
-         const manifestText = await Deno.readTextFile(manifestPath);
-         const manifestObj = JSON.parse(manifestText);
-         manifestObj.version = appVersion;
-         await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
-         console.log(`📱 Versão v${appVersion} injetada em manifest.json`);
-       } catch {
-         // manifest.json não existe
-       }
-     } catch {
-       console.log(`⚠️ Pasta ${config.publicdir} não encontrada, pulando cópia.`);
-     }
-   }
-   if (config.indexHtml) {
-     const srcHtml = join(srcDir, "index.html");
-     const destHtml = join(distDir, "index.html");
-     try {
-       await copy(srcHtml, destHtml, { overwrite: true });
-       console.log(`📄 index.html copiado de ${srcDir} para ${distDir}`);
-     } catch {
-       console.log(`⚠️ ${srcHtml} não encontrado, pulando cópia do HTML.`);
-     }
-   }
- }
- // ============================================================================
- // 🛠️ FUNÇÕES DE ESBUILD
- // ============================================================================
- export async function buildEsbuildOptions(
-   targetName: string,
-   config: TargetConfig,
-   appVersion: string,
-   listAssetsFn?: (distDir: string) => Promise<string[]>
- ): Promise<any> {
-   const finalDefine: Record<string, string> = {
-     ...config.define,
-     __APP_VERSION__: JSON.stringify(`v${appVersion}`),
-   };
-   if (targetName === "sw" && listAssetsFn) {
-     const assets = await listAssetsFn(config.distdir);
-     finalDefine["__GENERATED_ASSETS__"] = JSON.stringify(assets);
-     console.log(`📋 ${assets.length} assets listados para cache do SW`);
-   }
-   const options: any = {
-     entryPoints: config.entryPoints,
-   };
-   if (config.outfile !== undefined) {
-     options.outfile = config.outfile;
-   } else {
-     options.outdir = config.distdir;
-   }
-   const optionalProps = [
-     'platform', 'format', 'bundle', 'minify', 'sourcemap', 'jsx',
-     'jsxImportSource', 'conditions', 'external', 'drop', 'metafile',
-     'write', 'treeShaking', 'legalComments', 'keepNames', 'splitting',
-     'loader', 'alias', 'inject', 'target', 'charset', 'logLevel',
-     'logLimit', 'logOverride', 'entryNames', 'chunkNames', 'assetNames',
-     'publicPath', 'pure', 'plugins'
-   ];
-   for (const prop of optionalProps) {
-     if ((config as any)[prop] !== undefined) {
-       options[prop] = (config as any)[prop];
-     }
-   }
-   // 🔥 CORREÇÃO: Construção segura de banner
-   // O esbuild REJEITA propriedades com valor undefined.
-   // Se config.banner existe mas só tem js (ou só css), devemos criar
-   // o objeto banner APENAS com a propriedade que tem valor string.
-   if (config.banner !== undefined) {
-     const banner: { js?: string; css?: string } = {};
-     if (config.banner.js !== undefined) {
-       banner.js = config.banner.js.replace(/__APP_VERSION__/g, appVersion);
-     }
-     if (config.banner.css !== undefined) {
-       banner.css = config.banner.css.replace(/__APP_VERSION__/g, appVersion);
-     }
-     // Só atribui se pelo menos uma propriedade foi definida
-     if (banner.js !== undefined || banner.css !== undefined) {
-       options.banner = banner;
-     }
-   }
-   // 🔥 CORREÇÃO: Construção segura de footer (mesma lógica do banner)
-   if (config.footer !== undefined) {
-     const footer: { js?: string; css?: string } = {};
-     if (config.footer.js !== undefined) {
-       footer.js = config.footer.js.replace(/__APP_VERSION__/g, appVersion);
-     }
-     if (config.footer.css !== undefined) {
-       footer.css = config.footer.css.replace(/__APP_VERSION__/g, appVersion);
-     }
-     if (footer.js !== undefined || footer.css !== undefined) {
-       options.footer = footer;
-     }
-   }
-   options.define = finalDefine;
-   return options;
- }
- export async function processTarget(
-   targetName: string,
-   config: TargetConfig,
-   appVersion: string,
-   esbuildBuildFn: (options: any) => Promise<any>,
-   listAssetsFn?: (distDir: string) => Promise<string[]>
- ): Promise<void> {
-   console.log(`\n${"=".repeat(60)}`);
-   console.log(`🎯 PROCESSANDO ALVO: ${targetName.toUpperCase()}`);
-   console.log(`${"=".repeat(60)}`);
-   if (config.clean && config.clean.length > 0) {
-     await cleanTarget(config.distdir, config.clean);
-   }
-   await copyStaticFiles(config, appVersion);
-   const esbuildOptions = await buildEsbuildOptions(
-     targetName,
-     config,
-     appVersion,
-     listAssetsFn
-   );
-   console.log(`🔨 Compilando com esbuild...`);
-   const startTime = performance.now();
-   try {
-     const result = await esbuildBuildFn(esbuildOptions);
-     const duration = (performance.now() - startTime).toFixed(0);
-     console.log(`✅ [${targetName}] Build concluído em ${duration}ms`);
-     if (config.metafile && result.metafile) {
-       const metafilePath = join(config.distdir, `${targetName}-metafile.json`);
-       await Deno.writeTextFile(metafilePath, JSON.stringify(result.metafile, null, 2));
-       console.log(`📊 Metafile gerado: ${metafilePath}`);
-     }
-   } catch (error) {
-     console.error(`❌ Erro fatal no build [${targetName}]:`, error);
-     throw error;
-   }
- }
+import { emptyDir, ensureDir, copy, walk } from "@std/fs";
+import { join, isAbsolute } from "@std/path";
 
- // ============================================================================
+// ============================================================================
+// 📦 TIPOS
+// ============================================================================
+import type { 
+   ParsedVersion, 
+   GlobalTargetConfig, 
+   DenoBundleGlobalConfig, 
+   ParsedArgs, 
+   TargetConfig, 
+   DenoBundleTargetConfig
+ } from "../interfaces/mod.ts";
+
+// ============================================================================
+// 🔢 FUNÇÕES DE VERSÃO (puras, testáveis)
+// ============================================================================
+export function parseVersion(version: string): ParsedVersion {
+  const trimmed = version.trim();
+  if (trimmed !== version) {
+    throw new Error(`❌ Versão não pode ter espaços: ${version}`);
+  }
+  const versionWithoutHash = version.split("-")[0] ?? "";
+  if (version.includes("-") && version.endsWith("-")) {
+    throw new Error(`❌ Formato de versão inválido (hífen sem hash): ${version}`);
+  }
+  const parts = versionWithoutHash.split(".");
+  if (parts.length !== 3) {
+    throw new Error(`❌ Formato de versão inválido: ${version}`);
+  }
+  const majorStr = parts[0];
+  const minorStr = parts[1];
+  const patchStr = parts[2];
+  if (majorStr === undefined || minorStr === undefined || patchStr === undefined) {
+    throw new Error(`❌ Formato de versão inválido: ${version}`);
+  }
+  const major = parseInt(majorStr, 10);
+  const minor = parseInt(minorStr, 10);
+  const patch = parseInt(patchStr, 10);
+  if (isNaN(major) || isNaN(minor) || isNaN(patch)) {
+    throw new Error(`❌ Versão contém valores não numéricos: ${version}`);
+  }
+  return { major, minor, patch };
+}
+
+export function formatVersion(
+  major: number,
+  minor: number,
+  patch: number,
+  buildHash?: string
+): string {
+  const hash = buildHash ?? Date.now().toString(36);
+  return `${major}.${minor}.${patch}-${hash}`;
+}
+
+export function extractVersionFromContent(content: string): string | null {
+  const match = content.match(/"version"\s*:\s*"([^"]+)"/);
+  return match && match[1] ? match[1] : null;
+}
+
+export function replaceVersionInContent(content: string, newVersion: string): string {
+  return content.replace(
+    /"version"\s*:\s*"[^"]+"/,
+    `"version": "${newVersion}"`
+  );
+}
+
+// ============================================================================
+// 🛡️ VALIDAÇÃO DE PATHS (pura, testável)
+// ============================================================================
+export function isSafePath(cleanPath: string): boolean {
+  if (cleanPath.includes("..")) return false;
+  if (isAbsolute(cleanPath)) return false;
+  return true;
+}
+
+// ============================================================================
+// 🎯 VALIDAÇÃO DE CONFIGURAÇÃO DO ALVO (fail-fast com mensagens claras)
+// ============================================================================
+/**
+ * Valida se a configuração do alvo possui os campos obrigatórios para as operações solicitadas.
+ * Lança erro com mensagem didática indicando exatamente qual condição falhou.
+ * 
+ * Regras de obrigatoriedade:
+ * - 'distdir' é obrigatório quando 'publicdir' está configurado, 'indexHtml' é true, ou 'outfile' não está configurado
+ * - 'srcdir' é obrigatório quando 'indexHtml' é true ou quando 'entryPoints' contém paths relativos
+ */
+export function validateTargetConfig(
+  targetName: string, 
+  config: TargetConfig | DenoBundleTargetConfig
+): void {
+  const reasons: string[] = [];
+  
+  // Validação de distdir
+  if (config.publicdir && !config.distdir) {
+    reasons.push("'publicdir' está configurado (necessário 'distdir' para copiar arquivos estáticos)");
+  }
+  if (config.indexHtml === true && !config.distdir) {
+    reasons.push("'indexHtml' é true (necessário 'distdir' para copiar o HTML)");
+  }
+  if (!config.outfile && !config.distdir) {
+    reasons.push("'outfile' não está configurado (necessário 'distdir' para usar como 'outdir')");
+  }
+  
+  // Validação de srcdir
+  if (config.indexHtml === true && !config.srcdir) {
+    reasons.push("'indexHtml' é true (necessário 'srcdir' para copiar o HTML)");
+  }
+  
+  // Verifica se algum entrypoint é relativo e srcdir não existe
+  if (!config.srcdir && config.entryPoints && config.entryPoints.length > 0) {
+    const hasRelativeEntry = config.entryPoints.some(entry => !isAbsolute(entry));
+    if (hasRelativeEntry) {
+      reasons.push("'entryPoints' contém caminhos relativos (necessário 'srcdir' para resolver)");
+    }
+  }
+  
+  if (reasons.length > 0) {
+    const missingFields: string[] = [];
+    if (!config.distdir && reasons.some(r => r.includes("'distdir'"))) missingFields.push("'distdir'");
+    if (!config.srcdir && reasons.some(r => r.includes("'srcdir'"))) missingFields.push("'srcdir'");
+    
+    throw new Error(
+      `❌ [${targetName}] Configuração incompleta.\n` +
+      `   Campos obrigatórios faltando: ${missingFields.join(", ")}\n` +
+      `   Motivos:\n` +
+      reasons.map(r => `   - ${r}`).join('\n') +
+      `\n   Por favor, configure os campos necessários no alvo '${targetName}'.`
+    );
+  }
+}
+
+// ============================================================================
+// 📍 RESOLUÇÃO DE OUTPUT PATHS (outfile relativo ao distdir)
+// ============================================================================
+/**
+ * Resolve os caminhos de saída (outfile/outdir) baseado na configuração.
+ * 
+ * Regras:
+ * 1. Se 'outfile' e 'distdir' existem: outfile é RELATIVO ao distdir → join(distdir, outfile)
+ * 2. Se apenas 'outfile' existe (sem distdir): outfile é ABSOLUTO
+ * 3. Se apenas 'distdir' existe (sem outfile): distdir é usado como outdir
+ * 4. Se nenhum existe: retorna objeto vazio (não deveria acontecer se validateTargetConfig foi chamado)
+ * 
+ * @returns Objeto com 'outfile' ou 'outdir' resolvidos (nunca ambos)
+ */
+export function resolveOutputPaths(
+  config: TargetConfig | DenoBundleTargetConfig
+): { outfile?: string; outdir?: string } {
+  if (config.outfile) {
+    if (config.distdir) {
+      // outfile relativo ao distdir
+      return { outfile: join(config.distdir, config.outfile) };
+    }
+    // outfile absoluto (sem distdir)
+    return { outfile: config.outfile };
+  }
+  // Sem outfile, usa distdir como outdir
+  if (config.distdir) {
+    return { outdir: config.distdir };
+  }
+  // Nem outfile nem distdir (não deveria chegar aqui se validateTargetConfig foi chamado)
+  return {};
+}
+
+// ============================================================================
+// 🎯 RESOLUÇÃO DE ENTRYPOINTS (relativo ao srcdir quando disponível)
+// ============================================================================
+/**
+ * Resolve os entrypoints relativos ao srcdir (se disponível) e valida sua existência no disco.
+ * Lança um erro claro e didático se algum arquivo não for encontrado.
+ * 
+ * Se srcdir não está configurado, trata todos os entrypoints como absolutos.
+ */
+export function resolveEntryPoints(
+  srcdir: string | undefined, 
+  entryPoints: string[]
+): string[] {
+  return entryPoints.map((entry) => {
+    let resolvedPath: string;
+    
+    if (srcdir && !isAbsolute(entry)) {
+      // srcdir existe e entry é relativo → faz join
+      resolvedPath = join(srcdir, entry);
+    } else {
+      // srcdir não existe OU entry já é absoluto → usa como está
+      resolvedPath = entry;
+    }
+    
+    try {
+      Deno.statSync(resolvedPath);
+    } catch {
+      throw new Error(
+        `❌ Entrypoint não encontrado em: "${resolvedPath}"\n` +
+        `   Origem configurada: "${entry}"\n` +
+        (srcdir ? `   Verifique se o caminho está correto em relação ao srcdir: "${srcdir}".` : 
+                  `   Verifique se o caminho absoluto está correto.`)
+      );
+    }
+    
+    return resolvedPath;
+  });
+}
+
+// ============================================================================
+// 🎯 PARSING DE ARGUMENTOS CLI (pura, testável)
+// ============================================================================
+export function parseArgs(args: string[], config: GlobalTargetConfig | DenoBundleGlobalConfig): ParsedArgs {
+  const lowerArgs = args.map(a => a.toLowerCase());
+  const globalNoVersion = lowerArgs.includes('noversion');
+  const isWatchFlag = lowerArgs.includes('watch');
+  const configKeys = Object.keys(config);
+  const defaultTargets = configKeys.filter(t => {
+    const cfg = config[t]!;
+    return cfg.mode !== 'watch' && cfg.default !== false;
+  });
+  const requestedTargets = lowerArgs.filter(
+    arg => !['noversion', 'watch'].includes(arg) && configKeys.includes(arg)
+  );
+  let watchTarget: string | null = null;
+  if (isWatchFlag) {
+    watchTarget = configKeys.find(t => config[t]!.mode === 'watch') ?? null;
+  } else if (requestedTargets.length > 0) {
+    const requestedWatches = requestedTargets.filter(t => config[t]!.mode === 'watch');
+    if (requestedWatches.length > 0) {
+      watchTarget = configKeys.find(t => requestedWatches.includes(t)) ?? null;
+    }
+  }
+  let finalTargets: string[];
+  if (watchTarget !== null) {
+    finalTargets = [];
+  } else if (requestedTargets.length > 0) {
+    finalTargets = configKeys.filter(t => requestedTargets.includes(t));
+  } else {
+    finalTargets = defaultTargets;
+  }
+  return { targets: finalTargets, globalNoVersion, watchTarget };
+}
+
+// ============================================================================
+// 📂 FUNÇÕES DE FILESYSTEM
+// ============================================================================
+export async function cleanTarget(distDir: string, cleanPaths: string[]): Promise<void> {
+  if (!cleanPaths || cleanPaths.length === 0) return;
+  console.log(`🧹 Limpando em ${distDir}...`);
+  for (const cleanPath of cleanPaths) {
+    if (!isSafePath(cleanPath)) {
+      console.warn(`   ⚠️ Path perigoso ignorado (traversal/absoluto): "${cleanPath}"`);
+      continue;
+    }
+    if (cleanPath === ".") {
+      try {
+        await emptyDir(distDir);
+        console.log(`   ✅ Diretório esvaziado: ${distDir}`);
+      } catch (error) {
+        console.warn(`   ⚠️ Falha ao esvaziar ${distDir}:`, error);
+      }
+    } else {
+      const fullPath = join(distDir, cleanPath);
+      try {
+        await Deno.stat(fullPath);
+        await Deno.remove(fullPath, { recursive: true });
+        console.log(`   ✅ Removido: ${cleanPath}`);
+      } catch {
+        console.log(`   ⏭️  Não existia: ${cleanPath}`);
+      }
+    }
+  }
+}
+
+export async function currentVersion(denoJsoncPath: string): Promise<string> {
+  const content = await Deno.readTextFile(denoJsoncPath);
+  const version = extractVersionFromContent(content);
+  if (!version) {
+    throw new Error("❌ Versão não encontrada no deno.jsonc");
+  }
+  console.log(`📌 Versão Atual: v${version}`);
+  return version;
+}
+
+export async function incrementVersion(
+  version: string,
+  denoJsoncPath: string,
+  buildHash?: string
+): Promise<string> {
+  const { major, minor, patch } = parseVersion(version);
+  const nextPatch = patch + 1;
+  const newVersion = formatVersion(major, minor, nextPatch, buildHash);
+  let content = await Deno.readTextFile(denoJsoncPath);
+  content = replaceVersionInContent(content, newVersion);
+  await Deno.writeTextFile(denoJsoncPath, content);
+  console.log(`📈 Versão incrementada para: v${newVersion}`);
+  return newVersion;
+}
+
+export async function listAssetsForCache(
+  distDir: string,
+  excludeFiles: string[] = []
+): Promise<string[]> {
+  // 🔥 CORREÇÃO: Verifica se distDir foi fornecido antes de tentar caminhar
+  if (!distDir) {
+    console.warn(`⚠️ 'listAssetsForCache' chamado sem 'distDir'. Retornando array vazio.`);
+    return [];
+  }
+  
+  const assets: string[] = [];
+  const exclude = new Set([...excludeFiles, 'service-worker.js', 'service-worker.tmp.js']);
+  for await (const entry of walk(distDir, { includeDirs: false })) {
+    if (
+      !entry.name.endsWith(".map") &&
+      !entry.name.endsWith("metafile.json") &&
+      !exclude.has(entry.name)
+    ) {
+      let webPath = entry.path.replace(distDir, "").replace(/\\/g, "/");
+      webPath = webPath.startsWith('/') ? '.' + webPath : './' + webPath;
+      assets.push(webPath);
+    }
+  }
+  return assets;
+}
+
+export async function copyStaticFiles(
+  config: TargetConfig | DenoBundleTargetConfig,
+  appVersion: string
+): Promise<void> {
+  // 🔥 CORREÇÃO: Valida distdir e srcdir antes de operações
+  if (!config.distdir) {
+    if (config.publicdir) {
+      console.warn(`⚠️ 'publicdir' configurado mas 'distdir' ausente. Pulando cópia de estáticos.`);
+    }
+    if (config.indexHtml) {
+      console.warn(`⚠️ 'indexHtml' é true mas 'distdir' ausente. Pulando cópia do HTML.`);
+    }
+    return;
+  }
+  
+  if (config.indexHtml && !config.srcdir) {
+    console.warn(`⚠️ 'indexHtml' é true mas 'srcdir' ausente. Pulando cópia do HTML.`);
+    return;
+  }
+  
+  const distDir = config.distdir;
+  await ensureDir(distDir);
+  
+  if (config.publicdir) {
+    try {
+      await copy(config.publicdir, distDir, { overwrite: true });
+      console.log(`📁 Arquivos de ${config.publicdir} copiados para ${distDir}`);
+      const manifestPath = join(distDir, "manifest.json");
+      try {
+        const manifestText = await Deno.readTextFile(manifestPath);
+        const manifestObj = JSON.parse(manifestText);
+        manifestObj.version = appVersion;
+        await Deno.writeTextFile(manifestPath, JSON.stringify(manifestObj, null, 2));
+        console.log(`📱 Versão v${appVersion} injetada em manifest.json`);
+      } catch {
+        // manifest.json não existe
+      }
+    } catch {
+      console.log(`⚠️ Pasta ${config.publicdir} não encontrada, pulando cópia.`);
+    }
+  }
+  
+  if (config.indexHtml && config.srcdir) {
+    const srcDir = config.srcdir;
+    const srcHtml = join(srcDir, "index.html");
+    const destHtml = join(distDir, "index.html");
+    try {
+      await copy(srcHtml, destHtml, { overwrite: true });
+      console.log(`📄 index.html copiado de ${srcDir} para ${distDir}`);
+    } catch {
+      console.log(`⚠️ ${srcHtml} não encontrado, pulando cópia do HTML.`);
+    }
+  }
+}
+
+// ============================================================================
+// 🛠️ FUNÇÕES DE ESBUILD
+// ============================================================================
+export async function buildEsbuildOptions(
+  targetName: string,
+  config: TargetConfig,
+  appVersion: string,
+  listAssetsFn?: (distDir: string) => Promise<string[]>
+): Promise<any> {
+  const finalDefine: Record<string, string> = {
+    ...config.define,
+    __APP_VERSION__: JSON.stringify(`v${appVersion}`),
+  };
+  
+  // 🔥 CORREÇÃO: Só lista assets se distdir existe
+  if (targetName === "sw" && listAssetsFn && config.distdir) {
+    const assets = await listAssetsFn(config.distdir);
+    finalDefine["__GENERATED_ASSETS__"] = JSON.stringify(assets);
+    console.log(`📋 ${assets.length} assets listados para cache do SW`);
+  }
+
+  // 🔥 RESOLUÇÃO DE ENTRYPOINTS (srcdir opcional)
+  const resolvedEntryPoints = resolveEntryPoints(config.srcdir, config.entryPoints);
+
+  // 🔥 RESOLUÇÃO DE OUTPUT PATHS (outfile relativo ao distdir)
+  const { outfile, outdir } = resolveOutputPaths(config);
+
+  // deno-lint-ignore no-explicit-any
+  const options: any = {
+    entryPoints: resolvedEntryPoints,
+  };
+  
+  // 🔥 CORREÇÃO: Usa outfile resolvido ou outdir
+  if (outfile) {
+    options.outfile = outfile;
+  } else if (outdir) {
+    options.outdir = outdir;
+  }
+  
+  const optionalProps = [
+    'platform', 'format', 'bundle', 'minify', 'sourcemap', 'jsx',
+    'jsxImportSource', 'conditions', 'external', 'drop', 'metafile',
+    'write', 'treeShaking', 'legalComments', 'keepNames', 'splitting',
+    'loader', 'alias', 'inject', 'target', 'charset', 'logLevel',
+    'logLimit', 'logOverride', 'entryNames', 'chunkNames', 'assetNames',
+    'publicPath', 'pure', 'plugins'
+  ];
+  for (const prop of optionalProps) {
+    // deno-lint-ignore no-explicit-any
+    if ((config as any)[prop] !== undefined) {
+      // deno-lint-ignore no-explicit-any
+      (options as any)[prop] = (config as any)[prop];
+    }
+  }
+  
+  // 🔥 CORREÇÃO: Construção segura de banner
+  if (config.banner !== undefined) {
+    const banner: { js?: string; css?: string } = {};
+    if (config.banner.js !== undefined) {
+      banner.js = config.banner.js.replace(/__APP_VERSION__/g, appVersion);
+    }
+    if (config.banner.css !== undefined) {
+      banner.css = config.banner.css.replace(/__APP_VERSION__/g, appVersion);
+    }
+    if (banner.js !== undefined || banner.css !== undefined) {
+      options.banner = banner;
+    }
+  }
+  
+  // 🔥 CORREÇÃO: Construção segura de footer
+  if (config.footer !== undefined) {
+    const footer: { js?: string; css?: string } = {};
+    if (config.footer.js !== undefined) {
+      footer.js = config.footer.js.replace(/__APP_VERSION__/g, appVersion);
+    }
+    if (config.footer.css !== undefined) {
+      footer.css = config.footer.css.replace(/__APP_VERSION__/g, appVersion);
+    }
+    if (footer.js !== undefined || footer.css !== undefined) {
+      options.footer = footer;
+    }
+  }
+  
+  options.define = finalDefine;
+  return options;
+}
+
+export async function processTarget(
+  targetName: string,
+  config: TargetConfig,
+  appVersion: string,
+  // deno-lint-ignore no-explicit-any
+  esbuildBuildFn: (options: any) => Promise<any>,
+  listAssetsFn?: (distDir: string) => Promise<string[]>
+): Promise<void> {
+  // 🔥 VALIDAÇÃO FAIL-FAST: Verifica configuração ANTES de qualquer operação
+  validateTargetConfig(targetName, config);
+  
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`🎯 PROCESSANDO ALVO: ${targetName.toUpperCase()}`);
+  console.log(`${"=".repeat(60)}`);
+  
+  if (config.clean && config.clean.length > 0) {
+    // 🔥 CORREÇÃO: Só limpa se distdir existe
+    if (config.distdir) {
+      await cleanTarget(config.distdir, config.clean);
+    } else {
+      console.warn(`⚠️ 'clean' configurado mas 'distdir' ausente. Pulando limpeza.`);
+    }
+  }
+  
+  await copyStaticFiles(config, appVersion);
+  
+  const esbuildOptions = await buildEsbuildOptions(
+    targetName,
+    config,
+    appVersion,
+    listAssetsFn
+  );
+  
+  console.log(`🔨 Compilando com esbuild...`);
+  const startTime = performance.now();
+  
+  try {
+    const result = await esbuildBuildFn(esbuildOptions);
+    const duration = (performance.now() - startTime).toFixed(0);
+    console.log(`✅ [${targetName}] Build concluído em ${duration}ms`);
+    
+    // 🔥 CORREÇÃO: Só salva metafile se distdir existe
+    if (config.metafile && result.metafile && config.distdir) {
+      const metafilePath = join(config.distdir, `${targetName}-metafile.json`);
+      await Deno.writeTextFile(metafilePath, JSON.stringify(result.metafile, null, 2));
+      console.log(`📊 Metafile gerado: ${metafilePath}`);
+    }
+  } catch (error) {
+    console.error(`❌ Erro fatal no build [${targetName}]:`, error);
+    throw error;
+  }
+}
+
+// ============================================================================
 // 📦 RE-EXPORT DO MÓDULO BUNDLE (Deno.bundle API)
 // ============================================================================
 export * from "./bundle.ts";
@@ -5210,7 +5726,7 @@ export * from "./bundle.ts";
 
 ## Arquivo: `monorepo/utils/src/esbuild/bundle.ts`
 
-````ts
+```ts
 /// <reference lib="deno.ns" />
 /**
  * @module @loco/utils/build/bundle
@@ -5227,42 +5743,25 @@ export * from "./bundle.ts";
  * - Sem plugins customizados
  * - Define via regex (menos preciso que AST transform)
  */
-
 import { ensureDir } from "@std/fs";
-
 // ============================================================================
 // 📦 TIPOS
 // ============================================================================
 import type { DenoBundleTargetConfig } from "../interfaces/mod.ts";
-
 // ============================================================================
 // 📂 FUNÇÕES COMPARTILHADAS (reimportadas do mod.ts)
 // ============================================================================
-import { cleanTarget, copyStaticFiles } from "./mod.ts";
+import { 
+  cleanTarget, 
+  copyStaticFiles, 
+  resolveEntryPoints, 
+  resolveOutputPaths,
+  validateTargetConfig 
+} from "./mod.ts";
 
 // ============================================================================
 // 🔧 APLICAÇÃO DE DEFINES (em memória, antes de salvar)
 // ============================================================================
-
-/**
- * Aplica substituições de 'define' no conteúdo textual de um OutputFile.
- *
- * Recebe o texto bruto do bundle (via OutputFile.text()) e retorna
- * uma versão com todos os defines substituídos.
- *
- * @param text - Conteúdo textual do bundle
- * @param defines - Mapa de identificador → valor de substituição
- * @returns Texto com defines aplicados
- *
- * @example
- * ```typescript
- * const modified = applyDefines(
- *   'console.log(__APP_VERSION__)',
- *   { '__APP_VERSION__': '"v1.0.0"' }
- * );
- * // resultado: 'console.log("v1.0.0")'
- * ```
- */
 export function applyDefines(
   text: string,
   defines: Record<string, string>,
@@ -5280,29 +5779,27 @@ export function applyDefines(
 // ============================================================================
 // 🛠️ CONSTRUÇÃO DAS OPÇÕES DO DENO.BUNDLE
 // ============================================================================
-
-/**
- * Constrói as opções para Deno.bundle() a partir da config do alvo.
- *
- * ⚠️ IMPORTANTE: write é SEMPRE false.
- * Queremos receber os OutputFiles em memória para aplicar
- * defines antes de salvar no disco.
- */
 export function buildBundleOptions(
   config: DenoBundleTargetConfig,
 ): Deno.bundle.Options {
+  // 🔥 RESOLUÇÃO DE ENTRYPOINTS (srcdir opcional)
+  const resolvedEntryPoints = resolveEntryPoints(config.srcdir, config.entryPoints);
+
+  // 🔥 RESOLUÇÃO DE OUTPUT PATHS (outfile relativo ao distdir)
+  const { outfile, outdir } = resolveOutputPaths(config);
+
   const options: Deno.bundle.Options = {
-    entrypoints: config.entryPoints,
+    entrypoints: resolvedEntryPoints,
     write: false, // 🔥 SEMPRE false — salvamos manualmente após injetar defines
   };
-
-  // Saída: outfile (single file) ou outputDir (múltiplos)
-  if (config.outfile !== undefined) {
-    options.outputPath = config.outfile;
-  } else {
-    options.outputDir = config.distdir;
+  
+  // 🔥 CORREÇÃO: Usa outputPath resolvido ou outputDir
+  if (outfile) {
+    options.outputPath = outfile;
+  } else if (outdir) {
+    options.outputDir = outdir;
   }
-
+  
   // Propriedades opcionais repassadas diretamente
   if (config.platform !== undefined) options.platform = config.platform;
   if (config.format !== undefined) options.format = config.format;
@@ -5317,66 +5814,58 @@ export function buildBundleOptions(
   }
   if (config.packages !== undefined) options.packages = config.packages;
   if (config.external !== undefined) options.external = config.external;
-
+  
   return options;
 }
 
 // ============================================================================
 // 🎯 PROCESSAMENTO DE ALVO (Deno.bundle)
 // ============================================================================
-
-/**
- * Processa um alvo completo usando Deno.bundle:
- * clean → copy → bundle → define → write
- *
- * Fluxo:
- * 1. Limpa diretório de saída (se configurado)
- * 2. Copia arquivos estáticos (public/, index.html)
- * 3. Executa Deno.bundle() com write: false
- * 4. Verifica erros e warnings do resultado
- * 5. Para cada OutputFile:
- *    a. Obtém conteúdo via .text()
- *    b. Aplica defines (substituição textual)
- *    c. Salva arquivo no disco
- */
 export async function processBundleTarget(
   targetName: string,
   config: DenoBundleTargetConfig,
   appVersion: string,
   listAssetsFn?: (distDir: string) => Promise<string[]>,
 ): Promise<void> {
+  // 🔥 VALIDAÇÃO FAIL-FAST: Verifica configuração ANTES de qualquer operação
+  validateTargetConfig(targetName, config);
+  
   console.log(`\n${"=".repeat(60)}`);
   console.log(`🎯 PROCESSANDO ALVO: ${targetName.toUpperCase()}`);
   console.log(`${"=".repeat(60)}`);
-
+  
   // 1. Limpar diretório de saída
   if (config.clean && config.clean.length > 0) {
-    await cleanTarget(config.distdir, config.clean);
+    // 🔥 CORREÇÃO: Só limpa se distdir existe
+    if (config.distdir) {
+      await cleanTarget(config.distdir, config.clean);
+    } else {
+      console.warn(`⚠️ 'clean' configurado mas 'distdir' ausente. Pulando limpeza.`);
+    }
   }
-
+  
   // 2. Copiar arquivos estáticos
   await copyStaticFiles(config, appVersion);
-
+  
   // 3. Preparar defines
   const defines: Record<string, string> = {
     ...config.define,
     __APP_VERSION__: JSON.stringify(`v${appVersion}`),
   };
-
-  // Para o SW, precisamos listar assets ANTES do bundle
-  // (os assets são gerados pelos builds anteriores: ui, worker)
-  if (targetName === "sw" && listAssetsFn) {
+  
+  // 🔥 CORREÇÃO: Só lista assets se distdir existe
+  if (targetName === "sw" && listAssetsFn && config.distdir) {
     const assets = await listAssetsFn(config.distdir);
     defines["__GENERATED_ASSETS__"] = JSON.stringify(assets);
     console.log(`📋 ${assets.length} assets listados para cache do SW`);
   }
-
+  
   // 4. Executar bundle
   console.log(`🔨 Compilando com Deno.bundle...`);
   const startTime = performance.now();
   const bundleOptions = buildBundleOptions(config);
   const result = await Deno.bundle(bundleOptions);
-
+  
   // 5. Verificar erros
   if (!result.success) {
     console.error("❌ Erros de compilação:");
@@ -5391,7 +5880,7 @@ export async function processBundleTarget(
     }
     throw new Error(`Bundle falhou para o alvo [${targetName}]`);
   }
-
+  
   // 6. Exibir warnings (se houver)
   for (const warning of result.warnings) {
     const loc = warning.location
@@ -5399,14 +5888,14 @@ export async function processBundleTarget(
       : "";
     console.warn(`   ⚠️ ${warning.text}${loc}`);
   }
-
+  
   // 7. Processar OutputFiles: text() → applyDefines → writeTextFile
   const outputFiles = result.outputFiles ?? [];
   if (outputFiles.length === 0) {
     console.warn(`   ⚠️ Nenhum arquivo gerado pelo bundle [${targetName}]`);
     return;
   }
-
+  
   const defineKeys = Object.keys(defines);
   const hasDefines = defineKeys.length > 0;
   if (hasDefines) {
@@ -5414,7 +5903,7 @@ export async function processBundleTarget(
       `🔧 Injetando ${defineKeys.length} define(s): ${defineKeys.join(", ")}`,
     );
   }
-
+  
   for (const outputFile of outputFiles) {
     // Garante que o diretório de destino existe
     const dir = outputFile.path.substring(
@@ -5424,28 +5913,28 @@ export async function processBundleTarget(
     if (dir) {
       await ensureDir(dir);
     }
-
+    
     // Obtém conteúdo como string via .text()
     let content = outputFile.text();
-
+    
     // Aplica defines no conteúdo em memória (ANTES de salvar)
     if (hasDefines) {
       content = applyDefines(content, defines);
     }
-
+    
     // Salva o arquivo modificado no disco
     await Deno.writeTextFile(outputFile.path, content);
     console.log(
       `   📄 ${outputFile.path} (${(content.length / 1024).toFixed(1)}KB)`,
     );
   }
-
+  
   const duration = (performance.now() - startTime).toFixed(0);
   console.log(
     `✅ [${targetName}] Build concluído em ${duration}ms (${outputFiles.length} arquivo(s))`,
   );
 }
-````
+```
 
 ---
 
@@ -6004,290 +6493,280 @@ if (import.meta.main) {
 
 ```ts
 /// <reference lib="deno.ns" />
- import * as esbuild from "esbuild";
- import { denoPlugin } from "@deno/esbuild-plugin";
- import {
-   parseArgs,
-   currentVersion,
-   incrementVersion,
-   processTarget,
-   listAssetsForCache,
-   copyStaticFiles,
-   buildEsbuildOptions
- } from "@loco/utils/build";
- import type { GlobalTargetConfig } from "@loco/utils/interfaces";
+import * as esbuild from "esbuild";
+import { denoPlugin } from "@deno/esbuild-plugin";
+import {
+  parseArgs,
+  currentVersion,
+  incrementVersion,
+  processTarget,
+  listAssetsForCache,
+  copyStaticFiles,
+  buildEsbuildOptions
+} from "@loco/utils/build";
+import type { GlobalTargetConfig } from "@loco/utils/interfaces";
 
-  const DENO_JSONC_PATH = "deno.jsonc";
- 
- // ============================================================================
- // 🔌 WRAPPER ESBUILD COM PLUGIN DENO
- // ============================================================================
- /**
-  * Wrapper que injeta o @deno/esbuild-plugin automaticamente em todas as builds.
-  *
-  * Isso permite que o esbuild nativo resolva imports no estilo Deno:
-  * - jsr:@std/...
-  * - npm:package@version
-  * - https://esm.sh/...
-  *
-  * A injeção é feita aqui (no script específico do projeto) e não no
-  * @loco/utils/build para manter o pacote de utils genérico e reutilizável.
-  */
- const buildWithDenoPlugin = async (options: any): Promise<any> => {
-   options.plugins = [...(options.plugins || []), denoPlugin({ "configPath" : DENO_JSONC_PATH })];
-   return esbuild.build(options);
- };
- 
- // ============================================================================
- // 📦 CONFIGURAÇÃO DECLARATIVA DE BUILDS (específica do Loco)
- // ============================================================================
- const CONFIG: GlobalTargetConfig = {
-   // ------------------------------------------------------------------
-   // 🎯 ALVOS DE BUILD (rodam por padrão)
-   // ------------------------------------------------------------------
-   ui: {
-     mode: 'build',
-     default: true,
-     srcdir: "monorepo/ui/src",
-     distdir: "monorepo/server/build/dist",
-     publicdir: "monorepo/ui/public",
-     indexHtml: true,
-     clean: ["."],
-     entryPoints: ["monorepo/ui/src/app.tsx"],
-     platform: "browser",
-     format: "esm",
-     bundle: true,
-     minify: false,
-     sourcemap: "linked",
-     conditions: ["browser"],
-     drop: ["debugger"],
-     jsx: "automatic",
-     jsxImportSource: "preact",
-     metafile: true,
-     write: true,
-     legalComments: "none",
-     banner: {
-       js: `/* Loco v__APP_VERSION__ */\n`,
-     },
-   },
-   worker: {
-     mode: 'build',
-     default: true,
-     srcdir: "monorepo/ui/src",
-     distdir: "monorepo/server/build/dist",
-     clean: ["opfs.worker.js", "opfs.worker.js.map"],
-     entryPoints: ["monorepo/ui/src/worker/opfs.worker.ts"],
-     platform: "browser",
-     format: "iife",
-     bundle: true,
-     minify: false,
-     sourcemap: "linked",
-     drop: ["debugger"],
-     conditions: ["worker"],
-     metafile: true,
-     write: true,
-     legalComments: "none",
-     banner: {
-       js: `/* Loco v__APP_VERSION__ */\n`,
-     },
-   },
-   sw: {
-     mode: 'build',
-     default: true,
-     srcdir: "monorepo/service-worker/src",
-     distdir: "monorepo/server/build/dist",
-     clean: ["service-worker.js", "service-worker.js.map"],
-     entryPoints: ["monorepo/service-worker/src/service-worker.ts"],
-     platform: "browser",
-     format: "iife",
-     bundle: true,
-     minify: false,
-     sourcemap: "linked",
-     drop: ["debugger"],
-     conditions: ["worker"],
-     metafile: true,
-     write: true,
-     legalComments: "none",
-     banner: {
-       js: `/* Loco v__APP_VERSION__ */\n`,
-     },
-   },
-   server: {
+const DENO_JSONC_PATH = "deno.jsonc";
+
+// ============================================================================
+// 🔌 WRAPPER ESBUILD COM PLUGIN DENO
+// ============================================================================
+// deno-lint-ignore no-explicit-any
+const buildWithDenoPlugin = (options: any): Promise<any> => {
+  options.plugins = [...(options.plugins || []), denoPlugin({ "configPath" : DENO_JSONC_PATH })];
+  return esbuild.build(options);
+};
+
+// ============================================================================
+// 📦 CONFIGURAÇÃO DECLARATIVA DE BUILDS (específica do Loco)
+// ============================================================================
+const CONFIG: GlobalTargetConfig = {
+  // ------------------------------------------------------------------
+  // 🎯 ALVOS DE BUILD (rodam por padrão)
+  // ------------------------------------------------------------------
+  ui: {
     mode: 'build',
-     default: true,
-     srcdir: "monorepo/server/src",
-     distdir: "monorepo/server/build",
-     clean: ["worker.js", "worker.js.map", "functions"],
-     entryPoints: [
-        "monorepo/server/src/worker.ts", 
-        "monorepo/server/src/functions/ping.ts",
-        "monorepo/server/src/functions/publickey.ts",
-        "monorepo/server/src/functions/push.ts",
-      ],
-     platform: "browser",
-     format: "esm",
-     bundle: true,
-     minify: false,
-     sourcemap: "linked",
-     drop: ["debugger"],
-     conditions: ["worker"],
-     metafile: true,
-     write: true,
-     legalComments: "none",
-     indexHtml: false,
-     keepNames: true,
-     splitting: false,
-     banner: {
-       js: `/* Loco v__APP_VERSION__ */\n`,
-     },
-   },
-   // ------------------------------------------------------------------
-   // 👀 ALVOS WATCH (modo de desenvolvimento contínuo)
-   // ------------------------------------------------------------------
-   'watch': {
-     mode: 'watch',
-     default: false,
-     srcdir: "monorepo/ui/src",
-     distdir: "monorepo/server/build/dist",
-     publicdir: "monorepo/ui/public",
-     indexHtml: true,
-     entryPoints: ["monorepo/ui/src/app.tsx"],
-     platform: "browser",
-     format: "esm",
-     bundle: true,
-     minify: false,
-     sourcemap: "inline",
-     conditions: ["browser"],
-     jsx: "automatic",
-     jsxImportSource: "preact",
-     write: true,
-     legalComments: "none",
-     outfile: "monorepo/server/build/dist/app.js",
-     banner: {
-       js: `/* Loco v__APP_VERSION__ */\n`,
-     },
-   },
-   playground: {
-     mode: 'watch',
-     default: false,
-     srcdir: "monorepo/playground/src",
-     distdir: "monorepo/playground/build/dist",
-     publicdir: "monorepo/playground/public",
-     indexHtml: true,
-     clean: ["."],
-     entryPoints: ["monorepo/playground/src/main.tsx"],
-     outfile: "monorepo/playground/build/dist/main.js",
-     platform: "browser",
-     format: "esm",
-     bundle: true,
-     minify: false,
-     sourcemap: "inline",
-     conditions: ["browser"],
-     drop: ["debugger"],
-     jsx: "automatic",
-     jsxImportSource: "preact",
-     metafile: true,
-     write: true,
-     legalComments: "none",
-     banner: {
-       js: `/* Loco Playground v__APP_VERSION__ */\n`,
-     },
-   },
- };
- 
- // ============================================================================
- // 🚀 PIPELINE PRINCIPAL
- // ============================================================================
+    default: true,
+    srcdir: "monorepo/ui/src",
+    distdir: "monorepo/server/build/dist",
+    publicdir: "monorepo/ui/public",
+    indexHtml: true,
+    clean: ["."],
+    entryPoints: ["app.tsx"],
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    sourcemap: "linked",
+    conditions: ["browser"],
+    drop: ["debugger"],
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    metafile: true,
+    write: true,
+    legalComments: "none",
+    keepNames: true,
+    splitting: false,
+    banner: {
+      js: `/* Loco v__APP_VERSION__ */\n`,
+    },
+  },
+  worker: {
+    mode: 'build',
+    default: true,
+    srcdir: "monorepo/ui/src",
+    distdir: "monorepo/server/build/dist",
+    clean: ["opfs.worker.js", "opfs.worker.js.map"],
+    entryPoints: ["worker-opfs/opfs.worker.ts"],
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    sourcemap: "linked",
+    drop: ["debugger"],
+    conditions: ["worker"],
+    metafile: true,
+    write: true,
+    legalComments: "none",
+    keepNames: true,
+    splitting: false,
+    banner: {
+      js: `/* Loco v__APP_VERSION__ */\n`,
+    },
+  },
+  sw: {
+    mode: 'build',
+    default: true,
+    srcdir: "monorepo/service-worker/src",
+    distdir: "monorepo/server/build/dist",
+    clean: ["service-worker.js", "service-worker.js.map"],
+    entryPoints: ["service-worker.ts"],
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    sourcemap: "linked",
+    drop: ["debugger"],
+    conditions: ["worker"],
+    metafile: true,
+    write: true,
+    legalComments: "none",
+    keepNames: true,
+    splitting: false,
+    banner: {
+      js: `/* Loco v__APP_VERSION__ */\n`,
+    },
+  },
+  server: {
+   mode: 'build',
+    default: true,
+    srcdir: "monorepo/server/src",
+    distdir: "monorepo/server/build",
+    clean: ["worker.js", "worker.js.map", "functions"],
+    entryPoints: [
+       "worker.ts", 
+       "functions/ping.ts",
+       "functions/publickey.ts",
+       "functions/push.ts",
+     ],
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    sourcemap: "linked",
+    drop: ["debugger"],
+    conditions: ["worker"],
+    metafile: true,
+    write: true,
+    legalComments: "none",
+    indexHtml: false,
+    keepNames: true,
+    splitting: false,
+    banner: {
+      js: `/* Loco v__APP_VERSION__ */\n`,
+    },
+  },
+  // ------------------------------------------------------------------
+  // 👀 ALVOS WATCH (modo de desenvolvimento contínuo)
+  // ------------------------------------------------------------------
+  'watch': {
+    mode: 'watch',
+    default: false,
+    srcdir: "monorepo/ui/src",
+    distdir: "monorepo/server/build/dist",
+    publicdir: "monorepo/ui/public",
+    indexHtml: true,
+    entryPoints: ["app.tsx"],
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    sourcemap: "inline",
+    conditions: ["browser"],
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    write: true,
+    legalComments: "none",
+    // 🔥 CORREÇÃO: outfile agora é RELATIVO ao distdir
+    outfile: "app.js",
+    banner: {
+      js: `/* Loco v__APP_VERSION__ */\n`,
+    },
+  },
+  playground: {
+    mode: 'watch',
+    default: false,
+    srcdir: "monorepo/playground/src",
+    distdir: "monorepo/playground/build/dist",
+    publicdir: "monorepo/playground/public",
+    indexHtml: true,
+    clean: ["."],
+    entryPoints: ["main.tsx"],
+    // 🔥 CORREÇÃO: outfile agora é RELATIVO ao distdir
+    outfile: "main.js",
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: false,
+    sourcemap: "inline",
+    conditions: ["browser"],
+    drop: ["debugger"],
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    metafile: true,
+    write: true,
+    legalComments: "none",
+    banner: {
+      js: `/* Loco Playground v__APP_VERSION__ */\n`,
+    },
+  },
+};
 
- 
- async function build() {
-   const start = performance.now();
-   const { targets, globalNoVersion, watchTarget } = parseArgs(Deno.args, CONFIG);
- 
-   console.log("\n🚀 Iniciando Orquestrador de Build Loco (esbuild nativo + @deno/esbuild-plugin)");
-   if (watchTarget) {
-     console.log(`👀 Modo Watch ativo: ${watchTarget}`);
-   } else {
-     console.log(`📋 Alvos de build (ordem segura do CONFIG): ${targets.join(", ") || "(nenhum)"}`);
-   }
-   console.log(`🔒 Noversion: ${globalNoVersion}\n`);
- 
-   try {
-     // Obter versão atual
-     const currentVer = await currentVersion(DENO_JSONC_PATH);
- 
-     // Modo watch: apenas o alvo watch é executado
-     if (watchTarget) {
-       await startWatchMode(watchTarget, currentVer);
-       return;
-     }
- 
-     // Build normal: incrementa versão (se aplicável)
-     const finalVersion = globalNoVersion
-       ? currentVer
-       : await incrementVersion(currentVer, DENO_JSONC_PATH);
- 
-     // Processar cada alvo de build
-     for (const targetName of targets) {
-       const targetConfig = CONFIG[targetName];
-       if (!targetConfig) {
-         console.warn(`⚠️ Alvo '${targetName}' não encontrado no CONFIG. Pulando.`);
-         continue;
-       }
- 
-       await processTarget(
-         targetName,
-         targetConfig,
-         finalVersion,
-         buildWithDenoPlugin,
-         listAssetsForCache
-       );
-     }
- 
-     console.log(`\n${"=".repeat(60)}`);
-     console.log(`🎉 ORQUESTRAÇÃO CONCLUÍDA COM SUCESSO!`);
-     console.log(`${"=".repeat(60)}`);
-   } catch (error) {
-     console.error("\n🛑 Pipeline de build falhou:", error);
-     Deno.exit(1);
-   } finally {
-     const elapsed = (performance.now() - start).toFixed(0);
-     console.log(`\n⏱️ Tempo total: ${elapsed}ms\n`);
-   }
- }
- 
- async function startWatchMode(watchTargetName: string, currentVer: string) {
-   const config = CONFIG[watchTargetName];
-   if (!config) {
-     throw new Error(`❌ Alvo watch '${watchTargetName}' não encontrado no CONFIG`);
-   }
- 
-   console.log(`\n👀 Iniciando Watch Mode: ${watchTargetName}\n`);
- 
-   // Copiar arquivos estáticos uma vez
-   await copyStaticFiles(config, currentVer);
- 
-   // Construir opções do esbuild
-   const esbuildOptions = await buildEsbuildOptions(watchTargetName, config, currentVer);
- 
-   // 🔥 INJETAR PLUGIN DENO
-   esbuildOptions.plugins = [...(esbuildOptions.plugins || []), denoPlugin()];
- 
-   // Criar contexto e ativar watch
-   const ctx = await esbuild.context(esbuildOptions);
-   await ctx.watch();
- 
-   console.log("\n✅ Watch mode ativo!");
-   console.log(`📁 Monitorando: ${config.srcdir}/`);
-   console.log(`📦 Output: ${config.outfile || config.distdir}/`);
-   console.log(`📌 Versão: v${currentVer}`);
-   console.log("\n💡 Pressione Ctrl+C para parar.\n");
- 
-   // Mantém o processo vivo
-   await new Promise(() => {});
- }
- 
- await build();
+// ============================================================================
+// 🚀 PIPELINE PRINCIPAL
+// ============================================================================
+async function build() {
+  const start = performance.now();
+  const { targets, globalNoVersion, watchTarget } = parseArgs(Deno.args, CONFIG);
+  
+  console.log("\n🚀 Iniciando Orquestrador de Build Loco (esbuild nativo + @deno/esbuild-plugin)");
+  if (watchTarget) {
+    console.log(`👀 Modo Watch ativo: ${watchTarget}`);
+  } else {
+    console.log(`📋 Alvos de build (ordem segura do CONFIG): ${targets.join(", ") || "(nenhum)"}`);
+  }
+  console.log(`🔒 Noversion: ${globalNoVersion}\n`);
+
+  try {
+    const currentVer = await currentVersion(DENO_JSONC_PATH);
+
+    if (watchTarget) {
+      await startWatchMode(watchTarget, currentVer);
+      return;
+    }
+
+    const finalVersion = globalNoVersion
+      ? currentVer
+      : await incrementVersion(currentVer, DENO_JSONC_PATH);
+
+    for (const targetName of targets) {
+      const targetConfig = CONFIG[targetName];
+      if (!targetConfig) {
+        console.warn(`⚠️ Alvo '${targetName}' não encontrado no CONFIG. Pulando.`);
+        continue;
+      }
+      
+      await processTarget(
+        targetName,
+        targetConfig,
+        finalVersion,
+        buildWithDenoPlugin,
+        listAssetsForCache
+      );
+    }
+
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`🎉 ORQUESTRAÇÃO CONCLUÍDA COM SUCESSO!`);
+    console.log(`${"=".repeat(60)}`);
+  } catch (error) {
+    console.error("\n🛑 Pipeline de build falhou:", error);
+    Deno.exit(1);
+  } finally {
+    const elapsed = (performance.now() - start).toFixed(0);
+    console.log(`\n⏱️ Tempo total: ${elapsed}ms\n`);
+  }
+}
+
+async function startWatchMode(watchTargetName: string, currentVer: string) {
+  const config = CONFIG[watchTargetName];
+  if (!config) {
+    throw new Error(`❌ Alvo watch '${watchTargetName}' não encontrado no CONFIG`);
+  }
+
+  console.log(`\n👀 Iniciando Watch Mode: ${watchTargetName}\n`);
+
+  await copyStaticFiles(config, currentVer);
+
+  const esbuildOptions = await buildEsbuildOptions(watchTargetName, config, currentVer);
+  
+  esbuildOptions.plugins = [...(esbuildOptions.plugins || []), denoPlugin()];
+
+  const ctx = await esbuild.context(esbuildOptions);
+  await ctx.watch();
+  
+  console.log("\n✅ Watch mode ativo!");
+  console.log(`📁 Monitorando: ${config.srcdir}/`);
+  
+  // 🔥 CORREÇÃO: Mostra o outfile resolvido (relativo ao distdir)
+  const resolvedOutfile = esbuildOptions.outfile || (config.distdir ? `${config.distdir}/` : 'N/A');
+  console.log(`📦 Output: ${resolvedOutfile}`);
+  console.log(`📌 Versão: v${currentVer}`);
+  console.log("\n💡 Pressione Ctrl+C para parar.\n");
+
+  await new Promise(() => {});
+}
+
+await build();
 ```
 
 ---
@@ -6299,21 +6778,7 @@ if (import.meta.main) {
 /**
  * @file build.ts
  * @description Build alternativo usando Deno.bundle API nativa (--unstable-bundle)
- *
- * Este é um script ALTERNATIVO ao esbuild.ts oficial do Loco.
- * Usa a API nativa Deno.bundle() sem dependências externas.
- *
- * Toda a lógica de processamento está em @loco/utils/build (bundle.ts).
- * Este arquivo contém apenas:
- * 1. CONFIG declarativo dos alvos
- * 2. Orquestração do pipeline
- *
- * Uso:
- *   deno run --unstable-bundle -A ./build.ts
- *   deno run --unstable-bundle -A ./build.ts ui sw
- *   deno run --unstable-bundle -A ./build.ts noversion
  */
-
 import {
   parseArgs,
   currentVersion,
@@ -6326,7 +6791,6 @@ import type { DenoBundleGlobalConfig } from "@loco/utils/interfaces";
 // ============================================================================
 // 📦 CONFIGURAÇÃO DECLARATIVA DE BUILDS
 // ============================================================================
-
 const CONFIG: DenoBundleGlobalConfig = {
   ui: {
     mode: "build",
@@ -6336,11 +6800,15 @@ const CONFIG: DenoBundleGlobalConfig = {
     publicdir: "monorepo/ui/public",
     indexHtml: true,
     clean: ["."],
-    entryPoints: ["monorepo/ui/src/app.tsx"],
+    entryPoints: ["app.tsx"],
     platform: "browser",
     format: "esm",
     minify: false,
     sourcemap: "linked",
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle",
+    inlineImports: true
   },
   worker: {
     mode: "build",
@@ -6348,10 +6816,16 @@ const CONFIG: DenoBundleGlobalConfig = {
     srcdir: "monorepo/ui/src",
     distdir: "monorepo/server/build/dist",
     clean: ["opfs.worker.js", "opfs.worker.js.map"],
-    entryPoints: ["monorepo/ui/src/worker/opfs.worker.ts"],
+    entryPoints: ["worker-opfs/opfs.worker.ts"],
     platform: "browser",
-    format: "iife",
+    format: "esm",
     minify: false,
+    sourcemap: "linked",
+    indexHtml: false,
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle",
+    inlineImports: true
   },
   sw: {
     mode: "build",
@@ -6359,33 +6833,39 @@ const CONFIG: DenoBundleGlobalConfig = {
     srcdir: "monorepo/service-worker/src",
     distdir: "monorepo/server/build/dist",
     clean: ["service-worker.js", "service-worker.js.map"],
-    entryPoints: ["monorepo/service-worker/src/service-worker.ts"],
+    entryPoints: ["service-worker.ts"],
     platform: "browser",
-    format: "iife",
+    format: "esm",
     minify: false,
+    sourcemap: "linked",
+    indexHtml: false,
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle",
+    inlineImports: true
   },
   server: {
-    mode: 'build',
-     default: true,
-     srcdir: "monorepo/server/src",
-     distdir: "monorepo/server/build",
-     clean: ["worker.js", "worker.js.map", "functions"],
-     entryPoints: [
-        "monorepo/server/src/worker.ts", 
-        "monorepo/server/src/functions/ping.ts",
-        "monorepo/server/src/functions/publickey.ts",
-        "monorepo/server/src/functions/push.ts",
-      ],
-     platform: "browser",
-     format: "esm",
-     minify: false,
-     sourcemap: "linked",
-     indexHtml: false,
-     keepNames: true,
-     codeSplitting: false,
-     packages: "bundle",
-     inlineImports: true,
-   },
+   mode: 'build',
+    default: true,
+    srcdir: "monorepo/server/src",
+    distdir: "monorepo/server/build",
+    clean: ["worker.js", "worker.js.map", "functions"],
+    entryPoints: [
+       "worker.ts", 
+       "functions/ping.ts",
+       "functions/publickey.ts",
+       "functions/push.ts",
+     ],
+    platform: "browser",
+    format: "esm",
+    minify: false,
+    sourcemap: "linked",
+    indexHtml: false,
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle",
+    inlineImports: true
+  },
   playground: {
     mode: "build",
     default: false,
@@ -6394,19 +6874,22 @@ const CONFIG: DenoBundleGlobalConfig = {
     publicdir: "monorepo/playground/public",
     indexHtml: true,
     clean: ["."],
-    entryPoints: ["monorepo/playground/src/main.tsx"],
-    outfile: "monorepo/playground/build/dist/main.js",
+    entryPoints: ["main.tsx"],
+    // 🔥 CORREÇÃO: outfile agora é RELATIVO ao distdir
+    outfile: "main.js",
     platform: "browser",
     format: "esm",
     minify: false,
     sourcemap: "linked",
+    keepNames: true,
+    codeSplitting: false,
+    packages: "bundle"
   },
 };
 
 // ============================================================================
 // 🚀 PIPELINE PRINCIPAL
 // ============================================================================
-
 const DENO_JSONC_PATH = "deno.jsonc";
 
 async function build() {
@@ -6419,7 +6902,6 @@ async function build() {
   console.log("\n🚀 Iniciando Orquestrador de Build Loco (Deno.bundle API)");
   console.log(`   📦 Motor: Deno.bundle (nativo, --unstable-bundle)`);
 
-  // ⚠️ Watch mode não suportado — emite aviso e encerra
   if (watchTarget) {
     console.log(
       `\n⚠️ AVISO: Modo Watch não suportado pelo Deno.bundle API.`,
@@ -6443,15 +6925,12 @@ async function build() {
   }
 
   try {
-    // Obter versão atual
     const currentVer = await currentVersion(DENO_JSONC_PATH);
 
-    // Incrementar versão (se aplicável)
     const finalVersion = globalNoVersion
       ? currentVer
       : await incrementVersion(currentVer, DENO_JSONC_PATH);
 
-    // Processar cada alvo de build na ordem do CONFIG
     for (const targetName of targets) {
       const targetConfig = CONFIG[targetName];
       if (!targetConfig) {
@@ -6461,7 +6940,6 @@ async function build() {
         continue;
       }
 
-      // Para o SW, passa a função de listagem de assets
       const listFn = targetName === "sw" ? listAssetsForCache : undefined;
       await processBundleTarget(targetName, targetConfig, finalVersion, listFn);
     }

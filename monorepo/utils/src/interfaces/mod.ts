@@ -81,8 +81,8 @@ export type * from "./db.ts";
  export interface TargetConfig {
    // --- Configurações de Pipeline (Pré/Post Build) ---
    publicdir?: string;
-   srcdir: string;
-   distdir: string;
+   srcdir?: string;
+   distdir?: string;
    indexHtml?: boolean;
    clean?: string[];
    /**
@@ -229,10 +229,10 @@ export interface DenoBundleTargetConfig {
   // ==========================================================================
 
   /** Diretório fonte (onde estão os arquivos de entrada) */
-  srcdir: string;
+  srcdir?: string;
 
   /** Diretório de destino (onde o bundle será escrito) */
-  distdir: string;
+  distdir?: string;
 
   /** Diretório de arquivos estáticos públicos (copiados para distdir) */
   publicdir?: string;

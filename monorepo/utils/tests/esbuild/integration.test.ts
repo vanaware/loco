@@ -1,5 +1,4 @@
 /// <reference lib="deno.ns" />
-
 import { describe, it } from "@std/testing/bdd";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
@@ -11,6 +10,7 @@ describe("processTarget (integração)", () => {
   it("executa pipeline completo: clean, copy, build", async () => {
     const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
       "index.html": "<html></html>",
+      "dummy.ts": "// dummy",
     });
     const { dir: publicDir, cleanup: cleanupPublic } = await withFileStructure({
       "manifest.json": `{ "name": "Loco", "version": "1.0.0" }`,
@@ -53,10 +53,13 @@ describe("processTarget (integração)", () => {
   });
 
   it("salva metafile quando gerado", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({});
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "dummy.ts": "// dummy",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({});
     try {
       const config: TargetConfig = {
-        srcdir: "src",
+        srcdir: srcDir,
         distdir: distDir,
         entryPoints: ["dummy.ts"],
         metafile: true,
@@ -73,15 +76,19 @@ describe("processTarget (integração)", () => {
       const metafile = JSON.parse(await readText(metafilePath));
       assertEquals(metafile.inputs["src/main.ts"].bytes, 100);
     } finally {
-      await cleanup();
+      await cleanupSrc();
+      await cleanupDist();
     }
   });
 
   it("não salva metafile quando metafile é false", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({});
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "dummy.ts": "// dummy",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({});
     try {
       const config: TargetConfig = {
-        srcdir: "src",
+        srcdir: srcDir,
         distdir: distDir,
         entryPoints: ["dummy.ts"],
         metafile: false,
@@ -95,15 +102,19 @@ describe("processTarget (integração)", () => {
         false
       );
     } finally {
-      await cleanup();
+      await cleanupSrc();
+      await cleanupDist();
     }
   });
 
   it("propaga erro do esbuild.build", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({});
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "dummy.ts": "// dummy",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({});
     try {
       const config: TargetConfig = {
-        srcdir: "src",
+        srcdir: srcDir,
         distdir: distDir,
         entryPoints: ["dummy.ts"],
       };
@@ -119,18 +130,22 @@ describe("processTarget (integração)", () => {
       assertEquals(caughtError !== null, true);
       assertStringIncludes(caughtError!.message, "Build failed");
     } finally {
-      await cleanup();
+      await cleanupSrc();
+      await cleanupDist();
     }
   });
 
   it("usa outfile quando especificado", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({});
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "dummy.ts": "// dummy",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({});
     try {
       const config: TargetConfig = {
-        srcdir: "src",
+        srcdir: srcDir,
         distdir: distDir,
         entryPoints: ["dummy.ts"],
-        outfile: join(distDir, "custom-name.js"),
+        outfile: "custom-name.js",
       };
       let capturedOptions: any = null;
       const mockBuild = async (options: any) => {
@@ -142,19 +157,23 @@ describe("processTarget (integração)", () => {
       assertEquals(capturedOptions.outfile, join(distDir, "custom-name.js"));
       assertEquals(capturedOptions.outdir, undefined);
     } finally {
-      await cleanup();
+      await cleanupSrc();
+      await cleanupDist();
     }
   });
 
   it("lida com SW injetando assets via listFn", async () => {
-    const { dir: distDir, cleanup } = await withFileStructure({
+    const { dir: srcDir, cleanup: cleanupSrc } = await withFileStructure({
+      "sw.ts": "// sw",
+    });
+    const { dir: distDir, cleanup: cleanupDist } = await withFileStructure({
       "app.js": "code",
       "index.html": "html",
       "service-worker.js": "sw",
     });
     try {
       const config: TargetConfig = {
-        srcdir: "src",
+        srcdir: srcDir,
         distdir: distDir,
         entryPoints: ["sw.ts"],
       };
@@ -165,16 +184,15 @@ describe("processTarget (integração)", () => {
       };
       const mockListFn = async () => ["./app.js", "./index.html"];
       await processTarget("sw", config, "1.0.0", mockBuild, mockListFn);
-      
       // 🔥 CORREÇÃO: Tratamento explícito de undefined (noUncheckedIndexedAccess)
       const generatedAssets = capturedDefine["__GENERATED_ASSETS__"]!;
       const appVersion = capturedDefine["__APP_VERSION__"]!;
-      
       const assets = JSON.parse(generatedAssets);
       assertEquals(assets, ["./app.js", "./index.html"]);
       assertStringIncludes(appVersion, "v1.0.0");
     } finally {
-      await cleanup();
+      await cleanupSrc();
+      await cleanupDist();
     }
   });
 });
