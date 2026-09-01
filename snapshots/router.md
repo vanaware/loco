@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: ROUTER
 
-Gerado automaticamente em: 8/30/2026, 9:18:49 AM
+Gerado automaticamente em: 9/1/2026, 7:38:41 AM
 
 ---
 
@@ -146,6 +146,124 @@ function defaultDenoMimeTypeResolver(ext: string): string | undefined {
 
 ---
 
+## Arquivo: `monorepo/router/src/adapters/deno-serve-dir.ts`
+
+```ts
+// monorepo/router/src/adapters/deno-serve-dir.ts
+// 🦕 Adaptador Deno ALTERNATIVO — usa serveDir do @std/http/file-server
+// Mantém containment + recusa de symlinks, mas delega o serving para o std.
+// Ganhos: Range Requests, ETag/If-None-Match (304), HEAD nativo, menos código.
+
+import { serveDir } from "@std/http/file-server";
+import { resolve } from "@std/path";
+import type { StaticFileHandler } from "../mod.ts";
+
+// Re-exporta o mesmo upgrader WebSocket do adaptador principal
+export { denoWebSocketUpgrader } from "./deno.ts";
+
+export interface DenoServeDirOptions {
+  /** Permitir arquivos que começam com '.' (default: false) */
+  allowDotfiles?: boolean;
+  /** Mostrar listagem de diretórios (default: false) */
+  showDirListing?: boolean;
+  /** Habilitar CORS nos arquivos estáticos (default: false) */
+  enableCors?: boolean;
+}
+
+/**
+ * Cria um handler de arquivos estáticos usando serveDir do @std/http.
+ *
+ * Vantagens sobre o adaptador manual (deno.ts):
+ * - Range Requests (vídeo, áudio, PDFs grandes)
+ * - ETag + If-None-Match → 304 Not Modified
+ * - Last-Modified + If-Modified-Since → 304
+ * - HEAD automático
+ * - Menos código para manter
+ *
+ * Desvantagens:
+ * - Cache-Control fixo (não customizável por arquivo)
+ * - Formato do ETag é interno do std
+ * - Dependência extra: @std/http
+ */
+export function createDenoServeDirStaticFileHandler(
+  staticDir: string | null,
+  embeddedDir: string | null = null,
+  options: DenoServeDirOptions = {},
+): StaticFileHandler {
+  const {
+    allowDotfiles = false,
+    showDirListing = false,
+    enableCors = false,
+  } = options;
+
+  return {
+    async handle(path: string): Promise<Response | null> {
+      // Tenta embedded primeiro, depois static (mesma lógica do adaptador manual)
+      if (embeddedDir) {
+        const res = await tryServeWithStd(
+          embeddedDir, path, allowDotfiles, showDirListing, enableCors,
+        );
+        if (res) return res;
+      }
+      if (staticDir) {
+        const res = await tryServeWithStd(
+          staticDir, path, allowDotfiles, showDirListing, enableCors,
+        );
+        if (res) return res;
+      }
+      return null;
+    },
+  };
+}
+
+async function tryServeWithStd(
+  baseDir: string,
+  pathname: string,
+  allowDotfiles: boolean,
+  showDirListing: boolean,
+  enableCors: boolean,
+): Promise<Response | null> {
+  // 🛡️ CONTAINMENT: resolver caminho e verificar que está dentro de baseDir
+  const fullPath = resolve(baseDir, "." + pathname);
+  const resolvedBase = resolve(baseDir);
+
+  if (!fullPath.startsWith(resolvedBase + "/") && fullPath !== resolvedBase) {
+    return null; // Path tenta escapar do diretório
+  }
+
+  // 🛡️ SYMLINKS: recusar symlinks (mesma política do adaptador manual)
+  try {
+    const info = await Deno.lstat(fullPath);
+    if (info.isSymlink) {
+      console.warn(`[Static] Symlink recusado: ${fullPath}`);
+      return null;
+    }
+  } catch {
+    // Arquivo não existe — serveDir retornará 404, retornamos null
+    return null;
+  }
+
+  // 🚀 Delega para serveDir (Range, ETag, 304, HEAD, etc.)
+  const fakeReq = new Request(`http://localhost${pathname}`);
+  const res = await serveDir(fakeReq, {
+    fsRoot: baseDir,
+    urlRoot: "",
+    showDirListing,
+    showDotfiles: allowDotfiles,
+    showIndex: true,
+    quiet: true,
+    enableCors,
+  });
+
+  // serveDir retorna 404 quando não encontra
+  if (res.status === 404) return null;
+
+  return res;
+}
+```
+
+---
+
 ## Arquivo: `monorepo/router/src/deno.ts`
 
 ```ts
@@ -205,11 +323,112 @@ export { denoWebSocketUpgrader, createDenoStaticFileHandler } from "./adapters/d
 
 ---
 
+## Arquivo: `monorepo/router/src/deno-serve-dir.ts`
+
+```ts
+// monorepo/router/src/deno-serve-dir.ts
+// 🦕 Entry point ALTERNATIVO para Deno — usa serveDir do @std/http
+// Importe assim: import { createDenoServeDirRouter } from "@loco/router/deno-serve-dir";
+
+import { Router } from "./mod.ts";
+import {
+  denoWebSocketUpgrader,
+  createDenoServeDirStaticFileHandler,
+  type DenoServeDirOptions,
+} from "./adapters/deno-serve-dir.ts";
+
+export interface DenoServeDirRouterOptions {
+  basePath?: string;
+  staticDir?: string | null;
+  embeddedDir?: string | null;
+  forceHttps?: boolean;
+  trustProxy?: boolean;
+  allowDotfiles?: boolean;
+  lastBroadcastDelay?: number;
+  /** Opções específicas do serveDir */
+  serveDir?: {
+    showDirListing?: boolean;
+    enableCors?: boolean;
+  };
+}
+
+/**
+ * Cria um Router pré-configurado para Deno usando serveDir do @std/http.
+ *
+ * Diferença para createDenoRouter():
+ * - Usa serveDir (Range, ETag/304, HEAD nativos)
+ * - Cache-Control é fixo (não customizável)
+ * - Requer dependência @std/http
+ *
+ * Use createDenoRouter() se precisar de controle total sobre headers.
+ */
+export function createDenoServeDirRouter(
+  basePathOrOptions: string | DenoServeDirRouterOptions = "",
+  staticDir: string | null = "public",
+  embeddedDir: string | null = null,
+  forceHttps: boolean = false,
+  lastBroadcastDelay?: number,
+): Router {
+  let options: DenoServeDirRouterOptions;
+  if (typeof basePathOrOptions === "string") {
+    options = {
+      basePath: basePathOrOptions,
+      staticDir,
+      embeddedDir,
+      forceHttps,
+      lastBroadcastDelay,
+    };
+  } else {
+    options = basePathOrOptions;
+  }
+
+  const {
+    basePath = "",
+    staticDir: sDir = null,
+    embeddedDir: eDir = null,
+    forceHttps: fHttps = false,
+    trustProxy = false,
+    allowDotfiles = false,
+    lastBroadcastDelay: lDelay,
+    serveDir: serveDirOpts = {},
+  } = options;
+
+  const staticOptions: DenoServeDirOptions = {
+    allowDotfiles,
+    showDirListing: serveDirOpts.showDirListing ?? false,
+    enableCors: serveDirOpts.enableCors ?? false,
+  };
+
+  const router = new Router({
+    basePath,
+    forceHttps: fHttps,
+    trustProxy,
+    allowDotfiles,
+    lastBroadcastDelay: lDelay,
+    webSocketUpgrader: denoWebSocketUpgrader,
+    staticFileHandler: sDir || eDir
+      ? createDenoServeDirStaticFileHandler(sDir, eDir, staticOptions)
+      : undefined,
+  });
+  return router;
+}
+
+// Re-exporta tudo do core
+export * from "./mod.ts";
+export {
+  denoWebSocketUpgrader,
+  createDenoServeDirStaticFileHandler,
+  type DenoServeDirOptions,
+} from "./adapters/deno-serve-dir.ts";
+```
+
+---
+
 ## Arquivo: `monorepo/router/src/mod.ts`
 
 ```ts
 // monorepo/router/src/mod.ts
-// ⚡ CORE AGNÓSTICO — Fase 3: Segurança reforçada
+// ⚡ CORE AGNÓSTICO — Fase 3: Segurança reforçada + Workers
 
 import { normalize } from "@std/path";
 
@@ -223,24 +442,25 @@ export type HttpHandler = (
 ) =>
   | { body: BodyInit; init?: ResponseInit }
   | Promise<{ body: BodyInit; init?: ResponseInit }>;
-
 export type WsHandler = (
   ws: WebSocket,
   req: Request,
   params: RouteParams,
 ) => void | Promise<void>;
-
 export type PermissionFn = (
   receiverParams: RouteParams,
   senderParams: RouteParams,
   message: string,
 ) => boolean;
-
 export type Middleware = (
   req: Request,
   params: RouteParams,
   next: (newReq?: Request) => Promise<Response>,
 ) => Promise<Response> | Response;
+
+// 🆕 WORKER HANDLER: função simples que recebe Request e retorna Response
+// O env/ctx ficam capturados no closure pelo usuário
+export type WorkerHandler = (req: Request) => Promise<Response>;
 
 // ============================================================
 // 🌐 INTERFACES DE ABSTRAÇÃO
@@ -248,7 +468,6 @@ export type Middleware = (
 export interface WebSocketUpgrader {
   upgrade(req: Request): { socket: WebSocket; response: Response };
 }
-
 export interface StaticFileHandler {
   handle(path: string): Promise<Response | null>;
 }
@@ -257,12 +476,11 @@ export interface StaticFileHandler {
 // OPÇÕES DO ROUTER
 // ============================================================
 export const DEFAULT_LAST_BROADCAST_DELAY = 0;
-
 export interface RouterOptions {
   basePath?: string;
   forceHttps?: boolean;
-  trustProxy?: boolean; // 🚀 NOVO: Confiança em X-Forwarded-Proto
-  allowDotfiles?: boolean; // 🚀 NOVO: Permitir .env, .git, etc.
+  trustProxy?: boolean;
+  allowDotfiles?: boolean;
   lastBroadcastDelay?: number;
   webSocketUpgrader?: WebSocketUpgrader;
   staticFileHandler?: StaticFileHandler;
@@ -276,13 +494,11 @@ interface HttpRoute {
   pattern: URLPattern;
   handler: HttpHandler;
 }
-
 interface WsRoute {
   pattern: URLPattern;
   handler: WsHandler;
   group: WebSocketGroup;
 }
-
 interface LastBroadcast {
   message: string;
   permissionFn?: PermissionFn;
@@ -297,10 +513,10 @@ export class Router {
   private httpRoutes: HttpRoute[] = [];
   private wsRoutes: WsRoute[] = [];
   private middlewares: Middleware[] = [];
+  private workers: WorkerHandler[] = []; // 🆕 Workers
   private webSockets = new Map<WebSocket, { group: WebSocketGroup }>();
   private webSocketUpgrader?: WebSocketUpgrader;
   private staticFileHandler?: StaticFileHandler;
-  
   public forceHttps: boolean;
   public trustProxy: boolean;
   public allowDotfiles: boolean;
@@ -320,7 +536,6 @@ export class Router {
     this.webSocketUpgrader = upgrader;
     return this;
   }
-
   setStaticFileHandler(handler: StaticFileHandler): this {
     this.staticFileHandler = handler;
     return this;
@@ -330,11 +545,9 @@ export class Router {
     if (!p || p === "/") return "";
     return "/" + p.replace(/^\/+|\/+$/g, "");
   }
-
   private normalizePath(p: string): string {
     return p.startsWith("/") ? p : "/" + p;
   }
-
   private stripBase(pathname: string): string {
     if (!this.basePath) return pathname;
     if (pathname === this.basePath) return "/";
@@ -343,28 +556,23 @@ export class Router {
     }
     return pathname;
   }
-
   private isLocalhost(req: Request): boolean {
     const url = new URL(req.url);
     const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
     return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
   }
-
   private shouldForceHttps(req: Request): boolean {
     if (!this.forceHttps) return false;
     if (this.isLocalhost(req)) return false;
-    
     if (this.trustProxy) {
       const protoHeader = req.headers.get("x-forwarded-proto");
       const forwardedProto = protoHeader ? protoHeader.split(",")[0]?.trim() : undefined;
       if (forwardedProto === "https") return false;
     }
-    
     const url = new URL(req.url);
     if (url.protocol === "https:") return false;
     return true;
   }
-
   private buildHttpsUrl(req: Request): string {
     const url = new URL(req.url);
     url.protocol = "https:";
@@ -379,19 +587,19 @@ export class Router {
     const pattern = new URLPattern({ pathname: patternPath });
     this.httpRoutes.push({ method: method.toUpperCase(), pattern, handler });
   }
-
   private addWsRoute(path: string, handler: WsHandler) {
     const patternPath = this.normalizePath(path);
     const pattern = new URLPattern({ pathname: patternPath });
-    
     if (this.wsRoutes.some(r => r.pattern.pathname === patternPath)) {
       throw new Error(`Duplicate WebSocket route pattern: ${patternPath}`);
     }
-    
     const group = new WebSocketGroup(this.lastBroadcastDelay);
     this.wsRoutes.push({ pattern, handler, group });
   }
 
+  // ============================================================
+  // REGISTRO DE ROTAS
+  // ============================================================
   use(middleware: Middleware): this { this.middlewares.push(middleware); return this; }
   get(path: string, handler: HttpHandler): this { this.addHttpRoute("GET", path, handler); return this; }
   post(path: string, handler: HttpHandler): this { this.addHttpRoute("POST", path, handler); return this; }
@@ -402,6 +610,18 @@ export class Router {
   head(path: string, handler: HttpHandler): this { this.addHttpRoute("HEAD", path, handler); return this; }
   ws(path: string, handler: WsHandler): this { this.addWsRoute(path, handler); return this; }
 
+  // 🆕 REGISTRO DE WORKERS
+  // Workers são fallbacks programáveis executados ANTES de static files
+  // mas DEPOIS de rotas HTTP/WS e verificação 405.
+  // Múltiplos workers formam uma cadeia: se um retorna 404, o próximo é tentado.
+  worker(handler: WorkerHandler): this {
+    this.workers.push(handler);
+    return this;
+  }
+
+  // ============================================================
+  // BUSCA DE ROTAS
+  // ============================================================
   private findHttpRoute(req: Request): { route: HttpRoute; params: RouteParams } | null {
     const adjustedUrl = new URL(req.url);
     adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
@@ -414,7 +634,6 @@ export class Router {
     }
     return null;
   }
-
   private findWsRoute(req: Request): { route: WsRoute; params: RouteParams } | null {
     const adjustedUrl = new URL(req.url);
     adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
@@ -427,6 +646,26 @@ export class Router {
     return null;
   }
 
+  // ============================================================
+  // 🆕 EXECUÇÃO DOS WORKERS (CADEIA DE FALLBACK)
+  // ============================================================
+  private async tryWorkers(req: Request): Promise<Response | null> {
+    for (const worker of this.workers) {
+      try {
+        const res = await worker(req);
+        // Se o worker retornar 404, tentamos o próximo worker
+        if (res.status !== 404) return res;
+      } catch (err) {
+        console.error("[Router] Worker error:", err);
+        // Continua para o próximo worker em caso de erro
+      }
+    }
+    return null; // Nenhum worker tratou a request
+  }
+
+  // ============================================================
+  // EXECUÇÃO DOS HANDLERS
+  // ============================================================
   private async executeHttpHandler(
     req: Request,
     route: HttpRoute,
@@ -439,18 +678,15 @@ export class Router {
       const isNullBodyStatus = result.init?.status &&
         [101, 204, 205, 304].includes(result.init.status);
       const finalBody = (isHead || isNullBodyStatus) ? null : result.body;
-
       if (finalBody === null && result.body instanceof ReadableStream) {
         try { await (result.body as ReadableStream).cancel(); } catch {}
       }
-
       return new Response(finalBody, result.init);
     } catch (error) {
       console.error(`[Router] Error in ${req.method} ${route.pattern.pathname}:`, error);
       return new Response("Internal Server Error", { status: 500 });
     }
   }
-
   private async executeWsHandler(
     req: Request,
     route: WsRoute,
@@ -459,10 +695,8 @@ export class Router {
     if (!this.webSocketUpgrader) {
       return new Response("WebSocket not supported", { status: 501 });
     }
-
     let socket: WebSocket;
     let response: Response;
-
     try {
       const upgraded = this.webSocketUpgrader.upgrade(req);
       socket = upgraded.socket;
@@ -471,16 +705,13 @@ export class Router {
       console.error("[Router] WebSocket upgrade failed:", err);
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
-
     route.group.addSocket(socket, params);
     this.webSockets.set(socket, { group: route.group });
     route.group.sendLastBroadcastTo(socket, params);
-
     const cleanup = () => {
       this.webSockets.delete(socket);
       route.group.removeSocket(socket);
     };
-
     if (typeof socket.addEventListener === "function") {
       socket.addEventListener("close", cleanup);
       socket.addEventListener("error", (ev) => {
@@ -491,7 +722,6 @@ export class Router {
       socket.onclose = cleanup;
       socket.onerror = (ev) => { console.error(`WebSocket error:`, ev); cleanup(); };
     }
-
     try {
       await route.handler(socket, req, params);
     } catch (error) {
@@ -500,10 +730,12 @@ export class Router {
         socket.close(1011, "Internal Server Error");
       }
     }
-
     return response;
   }
 
+  // ============================================================
+  // HANDLER PRINCIPAL COM MIDDLEWARES
+  // ============================================================
   async handleRequest(req: Request): Promise<Response> {
     if (this.shouldForceHttps(req)) {
       const httpsUrl = this.buildHttpsUrl(req);
@@ -515,30 +747,24 @@ export class Router {
         },
       });
     }
-
     let isWs = req.headers.get("upgrade")?.toLowerCase() === "websocket";
     let found = isWs ? this.findWsRoute(req) : this.findHttpRoute(req);
-    
     const isHttps = new URL(req.url).protocol === "https:";
     const hstsHeader: Record<string, string> = {};
     if (this.forceHttps && isHttps) {
       hstsHeader["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
     }
-
     let index = 0;
     let currentReq = req;
-
     const executeChain = async (): Promise<Response> => {
       if (index < this.middlewares.length) {
         const mw = this.middlewares[index++];
         if (!mw) return this.executeFinalHandler(currentReq, isWs, found, hstsHeader);
-        
         try {
           let nextHasBeenCalled = false;
           const result = await mw(currentReq, found?.params ?? {}, async (newReq?: Request) => {
             if (nextHasBeenCalled) throw new Error("next() called multiple times");
             nextHasBeenCalled = true;
-            
             if (newReq) {
               currentReq = newReq;
               isWs = currentReq.headers.get("upgrade")?.toLowerCase() === "websocket";
@@ -554,7 +780,6 @@ export class Router {
       }
       return this.executeFinalHandler(currentReq, isWs, found, hstsHeader);
     };
-
     return await executeChain();
   }
 
@@ -564,6 +789,7 @@ export class Router {
     found: { route: HttpRoute | WsRoute; params: RouteParams } | null,
     extraHeaders: Record<string, string> = {},
   ): Promise<Response> {
+    // 1. WebSocket
     if (isWs) {
       if (!found) return new Response("WebSocket Not Found", { status: 404 });
       const res = await this.executeWsHandler(req, found.route as WsRoute, found.params);
@@ -571,9 +797,9 @@ export class Router {
       return res;
     }
 
+    // 2. HEAD automático baseado em GET
     let httpFound = found as { route: HttpRoute; params: RouteParams } | null;
     let isHeadFromGet = false;
-
     if (!httpFound && req.method === "HEAD") {
       const fakeGetReq = new Request(req.url, { method: "GET", headers: req.headers });
       const getFound = this.findHttpRoute(fakeGetReq);
@@ -583,18 +809,19 @@ export class Router {
       }
     }
 
+    // 3. Rota HTTP encontrada
     if (httpFound) {
       const res = await this.executeHttpHandler(req, httpFound.route, httpFound.params, isHeadFromGet);
       for (const [k, v] of Object.entries(extraHeaders)) res.headers.set(k, v);
       return res;
     }
 
+    // 4. Verificação 405 Method Not Allowed
     const adjustedUrl = new URL(req.url);
     adjustedUrl.pathname = this.stripBase(adjustedUrl.pathname);
     const allowedMethods = this.httpRoutes
       .filter(r => r.pattern.exec(adjustedUrl))
       .map(r => r.method);
-    
     if (allowedMethods.length > 0 && !allowedMethods.includes(req.method)) {
       return new Response("Method Not Allowed", {
         status: 405,
@@ -602,6 +829,14 @@ export class Router {
       });
     }
 
+    // 🆕 5. TRY WORKERS (fallback programável antes de static)
+    const workerRes = await this.tryWorkers(req);
+    if (workerRes) {
+      for (const [k, v] of Object.entries(extraHeaders)) workerRes.headers.set(k, v);
+      return workerRes;
+    }
+
+    // 6. Static files (apenas GET/HEAD)
     if (req.method === "GET" || req.method === "HEAD") {
       const staticRes = await this.handleStaticFile(req);
       if (staticRes.status !== 404) {
@@ -617,20 +852,18 @@ export class Router {
       }
     }
 
+    // 7. 404 Not Found
     return new Response("Not Found", { status: 404, headers: extraHeaders });
   }
 
   private async handleStaticFile(req: Request): Promise<Response> {
     if (!this.staticFileHandler) return new Response("Not Found", { status: 404 });
-    
     const { pathname } = new URL(req.url);
     const adjustedPathname = this.stripBase(pathname);
     const safePath = normalize(adjustedPathname).replace(/^(\.\.[/\\])+/, "");
-
     if (!this.allowDotfiles && safePath.split("/").some(segment => segment.startsWith("."))) {
       return new Response("Not Found", { status: 404 });
     }
-
     const response = await this.staticFileHandler.handle(safePath);
     return response ?? new Response("Not Found", { status: 404 });
   }
@@ -644,7 +877,6 @@ export class Router {
     }
     this.webSockets.clear();
   }
-
   getWsGroupByPath(pathOrPattern: string): WebSocketGroup | undefined {
     const targetPath = this.normalizePath(pathOrPattern);
     for (const route of this.wsRoutes) {
@@ -654,14 +886,12 @@ export class Router {
     }
     return undefined;
   }
-
   closeGroupByPath(path: string): boolean {
     const group = this.getWsGroupByPath(path);
     if (!group) return false;
     group.closeGroup();
     return true;
   }
-
   private extractParams(groups: Record<string, string | undefined>): RouteParams {
     const params: RouteParams = {};
     const catches: string[] = [];
@@ -682,15 +912,12 @@ export class WebSocketGroup {
   private sockets = new Map<WebSocket, RouteParams>();
   private lastBroadcast: LastBroadcast | null = null;
   private lastBroadcastDelay: number;
-
   constructor(lastBroadcastDelay: number = DEFAULT_LAST_BROADCAST_DELAY) {
     this.lastBroadcastDelay = lastBroadcastDelay;
   }
-
   addSocket(ws: WebSocket, params: RouteParams) { this.sockets.set(ws, params); }
   removeSocket(ws: WebSocket) { this.sockets.delete(ws); }
   get size(): number { return this.sockets.size; }
-
   sendLastBroadcastTo(ws: WebSocket, receiverParams: RouteParams) {
     const broadcast = this.lastBroadcast;
     if (!broadcast) return;
@@ -705,7 +932,6 @@ export class WebSocketGroup {
       } catch (err) { console.error("Last broadcast error:", err); }
     }, this.lastBroadcastDelay);
   }
-
   broadcast(message: string, permissionFn?: PermissionFn, senderParams?: RouteParams) {
     this.lastBroadcast = { message, permissionFn, senderParams: senderParams ?? {} };
     for (const [socket, receiverParams] of this.sockets.entries()) {
@@ -717,7 +943,6 @@ export class WebSocketGroup {
       } catch (err) { console.error("Broadcast error:", err); }
     }
   }
-
   closeGroup() {
     for (const [socket] of this.sockets.entries()) {
       if (socket.readyState === WebSocket.OPEN) socket.close(1000, "Group is being closed");
@@ -3146,6 +3371,343 @@ Deno.test("createDenoRouter com forceHttps ignora localhost", async () => {
 
 ---
 
+## Arquivo: `monorepo/router/tests/adapters_serve_dir_test.ts`
+
+```ts
+// monorepo/router/tests/adapters_serve_dir_test.ts
+import { assertEquals, assert } from "@std/assert";
+import { createDenoServeDirRouter } from "../src/deno-serve-dir.ts";
+
+Deno.test("createDenoServeDirRouter serve arquivos", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(`${tmpDir}/hello.txt`, "hello world");
+  const app = createDenoServeDirRouter({ basePath: "", staticDir: tmpDir });
+  const req = new Request("http://localhost/hello.txt");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "hello world");
+  await Deno.remove(tmpDir, { recursive: true });
+});
+
+Deno.test("createDenoServeDirRouter bloqueia dotfiles", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(`${tmpDir}/.env`, "SECRET=123");
+  const app = createDenoServeDirRouter({ basePath: "", staticDir: tmpDir });
+  const req = new Request("http://localhost/.env");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 404);
+  await Deno.remove(tmpDir, { recursive: true });
+});
+```
+
+---
+
+## Arquivo: `monorepo/router/tests/worker_test.ts`
+
+```ts
+// monorepo/router/tests/worker_test.ts
+import { assertEquals, assert } from "@std/assert";
+import { createDenoRouter } from "../src/deno.ts";
+
+// ============================================================
+// 1. WORKER BÁSICO
+// ============================================================
+Deno.test("Worker: trata request quando rota não existe", async () => {
+  const app = createDenoRouter({ basePath: "", staticDir: null });
+
+  app.worker(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/api/hello") {
+      return new Response(JSON.stringify({ message: "from worker" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response("Not Found", { status: 404 });
+  });
+
+  const req = new Request("http://localhost/api/hello");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  const data = await res.json();
+  assertEquals(data.message, "from worker");
+});
+
+Deno.test("Worker: retorna 404 quando worker não trata", async () => {
+  const app = createDenoRouter({ basePath: "", staticDir: null });
+
+  app.worker(async (_req) => {
+    return new Response("Not Found", { status: 404 });
+  });
+
+  const req = new Request("http://localhost/unknown");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 404);
+});
+
+// ============================================================
+// 2. MÚLTIPLOS WORKERS (CADEIA DE FALLBACK)
+// ============================================================
+Deno.test("Worker: múltiplos workers em cadeia", async () => {
+  const app = createDenoRouter({ basePath: "", staticDir: null });
+  const order: string[] = [];
+
+  // Worker 1: trata /api/v1
+  app.worker(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname.startsWith("/api/v1")) {
+      order.push("worker1");
+      return new Response("v1 response");
+    }
+    order.push("worker1-skip");
+    return new Response("Not Found", { status: 404 });
+  });
+
+  // Worker 2: trata /api/v2
+  app.worker(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname.startsWith("/api/v2")) {
+      order.push("worker2");
+      return new Response("v2 response");
+    }
+    order.push("worker2-skip");
+    return new Response("Not Found", { status: 404 });
+  });
+
+  // Testa /api/v1 → worker1 trata
+  const req1 = new Request("http://localhost/api/v1/data");
+  const res1 = await app.handleRequest(req1);
+  assertEquals(res1.status, 200);
+  assertEquals(await res1.text(), "v1 response");
+
+  // Testa /api/v2 → worker1 pula, worker2 trata
+  const req2 = new Request("http://localhost/api/v2/data");
+  const res2 = await app.handleRequest(req2);
+  assertEquals(res2.status, 200);
+  assertEquals(await res2.text(), "v2 response");
+
+  // Testa /unknown → ambos pulam → 404
+  const req3 = new Request("http://localhost/unknown");
+  const res3 = await app.handleRequest(req3);
+  assertEquals(res3.status, 404);
+});
+
+// ============================================================
+// 3. WORKER COM ROTAS HTTP (PRIORIDADE)
+// ============================================================
+Deno.test("Worker: rotas HTTP têm prioridade sobre workers", async () => {
+  const app = createDenoRouter({ basePath: "", staticDir: null });
+
+  // Rota HTTP registrada
+  app.get("/api/data", () => ({
+    body: "from route",
+  }));
+
+  // Worker que também trataria /api/data
+  app.worker(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/api/data") {
+      return new Response("from worker");
+    }
+    return new Response("Not Found", { status: 404 });
+  });
+
+  const req = new Request("http://localhost/api/data");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  // A rota HTTP deve ganhar, não o worker
+  assertEquals(await res.text(), "from route");
+});
+
+// ============================================================
+// 4. WORKER COM STATIC FILES (ORDEM)
+// ============================================================
+Deno.test("Worker: workers executam ANTES de static files", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(`${tmpDir}/test.txt`, "from static");
+
+  const app = createDenoRouter({ basePath: "", staticDir: tmpDir });
+
+  // Worker que trata /test.txt (mesmo path do arquivo estático)
+  app.worker(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/test.txt") {
+      return new Response("from worker");
+    }
+    return new Response("Not Found", { status: 404 });
+  });
+
+  const req = new Request("http://localhost/test.txt");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  // Worker deve ganhar sobre static
+  assertEquals(await res.text(), "from worker");
+
+  await Deno.remove(tmpDir, { recursive: true });
+});
+
+Deno.test("Worker: se worker retorna 404, static é tentado", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(`${tmpDir}/hello.txt`, "from static");
+
+  const app = createDenoRouter({ basePath: "", staticDir: tmpDir });
+
+  // Worker que NÃO trata /hello.txt
+  app.worker(async (_req) => {
+    return new Response("Not Found", { status: 404 });
+  });
+
+  const req = new Request("http://localhost/hello.txt");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "from static");
+
+  await Deno.remove(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// 5. WORKER COM ERRO (RESILIÊNCIA)
+// ============================================================
+Deno.test("Worker: erro em worker não quebra a cadeia", async () => {
+  const app = createDenoRouter({ basePath: "", staticDir: null });
+
+  // Worker 1: lança erro
+  app.worker(async (_req) => {
+    throw new Error("Worker exploded!");
+  });
+
+  // Worker 2: funciona normalmente
+  app.worker(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/safe") {
+      return new Response("safe response");
+    }
+    return new Response("Not Found", { status: 404 });
+  });
+
+  const req = new Request("http://localhost/safe");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "safe response");
+});
+
+// ============================================================
+// 6. WORKER COM MIDDLEWARES
+// ============================================================
+Deno.test("Worker: middlewares executam antes de workers", async () => {
+  const app = createDenoRouter({ basePath: "", staticDir: null });
+  let middlewareCalled = false;
+
+  app.use(async (_req, _params, next) => {
+    middlewareCalled = true;
+    const res = await next();
+    res.headers.set("X-Middleware", "applied");
+    return res;
+  });
+
+  app.worker(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/worker-endpoint") {
+      return new Response("worker response");
+    }
+    return new Response("Not Found", { status: 404 });
+  });
+
+  const req = new Request("http://localhost/worker-endpoint");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "worker response");
+  assertEquals(middlewareCalled, true, "Middleware deve executar antes do worker");
+  assertEquals(res.headers.get("X-Middleware"), "applied");
+});
+
+// ============================================================
+// 7. WORKER COM BASEPATH
+// ============================================================
+Deno.test("Worker: funciona com basePath", async () => {
+  const app = createDenoRouter({ basePath: "/api", staticDir: null });
+
+  app.worker(async (req) => {
+    const url = new URL(req.url);
+    // O worker recebe a URL completa (com basePath)
+    if (url.pathname === "/api/proxy/data") {
+      return new Response("proxied data");
+    }
+    return new Response("Not Found", { status: 404 });
+  });
+
+  const req = new Request("http://localhost/api/proxy/data");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), "proxied data");
+});
+
+// ============================================================
+// 8. WORKER SIMULANDO workerHandler.fetch (CASO DE USO REAL)
+// ============================================================
+Deno.test("Worker: simula integração com workerHandler.fetch", async () => {
+  const app = createDenoRouter({ basePath: "", staticDir: null });
+
+  // Simula um workerHandler no estilo Cloudflare Worker
+  const workerHandler = {
+    async fetch(request: Request, _env?: any, _ctx?: any): Promise<Response> {
+      const url = new URL(request.url);
+      if (url.pathname === "/ping") {
+        return new Response(JSON.stringify({ success: true, service: "loco-proxy" }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/push" && request.method === "POST") {
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    },
+  };
+
+  // Registra o worker usando closure para capturar env/ctx
+  const env = { SOME_KEY: "value" };
+  const ctx = { waitUntil: (_p: Promise<unknown>) => {} };
+  app.worker((req) => workerHandler.fetch(req, env, ctx));
+
+  // Testa /ping
+  const req1 = new Request("http://localhost/ping", { method: "POST" });
+  const res1 = await app.handleRequest(req1);
+  assertEquals(res1.status, 200);
+  const data1 = await res1.json();
+  assertEquals(data1.success, true);
+  assertEquals(data1.service, "loco-proxy");
+
+  // Testa /push
+  const req2 = new Request("http://localhost/push", { method: "POST" });
+  const res2 = await app.handleRequest(req2);
+  assertEquals(res2.status, 200);
+
+  // Testa rota inexistente
+  const req3 = new Request("http://localhost/unknown");
+  const res3 = await app.handleRequest(req3);
+  assertEquals(res3.status, 404);
+});
+
+// ============================================================
+// 9. WORKER COM FORCE HTTPS
+// ============================================================
+Deno.test("Worker: forceHttps redireciona antes de workers", async () => {
+  const app = createDenoRouter({ basePath: "", staticDir: null, forceHttps: true });
+
+  app.worker(async (_req) => {
+    return new Response("should not reach here");
+  });
+
+  const req = new Request("http://example.com/anything");
+  const res = await app.handleRequest(req);
+  assertEquals(res.status, 301);
+  assertEquals(res.headers.get("Location"), "https://example.com/anything");
+});
+```
+
+---
+
 ## Arquivo: `monorepo/router/docs/return.md`
 
 ````md
@@ -5188,6 +5750,527 @@ Estamos abertos a contribuições! 🚀
 
 ---
 
+## Arquivo: `monorepo/router/docs/workers.md`
+
+````md
+# 🔧 Workers: Fallback Programável no Router
+
+A função `app.worker()` permite registrar **handlers genéricos de fallback** que são executados quando nenhuma rota HTTP/WS casa com a requisição, mas **antes** de tentar servir arquivos estáticos.
+
+---
+
+## 🎯 Motivação
+
+No projeto **Loco**, o pacote `@loco/server` possui um `workerHandler` no formato Cloudflare Worker (`fetch(request, env, ctx)`) que processa endpoints como `/ping`, `/push` e `/publickey`. Ao integrar o server com o router, precisamos de uma forma nativa de delegar requisições não roteadas para esse worker, sem duplicar rotas.
+
+O padrão do `main.ts` do server era:
+
+```typescript
+// 1. Tenta o worker
+const workerResponse = await workerHandler.fetch(req, env, ctx);
+
+// 2. Se o worker retornou 404, tenta static files
+if (workerResponse.status !== 404) {
+  return workerResponse;
+}
+
+// 3. Senão, serveDir
+return await serveDir(req, { fsRoot: "./build/dist" });
+```
+
+Com `app.worker()`, esse fluxo se torna nativo do router.
+
+---
+
+## 📐 Arquitetura
+
+### Tipo `WorkerHandler`
+
+```typescript
+type WorkerHandler = (req: Request) => Promise<Response>;
+```
+
+O worker é uma **função simples** que recebe um `Request` e retorna um `Promise<Response>`. Não recebe `env` nem `ctx` — esses valores ficam capturados no **closure** pelo usuário. Isso mantém o router 100% agnóstico.
+
+### Posição no Fluxo de Execução
+
+```
+Request
+  │
+  ├── forceHttps? → 301 redirect
+  │
+  ├── Middlewares (app.use)
+  │
+  ├── Rota HTTP encontrada? → executeHttpHandler
+  │
+  ├── HEAD sem rota? → tenta GET automático
+  │
+  ├── 405? → Method Not Allowed
+  │
+  ├── 🆕 Workers (app.worker) ← AQUI
+  │     ├── worker1 → 200 → retorna
+  │     ├── worker1 → 404 → worker2 → 200 → retorna
+  │     └── todos → 404 → null
+  │
+  ├── Static files (GET/HEAD apenas)
+  │
+  └── 404 Not Found
+```
+
+### Por que depois do 405 e antes do static?
+
+1. **Depois do 405:** Se uma rota existe com outro método, o comportamento HTTP correto é 405, não delegar para um worker.
+2. **Antes do static:** Workers podem implementar APIs dinâmicas. Static files são o último recurso.
+
+---
+
+## 📝 API
+
+### Registro
+
+```typescript
+app.worker(handler: WorkerHandler): this;
+```
+
+Retorna `this` para chaining. Múltiplos workers formam uma **cadeia de fallback**: se um retorna 404, o próximo é tentado.
+
+### Comportamento da Cadeia
+
+```typescript
+app.worker(worker1);  // Tentado primeiro
+app.worker(worker2);  // Tentado se worker1 retornar 404
+app.worker(worker3);  // Tentado se worker2 retornar 404
+```
+
+- Se qualquer worker retornar status **≠ 404**, a resposta é retornada imediatamente.
+- Se **todos** retornarem 404, o router prossegue para static files.
+- Se um worker **lançar exceção**, o erro é logado e o próximo worker é tentado (resiliência).
+
+### Middlewares
+
+**Sim, middlewares funcionam para workers.** Como os workers são executados dentro do `executeFinalHandler`, que é chamado pela cadeia de middlewares, qualquer middleware registrado com `app.use()` intercepta a requisição antes do worker.
+
+Isso significa que logging, CORS, autenticação e rate limiting funcionam automaticamente.
+
+---
+
+## 🌍 Exemplos Práticos
+
+### 1. Integração com workerHandler do @loco/server
+
+O caso de uso principal do projeto Loco:
+
+```typescript
+import { createDenoRouter } from "@loco/router/deno";
+import workerHandler from "@loco/server/worker";
+
+const env = Deno.env.toObject();
+const ctx = {
+  waitUntil: (p: Promise<unknown>) => { p.catch(console.error); },
+  passThroughOnException: () => {},
+};
+
+const app = createDenoRouter({
+  basePath: "",
+  staticDir: "./build/dist",
+});
+
+// Rotas do router (têm prioridade sobre o worker)
+app.get("/health", () => ({ body: "OK" }));
+
+// Worker como fallback (antes de static files)
+app.worker((req) => workerHandler.fetch(req, env, ctx));
+
+Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
+```
+
+**Fluxo resultante:**
+
+| Requisição | Resultado |
+|---|---|
+| `GET /health` | Rota do router → `OK` |
+| `POST /ping` | Worker → `{ success: true, service: "loco-proxy" }` |
+| `POST /push` | Worker → processa push notification |
+| `GET /index.html` | Worker retorna 404 → Static file |
+| `GET /nao-existe` | Worker 404 → Static 404 → `404 Not Found` |
+
+### 2. Proxy reverso simples
+
+```typescript
+app.worker(async (req) => {
+  const url = new URL(req.url);
+  if (!url.pathname.startsWith("/api/legacy/")) {
+    return new Response("Not Found", { status: 404 });
+  }
+  // Encaminha para serviço legado
+  const target = url.pathname.replace("/api/legacy/", "http://legacy-service:3000/");
+  return await fetch(target, {
+    method: req.method,
+    headers: req.headers,
+    body: req.body,
+  });
+});
+```
+
+### 3. Múltiplos workers (API + Proxy)
+
+```typescript
+// Worker 1: APIs do server
+app.worker((req) => workerHandler.fetch(req, env, ctx));
+
+// Worker 2: Proxy para serviço externo
+app.worker(async (req) => {
+  const url = new URL(req.url);
+  if (!url.pathname.startsWith("/external/")) {
+    return new Response("Not Found", { status: 404 });
+  }
+  return await fetch(url.pathname.replace("/external/", "https://api.externa.com/"));
+});
+```
+
+---
+
+## ⚠️ Considerações
+
+### Rotas têm prioridade sobre workers
+
+Se existir `app.get("/ping")` **e** um worker que também trata `/ping`, a rota do router **sempre vence**. O worker nunca é chamado para paths que já têm rota registrada.
+
+### Performance
+
+Cada request que não casa com nenhuma rota passa por **todos os workers** antes de chegar aos static files. Workers devem ser rápidos ao retornar 404 (ex: checar prefixo de URL antes de processar).
+
+```typescript
+// ✅ BOM: retorno rápido
+app.worker(async (req) => {
+  if (!new URL(req.url).pathname.startsWith("/api/")) {
+    return new Response("Not Found", { status: 404 });
+  }
+  // ... processamento
+});
+
+// ❌ RUIM: processamento desnecessário
+app.worker(async (req) => {
+  const data = await heavyComputation(); // Executa mesmo para /index.html
+  // ...
+});
+```
+
+### env e ctx via closure
+
+O router não conhece `env` nem `ctx`. Esses valores são capturados no closure do worker:
+
+```typescript
+// env e ctx vivem fora do router
+const env = Deno.env.toObject();
+const ctx = { waitUntil: (p: Promise<unknown>) => p.catch(console.error) };
+
+// O closure captura env e ctx
+app.worker((req) => workerHandler.fetch(req, env, ctx));
+```
+
+Isso é intencional: mantém o router agnóstico e permite que qualquer runtime forneça seu próprio contexto.
+
+### Erros em workers
+
+Se um worker lançar exceção, o erro é logado no console e o **próximo worker é tentado**. Isso garante que um worker com bug não derruba toda a aplicação.
+
+---
+
+## 📋 Resumo
+
+| Aspecto | Detalhe |
+|---|---|
+| **Tipo** | `(req: Request) => Promise<Response>` |
+| **Registro** | `app.worker(handler)` |
+| **Múltiplos** | Sim, cadeia de fallback (404 → próximo) |
+| **Middlewares** | Sim, executam antes dos workers |
+| **Prioridade** | Rotas > Workers > Static files > 404 |
+| **Erros** | Logados, próximo worker tentado |
+| **env/ctx** | Via closure, router não conhece |
+
+````
+
+---
+
+## Arquivo: `monorepo/router/docs/adapter-deno-serve-dir.md`
+
+````md
+# 🦕 Adaptador Alternativo: `deno-serve-dir`
+
+O `@loco/router` oferece **dois adaptadores de arquivos estáticos** para Deno. Este documento descreve o adaptador alternativo baseado em `serveDir` do `@std/http/file-server`.
+
+---
+
+## 🎯 Motivação
+
+O adaptador principal (`adapters/deno.ts`) implementa serving de arquivos manualmente com `Deno.open`, `Deno.lstat` e `Deno.realPath`. Isso dá controle total sobre headers e comportamento, mas:
+
+- **Não suporta Range Requests** (necessário para vídeo/áudio/PDFs grandes)
+- **Não processa `If-None-Match` / `If-Modified-Since`** (304 Not Modified)
+- **~100 linhas de código** para manter
+
+O `serveDir` do `@std/http` resolve tudo isso nativamente, pois é a implementação oficial do Deno para file serving.
+
+---
+
+## 📐 Arquitetura: Dois Adaptadores
+
+```
+src/adapters/
+├── deno.ts              ← Manual: controle total, zero dependências extras
+└── deno-serve-dir.ts    ← serveDir: Range, 304, HEAD nativos
+
+src/
+├── deno.ts              ← Entry point: createDenoRouter()
+└── deno-serve-dir.ts    ← Entry point: createDenoServeDirRouter()
+```
+
+**Ambos compartilham o mesmo upgrader WebSocket** (`denoWebSocketUpgrader`), re-exportado via:
+
+```typescript
+export { denoWebSocketUpgrader } from "./deno.ts";
+```
+
+---
+
+## 📊 Comparação
+
+| Aspecto | `deno.ts` (Manual) | `deno-serve-dir.ts` (serveDir) |
+|---|:---:|:---:|
+| **Linhas de código** | ~100 | ~50 |
+| **Range Requests** | ❌ | ✅ Nativo |
+| **ETag / 304** | ✅ Custom (size+mtime) | ✅ Nativo (mais robusto) |
+| **HEAD automático** | ✅ Via core | ✅ Via serveDir |
+| **Cache-Control** | ✅ Customizável | ⚠️ Fixo |
+| **Formato do ETag** | Custom: `"size-mtime"` | Interno do std |
+| **Dependência extra** | Nenhuma | `@std/http` |
+| **Manutenção** | Manual | Comunitária (std) |
+| **Containment** | ✅ `Deno.realPath` | ✅ `resolve` |
+| **Symlinks** | ✅ Recusados | ✅ Recusados |
+| **Dotfiles** | ✅ Bloqueados | ✅ Bloqueados |
+
+### Quando usar cada um?
+
+| Cenário | Adaptador |
+|---|---|
+| Serve vídeo/áudio/PDFs grandes | `deno-serve-dir` |
+| Precisa de 304 Not Modified | `deno-serve-dir` |
+| Precisa de Cache-Control custom por arquivo | `deno` (manual) |
+| Não quer dependência `@std/http` | `deno` (manual) |
+| Quer menos código para manter | `deno-serve-dir` |
+
+---
+
+## 📝 API
+
+### Entry Point
+
+```typescript
+import { createDenoServeDirRouter } from "@loco/router/deno-serve-dir";
+```
+
+### `createDenoServeDirRouter(options)`
+
+```typescript
+interface DenoServeDirRouterOptions {
+  basePath?: string;
+  staticDir?: string | null;
+  embeddedDir?: string | null;
+  forceHttps?: boolean;
+  trustProxy?: boolean;
+  allowDotfiles?: boolean;
+  lastBroadcastDelay?: number;
+  /** Opções específicas do serveDir */
+  serveDir?: {
+    showDirListing?: boolean;  // Default: false
+    enableCors?: boolean;      // Default: false
+  };
+}
+```
+
+### `createDenoServeDirStaticFileHandler(staticDir, embeddedDir, options)`
+
+Cria apenas o `StaticFileHandler` sem instanciar o Router completo:
+
+```typescript
+interface DenoServeDirOptions {
+  allowDotfiles?: boolean;   // Default: false
+  showDirListing?: boolean;  // Default: false
+  enableCors?: boolean;      // Default: false
+}
+```
+
+---
+
+## 🌍 Exemplos
+
+### Básico
+
+```typescript
+import { createDenoServeDirRouter } from "@loco/router/deno-serve-dir";
+
+const app = createDenoServeDirRouter({
+  basePath: "/api",
+  staticDir: "./public",
+});
+
+app.get("/hello", () => ({ body: "Hello!" }));
+
+Deno.serve({ port: 8000 }, app.handleRequest.bind(app));
+```
+
+### Com CORS e dir listing
+
+```typescript
+const app = createDenoServeDirRouter({
+  basePath: "",
+  staticDir: "./public",
+  serveDir: {
+    showDirListing: true,   // Mostra listagem de diretórios
+    enableCors: true,       // Adiciona headers CORS
+  },
+});
+```
+
+### Usando apenas o handler (sem entry point)
+
+```typescript
+import { Router } from "@loco/router";
+import { denoWebSocketUpgrader } from "@loco/router/adapters/deno";
+import { createDenoServeDirStaticFileHandler } from "@loco/router/adapters/deno-serve-dir";
+
+const app = new Router({
+  basePath: "/api",
+  webSocketUpgrader: denoWebSocketUpgrader,
+  staticFileHandler: createDenoServeDirStaticFileHandler("./public", null, {
+    allowDotfiles: false,
+    showDirListing: false,
+  }),
+});
+```
+
+### Integração com server/main.ts do Loco
+
+Substituindo o `serveDir` manual do `main.ts`:
+
+```typescript
+// ANTES (main.ts manual):
+import { serveDir } from "@std/http/file-server";
+const staticResponse = await serveDir(req, {
+  fsRoot: "./build/dist",
+  showDirListing: false,
+  quiet: true,
+});
+
+// DEPOIS (com router):
+import { createDenoServeDirRouter } from "@loco/router/deno-serve-dir";
+import workerHandler from "./worker.ts";
+
+const env = Deno.env.toObject();
+const ctx = { waitUntil: (p: Promise<unknown>) => p.catch(console.error) };
+
+const app = createDenoServeDirRouter({
+  basePath: "",
+  staticDir: "./build/dist",
+});
+
+app.worker((req) => workerHandler.fetch(req, env, ctx));
+
+Deno.serve({ port: Number(env.PORT || 8000) }, app.handleRequest.bind(app));
+```
+
+---
+
+## 🔒 Segurança
+
+O adaptador `deno-serve-dir` mantém as **mesmas políticas de segurança** do adaptador manual:
+
+### Containment
+
+Antes de delegar para o `serveDir`, o caminho é resolvido e verificado:
+
+```typescript
+const fullPath = resolve(baseDir, "." + pathname);
+const resolvedBase = resolve(baseDir);
+
+if (!fullPath.startsWith(resolvedBase + "/") && fullPath !== resolvedBase) {
+  return null; // Path tenta escapar do diretório
+}
+```
+
+### Symlinks
+
+Symlinks são recusados com `Deno.lstat` antes de chegar ao `serveDir`:
+
+```typescript
+const info = await Deno.lstat(fullPath);
+if (info.isSymlink) {
+  console.warn(`[Static] Symlink recusado: ${fullPath}`);
+  return null;
+}
+```
+
+### Dotfiles
+
+Controlados pela opção `allowDotfiles` (default: `false`), que é passada como `showDotfiles` para o `serveDir`.
+
+---
+
+## 🧪 Testes
+
+O adaptador possui testes dedicados em `tests/adapters_serve_dir_test.ts`:
+
+```bash
+deno test tests/adapters_serve_dir_test.ts --allow-read --allow-write --allow-net --allow-env
+```
+
+Testes atuais:
+- ✅ Serve arquivos existentes
+- ✅ Bloqueia dotfiles por padrão
+
+Testes recomendados para adicionar:
+- ⏳ Range Request retorna 206 Partial Content
+- ⏳ If-None-Match retorna 304
+- ⏳ HEAD retorna headers sem body
+- ⏳ Symlink é recusado
+- ⏳ Path traversal é bloqueado
+
+---
+
+## 📋 Dependências
+
+Este adaptador requer `@std/http` no `deno.jsonc`:
+
+```jsonc
+{
+  "imports": {
+    "@std/http": "jsr:@std/http@^1"
+  }
+}
+```
+
+O adaptador manual (`deno.ts`) **não requer** essa dependência.
+
+---
+
+## 📋 Resumo
+
+| Item | Valor |
+|---|---|
+| **Arquivo do adaptador** | `src/adapters/deno-serve-dir.ts` |
+| **Entry point** | `src/deno-serve-dir.ts` |
+| **Export no deno.jsonc** | `"./adapters/deno-serve-dir"` |
+| **Função principal** | `createDenoServeDirRouter()` |
+| **Handler factory** | `createDenoServeDirStaticFileHandler()` |
+| **Dependência** | `@std/http` |
+| **Upgrader WS** | Re-exportado de `deno.ts` |
+| **Segurança** | Containment + Symlinks + Dotfiles |
+| **Vantagem principal** | Range Requests + 304 nativos |
+````
+
+---
+
 ## Arquivo: `monorepo/router/deno.jsonc`
 
 ```json
@@ -5203,6 +6286,7 @@ Estamos abertos a contribuições! 🚀
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1",
+    "@std/http": "jsr:@std/http@^1",
     "@std/media-types": "jsr:@std/media-types@^1", //uso futuro
     "@std/path": "jsr:@std/path@^1",
     "jose": "https://deno.land/x/jose@v5.2.0/index.ts"
@@ -5220,7 +6304,9 @@ Estamos abertos a contribuições! 🚀
   "exports": {
     ".": "./src/mod.ts",
     "./deno": "./src/deno.ts",
-    "./adapters/deno": "./src/adapters/deno.ts"
+    "./deno-serve-dir": "./src/deno-serve-dir.ts",
+    "./adapters/deno": "./src/adapters/deno.ts",
+    "./adapters/deno-serve-dir": "./src/adapters/deno-serve-dir.ts"
   }
 }
 ```

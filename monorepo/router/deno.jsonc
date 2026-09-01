@@ -10,6 +10,7 @@
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1",
+    "@std/http": "jsr:@std/http@^1",
     "@std/media-types": "jsr:@std/media-types@^1", //uso futuro
     "@std/path": "jsr:@std/path@^1",
     "jose": "https://deno.land/x/jose@v5.2.0/index.ts"
@@ -27,6 +28,8 @@
   "exports": {
     ".": "./src/mod.ts",
     "./deno": "./src/deno.ts",
-    "./adapters/deno": "./src/adapters/deno.ts"
+    "./deno-serve-dir": "./src/deno-serve-dir.ts",
+    "./adapters/deno": "./src/adapters/deno.ts",
+    "./adapters/deno-serve-dir": "./src/adapters/deno-serve-dir.ts"
   }
 }

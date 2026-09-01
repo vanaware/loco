@@ -1153,6 +1153,7 @@
       "monorepo/router": {
         "dependencies": [
           "jsr:@std/assert@1",
+          "jsr:@std/http@1",
           "jsr:@std/media-types@1",
           "jsr:@std/path@1"
         ]
