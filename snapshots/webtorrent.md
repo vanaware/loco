@@ -8,163 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WEBTORRENT
 
-Gerado automaticamente em: 8/31/2026, 11:14:42 PM
-
----
-
-## Arquivo: `monorepo/webtorrent/src/index.html`
-
-```html
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Loco — Teste WebTorrent Presença</title>
-
-  <!-- WebTorrent via CDN (mais confiável que esm.sh para esta lib) -->
-  <script src="https://cdn.jsdelivr.net/npm/webtorrent@2.5.1/webtorrent.min.js"></script>
-
-  <!-- Import map para Preact + Signals + htm via esm.sh -->
-  <script type="importmap">
-  {
-    "imports": {
-      "preact": "https://esm.sh/preact@10.25.4",
-      "preact/hooks": "https://esm.sh/preact@10.25.4/hooks",
-      "@preact/signals": "https://esm.sh/@preact/signals@2.0.1",
-      "@preact/signals-core": "https://esm.sh/@preact/signals-core@1.8.0",
-      "htm": "https://esm.sh/htm@3.1.1"
-    }
-  }
-  </script>
-
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0f0f1a;
-      color: #e0e0e0;
-      padding: 12px;
-      max-width: 600px;
-      margin: 0 auto;
-    }
-    h1 { color: #e94560; font-size: 1.4rem; margin-bottom: 12px; }
-    h2 {
-      background: #e94560; color: white;
-      padding: 6px 12px; border-radius: 8px;
-      font-size: 0.9rem; margin: 14px 0 8px;
-    }
-    .card {
-      background: #1a1a2e; border-radius: 12px;
-      padding: 12px; margin-bottom: 10px;
-    }
-    .mono {
-      font-family: 'Courier New', monospace; font-size: 11px;
-      word-break: break-all; background: #0a0a1a;
-      padding: 6px 8px; border-radius: 6px; margin: 4px 0;
-      color: #7fdbca;
-    }
-    button {
-      background: #e94560; color: white; border: none;
-      padding: 8px 14px; border-radius: 8px; cursor: pointer;
-      font-size: 13px; margin: 3px 2px; transition: background 0.2s;
-    }
-    button:hover { background: #c73652; }
-    button:disabled { background: #444; cursor: not-allowed; }
-    button.sec { background: #16213e; border: 1px solid #e94560; }
-    button.sec:hover { background: #1a3a6e; }
-    button.ok { background: #2ecc71; }
-    button.ok:hover { background: #27ae60; }
-    input[type="text"] {
-      background: #0a0a1a; color: #7fdbca; border: 1px solid #333;
-      padding: 8px 10px; border-radius: 8px; width: 100%;
-      font-family: monospace; font-size: 12px; margin: 4px 0;
-    }
-    input[type="text"]:focus { border-color: #e94560; outline: none; }
-    .dot {
-      display: inline-block; width: 10px; height: 10px;
-      border-radius: 50%; margin-right: 6px; vertical-align: middle;
-    }
-    .dot.on { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
-    .dot.off { background: #e74c3c; }
-    .dot.wait { background: #f39c12; animation: pulse 1s infinite; }
-    @keyframes pulse { 50% { opacity: 0.3; } }
-    .peer-row {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 8px; background: #16213e; border-radius: 8px; margin: 4px 0;
-      flex-wrap: wrap; gap: 6px;
-    }
-    .peer-id { font-family: monospace; font-size: 11px; color: #7fdbca; }
-    .log-box {
-      font-family: monospace; font-size: 10px;
-      max-height: 160px; overflow-y: auto;
-      background: #050510; padding: 8px; border-radius: 6px;
-    }
-    .log-line { padding: 1px 0; color: #888; }
-    .log-line .t { color: #555; }
-    .log-line .m { color: #2ecc71; }
-    .log-line .e { color: #e74c3c; }
-    .metric-row {
-      display: flex; justify-content: space-between;
-      padding: 3px 0; font-size: 13px;
-    }
-    .metric-row .l { color: #888; }
-    .metric-row .v { color: #2ecc71; font-family: monospace; }
-    .ping-box {
-      padding: 8px; border-radius: 8px; margin: 6px 0;
-      font-weight: bold; font-size: 13px;
-    }
-    .ping-box.ok { background: #2ecc71; color: #000; }
-    .ping-box.fail { background: #e74c3c; color: #fff; }
-    .ping-box.wait { background: #f39c12; color: #000; }
-    label { font-size: 12px; color: #888; display: block; margin-top: 6px; }
-  </style>
-</head>
-<body>
-  <div id="app"></div>
-  <script type="module" src="./main.ts"></script>
-</body>
-</html>
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/src/lib/identity.ts`
-
-```ts
-/**
- * Geração de identidade simulada e derivação de infoHash
- * para o swarm WebTorrent.
- *
- * infoHash = SHA-1(chave_pública) → 20 bytes = 40 chars hex
- * (formato padrão do protocolo BitTorrent)
- */
-
-export interface Identity {
-  publicKey: string;
-  infoHash: string;
-}
-
-export async function generateIdentity(): Promise<Identity> {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  const publicKey = bytesToHex(bytes);
-  const infoHash = await deriveInfoHash(publicKey);
-  return { publicKey, infoHash };
-}
-
-export async function deriveInfoHash(publicKey: string): Promise<string> {
-  const data = new TextEncoder().encode(publicKey);
-  const hash = await crypto.subtle.digest("SHA-1", data);
-  return bytesToHex(new Uint8Array(hash));
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-```
+Gerado automaticamente em: 9/2/2026, 1:16:58 AM
 
 ---
 
@@ -209,159 +53,6 @@ export function uptime(start: number | null): string {
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return `${m}m ${sec}s`;
-}
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/src/lib/wt-client.ts`
-
-```ts
-/**
- * Wrapper do WebTorrent para discovery de presença.
- *
- * Carrega WebTorrent via window (script tag CDN no index.html).
- * Usa client.add(infoHash) para entrar em swarms arbitrários
- * e detectar peers via tracker público.
- */
-
-/* WebTorrent é carregado via <script> tag no index.html */
-declare const WebTorrent: any;
-
-export interface PeerInfo {
-  id: string;
-  status: "online" | "offline";
-  joinedAt: number;
-  leftAt: number | null;
-  wire: any;
-}
-
-export interface WTCallbacks {
-  onPeerJoined: (infoHash: string, peer: PeerInfo) => void;
-  onPeerLeft: (infoHash: string, peerId: string, sessionMs: number) => void;
-  onSwarmReady: (infoHash: string, joinMs: number) => void;
-  onError: (msg: string) => void;
-  onLog: (msg: string) => void;
-}
-
-export class WTClient {
-  private client: any;
-  private torrents = new Map<string, any>();
-  private peers = new Map<string, Map<string, PeerInfo>>();
-  private joinTimes = new Map<string, number>();
-  private cb: WTCallbacks;
-
-  constructor(cb: WTCallbacks) {
-    this.cb = cb;
-
-    if (typeof WebTorrent === "undefined") {
-      cb.onError("WebTorrent não encontrado. Verifique o CDN no index.html.");
-      return;
-    }
-
-    this.client = new WebTorrent({
-      tracker: {
-        announce: [
-          "wss://tracker.openwebtorrent.com",
-          "wss://tracker.btorrent.xyz",
-        ],
-      },
-    });
-
-    this.client.on("error", (err: any) => {
-      cb.onError(`WT client: ${err.message || err}`);
-    });
-
-    cb.onLog("WebTorrent client criado");
-  }
-
-  joinSwarm(infoHash: string): void {
-    if (this.torrents.has(infoHash)) {
-      this.cb.onLog(`Já no swarm ${infoHash.slice(0, 8)}…`);
-      return;
-    }
-
-    this.joinTimes.set(infoHash, Date.now());
-    this.peers.set(infoHash, new Map());
-    this.cb.onLog(`Entrando no swarm ${infoHash.slice(0, 8)}…`);
-
-    const t = this.client.add(infoHash, {
-      announce: [
-        "wss://tracker.openwebtorrent.com",
-        "wss://tracker.btorrent.xyz",
-      ],
-    });
-
-    t.on("ready", () => {
-      const ms = Date.now() - (this.joinTimes.get(infoHash) || Date.now());
-      this.cb.onSwarmReady(infoHash, ms);
-      this.cb.onLog(`Swarm pronto em ${ms}ms`);
-    });
-
-    t.on("wire", (wire: any) => {
-      const peerId = wire.peerId || wire.remoteAddress || `peer-${Date.now()}`;
-      const peer: PeerInfo = {
-        id: peerId,
-        status: "online",
-        joinedAt: Date.now(),
-        leftAt: null,
-        wire,
-      };
-      this.peers.get(infoHash)?.set(peerId, peer);
-      this.cb.onPeerJoined(infoHash, peer);
-      this.cb.onLog(`Peer ONLINE: ${peerId.slice(0, 12)}…`);
-
-      wire.on("close", () => {
-        const p = this.peers.get(infoHash)?.get(peerId);
-        if (p) {
-          p.status = "offline";
-          p.leftAt = Date.now();
-          const sessionMs = p.leftAt - p.joinedAt;
-          this.cb.onPeerLeft(infoHash, peerId, sessionMs);
-          this.cb.onLog(`Peer OFFLINE: ${peerId.slice(0, 12)}… (${Math.round(sessionMs / 1000)}s)`);
-        }
-      });
-
-      wire.on("error", () => {
-        // Erro de conexão com peer — ignora silenciosamente
-      });
-    });
-
-    t.on("error", (err: any) => {
-      this.cb.onError(`Swarm ${infoHash.slice(0, 8)}: ${err.message || err}`);
-    });
-
-    this.torrents.set(infoHash, t);
-  }
-
-  leaveSwarm(infoHash: string): void {
-    const t = this.torrents.get(infoHash);
-    if (t) {
-      t.destroy();
-      this.torrents.delete(infoHash);
-      this.peers.delete(infoHash);
-      this.cb.onLog(`Saiu do swarm ${infoHash.slice(0, 8)}…`);
-    }
-  }
-
-  getPeers(infoHash: string): PeerInfo[] {
-    const m = this.peers.get(infoHash);
-    return m ? Array.from(m.values()) : [];
-  }
-
-  getWire(infoHash: string, peerId: string): any | null {
-    return this.peers.get(infoHash)?.get(peerId)?.wire || null;
-  }
-
-  destroy(): void {
-    for (const [hash] of this.torrents) {
-      this.leaveSwarm(hash);
-    }
-    if (this.client) {
-      this.client.destroy();
-    }
-    this.cb.onLog("Client destruído");
-  }
 }
 ```
 
@@ -509,45 +200,707 @@ export function processWireMessage(
 
 ---
 
-## Arquivo: `monorepo/webtorrent/src/main.ts`
+## Arquivo: `monorepo/webtorrent/src/lib/identity.ts`
 
 ```ts
 /**
- * App principal do teste de presença WebTorrent.
+ * Geração de identidade simulada e derivação de infoHash
+ * para o swarm WebTorrent.
  *
- * Usa Preact + Signals + htm (sem JSX, sem transpilação de JSX).
- * WebTorrent via window (CDN no index.html).
+ * infoHash = SHA-1(chave_pública) → 20 bytes = 40 chars hex
+ * (formato padrão do protocolo BitTorrent)
  */
 
-import { h, render } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+export interface Identity {
+  publicKey: string;
+  infoHash: string;
+}
+
+export async function generateIdentity(): Promise<Identity> {
+  // Usa globalThis.crypto para garantir compatibilidade em todos os ambientes de browser
+  const cryptoObj = globalThis.crypto;
+  if (!cryptoObj) {
+    throw new Error("API Crypto não disponível neste navegador.");
+  }
+
+  const bytes = new Uint8Array(32);
+  cryptoObj.getRandomValues(bytes);
+  const publicKey = bytesToHex(bytes);
+  
+  const infoHash = await deriveInfoHash(publicKey);
+  return { publicKey, infoHash };
+}
+
+export async function deriveInfoHash(publicKey: string): Promise<string> {
+  const cryptoObj = globalThis.crypto;
+  if (!cryptoObj?.subtle) {
+    throw new Error("Crypto.subtle não disponível. Verifique se está usando HTTPS ou localhost.");
+  }
+
+  const data = new TextEncoder().encode(publicKey);
+  const hash = await cryptoObj.subtle.digest("SHA-1", data);
+  return bytesToHex(new Uint8Array(hash));
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/lib/webtorrent.ts`
+
+```ts
+/**
+ * Wrapper do WebTorrent para discovery de presença.
+ * Importado diretamente via esm.sh, o esbuild cuidará dos polyfills do Node.js.
+ */
+import WebTorrent from "webtorrent";
+
+export interface PeerInfo {
+  id: string;
+  status: "online" | "offline";
+  joinedAt: number;
+  leftAt: number | null;
+  wire: any;
+}
+
+export interface WTCallbacks {
+  onPeerJoined: (infoHash: string, peer: PeerInfo) => void;
+  onPeerLeft: (infoHash: string, peerId: string, sessionMs: number) => void;
+  onSwarmReady: (infoHash: string, joinMs: number) => void;
+  onError: (msg: string) => void;
+  onLog: (msg: string) => void;
+}
+
+export class WTClient {
+  private client: any;
+  private torrents = new Map<string, any>();
+  private peers = new Map<string, Map<string, PeerInfo>>();
+  private joinTimes = new Map<string, number>();
+  private cb: WTCallbacks;
+
+  constructor(cb: WTCallbacks) {
+    this.cb = cb;
+
+    try {
+      this.client = new WebTorrent({
+        tracker: {
+          announce: [
+            "wss://tracker.openwebtorrent.com",
+            "wss://tracker.btorrent.xyz",
+            "wss://tracker.webtorrent.dev",
+          ],
+        },
+      });
+
+      this.client.on("error", (err: any) => {
+        cb.onError(`WT client: ${err.message || err}`);
+      });
+
+      cb.onLog("WebTorrent client criado com sucesso via esbuild polyfills");
+    } catch (err: any) {
+      cb.onError(`Falha ao criar WebTorrent client: ${err.message}`);
+      throw err;
+    }
+  }
+
+  joinSwarm(infoHash: string): void {
+    if (this.torrents.has(infoHash)) {
+      this.cb.onLog(`Já no swarm ${infoHash.slice(0, 8)}…`);
+      return;
+    }
+
+    this.joinTimes.set(infoHash, Date.now());
+    this.peers.set(infoHash, new Map());
+    this.cb.onLog(`Entrando no swarm ${infoHash.slice(0, 8)}…`);
+
+    try {
+      const t = this.client.add(infoHash, {
+        announce: [
+          "wss://tracker.openwebtorrent.com",
+          "wss://tracker.btorrent.xyz",
+        ],
+      });
+
+      t.on("ready", () => {
+        const ms = Date.now() - (this.joinTimes.get(infoHash) || Date.now());
+        this.cb.onSwarmReady(infoHash, ms);
+        this.cb.onLog(`Swarm pronto em ${ms}ms`);
+      });
+
+      t.on("wire", (wire: any) => {
+        const peerId = wire.peerId || wire.remoteAddress || `peer-${Date.now()}`;
+        const peer: PeerInfo = {
+          id: peerId,
+          status: "online",
+          joinedAt: Date.now(),
+          leftAt: null,
+          wire,
+        };
+        this.peers.get(infoHash)?.set(peerId, peer);
+        this.cb.onPeerJoined(infoHash, peer);
+        this.cb.onLog(`Peer ONLINE: ${peerId.slice(0, 12)}…`);
+
+        wire.on("close", () => {
+          const p = this.peers.get(infoHash)?.get(peerId);
+          if (p) {
+            p.status = "offline";
+            p.leftAt = Date.now();
+            const sessionMs = p.leftAt - p.joinedAt;
+            this.cb.onPeerLeft(infoHash, peerId, sessionMs);
+            this.cb.onLog(`Peer OFFLINE: ${peerId.slice(0, 12)}… (${Math.round(sessionMs / 1000)}s)`);
+          }
+        });
+
+        wire.on("error", () => {
+          // Erro de conexão com peer — ignora silenciosamente
+        });
+      });
+
+      t.on("error", (err: any) => {
+        this.cb.onError(`Swarm ${infoHash.slice(0, 8)}: ${err.message || err}`);
+      });
+
+      this.torrents.set(infoHash, t);
+    } catch (err: any) {
+      this.cb.onError(`Falha ao entrar no swarm: ${err.message}`);
+    }
+  }
+
+  leaveSwarm(infoHash: string): void {
+    const t = this.torrents.get(infoHash);
+    if (t) {
+      t.destroy();
+      this.torrents.delete(infoHash);
+      this.peers.delete(infoHash);
+      this.cb.onLog(`Saiu do swarm ${infoHash.slice(0, 8)}…`);
+    }
+  }
+
+  getPeers(infoHash: string): PeerInfo[] {
+    const m = this.peers.get(infoHash);
+    return m ? Array.from(m.values()) : [];
+  }
+
+  getWire(infoHash: string, peerId: string): any | null {
+    return this.peers.get(infoHash)?.get(peerId)?.wire || null;
+  }
+
+  destroy(): void {
+    for (const [hash] of this.torrents) {
+      this.leaveSwarm(hash);
+    }
+    if (this.client) {
+      this.client.destroy();
+    }
+    this.cb.onLog("Client destruído");
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/App.tsx`
+
+```tsx
+// Arquivo: monorepo/webtorrent/src/App.tsx
+import { useEffect } from "preact/hooks";
+import {
+  localId,
+  swarmStatus,
+  peers,
+  logs,
+  contactKey,
+  monitoring,
+  swStatus,
+  init,
+  registerSW,
+  startSwarm,
+  stopSwarm,
+  monitorContact,
+  stopMonitoring,
+  regenerate,
+} from "./store.ts";
+
+export function App() {
+  useEffect(() => {
+    init();
+    registerSW();
+  }, []);
+
+  const statusIcon = swarmStatus.value === "on"
+    ? "check_circle"
+    : swarmStatus.value === "connecting"
+    ? "hourglass_empty"
+    : "cancel";
+
+  const swReady = swStatus.value === "activated";
+
+  return (
+    <main className="responsive">
+      <nav className="left l">
+        <h5 className="max padding">🧪 WebTorrent</h5>
+        <a className="active">
+          <i>science</i>
+          <div>Teste de Presença</div>
+        </a>
+      </nav>
+      <nav className="bottom s">
+        <a className="active">
+          <i>science</i>
+          <div>Teste</div>
+        </a>
+      </nav>
+      <article className="surface-container-low padding max">
+        <header>
+          <h3 className="bold">Teste de Presença WebTorrent</h3>
+          <p className="text-secondary">
+            Validação de mecanismo P2P para detecção de presença online
+          </p>
+        </header>
+
+        {/* Status do Service Worker */}
+        <section className="padding">
+          <h5>1. Infraestrutura (Service Worker)</h5>
+          <div className={`chip margin-top ${swReady ? "success" : "warning"}`}>
+            <i>{swReady ? "check_circle" : "hourglass_empty"}</i>
+            <span>SW Status: {swStatus.value}</span>
+          </div>
+          {!swReady && (
+            <p className="small-text text-secondary margin-top">
+              O Service Worker é obrigatório para o servidor interno do WebTorrent interceptar requisições e gerenciar os streams P2P.
+            </p>
+          )}
+        </section>
+
+        {/* Identidade Local */}
+        <section className="padding">
+          <h5>2. Identidade Local</h5>
+          {localId.value ? (
+            <>
+              <div className="field prefix round border">
+                <i>fingerprint</i>
+                <div className="max">
+                  <label>Chave Pública</label>
+                  <pre className="small-text">{localId.value.publicKey}</pre>
+                </div>
+              </div>
+              <div className="field prefix round border">
+                <i>tag</i>
+                <div className="max">
+                  <label>InfoHash (Swarm)</label>
+                  <pre className="small-text">{localId.value.infoHash}</pre>
+                </div>
+              </div>
+            </>
+          ) : (
+            <progress className="circle large" />
+          )}
+          <nav className="row margin-top">
+            <button className="button border round" onClick={regenerate}>
+              <i>refresh</i>
+              <span>Nova Identidade</span>
+            </button>
+            {swarmStatus.value === "off" ? (
+              <button className="button fill round" onClick={startSwarm} disabled={!swReady}>
+                <i>play_arrow</i>
+                <span>Entrar no Swarm</span>
+              </button>
+            ) : (
+              <button className="button border round" onClick={stopSwarm}>
+                <i>stop</i>
+                <span>Sair do Swarm</span>
+              </button>
+            )}
+          </nav>
+          <div className="chip margin-top">
+            <i className={swarmStatus.value === "on" ? "success" : swarmStatus.value === "connecting" ? "warning" : "error"}>
+              {statusIcon}
+            </i>
+            <span>
+              {swarmStatus.value === "on"
+                ? "Conectado"
+                : swarmStatus.value === "connecting"
+                ? "Conectando..."
+                : "Desconectado"}
+            </span>
+          </div>
+        </section>
+
+        {/* Monitorar Contato */}
+        <section className="padding">
+          <h5>3. Monitorar Contato</h5>
+          <div className="field prefix round fill">
+            <i>person_search</i>
+            <input
+              type="text"
+              placeholder="Cole a chave pública do contato aqui..."
+              value={contactKey.value}
+              onInput={(e) => {
+                contactKey.value = (e.target as HTMLInputElement).value.trim();
+              }}
+            />
+          </div>
+          <nav className="row margin-top">
+            {!monitoring.value ? (
+              <button
+                className="button fill round"
+                onClick={monitorContact}
+                disabled={contactKey.value.length < 40 || swarmStatus.value === "off" || !swReady}
+              >
+                <i>visibility</i>
+                <span>Monitorar</span>
+              </button>
+            ) : (
+              <button className="button border round" onClick={stopMonitoring}>
+                <i>visibility_off</i>
+                <span>Parar</span>
+              </button>
+            )}
+          </nav>
+        </section>
+
+        {/* Peers Detectados */}
+        <section className="padding">
+          <h5>4. Peers Detectados ({peers.value.length})</h5>
+          {peers.value.length === 0 ? (
+            <p className="text-secondary">Nenhum peer detectado ainda.</p>
+          ) : (
+            <ul className="list">
+              {peers.value.map((peer) => (
+                <li key={peer.id} className="row middle-align padding">
+                  <i className={peer.status === "online" ? "success" : "error"}>
+                    {peer.status === "online" ? "circle" : "cancel"}
+                  </i>
+                  <div className="max margin-left">
+                    <div className="bold">{peer.id.slice(0, 20)}...</div>
+                    <div className="small-text text-secondary">
+                      {peer.status === "online"
+                        ? `Online há ${Math.round((Date.now() - peer.joinedAt) / 1000)}s`
+                        : `Offline`}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* Logs */}
+        <section className="padding">
+          <h5>5. Logs</h5>
+          <div className="card surface-container-high padding">
+            <div className="scroll" style={{ maxHeight: "300px" }}>
+              {logs.value.length === 0 ? (
+                <p className="text-secondary">Aguardando eventos...</p>
+              ) : (
+                <pre className="small-text">
+                  {logs.value.map((log, i) => (
+                    <div key={i} className={log.startsWith("❌") ? "error" : ""}>
+                      {log}
+                    </div>
+                  ))}
+                </pre>
+              )}
+            </div>
+            <button
+              className="button border round margin-top"
+              onClick={() => { logs.value = []; }}
+            >
+              <i>delete</i>
+              <span>Limpar</span>
+            </button>
+          </div>
+        </section>
+      </article>
+    </main>
+  );
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/main.tsx`
+
+```tsx
+// Arquivo: monorepo/webtorrent/src/main.tsx
+import { render } from "preact";
+import { App } from "./App.tsx";
+
+const rootElement = document.getElementById("app");
+if (rootElement) {
+  render(<App />, rootElement);
+  console.log("🚀 WebTorrent Test: Interface montada com sucesso.");
+} else {
+  console.error("❌ Elemento '#app' não encontrado.");
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/index.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loco — Teste WebTorrent Presença</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧪</text></svg>">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.css">
+  <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.4/dist/cdn/material-dynamic-colors.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-fonts@0.0.3/dist/cdn/material-dynamic-fonts.min.js?font=Material Symbols Outlined&selector=i"></script>
+</head>
+<body class="dark">
+  <div id="app"></div>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/worker-server.ts`
+
+```ts
+// Arquivo: monorepo/webtorrent/src/sw/worker-server.ts
+const portTimeoutDuration = 5000;
+let cancellable = false;
+
+export interface WorkerServerEvent {
+  request: Request;
+}
+
+const listener = (event: FetchEvent) => {
+  const { url } = event.request;
+  if (!url.includes(self.registration.scope + 'webtorrent/')) return null;
+  if (url.includes(self.registration.scope + 'webtorrent/keepalive/')) return new Response();
+  if (url.includes(self.registration.scope + 'webtorrent/cancel/')) {
+    return new Response(new ReadableStream({
+      cancel() {
+        cancellable = true;
+      }
+    }));
+  }
+  return serve(event);
+};
+
+export default listener;
+
+async function serve({ request }: FetchEvent) {
+  const { url, method, headers, destination } = request;
+  const clientlist = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+  
+  const [data, port] = await new Promise<[any, MessagePort]>((resolve) => {
+    for (const client of clientlist) {
+      const messageChannel = new MessageChannel();
+      const { port1, port2 } = messageChannel;
+      port1.onmessage = ({ data }) => {
+        resolve([data, port1]);
+      };
+      client.postMessage({
+        url,
+        method,
+        headers: Object.fromEntries(headers.entries()),
+        scope: self.registration.scope,
+        destination,
+        type: 'webtorrent'
+      }, [port2]);
+    }
+  });
+
+  let timeOut: number | null = null;
+  const cleanup = () => {
+    port.postMessage(false);
+    if (timeOut) clearTimeout(timeOut);
+    port.onmessage = null;
+  };
+
+  if (data.body !== 'STREAM') {
+    cleanup();
+    return new Response(data.body, data);
+  }
+
+  return new Response(new ReadableStream({
+    pull(controller) {
+      return new Promise<void>((resolve) => {
+        port.onmessage = ({ data }) => {
+          if (data) {
+            controller.enqueue(data);
+          } else {
+            cleanup();
+            controller.close();
+          }
+          resolve();
+        };
+        if (!cancellable) {
+          if (timeOut) clearTimeout(timeOut);
+          if (destination !== 'document') {
+            timeOut = setTimeout(() => {
+              cleanup();
+              resolve();
+            }, portTimeoutDuration) as unknown as number;
+          }
+        }
+        port.postMessage(true);
+      });
+    },
+    cancel() {
+      cleanup();
+    }
+  }), data);
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/worker.ts`
+
+```ts
+// Arquivo: monorepo/webtorrent/src/sw/worker.ts
+/// <reference lib="webworker" />
+import fileResponse from './worker-server.ts';
+
+declare const self: ServiceWorkerGlobalScope;
+
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('fetch', (event: FetchEvent) => {
+  const res = fileResponse(event);
+  if (res) event.respondWith(res);
+});
+
+self.addEventListener('activate', () => {
+  self.clients.claim();
+});
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/sw example/sw-server.ts`
+
+```ts
+// Adaptação do worker-server.js do WebTorrent para TypeScript.
+// Gerencia as requisições HTTP interceptadas pelo SW e as roteia para os torrents.
+
+interface FetchEvent {
+  request: Request;
+  respondWith: (response: Response | Promise<Response>) => void;
+}
+
+// Mapa de servidores ativos (infoHash -> MessagePort)
+const servers = new Map<string, MessagePort>();
+
+// O client.createServer() na main thread envia uma mensagem para registrar o server no SW
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "webtorrent-server-register") {
+    const { infoHash, port } = event.data;
+    servers.set(infoHash, port);
+  }
+});
+
+export function fileResponse(event: FetchEvent): Response | Promise<Response> | null {
+  const url = new URL(event.request.url);
+  
+  // O WebTorrent serve arquivos em /webtorrent/<infoHash>/<filepath>
+  if (!url.pathname.startsWith("/webtorrent/")) {
+    return null;
+  }
+
+  // Extrai o infoHash do path
+  const parts = url.pathname.split("/");
+  const infoHash = parts[2]; // /webtorrent/<infoHash>/...
+  
+  const port = servers.get(infoHash);
+  if (!port) {
+    return new Response("Torrent não encontrado ou server não registrado", { status: 404 });
+  }
+
+  // Cria um canal para receber o stream da main thread
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = (e) => {
+      if (e.data?.type === "webtorrent-response") {
+        resolve(new Response(e.data.body, {
+          status: e.data.status,
+          headers: e.data.headers,
+        }));
+      }
+    };
+
+    // Envia a requisição para a main thread processar
+    port.postMessage(
+      {
+        type: "webtorrent-request",
+        url: url.toString(),
+        method: event.request.method,
+        headers: Object.fromEntries(event.request.headers.entries()),
+      },
+      [channel.port2]
+    );
+  });
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/sw example/sw.ts`
+
+```ts
+import { fileResponse } from "./sw-server.ts";
+
+declare const self: ServiceWorkerGlobalScope;
+
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("fetch", (event) => {
+  // Delega a resposta para o módulo sw-server
+  const res = fileResponse(event);
+  if (res) event.respondWith(res);
+});
+
+self.addEventListener("activate", () => {
+  self.clients.claim();
+});
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/store.ts`
+
+```ts
+// Arquivo: monorepo/webtorrent/src/store.ts
 import { signal } from "@preact/signals";
-import htm from "htm";
 import { generateIdentity, deriveInfoHash } from "./lib/identity.ts";
 import type { Identity } from "./lib/identity.ts";
-import { WTClient } from "./lib/wt-client.ts";
-import type { PeerInfo } from "./lib/wt-client.ts";
+import { WTClient } from "./lib/webtorrent.ts";
+import type { PeerInfo } from "./lib/webtorrent.ts";
 import { sendPingViaWire, processWireMessage } from "./lib/ping.ts";
 import type { PingResult } from "./lib/ping.ts";
-import { createMetrics, avg, uptime } from "./lib/metrics.ts";
+import { createMetrics } from "./lib/metrics.ts";
 import type { MetricsData } from "./lib/metrics.ts";
 
-const html = htm.bind(h);
-
-/* ── Signals Globais ── */
-
-const localId = signal<Identity | null>(null);
-const swarmStatus = signal<"off" | "connecting" | "on">("off");
-const peers = signal<PeerInfo[]>([]);
-const logs = signal<string[]>([]);
-const metrics = signal<MetricsData>(createMetrics());
-const lastPing = signal<PingResult | null>(null);
-const contactKey = signal("");
-const monitoring = signal(false);
+export const localId = signal<Identity | null>(null);
+export const swarmStatus = signal<"off" | "connecting" | "on">("off");
+export const peers = signal<PeerInfo[]>([]);
+export const logs = signal<string[]>([]);
+export const metrics = signal<MetricsData>(createMetrics());
+export const lastPing = signal<PingResult | null>(null);
+export const contactKey = signal("");
+export const monitoring = signal(false);
+export const swStatus = signal<"unregistered" | "installing" | "activating" | "activated" | "error">("unregistered");
 
 let wt: WTClient | null = null;
-
-/* ── Helpers ── */
 
 function log(msg: string, isError = false) {
   const t = new Date().toLocaleTimeString();
@@ -555,38 +908,66 @@ function log(msg: string, isError = false) {
   logs.value = [`${prefix} [${t}] ${msg}`, ...logs.value.slice(0, 149)];
 }
 
-/* ── Inicialização ── */
-
-async function init() {
-  const id = await generateIdentity();
-  localId.value = id;
-  log(`Identidade gerada: ${id.publicKey.slice(0, 16)}…`);
-  log(`InfoHash: ${id.infoHash}`);
+export async function init() {
+  try {
+    log("Iniciando geração de identidade...");
+    const id = await generateIdentity();
+    localId.value = id;
+    log(`Identidade gerada: ${id.publicKey.slice(0, 16)}…`);
+    log(`InfoHash: ${id.infoHash}`);
+  } catch (err: any) {
+    log(`FALHA: ${err.message}`, true);
+  }
 }
 
-function startSwarm() {
-  if (!localId.value || wt) return;
+export async function registerSW() {
+  if (!("serviceWorker" in navigator)) {
+    swStatus.value = "error";
+    log("Service Worker não suportado neste navegador.", true);
+    return;
+  }
+  try {
+    log("Registrando Service Worker...");
+    // O type: "module" é crucial para que o SW possa usar import/export
+    const registration = await navigator.serviceWorker.register("/worker.js", {
+      scope: "/",
+      type: "module",
+    });
+    
+    const worker = registration.active || registration.waiting || registration.installing;
+    
+    const checkState = (w: ServiceWorker | null) => {
+      if (!w) return;
+      swStatus.value = w.state as "unregistered" | "installing" | "activating" | "activated" | "error";
+      if (w.state === "activated") {
+        log("Service Worker ativado com sucesso!");
+      }
+    };
 
+    checkState(worker);
+    
+    if (worker && worker.state !== "activated") {
+      worker.addEventListener("statechange", () => checkState(worker));
+    }
+  } catch (err: any) {
+    log(`Erro ao registrar SW: ${err.message}`, true);
+    swStatus.value = "error";
+  }
+}
+
+export function initWTClient() {
+  if (wt || !localId.value) return;
+  log("Inicializando cliente WebTorrent para detecção de presença...");
   wt = new WTClient({
     onPeerJoined: (hash, peer) => {
       peers.value = wt?.getPeers(hash) || [];
       metrics.value = {
         ...metrics.value,
-        peerDetections: [
-          ...metrics.value.peerDetections,
-          Date.now() - peer.joinedAt,
-        ],
+        peerDetections: [...metrics.value.peerDetections, Date.now() - peer.joinedAt],
       };
-
-      // Registra listener de mensagens no wire para ping/pong
       if (peer.wire?._pe) {
         peer.wire._pe.on("data", (data: any) => {
-          const result = processWireMessage(
-            data,
-            localId.value!.publicKey,
-            contactKey.value,
-            peer.wire,
-          );
+          const result = processWireMessage(data, localId.value!.publicKey, contactKey.value, peer.wire);
           if (result) {
             lastPing.value = result;
             metrics.value = {
@@ -612,22 +993,24 @@ function startSwarm() {
         swarmJoinMs: ms,
         uptimeStart: Date.now(),
       };
+      log(`Swarm pronto em ${ms}ms`);
     },
     onError: (msg) => {
       log(msg, true);
-      metrics.value = {
-        ...metrics.value,
-        trackerErrors: metrics.value.trackerErrors + 1,
-      };
+      metrics.value = { ...metrics.value, trackerErrors: metrics.value.trackerErrors + 1 };
     },
     onLog: (msg) => log(msg),
   });
-
   wt.joinSwarm(localId.value.infoHash);
   swarmStatus.value = "connecting";
 }
 
-function stopSwarm() {
+export function startSwarm() {
+  if (!localId.value || wt) return;
+  initWTClient();
+}
+
+export function stopSwarm() {
   if (wt && localId.value) {
     wt.leaveSwarm(localId.value.infoHash);
     wt.destroy();
@@ -637,15 +1020,23 @@ function stopSwarm() {
   peers.value = [];
 }
 
-async function monitorContact() {
-  if (!wt || !contactKey.value || monitoring.value) return;
-  const hash = await deriveInfoHash(contactKey.value);
-  log(`Monitorando contato: hash=${hash.slice(0, 8)}…`);
-  wt.joinSwarm(hash);
-  monitoring.value = true;
+export async function monitorContact() {
+  if (!wt || !contactKey.value || monitoring.value) {
+    if (!wt) initWTClient();
+  }
+  if (wt && contactKey.value) {
+    try {
+      const hash = await deriveInfoHash(contactKey.value);
+      log(`Monitorando contato: hash=${hash.slice(0, 8)}…`);
+      wt.joinSwarm(hash);
+      monitoring.value = true;
+    } catch (err: any) {
+      log(`Erro: ${err.message}`, true);
+    }
+  }
 }
 
-function stopMonitoring() {
+export function stopMonitoring() {
   if (!wt || !contactKey.value) return;
   deriveInfoHash(contactKey.value).then((hash) => {
     wt?.leaveSwarm(hash);
@@ -654,8 +1045,8 @@ function stopMonitoring() {
   peers.value = [];
 }
 
-function doPing(peer: PeerInfo) {
-  if (!localId.value) return;
+export function doPing(peer: PeerInfo) {
+  if (!localId.value || !wt) return;
   lastPing.value = null;
   log(`Enviando PING para ${peer.id.slice(0, 12)}…`);
   const sent = sendPingViaWire(peer.wire, localId.value.publicKey);
@@ -669,7 +1060,6 @@ function doPing(peer: PeerInfo) {
     };
     log("Ping falhou: método de envio não disponível", true);
   } else {
-    // Timeout de 10s
     setTimeout(() => {
       if (!lastPing.value) {
         lastPing.value = {
@@ -685,7 +1075,7 @@ function doPing(peer: PeerInfo) {
   }
 }
 
-async function regenerate() {
+export async function regenerate() {
   stopSwarm();
   monitoring.value = false;
   lastPing.value = null;
@@ -693,266 +1083,6 @@ async function regenerate() {
   logs.value = [];
   await init();
 }
-
-/* ── Componente Raiz ── */
-
-function App() {
-  const initialized = useRef(false);
-
-  useEffect(() => {
-    if (!initialized.current) {
-      initialized.current = true;
-      init();
-    }
-    return () => { wt?.destroy(); };
-  }, []);
-
-  const statusDot = swarmStatus.value === "on"
-    ? "on"
-    : swarmStatus.value === "connecting"
-    ? "wait"
-    : "off";
-
-  const statusLabel = swarmStatus.value === "on"
-    ? "Conectado"
-    : swarmStatus.value === "connecting"
-    ? "Conectando…"
-    : "Desconectado";
-
-  return html`
-    <h1>🧪 Loco — WebTorrent Presença</h1>
-
-    <!-- IDENTIDADE -->
-    <h2>1. Identidade Local</h2>
-    <div class="card">
-      ${localId.value
-        ? html`
-          <label>Chave Pública</label>
-          <div class="mono">${localId.value.publicKey}</div>
-          <label>InfoHash (swarm)</label>
-          <div class="mono">${localId.value.infoHash}</div>
-        `
-        : html`<div class="mono">Gerando…</div>`
-      }
-      <div style="margin-top:8px">
-        <button class="sec" onClick=${regenerate}>🔄 Nova Identidade</button>
-        ${swarmStatus.value === "off"
-          ? html`<button class="ok" onClick=${startSwarm}>▶ Entrar no Swarm</button>`
-          : html`<button onClick=${stopSwarm}>⏹ Sair do Swarm</button>`
-        }
-      </div>
-      <div style="margin-top:6px">
-        <span class="dot ${statusDot}"></span>
-        <span style="font-size:13px">${statusLabel}</span>
-      </div>
-    </div>
-
-    <!-- CONTATO -->
-    <h2>2. Monitorar Contato</h2>
-    <div class="card">
-      <label>Chave pública do contato (cole aqui)</label>
-      <input
-        type="text"
-        placeholder="64 chars hex…"
-        value=${contactKey.value}
-        onInput=${(e: any) => { contactKey.value = e.target.value.trim(); }}
-      />
-      <div style="margin-top:6px">
-        ${!monitoring.value
-          ? html`<button class="ok" onClick=${monitorContact}
-              disabled=${contactKey.value.length < 40 || swarmStatus.value === "off"}>
-              👁 Monitorar
-            </button>`
-          : html`<button onClick=${stopMonitoring}>⏹ Parar</button>`
-        }
-      </div>
-      ${monitoring.value
-        ? html`<div style="margin-top:6px;font-size:12px;color:#f39c12">
-            Monitorando swarm do contato…
-          </div>`
-        : null
-      }
-    </div>
-
-    <!-- PEERS -->
-    <h2>3. Peers Detectados</h2>
-    <div class="card">
-      ${peers.value.length === 0
-        ? html`<div style="color:#666;font-size:13px">
-            Nenhum peer detectado ainda.
-          </div>`
-        : peers.value.map((p) => html`
-          <div class="peer-row">
-            <div>
-              <span class="dot ${p.status === "online" ? "on" : "off"}"></span>
-              <span class="peer-id">${p.id.slice(0, 20)}…</span>
-            </div>
-            <div style="font-size:11px;color:#888">
-              ${p.status === "online"
-                ? `online há ${Math.round((Date.now() - p.joinedAt) / 1000)}s`
-                : `offline (${p.leftAt ? Math.round((p.leftAt - p.joinedAt) / 1000) + "s" : "?"})`
-              }
-            </div>
-            ${p.status === "online"
-              ? html`<button class="sec" onClick=${() => doPing(p)}>🏓 Ping</button>`
-              : null
-            }
-          </div>
-        `)
-      }
-    </div>
-
-    <!-- PING -->
-    ${lastPing.value ? html`
-      <h2>4. Último Ping</h2>
-      <div class="card">
-        <div class="ping-box ${lastPing.value.rtt >= 0 ? "ok" : "fail"}">
-          ${lastPing.value.rtt >= 0
-            ? html`RTT: ${lastPing.value.rtt}ms | De: ${lastPing.value.from.slice(0, 16)}… | Válido: ${lastPing.value.valid ? "✅" : "❌"}`
-            : html`Falha: ${lastPing.value.method}`
-          }
-        </div>
-      </div>
-    ` : null}
-
-    <!-- MÉTRICAS -->
-    <h2>${lastPing.value ? "5" : "4"}. Métricas</h2>
-    <div class="card">
-      <div class="metric-row">
-        <span class="l">Entrada no swarm</span>
-        <span class="v">${metrics.value.swarmJoinMs !== null ? metrics.value.swarmJoinMs + "ms" : "—"}</span>
-      </div>
-      <div class="metric-row">
-        <span class="l">Detecção de peer (avg)</span>
-        <span class="v">${avg(metrics.value.peerDetections)}</span>
-      </div>
-      <div class="metric-row">
-        <span class="l">Sessão de peer (avg)</span>
-        <span class="v">${avg(metrics.value.peerLeaves)}</span>
-      </div>
-      <div class="metric-row">
-        <span class="l">Ping RTT (avg)</span>
-        <span class="v">${avg(metrics.value.pingRTTs)}</span>
-      </div>
-      <div class="metric-row">
-        <span class="l">Uptime</span>
-        <span class="v">${uptime(metrics.value.uptimeStart)}</span>
-      </div>
-      <div class="metric-row">
-        <span class="l">Erros de tracker</span>
-        <span class="v" style="color:${metrics.value.trackerErrors > 0 ? "#e74c3c" : "#2ecc71"}">
-          ${metrics.value.trackerErrors}
-        </span>
-      </div>
-    </div>
-
-    <!-- LOGS -->
-    <h2>${lastPing.value ? "6" : "5"}. Logs</h2>
-    <div class="card">
-      <div class="log-box">
-        ${logs.value.map((l) => html`
-          <div class="log-line">
-            <span class="${l.startsWith("❌") ? "e" : "m"}">${l}</span>
-          </div>
-        `)}
-        ${logs.value.length === 0 ? html`<div class="log-line">Aguardando eventos…</div>` : null}
-      </div>
-      <button class="sec" style="margin-top:6px" onClick=${() => { logs.value = []; }}>
-        🗑 Limpar
-      </button>
-    </div>
-  `;
-}
-
-/* ── Mount ── */
-
-render(html`<${App} />`, document.getElementById("app")!);
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/deno.jsonc`
-
-```json
-{
-  "tasks": {
-    "dev": "deno run --allow-all server.ts"
-  },
-  "imports": {
-    "@deno/emit": "jsr:@deno/emit@0.46.0"
-  }
-}
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/server.ts`
-
-```ts
-import { transpile } from "@deno/emit";
-
-const PORT = 8000;
-const ROOT = Deno.cwd();
-
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".ts": "application/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-};
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Cache-Control": "no-cache",
-};
-
-async function transpileTs(filePath: string): Promise<string> {
-  const fileUrl = `file://${filePath}`;
-  const result = await transpile(fileUrl, {
-    compilerOptions: {
-      target: "ESNext",
-      module: "ESNext",
-    },
-  });
-  return result.get(fileUrl) || "";
-}
-
-Deno.serve({ port: PORT }, async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
-  }
-
-  const url = new URL(req.url);
-  const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
-  const filePath = `${ROOT}/src${pathname}`;
-  const ext = pathname.substring(pathname.lastIndexOf("."));
-
-  try {
-    if (ext === ".ts") {
-      const js = await transpileTs(filePath);
-      return new Response(js, {
-        headers: { "Content-Type": MIME[".js"], ...CORS_HEADERS },
-      });
-    }
-
-    const data = await Deno.readFile(filePath);
-    return new Response(data, {
-      headers: {
-        "Content-Type": MIME[ext] || "application/octet-stream",
-        ...CORS_HEADERS,
-      },
-    });
-  } catch (err) {
-    console.error(`404 ${pathname}`, err);
-    return new Response("404 Not Found", { status: 404 });
-  }
-});
-
-console.log(`\n🚀 Teste WebTorrent Presença`);
-console.log(`   http://localhost:${PORT}\n`);
-console.log(`   Abra em DUAS abas para testar presença.\n`);
 ```
 
 ---
@@ -973,6 +1103,64 @@ de presença online em um PWA, com latência aceitável e funcionamento em mobil
 cd testes/webtorrent-presenca
 deno task dev
 ````
+
+---
+
+## Arquivo: `monorepo/webtorrent/server.ts`
+
+```ts
+// Arquivo: monorepo/webtorrent/server.ts
+import { serveDir } from "@std/http/file-server";
+const PORT = 8000;
+console.log(`\n🌐 Servidor WebTorrent Test rodando.`);
+console.log(`   Acesse: http://localhost:${PORT}/index.html\n`);
+console.log(`   Abra em DUAS abas para testar a presença P2P.\n`);
+Deno.serve({ port: PORT }, async (req: Request) => {
+  const response = await serveDir(req, {
+    fsRoot: "./build/dist",
+    showDirListing: true,
+  });
+  response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+  // Headers necessários para Service Worker e SharedArrayBuffer (se necessário)
+  response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+  return response;
+});
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/deno.jsonc`
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns", "deno.unstable"],
+    "strict": true
+  },
+  "imports": {
+    "preact": "https://esm.sh/preact@10.29.7",
+    "preact/": "https://esm.sh/preact@10.29.7/",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.29.7/jsx-runtime",
+    "@preact/signals": "https://esm.sh/@preact/signals@1.3.1?deps=preact@10.29.7",
+    "@std/fs": "jsr:@std/fs",
+    "@std/path": "jsr:@std/path",
+    "@std/http": "jsr:@std/http",
+    "esbuild": "npm:esbuild@0.24.0",
+    "@deno/esbuild-plugin": "jsr:@deno/esbuild-plugin@1.2.1",
+    "webtorrent": "npm:webtorrent@3.0.21"
+  },
+  "tasks": {
+    "build": "deno run -A esbuild.ts",
+    "serve": "deno run -A server.ts",
+    "dev": "deno task build && deno task serve"
+  }
+}
+```
 
 ---
 
