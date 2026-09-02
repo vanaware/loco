@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WEBTORRENT
 
-Gerado automaticamente em: 9/2/2026, 1:16:58 AM
+Gerado automaticamente em: 9/2/2026, 1:46:19 AM
 
 ---
 
@@ -256,10 +256,8 @@ function bytesToHex(bytes: Uint8Array): string {
 ```ts
 /**
  * Wrapper do WebTorrent para discovery de presença.
- * Importado diretamente via esm.sh, o esbuild cuidará dos polyfills do Node.js.
+ * CORRIGIDO: Usa objeto de torrent para pular a busca de metadados.
  */
-import WebTorrent from "webtorrent";
-
 export interface PeerInfo {
   id: string;
   status: "online" | "offline";
@@ -276,6 +274,12 @@ export interface WTCallbacks {
   onLog: (msg: string) => void;
 }
 
+  const RELIABLE_TRACKERS = [
+  "wss://tracker.webtorrent.dev:443",
+  "wss://tracker.openwebtorrent.com:443",
+  "wss://open.ftorrent.com:443"
+];
+
 export class WTClient {
   private client: any;
   private torrents = new Map<string, any>();
@@ -285,25 +289,36 @@ export class WTClient {
 
   constructor(cb: WTCallbacks) {
     this.cb = cb;
+    
+    // Acessa WebTorrent explicitamente via window (carregado pelo index.html)
+    const WT = (typeof window !== "undefined" ? (window as any).WebTorrent : undefined) ||
+               (typeof globalThis !== "undefined" ? (globalThis as any).WebTorrent : undefined);
+    
+    if (!WT) {
+      cb.onError("WebTorrent NÃO foi encontrado no objeto global do navegador.");
+      console.error("[WTClient] WebTorrent não disponível. Verifique se o script CDN no index.html está sendo bloqueado por um AdBlocker.");
+      throw new Error("WebTorrent não carregado pelo navegador");
+    }
 
     try {
-      this.client = new WebTorrent({
+      this.client = new WT({
         tracker: {
           announce: [
-            "wss://tracker.openwebtorrent.com",
-            "wss://tracker.btorrent.xyz",
-            "wss://tracker.webtorrent.dev",
+            ...RELIABLE_TRACKERS
           ],
         },
+        // Desativamos recursos que não precisamos para sinalização pura
+        dht: false, 
+        webSeeds: false
       });
 
       this.client.on("error", (err: any) => {
-        cb.onError(`WT client: ${err.message || err}`);
+        cb.onError(`WT client error: ${err.message || err}`);
       });
 
-      cb.onLog("WebTorrent client criado com sucesso via esbuild polyfills");
+      cb.onLog("WebTorrent client criado com sucesso via build de navegador");
     } catch (err: any) {
-      cb.onError(`Falha ao criar WebTorrent client: ${err.message}`);
+      cb.onError(`Falha ao instanciar WebTorrent client: ${err.message}`);
       throw err;
     }
   }
@@ -319,12 +334,20 @@ export class WTClient {
     this.cb.onLog(`Entrando no swarm ${infoHash.slice(0, 8)}…`);
 
     try {
-      const t = this.client.add(infoHash, {
+      // 🔥 CORREÇÃO CRÍTICA:
+      // Passamos um objeto, não uma string. Isso diz ao WebTorrent:
+      // "Já tenho os metadados, apenas anuncie este infoHash nestes trackers".
+      // Isso evita que ele fique preso tentando baixar um .torrent inexistente.
+      const torrentObj = {
+        infoHash: infoHash,
         announce: [
-          "wss://tracker.openwebtorrent.com",
-          "wss://tracker.btorrent.xyz",
+          ...RELIABLE_TRACKERS
         ],
-      });
+        name: "loco-presence-signal",
+        urlList: [] // Previne tentativas de HTTP seed
+      };
+
+      const t = this.client.add(torrentObj);
 
       t.on("ready", () => {
         const ms = Date.now() - (this.joinTimes.get(infoHash) || Date.now());
@@ -362,7 +385,7 @@ export class WTClient {
       });
 
       t.on("error", (err: any) => {
-        this.cb.onError(`Swarm ${infoHash.slice(0, 8)}: ${err.message || err}`);
+        this.cb.onError(`Swarm ${infoHash.slice(0, 8)} error: ${err.message || err}`);
       });
 
       this.torrents.set(infoHash, t);
@@ -642,30 +665,6 @@ if (rootElement) {
 
 ---
 
-## Arquivo: `monorepo/webtorrent/src/index.html`
-
-```html
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Loco — Teste WebTorrent Presença</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧪</text></svg>">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.css">
-  <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.js"></script>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.4/dist/cdn/material-dynamic-colors.min.js"></script>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-fonts@0.0.3/dist/cdn/material-dynamic-fonts.min.js?font=Material Symbols Outlined&selector=i"></script>
-</head>
-<body class="dark">
-  <div id="app"></div>
-  <script type="module" src="/main.js"></script>
-</body>
-</html>
-```
-
----
-
 ## Arquivo: `monorepo/webtorrent/src/worker-server.ts`
 
 ```ts
@@ -872,6 +871,33 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("activate", () => {
   self.clients.claim();
 });
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/index.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loco — Teste WebTorrent Presença</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧪</text></svg>">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.css">
+  <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.4/dist/cdn/material-dynamic-colors.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-fonts@0.0.3/dist/cdn/material-dynamic-fonts.min.js?font=Material Symbols Outlined&selector=i"></script>
+  
+  <!-- 🔥 WebTorrent Build para Navegador (Já inclui polyfills de Node.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
+</head>
+<body class="dark">
+  <div id="app"></div>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
 ```
 
 ---
@@ -1087,6 +1113,134 @@ export async function regenerate() {
 
 ---
 
+## Arquivo: `monorepo/webtorrent/src/simple.html`
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loco — WebTorrent P2P</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.css">
+  <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.4/dist/cdn/material-dynamic-colors.min.js"></script>
+</head>
+<body class="dark">
+  <div id="app"></div>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/simple.tsx`
+
+```tsx
+import { render } from "preact";
+import { App } from "./App.tsx";
+
+async function bootstrap() {
+  // 1. Registra o Service Worker
+  if ("serviceWorker" in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      console.log("✅ Service Worker registrado:", reg.scope);
+    } catch (err) {
+      console.error("❌ Falha ao registrar SW:", err);
+    }
+  }
+
+  // 2. Monta a UI
+  const root = document.getElementById("app");
+  if (root) {
+    render(<App />, root);
+  }
+}
+
+bootstrap();
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/simpleApp.tsx`
+
+```tsx
+import { useEffect, useState } from "preact/hooks";
+import WebTorrent from "webtorrent";
+
+export function App() {
+  const [status, setStatus] = useState("Inicializando...");
+  const [infoHash, setInfoHash] = useState("");
+
+  useEffect(() => {
+    async function init() {
+      // Verifica suporte a WebRTC
+      if (!WebTorrent.WEBRTC_SUPPORT) {
+        setStatus("❌ WebRTC não suportado neste browser.");
+        return;
+      }
+
+      const client = new WebTorrent();
+      
+      // Aguarda o SW ficar pronto
+      const reg = await navigator.serviceWorker.ready;
+      
+      // Cria o server HTTP interno do WebTorrent, forçando o modo browser
+      // e vinculando ao Service Worker registrado
+      client.createServer({ controller: reg }, "browser");
+      
+      setStatus("✅ WebTorrent Client + Server ativos.");
+
+      // Exemplo: Criar um torrent vazio (apenas para presence/swarm)
+      // Na prática, você usaria client.seed() ou client.add(magnet)
+      const buf = new Uint8Array([1, 2, 3]);
+      (buf as any).name = "presence.txt";
+      
+      client.seed(buf, { announce: ["wss://tracker.openwebtorrent.com"] }, (torrent) => {
+        setInfoHash(torrent.infoHash);
+        setStatus(`✅ Seeding presence swarm: ${torrent.infoHash}`);
+        
+        torrent.on("wire", (wire) => {
+          console.log("🟢 Peer conectado via WebRTC:", wire.peerId);
+        });
+      });
+    }
+
+    init();
+  }, []);
+
+  return (
+    <main class="responsive padding">
+      <h3>🧪 WebTorrent NPM + Service Worker</h3>
+      
+      <article class="surface-container-low padding">
+        <h5>Status do Client</h5>
+        <p>{status}</p>
+        
+        {infoHash && (
+          <div class="field prefix round border margin-top">
+            <i>tag</i>
+            <div class="max">
+              <label>InfoHash (Swarm)</label>
+              <pre class="small-text">{infoHash}</pre>
+            </div>
+          </div>
+        )}
+        
+        <p class="small-text margin-top">
+          O Service Worker está interceptando requisições em <code>/webtorrent/</code>.
+          Abra em outra aba/dispositivo e conecte ao mesmo InfoHash para validar o P2P.
+        </p>
+      </article>
+    </main>
+  );
+}
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/README.md`
 
 ````md
@@ -1151,8 +1305,7 @@ Deno.serve({ port: PORT }, async (req: Request) => {
     "@std/path": "jsr:@std/path",
     "@std/http": "jsr:@std/http",
     "esbuild": "npm:esbuild@0.24.0",
-    "@deno/esbuild-plugin": "jsr:@deno/esbuild-plugin@1.2.1",
-    "webtorrent": "npm:webtorrent@3.0.21"
+    "@deno/esbuild-plugin": "jsr:@deno/esbuild-plugin@1.2.1"
   },
   "tasks": {
     "build": "deno run -A esbuild.ts",
