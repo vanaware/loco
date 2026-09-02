@@ -29,6 +29,7 @@
     "./build": "./src/esbuild/mod.ts",
     "./db": "./src/db/mod.ts",
     "./export": "./src/export/mod.ts",
-    "./webtorrent": "./src/webtorrent/mod.ts"
+    "./webtorrent": "./src/webtorrent/mod.ts",
+    "./eventbus": "./src/eventbus/mod.ts"
   }
 }
