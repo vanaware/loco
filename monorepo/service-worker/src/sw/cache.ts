@@ -8,7 +8,11 @@ import { APP_VERSION } from "@loco/utils/config";
 const CACHE_NAME = `loco-proto-cache-v${APP_VERSION}`;
 const ASSETS_TO_CACHE: string[] = GENERATED_ASSETS;
 
-self.addEventListener("install", (event) => {
+/**
+ * Handler de instalação do Service Worker.
+ * Exportado para ser orquestrado pelo service-worker.ts principal.
+ */
+export function handleInstall(event: ExtendableEvent): void {
   console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -22,9 +26,13 @@ self.addEventListener("install", (event) => {
       );
     }).then(() => self.skipWaiting())
   );
-});
+}
 
-self.addEventListener("activate", (event) => {
+/**
+ * Handler de ativação do Service Worker.
+ * Exportado para ser orquestrado pelo service-worker.ts principal.
+ */
+export function handleActivate(event: ExtendableEvent): void {
   console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -38,7 +46,7 @@ self.addEventListener("activate", (event) => {
       );
     }).then(() => self.clients.claim())
   );
-});
+}
 
 /**
  * Lógica de fetch para cache (Network-First com fallback para Cache).
@@ -50,7 +58,7 @@ export async function handleCacheFetch(event: FetchEvent): Promise<Response | un
     return undefined;
   }
 
-  // Ignora requisições externas à origem ou rotas de API (que devem ser tratadas por outras lógicas)
+  // Ignora requisições externas à origem ou rotas de API
   if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
     return undefined;
   }
@@ -59,7 +67,7 @@ export async function handleCacheFetch(event: FetchEvent): Promise<Response | un
     // Tenta buscar da rede primeiro
     const networkResponse = await fetch(event.request);
     
-    // Se for bem-sucedido, clona e salva no cache para futuras requisições offline
+    // Se for bem-sucedido, clona e salva no cache
     if (networkResponse.ok) {
       const responseClone = networkResponse.clone();
       const cache = await caches.open(CACHE_NAME);

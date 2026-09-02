@@ -8,7 +8,15 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: SW
 
-Gerado automaticamente em: 8/30/2026, 10:08:58 PM
+Gerado automaticamente em: 9/2/2026, 8:11:53 PM
+
+---
+
+## Arquivo: `monorepo/service-worker/src/sw/mod.ts`
+
+```ts
+// reservado para futuras exportações
+```
 
 ---
 
@@ -16,18 +24,15 @@ Gerado automaticamente em: 8/30/2026, 10:08:58 PM
 
 ```ts
 // src/sw/click.ts
-
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-self.addEventListener('notificationclick', function(event: any) {
+export function handleNotificationClick(event: any) {
   console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
   event.notification.close();
-  
-  // 🔥 ARQUITETURA: Usa o escopo do Service Worker registrado em vez de '/' hardcoded.
-  // Isso garante que o clique na notificação abra o app no diretório correto (ex: Github Pages).
+
   const urlParaAbrir = new URL(self.registration.scope).href;
-  
+
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then(function(windowClients) {
@@ -51,165 +56,7 @@ self.addEventListener('notificationclick', function(event: any) {
         }
       })
   );
-});
-```
-
----
-
-## Arquivo: `monorepo/service-worker/src/sw/mod.ts`
-
-```ts
-// reservado para futuras exportações
-```
-
----
-
-## Arquivo: `monorepo/service-worker/src/sw/sw-utils.ts`
-
-```ts
-// src/sw/sw-utils.ts
-import { addDebugLog } from '@loco/utils/debug';
-import { APP_VERSION } from '@loco/utils/config';
-
-export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
-  addDebugLog("📡 Verificando suporte ao Service Worker...");
-  if (!("serviceWorker" in navigator)) {
-    throw new Error("Service Worker não é suportado neste navegador.");
-  }
-
-  // 🔥 ARQUITETURA: Resolução Dinâmica de Rota Base (Environment Agnostic)
-  // Lemos a URL atual para descobrir se estamos rodando na raiz (/) ou em um subdiretório (/loco/)
-  let basePath = globalThis.location.pathname;
-  
-  // Se a URL aponta para um arquivo (ex: /loco/index.html), extraímos apenas o diretório
-  if (basePath.split('/').pop()?.includes('.')) {
-    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
-  } else if (!basePath.endsWith('/')) {
-    // Se a URL é /loco (sem barra no final), forçamos a barra. 
-    // Isso evita que o navegador interprete "loco" como arquivo e tente registrar o SW na raiz "/".
-    basePath += '/';
-  }
-
-  addDebugLog(`⏳ Registrando Service Worker no escopo: ${basePath}`);
-
-  try {
-    const registration = await navigator.serviceWorker.register(
-      `${basePath}service-worker.js?v=${APP_VERSION}`,
-      { scope: basePath }
-    );
-    
-    if (!registration) {
-      throw new Error("Service Worker registration retornou null/undefined");
-    }
-    
-    addDebugLog("✅ Service Worker registrado, aguardando ready...");
-    const readyReg = await navigator.serviceWorker.ready;
-    
-    // 🔥 ARQUITETURA: Checagem Introspectiva de Versão (App vs SW)
-    if (readyReg.active) {
-      // Criamos um túnel de comunicação seguro (MessageChannel)
-      const channel = new MessageChannel();
-      
-      // A UI fica escutando a porta 1
-      channel.port1.onmessage = (event) => {
-        if (event.data && event.data.type === 'PONG_SW_VERSION') {
-          const swVersion = event.data.version;
-          
-          if (swVersion !== APP_VERSION) {
-            addDebugLog("warn", "SYSTEM", `⚠️ Inconsistência de Versão! App está rodando v${APP_VERSION}, mas o Service Worker ativo em background é v${swVersion}. Um recarregamento forçado pode ser necessário.`);
-          } else {
-            addDebugLog("info", "SYSTEM", `🔒 Match de versão verificado: App e SW estão sincronizados na v${APP_VERSION}.`);
-          }
-        }
-      };
-      
-      // A UI manda o sinal de PING pela porta 2 direto para o Worker ativo
-      readyReg.active.postMessage({ type: 'PING_SW_VERSION' }, [channel.port2]);
-    }
-    
-    return readyReg;
-  } catch (err: any) {
-    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
-    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
-  }
 }
-```
-
----
-
-## Arquivo: `monorepo/service-worker/src/sw/cache.ts`
-
-```ts
-// src/sw/cache.ts
-/// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
-declare const __GENERATED_ASSETS__: string[];
-
-import { APP_VERSION } from "@loco/utils/config";
-
-const CACHE_NAME = `loco-proto-cache-v${APP_VERSION}`;
-const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
-
-self.addEventListener("install", (event) => {
-  console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log("[SW-CACHE] 📦 Armazenando assets essenciais no cache local...");
-      return Promise.all(
-        ASSETS_TO_CACHE.map((url) => {
-          return cache.add(url).catch((err) => {
-            console.error(`[SW-CACHE] ❌ Falha ao cachear recurso: ${url}`, err);
-          });
-        })
-      );
-    }).then(() => self.skipWaiting())
-  );
-});
-
-self.addEventListener("activate", (event) => {
-  console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log(`[SW-CACHE] 🗑️ Removendo cache obsoleto: ${cache}`);
-            return caches.delete(cache);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener("fetch", (event: any) => {
-  if (event.request.method !== "GET") {
-    return;
-  }
-  if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
-    return;
-  }
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-        }
-        return response;
-      })
-      .catch(() => {
-        console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) return cachedResponse;
-          return new Response("Você está offline e este recurso não foi mapeado no cache.", {
-            status: 503,
-            headers: { "Content-Type": "text/plain; charset=utf-8" }
-          });
-        });
-      })
-  );
-});
 ```
 
 ---
@@ -222,16 +69,16 @@ self.addEventListener("fetch", (event: any) => {
 declare const self: ServiceWorkerGlobalScope;
 
 import { verificarJWT } from "@loco/utils/crypto";
-import { processarHandshakeRecebido } from "./sw-handshakes.ts";
+import { processarHandshakeRecebido } from "./handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug";
 
-addDebugLog("[SW-PUSH-ROUTER] 🔀 Event Listener de Push engatilhado.");
+export function handlePush(event: any) {
+  addDebugLog("[SW-PUSH-ROUTER] 🔀 Event Listener de Push engatilhado.");
 
-self.addEventListener('push', function (event) {
   if (!event.data) return;
   const rawText = event.data.text();
   addDebugLog(`[SW-PUSH-ROUTER] 📩 WebPush físico recebido! (Tamanho: ${rawText.length} bytes)`);
-  
+
   if (rawText.split('.').length !== 3) {
     event.waitUntil(
       self.registration.showNotification("Notificação", { body: "Dados crus capturados." })
@@ -251,12 +98,12 @@ self.addEventListener('push', function (event) {
           });
           return;
         }
-        
+
         if (payload.sub === "hand") {
           await processarHandshakeRecebido(payload, header, rawText);
           return;
         }
-        
+
         addDebugLog(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
       } catch (err: any) {
         addDebugLog(`[SW-PUSH-ROUTER] ❌ Falha crítica no desempacotamento de Push: ${err.message}`);
@@ -267,12 +114,324 @@ self.addEventListener('push', function (event) {
       }
     })()
   );
-});
+}
 ```
 
 ---
 
-## Arquivo: `monorepo/service-worker/src/sw/sw-handshakes.ts`
+## Arquivo: `monorepo/service-worker/src/sw/webtorrent.ts`
+
+```ts
+// src/sw/webtorrent.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+const PORT_TIMEOUT_DURATION = 5000;
+
+// 🔥 ESTADO DE RESILIÊNCIA: Só tentamos stream se o main thread confirmou que o WebTorrent está ativo
+let isWebTorrentReady = false;
+
+interface WebTorrentRequestMessage {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  scope: string;
+  destination: RequestDestination;
+  type: "webtorrent";
+}
+
+interface WebTorrentResponseData {
+  body: "STREAM" | ArrayBuffer | string | null;
+  status?: number;
+  statusText?: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Lida com mensagens vindas do Main Thread.
+ * Usado para o Main Thread avisar que o WebTorrent foi inicializado e está escutando.
+ */
+export function handleWebTorrentMessage(event: ExtendableMessageEvent) {
+  if (event.data && event.data.type === "WEBTORRENT_READY") {
+    console.log(
+      "[SW-WEBTORRENT] ✅ Main thread solicitou ativação. Verificando estado...",
+    );
+    isWebTorrentReady = true;
+
+    // 🔥 Responde usando a MessageChannel transferida (Padrão Loco)
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ type: "WEBTORRENT_ACK" });
+      console.log(
+        "[SW-WEBTORRENT] 📤 WEBTORRENT_ACK enviado via MessageChannel dedicada.",
+      );
+    } else {
+      // Fallback de segurança caso a chamada venha de um código legado sem MessageChannel
+      if (event.source) {
+        (event.source as Client).postMessage({ type: "WEBTORRENT_ACK" });
+      }
+    }
+  }
+}
+
+/**
+ * Tenta interceptar e responder a requisições do WebTorrent.
+ * @returns true se a requisição foi tratada (respondWith foi chamado), false caso contrário.
+ */
+export function handleWebTorrentFetch(event: FetchEvent): boolean {
+  const { url } = event.request;
+  const scope = self.registration.scope;
+
+  // 1. Ignora requisições que não são do webtorrent
+  if (!url.includes(`${scope}webtorrent/`)) {
+    return false;
+  }
+
+  // 2. Keepalive para manter o SW ativo sem consumir recursos
+  if (url.includes(`${scope}webtorrent/keepalive/`)) {
+    event.respondWith(new Response());
+    return true;
+  }
+
+  // 3. Cancelamento de stream (ex: usuário pulou o vídeo)
+  if (url.includes(`${scope}webtorrent/cancel/`)) {
+    event.respondWith(
+      new Response(
+        new ReadableStream({
+          cancel() {
+            // Lógica de cancelamento
+          },
+        }),
+      ),
+    );
+    return true;
+  }
+
+  // 🔥 RESILIÊNCIA: Se o Main Thread não inicializou o WebTorrent, não tentamos stream.
+  // Retornamos false para que o orquestrador principal faça o fetch normal (ou cache).
+  if (!isWebTorrentReady) {
+    console.warn(
+      "[SW-WEBTORRENT] ⚠️ Requisição webtorrent recebida, mas o Main Thread não está pronto. Fallback para fetch normal.",
+    );
+    return false;
+  }
+
+  // 4. Serve o arquivo via MessageChannel com o Main Thread
+  event.respondWith(serve(event));
+  return true;
+}
+
+/**
+ * Lógica principal de streaming: comunica-se com o main thread para buscar chunks sob demanda.
+ */
+async function serve(event: FetchEvent): Promise<Response> {
+  const { request } = event;
+  const { url, method, headers, destination } = request;
+
+  const clientList = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+
+  const [data, port]: [WebTorrentResponseData, MessagePort] = await new Promise(
+    (resolve) => {
+      for (const client of clientList) {
+        const messageChannel = new MessageChannel();
+        const { port1, port2 } = messageChannel;
+
+        port1.onmessage = ({ data }: MessageEvent<WebTorrentResponseData>) => {
+          resolve([data, port1]);
+        };
+
+        const message: WebTorrentRequestMessage = {
+          url,
+          method,
+          headers: Object.fromEntries(headers.entries()),
+          scope: self.registration.scope,
+          destination,
+          type: "webtorrent",
+        };
+
+        client.postMessage(message, [port2]);
+      }
+
+      // Fallback de segurança caso nenhum cliente responda
+      setTimeout(() => {
+        resolve([{ body: null, status: 503 }, null as unknown as MessagePort]);
+      }, 5000);
+    },
+  );
+
+  let timeOut: number | null = null;
+  let isCancelled = false;
+
+  const cleanup = () => {
+    if (port) {
+      port.postMessage(false);
+      port.onmessage = null;
+    }
+    if (timeOut !== null) {
+      clearTimeout(timeOut);
+    }
+    isCancelled = true;
+  };
+
+  if (data.body !== "STREAM") {
+    cleanup();
+    return new Response(data.body as BodyInit, {
+      status: data.status,
+      statusText: data.statusText,
+      headers: data.headers,
+    });
+  }
+
+  return new Response(
+    new ReadableStream({
+      pull(controller) {
+        return new Promise((resolve) => {
+          if (isCancelled || !port) {
+            controller.close();
+            resolve();
+            return;
+          }
+
+          port.onmessage = ({ data }: MessageEvent<Uint8Array | null>) => {
+            if (data) {
+              controller.enqueue(data);
+            } else {
+              cleanup();
+              controller.close();
+            }
+            resolve();
+          };
+
+          if (destination !== "document") {
+            clearTimeout(timeOut!);
+            timeOut = self.setTimeout(() => {
+              cleanup();
+              resolve();
+            }, PORT_TIMEOUT_DURATION);
+          }
+
+          port.postMessage(true);
+        });
+      },
+      cancel() {
+        cleanup();
+      },
+    }),
+    {
+      status: data.status,
+      statusText: data.statusText,
+      headers: data.headers,
+    },
+  );
+}
+
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/src/sw/cache.ts`
+
+```ts
+// src/sw/cache.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+declare const GENERATED_ASSETS: string[];
+
+import { APP_VERSION } from "@loco/utils/config";
+
+const CACHE_NAME = `loco-proto-cache-v${APP_VERSION}`;
+const ASSETS_TO_CACHE: string[] = GENERATED_ASSETS;
+
+/**
+ * Handler de instalação do Service Worker.
+ * Exportado para ser orquestrado pelo service-worker.ts principal.
+ */
+export function handleInstall(event: ExtendableEvent): void {
+  console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      console.log("[SW-CACHE] 📦 Armazenando assets essenciais no cache local...");
+      return Promise.all(
+        ASSETS_TO_CACHE.map((url) => {
+          return cache.add(url).catch((err) => {
+            console.error(`[SW-CACHE] ❌ Falha ao cachear recurso: ${url}`, err);
+          });
+        })
+      );
+    }).then(() => self.skipWaiting())
+  );
+}
+
+/**
+ * Handler de ativação do Service Worker.
+ * Exportado para ser orquestrado pelo service-worker.ts principal.
+ */
+export function handleActivate(event: ExtendableEvent): void {
+  console.log("[SW-CACHE] ✨ Ativando Service Worker e limpando caches antigos...");
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            console.log(`[SW-CACHE] 🗑️ Removendo cache obsoleto: ${cache}`);
+            return caches.delete(cache);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
+  );
+}
+
+/**
+ * Lógica de fetch para cache (Network-First com fallback para Cache).
+ * Exportada para ser orquestrada pelo service-worker.ts principal.
+ */
+export async function handleCacheFetch(event: FetchEvent): Promise<Response | undefined> {
+  // Ignora métodos que não sejam GET
+  if (event.request.method !== "GET") {
+    return undefined;
+  }
+
+  // Ignora requisições externas à origem ou rotas de API
+  if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
+    return undefined;
+  }
+
+  try {
+    // Tenta buscar da rede primeiro
+    const networkResponse = await fetch(event.request);
+    
+    // Se for bem-sucedido, clona e salva no cache
+    if (networkResponse.ok) {
+      const responseClone = networkResponse.clone();
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(event.request, responseClone);
+    }
+    
+    return networkResponse;
+  } catch (err) {
+    // Fallback Offline
+    console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
+    const cache = await caches.open(CACHE_NAME);
+    const cachedResponse = await cache.match(event.request);
+    
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    
+    return new Response("Você está offline e este recurso não foi mapeado no cache.", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8" }
+    });
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/src/sw/handshakes.ts`
 
 ```ts
 // src/sw/sw-handshakes.ts
@@ -280,7 +439,7 @@ self.addEventListener('push', function (event) {
 declare const self: ServiceWorkerGlobalScope;
 
 import { gunzipSync } from "fflate";
-import { Handshake } from "@loco/utils/interfaces";
+import type { Handshake } from "@loco/utils/interfaces";
 import { MAX_TENTATIVAS } from "@loco/utils/config";
 import { base64UrlToBuffer, criarJWT } from "@loco/utils/crypto";
 import {
@@ -292,7 +451,7 @@ import {
   buscarProfile,
   buscarChaveDecript,
   salvarProfile,
-  serializarPublicKeyVapid,
+  serializarPublicKeyVapid, 
   normalizarChaveContato,
   removerContatoPorHash,
   gerarId
@@ -303,12 +462,7 @@ import { addDebugLog } from "@loco/utils/debug";
 import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
 import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
 import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
-
-// 🔥 Stub temporário: Mova para @loco/utils/proxy se for genérico, ou mantenha local se for específico do SW
-async function getServerPublicKey(): Promise<JsonWebKey> {
-  // Implementação real deve buscar a chave pública do servidor para cifrar o envelope VAPID
-  throw new Error("getServerPublicKey não implementado. Adicione a lógica de fetch da chave do servidor.");
-}
+import { getServerPublicKey } from "@loco/ui/utils"
 
 async function realizarGarbageCollection(emergencia = false) {
   try {
@@ -331,6 +485,7 @@ async function realizarGarbageCollection(emergencia = false) {
     if (removidos > 0) {
       addDebugLog(`[SW-ROUTER] 🧹 Garbage Collection: ${removidos} handshakes antigos removidos.`);
     }
+    // deno-lint-ignore no-explicit-any
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro durante o Garbage Collection: ${err.message}`);
   }
@@ -340,12 +495,14 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
   try {
     await salvarHandshake(handshake);
     if (mensagemSucesso) addDebugLog(mensagemSucesso);
+  // deno-lint-ignore no-explicit-any  
   } catch (e: any) {
     if (e.name === 'QuotaExceededError') {
       addDebugLog("[SW-ROUTER] 🚨 CRÍTICO: Cota excedida. Disparando GC de emergência...");
       await realizarGarbageCollection(true);
       try {
         await salvarHandshake(handshake);
+      // deno-lint-ignore no-explicit-any
       } catch (e2: any) {
         throw e2;
       }
@@ -355,6 +512,7 @@ async function salvarHandshakeTransacional(handshake: Handshake, mensagemSucesso
   }
 }
 
+// deno-lint-ignore no-explicit-any
 export async function processarHandshakeRecebido(payload: any, header: any, _jwt: string) {
   addDebugLog("[SW-ROUTER] 🤝 Handshake recebido. Decifrando envelope...");
   try {
@@ -407,6 +565,7 @@ export async function processarHandshakeRecebido(payload: any, header: any, _jwt
     
     await salvarHandshakeTransacional(handshake, `[SW-ROUTER] ✅ Handshake ${handshake.id} decifrado e enfileirado para processamento In.`);
     processarFilaHandshake().catch(err => console.error(err));
+  // deno-lint-ignore no-explicit-any
   } catch (err: any) {
     addDebugLog(`[SW-ROUTER] ❌ Erro ao decifrar handshake recebido: ${err.message}`);
     throw err;
@@ -443,6 +602,7 @@ export async function processarFilaHandshake(): Promise<void> {
             hFresh.updatedAt = Date.now();
             await salvarHandshakeTransacional(hFresh);
           }
+        // deno-lint-ignore no-explicit-any
         } catch (err: any) {
           addDebugLog(`[SW-ROUTER] ❌ Falha na rota IN do handshake ${h.id}: ${err.message}`);
           const hFresh = await buscarHandshake(h.id);
@@ -502,7 +662,8 @@ export async function processarFilaHandshake(): Promise<void> {
           }
 
           let envelope = await cifrarPayloadObj(h.out!.rotas, contato.e2ePublicKey);
-          let payloadJwt: any = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
+          // deno-lint-ignore no-explicit-any
+          const payloadJwt: any = { sub: "hand", aud: contato.id, jti: h.id, ct: JSON.stringify(envelope) };
           let jwt = await criarJWT(payloadJwt, profile.vapidPrivateKeyJwk, { kid: profile.vapidPublicKey });
 
           if (jwt.length > 4000 && injetouPIGNestaRodada) {
@@ -537,6 +698,7 @@ export async function processarFilaHandshake(): Promise<void> {
           if (h.out!.rotas?.contato?.removerContato) {
             await removerContatoPorHash(h.aud);
           }
+        // deno-lint-ignore no-explicit-any
         } catch (err: any) {
           if (h && h.out) {
             h.out.status = h.out.tentativas >= MAX_TENTATIVAS ? 'falha' : 'pendente';
@@ -551,6 +713,7 @@ export async function processarFilaHandshake(): Promise<void> {
       }
       
       await realizarGarbageCollection(false);
+    // deno-lint-ignore no-explicit-any
     } catch (err: any) {
       addDebugLog(`[SW-ROUTER] ❌ Erro geral ao processar fila: ${err.message}`);
     }
@@ -563,19 +726,23 @@ export async function processarFilaHandshake(): Promise<void> {
   }
 }
 
-self.addEventListener('sync', function (event: any) {
+// 🔥 NOVAS FUNÇÕES EXPORTÁVEIS PARA O ORQUESTRADOR
+
+// deno-lint-ignore no-explicit-any
+export function handleSync(event: any) {
   if (event.tag === 'sync-envio-handshakes') {
     event.waitUntil(processarFilaHandshake());
   }
-});
+}
 
-self.addEventListener('online', function (event: Event) {
+// deno-lint-ignore no-explicit-any
+export function handleOnline(event: any) {
   if ('waitUntil' in event) {
     (event as ExtendableEvent).waitUntil(processarFilaHandshake());
   } else {
     processarFilaHandshake();
   }
-});
+}
 ```
 
 ---
@@ -787,7 +954,7 @@ declare const self: ServiceWorkerGlobalScope;
 
 import { Handshake, Chat } from "@loco/utils/interfaces";
 import { gerarId, buscarHandshake, salvarHandshake, buscarChat, salvarChat, buscarContatoPorChave, buscarProfile, removerTodoHistoricoChat, removerChat, listarHandshakes, removerHandshake, ehContatoProprio } from "@loco/utils/db";
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../sw/handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug"; 
 
 interface MensagemOutParams {
@@ -1005,7 +1172,7 @@ declare const self: ServiceWorkerGlobalScope;
 
 import { Handshake, Contato } from "@loco/utils/interfaces";
 import { gerarId, buscarHandshake, salvarHandshake, buscarProfile, buscarContatoPorChave, salvarContato, serializarPublicKeyVapid, listarHandshakes, removerHandshake, removerContatoPorHash, removerTodoHistoricoChat, extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "@loco/utils/db";
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../sw/handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug";
 
 interface ContatoOutParams {
@@ -1179,7 +1346,7 @@ declare const self: ServiceWorkerGlobalScope;
 import { Handshake } from "@loco/utils/interfaces";
 import { gerarId, buscarHandshake, salvarHandshake, buscarProfile, buscarContatoPorChave, salvarContato, serializarPublicKeyVapid, listarHandshakes, removerHandshake } from "@loco/utils/db";
 import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from "@loco/utils/crypto";
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../sw/handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug";
 
 interface ProfileOutParams {
@@ -1292,24 +1459,123 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 
 ---
 
+## Arquivo: `monorepo/service-worker/src/mod.ts`
+
+```ts
+export * from "./utils/mod.ts";
+```
+
+---
+
+## Arquivo: `monorepo/service-worker/src/utils/mod.ts`
+
+```ts
+// src/sw/sw-utils.ts
+import { addDebugLog } from '@loco/utils/debug';
+import { APP_VERSION } from '@loco/utils/config';
+
+export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
+  addDebugLog("📡 Verificando suporte ao Service Worker...");
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker não é suportado neste navegador.");
+  }
+
+  // 🔥 ARQUITETURA: Resolução Dinâmica de Rota Base (Environment Agnostic)
+  // Lemos a URL atual para descobrir se estamos rodando na raiz (/) ou em um subdiretório (/loco/)
+  let basePath = globalThis.location.pathname;
+  
+  // Se a URL aponta para um arquivo (ex: /loco/index.html), extraímos apenas o diretório
+  if (basePath.split('/').pop()?.includes('.')) {
+    basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+  } else if (!basePath.endsWith('/')) {
+    // Se a URL é /loco (sem barra no final), forçamos a barra. 
+    // Isso evita que o navegador interprete "loco" como arquivo e tente registrar o SW na raiz "/".
+    basePath += '/';
+  }
+
+  addDebugLog(`⏳ Registrando Service Worker no escopo: ${basePath}`);
+
+  try {
+    const registration = await navigator.serviceWorker.register(
+      `${basePath}service-worker.js?v=${APP_VERSION}`,
+      { scope: basePath }
+    );
+    
+    if (!registration) {
+      throw new Error("Service Worker registration retornou null/undefined");
+    }
+    
+    addDebugLog("✅ Service Worker registrado, aguardando ready...");
+    const readyReg = await navigator.serviceWorker.ready;
+    
+    // 🔥 ARQUITETURA: Checagem Introspectiva de Versão (App vs SW)
+    if (readyReg.active) {
+      // Criamos um túnel de comunicação seguro (MessageChannel)
+      const channel = new MessageChannel();
+      
+      // A UI fica escutando a porta 1
+      channel.port1.onmessage = (event) => {
+        if (event.data && event.data.type === 'PONG_SW_VERSION') {
+          const swVersion = event.data.version;
+          
+          if (swVersion !== APP_VERSION) {
+            addDebugLog("warn", "SYSTEM", `⚠️ Inconsistência de Versão! App está rodando v${APP_VERSION}, mas o Service Worker ativo em background é v${swVersion}. Um recarregamento forçado pode ser necessário.`);
+          } else {
+            addDebugLog("info", "SYSTEM", `🔒 Match de versão verificado: App e SW estão sincronizados na v${APP_VERSION}.`);
+          }
+        }
+      };
+      
+      // A UI manda o sinal de PING pela porta 2 direto para o Worker ativo
+      readyReg.active.postMessage({ type: 'PING_SW_VERSION' }, [channel.port2]);
+    }
+    
+    return readyReg;
+  // deno-lint-ignore no-explicit-any
+  } catch (err: any) {
+    addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
+    throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
+  }
+}
+```
+
+---
+
 ## Arquivo: `monorepo/service-worker/src/service-worker.ts`
 
 ```ts
 // src/service-worker.ts
-import "./sw/cache.ts";
-import "./sw/push.ts";
-import "./sw/click.ts";
-import "./sw/sw-handshakes.ts";
-import { processarFilaHandshake } from "./sw/sw-handshakes.ts";
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+// === IMPORTAÇÃO DOS MÓDULOS AUXILIARES (HANDLERS) ===
+import { handleInstall, handleActivate, handleCacheFetch } from "./sw/cache.ts";
+import { handlePush } from "./sw/push.ts";
+import { handleNotificationClick } from "./sw/click.ts";
+import { handleSync, handleOnline, processarFilaHandshake } from "./sw/handshakes.ts";
+import { handleWebTorrentFetch, handleWebTorrentMessage } from "./sw/webtorrent.ts";
+
+// === IMPORTAÇÃO DAS ROTAS DE HANDSHAKE ===
 import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
 import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
 import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
+
 import { APP_VERSION } from "@loco/utils/config";
 
 console.log(`[SW] 🌌 Service Worker orquestrador carregado (v${APP_VERSION}).`);
 
-self.addEventListener('activate', (event: any) => {
-  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
+// === LIFECYCLE EVENTS ===
+
+// 🔥 NOVO: Handler de instalação (delegado ao cache.ts)
+self.addEventListener('install', (event) => {
+  handleInstall(event);
+});
+
+// 🔥 CORRIGIDO: Handler de ativação (delegado ao cache.ts)
+self.addEventListener('activate', (event) => {
+  handleActivate(event);
+  
+  // Agendamento de processamento de filas pendentes
   event.waitUntil(
     (async () => {
       await new Promise(r => setTimeout(r, 1000));
@@ -1322,42 +1588,74 @@ self.addEventListener('activate', (event: any) => {
   );
 });
 
-self.addEventListener('message', (event: any) => {
+// === FETCH EVENT (ORQUESTRADOR CENTRAL) ===
+self.addEventListener('fetch', (event: FetchEvent) => {
+  // 1. Prioridade Máxima: WebTorrent (Streaming P2P via OPFS)
+  if (handleWebTorrentFetch(event)) {
+    return; 
+  }
+
+  // 2. Prioridade Secundária: Cache de Assets e Fallback Offline
+  const cachePromise = handleCacheFetch(event);
+
+  event.respondWith(
+    cachePromise.then(response => {
+      if (response) {
+        return response; 
+      }
+      return fetch(event.request);
+    })
+  );
+});
+
+// === MESSAGE EVENT (ORQUESTRADOR CENTRAL) ===
+self.addEventListener('message', (event: ExtendableMessageEvent) => {
   if (!event.data) return;
   const { type, payload } = event.data;
-  
+
+  // 1. Roteamento para WebTorrent
+  if (type === 'WEBTORRENT_READY') {
+    handleWebTorrentMessage(event);
+    return;
+  }
+
+  // 2. Checagem de Versão
   if (type === 'PING_SW_VERSION') {
     if (event.ports && event.ports[0]) {
       event.ports[0].postMessage({ type: 'PONG_SW_VERSION', version: APP_VERSION });
     }
     return;
   }
+
+  // 3. Comandos da UI para Handshakes
   if (type === 'PROCESSAR_FILA_HANDSHAKE') {
     processarFilaHandshake().catch(err => console.error(err));
     return;
   }
+
   if (type === 'CRIAR_HANDSHAKE_OUT') {
     const { rotasModulo, params } = payload;
     console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);
+    
     if (rotasModulo === 'profile') {
-      ProcessarProfile({ out: params }).catch(err => console.error("[SW] Erro no hand-profile:", err));
+      ProcessarProfile({ out: params }).catch(err => console.error("[SW] Erro no hand-profile: ", err));
     } else if (rotasModulo === 'mensagem') {
-      ProcessarMensagem({ out: params }).catch(err => console.error("[SW] Erro no hand-mensagem:", err));
+      ProcessarMensagem({ out: params }).catch(err => console.error("[SW] Erro no hand-mensagem: ", err));
     } else if (rotasModulo === 'contato') {
-      ProcessarContato({ out: params }).catch(err => console.error("[SW] Erro no hand-contato:", err));
+      ProcessarContato({ out: params }).catch(err => console.error("[SW] Erro no hand-contato: ", err));
     } else {
       console.warn(`[SW] ⚠️ Módulo de rotas desconhecido ou não implementado: ${rotasModulo}`);
     }
   }
 });
-```
 
----
+// === PUSH & NOTIFICATION EVENTS ===
+self.addEventListener('push', (event: any) => handlePush(event));
+self.addEventListener('notificationclick', (event: any) => handleNotificationClick(event));
 
-## Arquivo: `monorepo/service-worker/src/mod.ts`
-
-```ts
-export * from "./sw/sw-utils.ts";
+// === SYNC & ONLINE EVENTS ===
+self.addEventListener('sync', (event: any) => handleSync(event));
+self.addEventListener('online', (event: any) => handleOnline(event));
 ```
 
 ---
@@ -1489,7 +1787,7 @@ import {
   listarHandshakes,
   removerHandshake
 } from "@loco/utils/db";
-import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../../src/sw/handshakes.ts";
 import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
 
 Deno.test("RETRY RESILIENCE: Re-tentativas devem anexar dados de contato (Shadow Sync)", async () => {
@@ -1732,7 +2030,7 @@ Deno.test("INTEGRAÇÃO: Exclusão Bidirecional - Deve apagar mensagem remotamen
 /// <reference lib="deno.ns" />
 import "fake-indexeddb/auto";
 import { assert, assertEquals } from "@std/assert";
-import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../../src/sw/handshakes.ts";
 import { 
   salvarProfile, 
   salvarContato, 
@@ -2252,7 +2550,7 @@ Deno.test("INTEGRAÇÃO E2E: Nó A (Compacta, Cifra, Assina) -> Servidor -> Nó 
 /// <reference lib="deno.ns" />
 import "fake-indexeddb/auto";
 import { assert, assertEquals, assertExists } from "@std/assert";
-import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../../src/sw/handshakes.ts";
 import { 
   salvarProfile, 
   salvarContato, 
@@ -2380,7 +2678,7 @@ import {
   serializarPublicKeyVapid
 } from "@loco/utils/db";
 import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
-import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../../src/sw/handshakes.ts";
 import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
 import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
 
@@ -2519,6 +2817,7 @@ Deno.test("INTEGRAÇÃO (PIGGYBACK 2): Receber Piggyback DEVE criar contato real
    "exports": 
    {
     "." : "./src/mod.ts",
+    "./utils" : "./src/utils/mod.ts",
     "./handshakes/contato" : "./src/handshakes/hand-contato.ts",
     "./handshakes/sdp" : "./src/handshakes/hand-sdp.ts",
     "./handshakes/profile" : "./src/handshakes/hand-profile.ts",

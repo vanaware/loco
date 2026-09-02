@@ -25,6 +25,7 @@
    "exports": 
    {
     "." : "./src/mod.ts",
+    "./utils" : "./src/utils/mod.ts",
     "./handshakes/contato" : "./src/handshakes/hand-contato.ts",
     "./handshakes/sdp" : "./src/handshakes/hand-sdp.ts",
     "./handshakes/profile" : "./src/handshakes/hand-profile.ts",

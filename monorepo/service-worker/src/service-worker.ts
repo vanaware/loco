@@ -3,10 +3,10 @@
 declare const self: ServiceWorkerGlobalScope;
 
 // === IMPORTAÇÃO DOS MÓDULOS AUXILIARES (HANDLERS) ===
-import { handleCacheFetch } from "./sw/cache.ts";
+import { handleInstall, handleActivate, handleCacheFetch } from "./sw/cache.ts";
 import { handlePush } from "./sw/push.ts";
 import { handleNotificationClick } from "./sw/click.ts";
-import { handleSync, handleOnline, processarFilaHandshake } from "./sw/sw-handshakes.ts";
+import { handleSync, handleOnline, processarFilaHandshake } from "./sw/handshakes.ts";
 import { handleWebTorrentFetch, handleWebTorrentMessage } from "./sw/webtorrent.ts";
 
 // === IMPORTAÇÃO DAS ROTAS DE HANDSHAKE ===
@@ -19,8 +19,17 @@ import { APP_VERSION } from "@loco/utils/config";
 console.log(`[SW] 🌌 Service Worker orquestrador carregado (v${APP_VERSION}).`);
 
 // === LIFECYCLE EVENTS ===
+
+// 🔥 NOVO: Handler de instalação (delegado ao cache.ts)
+self.addEventListener('install', (event) => {
+  handleInstall(event);
+});
+
+// 🔥 CORRIGIDO: Handler de ativação (delegado ao cache.ts)
 self.addEventListener('activate', (event) => {
-  console.log("[SW] 🔄 Ativando e agendando processamento de filas pendentes...");
+  handleActivate(event);
+  
+  // Agendamento de processamento de filas pendentes
   event.waitUntil(
     (async () => {
       await new Promise(r => setTimeout(r, 1000));
@@ -36,7 +45,6 @@ self.addEventListener('activate', (event) => {
 // === FETCH EVENT (ORQUESTRADOR CENTRAL) ===
 self.addEventListener('fetch', (event: FetchEvent) => {
   // 1. Prioridade Máxima: WebTorrent (Streaming P2P via OPFS)
-  // Se a URL for do webtorrent E o main thread estiver pronto, a função chama event.respondWith() e retorna true.
   if (handleWebTorrentFetch(event)) {
     return; 
   }
@@ -49,8 +57,6 @@ self.addEventListener('fetch', (event: FetchEvent) => {
       if (response) {
         return response; 
       }
-      // Se o módulo de cache retornou undefined (ex: é POST, ou é externo), 
-      // deixamos o navegador lidar nativamente com a requisição.
       return fetch(event.request);
     })
   );
@@ -61,13 +67,13 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
   if (!event.data) return;
   const { type, payload } = event.data;
 
-  // 1. Roteamento para WebTorrent (Aviso de que o Main Thread está pronto)
+  // 1. Roteamento para WebTorrent
   if (type === 'WEBTORRENT_READY') {
     handleWebTorrentMessage(event);
     return;
   }
 
-  // 2. Checagem de Versão (Introspecção App vs SW)
+  // 2. Checagem de Versão
   if (type === 'PING_SW_VERSION') {
     if (event.ports && event.ports[0]) {
       event.ports[0].postMessage({ type: 'PONG_SW_VERSION', version: APP_VERSION });

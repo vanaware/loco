@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 import "fake-indexeddb/auto";
 import { assert, assertEquals, assertExists } from "@std/assert";
-import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../../src/sw/handshakes.ts";
 import { 
   salvarProfile, 
   salvarContato, 

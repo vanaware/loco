@@ -5,7 +5,7 @@ import qrcode from 'qrcode-generator';
 
 import { profile, carregarProfile, atualizarProfile } from '../stores/profileStore.ts';
 import { profileName, profileEmail, addDebugLog, showToast, sharePayload } from '../stores/state.ts';
-import { gerarProfileCompleto, getServerPublicKey } from '../utils/profile.ts';
+import { gerarProfileCompleto, getServerPublicKey } from '../utils/mod.ts';
 import { cifrarChaveVapid } from '@loco/utils/proxy';
 import { salvarProfile, serializarPublicKeyVapid } from '@loco/utils/db';
 import { gerarPayloadQrCodeCompacto, gerarLinkConviteWeb, processarQualquerConvite } from '@loco/utils/db';

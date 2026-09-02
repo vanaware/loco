@@ -10,7 +10,7 @@ import {
   listarHandshakes,
   removerHandshake
 } from "@loco/utils/db";
-import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../../src/sw/handshakes.ts";
 import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
 
 Deno.test("RETRY RESILIENCE: Re-tentativas devem anexar dados de contato (Shadow Sync)", async () => {

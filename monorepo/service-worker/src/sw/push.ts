@@ -3,7 +3,7 @@
 declare const self: ServiceWorkerGlobalScope;
 
 import { verificarJWT } from "@loco/utils/crypto";
-import { processarHandshakeRecebido } from "./sw-handshakes.ts";
+import { processarHandshakeRecebido } from "./handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug";
 
 export function handlePush(event: any) {

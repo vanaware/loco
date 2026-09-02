@@ -1,6 +1,5 @@
 {
   "name": "@loco/ui",
-  "exports": "./src/mod.ts",
 
   // ----------------------------------------------------------------------
   // 🔧 Compiler Options — AJUSTADO PARA DENO 2.x
@@ -59,5 +58,9 @@
     "build": "deno run --allow-import --allow-read --allow-write --allow-env --allow-net --env-file --unstable-bundle build.ts",
     "tests": "deno task check && deno task test"
   },
-  "exclude": ["public/"]
+  "exclude": ["public/"],
+  "exports": {
+    ".": "./src/mod.ts",
+    "./utils": "./src/utils/mod.ts"
+  }
 }

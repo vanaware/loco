@@ -59,6 +59,7 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
     }
     
     return readyReg;
+  // deno-lint-ignore no-explicit-any
   } catch (err: any) {
     addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
     throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);

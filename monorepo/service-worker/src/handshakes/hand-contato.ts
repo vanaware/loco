@@ -4,7 +4,7 @@ declare const self: ServiceWorkerGlobalScope;
 
 import { Handshake, Contato } from "@loco/utils/interfaces";
 import { gerarId, buscarHandshake, salvarHandshake, buscarProfile, buscarContatoPorChave, salvarContato, serializarPublicKeyVapid, listarHandshakes, removerHandshake, removerContatoPorHash, removerTodoHistoricoChat, extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "@loco/utils/db";
-import { processarFilaHandshake } from "../sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../sw/handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug";
 
 interface ContatoOutParams {

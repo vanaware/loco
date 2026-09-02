@@ -11,7 +11,7 @@ import {
   serializarPublicKeyVapid
 } from "@loco/utils/db";
 import { generateVAPIDKeys, generateE2EEKeys, exportKeyToJWK } from "@loco/utils/crypto";
-import { processarFilaHandshake } from "../../src/sw/sw-handshakes.ts";
+import { processarFilaHandshake } from "../../src/sw/handshakes.ts";
 import { Processar as ProcessarContato } from "../../src/handshakes/hand-contato.ts";
 import type { ProfileConfig, Contato, Handshake } from "@loco/utils/interfaces";
 

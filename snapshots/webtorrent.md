@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WEBTORRENT
 
-Gerado automaticamente em: 9/2/2026, 1:46:19 AM
+Gerado automaticamente em: 9/2/2026, 6:56:09 PM
 
 ---
 
@@ -256,8 +256,9 @@ function bytesToHex(bytes: Uint8Array): string {
 ```ts
 /**
  * Wrapper do WebTorrent para discovery de presença.
- * CORRIGIDO: Usa objeto de torrent para pular a busca de metadados.
+ * Acessa WebTorrent via window (carregado por CDN no index.html).
  */
+
 export interface PeerInfo {
   id: string;
   status: "online" | "offline";
@@ -289,41 +290,72 @@ export class WTClient {
 
   constructor(cb: WTCallbacks) {
     this.cb = cb;
-    
-    // Acessa WebTorrent explicitamente via window (carregado pelo index.html)
-    const WT = (typeof window !== "undefined" ? (window as any).WebTorrent : undefined) ||
-               (typeof globalThis !== "undefined" ? (globalThis as any).WebTorrent : undefined);
+
+    // Acessa WebTorrent explicitamente via window
+    const WT = (window as any).WebTorrent;
     
     if (!WT) {
-      cb.onError("WebTorrent NÃO foi encontrado no objeto global do navegador.");
-      console.error("[WTClient] WebTorrent não disponível. Verifique se o script CDN no index.html está sendo bloqueado por um AdBlocker.");
-      throw new Error("WebTorrent não carregado pelo navegador");
+      cb.onError("WebTorrent não encontrado em window.WebTorrent. Verifique o CDN no index.html.");
+      console.error("[WTClient] WebTorrent não disponível. Objeto window:", Object.keys(window).filter(k => k.toLowerCase().includes('torrent')));
+      throw new Error("WebTorrent não carregado");
     }
 
+    cb.onLog("WebTorrent encontrado, inicializando client...");
+
     try {
+      // 🔥 CORREÇÃO CRÍTICA: Configuração completa do WebTorrent
       this.client = new WT({
+        // Trackers para discovery de peers
         tracker: {
           announce: [
             ...RELIABLE_TRACKERS
           ],
         },
-        // Desativamos recursos que não precisamos para sinalização pura
-        dht: false, 
-        webSeeds: false
+        // 🔥 CORREÇÃO: Configuração DHT para discovery descentralizado
+        dht: true,
+        // 🔥 CORREÇÃO: Configuração WebRTC com ICE servers
+        rtcConfig: {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+            { urls: "stun:stun3.l.google.com:19302" },
+            { urls: "stun:stun4.l.google.com:19302" }
+          ]
+        },
+        // Configurações adicionais
+        maxConns: 55,
+        trackerAnnounce: true,
+        webSeeds: false // Desabilitado para presença pura
       });
 
+      // 🔥 CORREÇÃO: Event listeners para debug
       this.client.on("error", (err: any) => {
         cb.onError(`WT client error: ${err.message || err}`);
       });
 
-      cb.onLog("WebTorrent client criado com sucesso via build de navegador");
+      this.client.on("listening", () => {
+        cb.onLog("WebTorrent client está ouvindo conexões");
+      });
+
+      this.client.on("warning", (err: any) => {
+        cb.onLog(`WT warning: ${err.message || err}`);
+      });
+
+      cb.onLog("WebTorrent client criado com sucesso");
     } catch (err: any) {
-      cb.onError(`Falha ao instanciar WebTorrent client: ${err.message}`);
+      cb.onError(`Falha ao criar WebTorrent client: ${err.message}`);
       throw err;
     }
   }
 
   joinSwarm(infoHash: string): void {
+    // Verificação de segurança
+    if (!this.client) {
+      this.cb.onError("Client não inicializado. Não é possível entrar no swarm.");
+      return;
+    }
+
     if (this.torrents.has(infoHash)) {
       this.cb.onLog(`Já no swarm ${infoHash.slice(0, 8)}…`);
       return;
@@ -334,25 +366,44 @@ export class WTClient {
     this.cb.onLog(`Entrando no swarm ${infoHash.slice(0, 8)}…`);
 
     try {
-      // 🔥 CORREÇÃO CRÍTICA:
-      // Passamos um objeto, não uma string. Isso diz ao WebTorrent:
-      // "Já tenho os metadados, apenas anuncie este infoHash nestes trackers".
-      // Isso evita que ele fique preso tentando baixar um .torrent inexistente.
-      const torrentObj = {
-        infoHash: infoHash,
+      // 🔥 CORREÇÃO: Configuração completa do torrent
+      const t = this.client.add(infoHash, {
         announce: [
           ...RELIABLE_TRACKERS
         ],
-        name: "loco-presence-signal",
-        urlList: [] // Previne tentativas de HTTP seed
-      };
+        // 🔥 CORREÇÃO: Forçar uso de WebRTC
+        rtcConfig: {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+            { urls: "stun:stun3.l.google.com:19302" },
+            { urls: "stun:stun4.l.google.com:19302" }
+          ]
+        }
+      });
 
-      const t = this.client.add(torrentObj);
+      // 🔥 CORREÇÃO: Event listeners detalhados
+      t.on("infoHash", () => {
+        this.cb.onLog(`InfoHash confirmado: ${infoHash.slice(0, 8)}…`);
+      });
+
+      t.on("metadata", () => {
+        this.cb.onLog(`Metadados recebidos para ${infoHash.slice(0, 8)}…`);
+      });
 
       t.on("ready", () => {
         const ms = Date.now() - (this.joinTimes.get(infoHash) || Date.now());
         this.cb.onSwarmReady(infoHash, ms);
         this.cb.onLog(`Swarm pronto em ${ms}ms`);
+      });
+
+      t.on("warning", (err: any) => {
+        this.cb.onLog(`Torrent warning: ${err.message || err}`);
+      });
+
+      t.on("error", (err: any) => {
+        this.cb.onError(`Swarm ${infoHash.slice(0, 8)} error: ${err.message || err}`);
       });
 
       t.on("wire", (wire: any) => {
@@ -375,7 +426,9 @@ export class WTClient {
             p.leftAt = Date.now();
             const sessionMs = p.leftAt - p.joinedAt;
             this.cb.onPeerLeft(infoHash, peerId, sessionMs);
-            this.cb.onLog(`Peer OFFLINE: ${peerId.slice(0, 12)}… (${Math.round(sessionMs / 1000)}s)`);
+            this.cb.onLog(
+              `Peer OFFLINE: ${peerId.slice(0, 12)}… (${Math.round(sessionMs / 1000)}s)`
+            );
           }
         });
 
@@ -384,8 +437,9 @@ export class WTClient {
         });
       });
 
-      t.on("error", (err: any) => {
-        this.cb.onError(`Swarm ${infoHash.slice(0, 8)} error: ${err.message || err}`);
+      // 🔥 CORREÇÃO: Evento de descoberta de peers
+      t.on("peer", (peer: any) => {
+        this.cb.onLog(`Peer descoberto: ${peer.id || peer}`);
       });
 
       this.torrents.set(infoHash, t);

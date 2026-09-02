@@ -1,14 +1,14 @@
 // Arquivo: monorepo/ui/src/utils/profile.ts
 import { salvarProfile, buscarProfile } from '@loco/utils/db';
 import { cifrarChaveVapid } from '@loco/utils/proxy';
-import { registrarServiceWorker } from "@loco/service-worker";
+import { registrarServiceWorker } from "@loco/service-worker/utils";
 import { generateE2EEKeys, generateVAPIDKeys, rawBufferToBase64Url, expandRsaPublic } from '@loco/utils/crypto';
 import type { ProfileConfig } from '@loco/utils/interfaces';
 import { addDebugLog } from '@loco/utils/debug';
 import { fetchLocoProxy } from '@loco/utils/config';
 import { getConfigValue, saveConfig } from '../stores/config-store.ts';
 
-export async function getServerPublicKey() {
+export async function getServerPublicKey(): Promise<JsonWebKey>  {
   try {
     const cachedKey = await getConfigValue('SERVER_PUBLIC_KEY');
     if (cachedKey) {
@@ -16,7 +16,7 @@ export async function getServerPublicKey() {
       return expandRsaPublic(JSON.parse(cachedKey));
     }
   } catch (e) {
-    addDebugLog("warn", "CRYPTO", "Falha ao ler cache da chave do servidor. Recarregando da rede...");
+    addDebugLog("warn", "CRYPTO", "Falha ao ler cache da chave do servidor. Recarregando da rede...", e);
   }
 
   addDebugLog("info", "NETWORK", "Buscando chave pública do servidor na rede...");
@@ -37,6 +37,7 @@ export async function solicitarArmazenamentoPersistente(): Promise<boolean> {
         addDebugLog("ℹ️ Navegador manteve o Armazenamento Padrão.");
       }
       return concedido;
+      // deno-lint-ignore no-explicit-any
     } catch (err: any) {
       addDebugLog("⚠️ Erro ao solicitar armazenamento persistente: " + err.message);
       return false;
@@ -64,7 +65,7 @@ export async function repararSubscricaoPush(): Promise<boolean> {
       await sub.unsubscribe();
     }
     
-    const rawPublicKey = await window.crypto.subtle.exportKey("raw", await window.crypto.subtle.importKey("jwk", p.vapidPublicKey, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
+    const rawPublicKey = await globalThis.crypto.subtle.exportKey("raw", await globalThis.crypto.subtle.importKey("jwk", p.vapidPublicKey, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
     sub = await registration.pushManager.subscribe({
       applicationServerKey: new Uint8Array(rawPublicKey),
       userVisibleOnly: true
@@ -89,6 +90,7 @@ export async function repararSubscricaoPush(): Promise<boolean> {
     
     addDebugLog("success", "PROFILE", "Subscrição Push reparada com sucesso!");
     return true;
+    // deno-lint-ignore no-explicit-any
   } catch (err: any) {
     addDebugLog("error", "PROFILE", `Falha ao reparar Push: ${err.message}`);
     return false;
@@ -128,8 +130,8 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
     } else {
       addDebugLog("🔑 Gerando novas chaves VAPID...");
       vapidKeyPair = await generateVAPIDKeys();
-      publicKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
-      privateKeyJwk = await window.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
+      publicKeyJwk = await globalThis.crypto.subtle.exportKey("jwk", vapidKeyPair.publicKey);
+      privateKeyJwk = await globalThis.crypto.subtle.exportKey("jwk", vapidKeyPair.privateKey);
     }
     
     if (existingProfile && existingProfile.e2ePublicKey && existingProfile.e2ePrivateKeyJwk) {
@@ -162,7 +164,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
         
         if (!existingSubscription || !subscriptionValida) {
           if (!publicKeyJwk) throw new Error("Chave VAPID pública ausente.");
-          const rawPublicKey = await window.crypto.subtle.exportKey("raw", await window.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
+          const rawPublicKey = await globalThis.crypto.subtle.exportKey("raw", await globalThis.crypto.subtle.importKey("jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]));
           existingSubscription = await registration.pushManager.subscribe({
             applicationServerKey: new Uint8Array(rawPublicKey),
             userVisibleOnly: true
@@ -182,6 +184,7 @@ export async function gerarProfileCompleto(nome: string, email: string = ""): Pr
       } else {
         throw new Error("Permissão de Push negada ou API indisponível no navegador.");
       }
+      // deno-lint-ignore no-explicit-any
     } catch (subErr: any) {
       addDebugLog("warn", "PROFILE", "Falha na subscrição Push. Salvando perfil offline-only.", subErr);
     }
