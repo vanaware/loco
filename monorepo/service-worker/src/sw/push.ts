@@ -6,13 +6,13 @@ import { verificarJWT } from "@loco/utils/crypto";
 import { processarHandshakeRecebido } from "./sw-handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug";
 
-addDebugLog("[SW-PUSH-ROUTER] 🔀 Event Listener de Push engatilhado.");
+export function handlePush(event: any) {
+  addDebugLog("[SW-PUSH-ROUTER] 🔀 Event Listener de Push engatilhado.");
 
-self.addEventListener('push', function (event) {
   if (!event.data) return;
   const rawText = event.data.text();
   addDebugLog(`[SW-PUSH-ROUTER] 📩 WebPush físico recebido! (Tamanho: ${rawText.length} bytes)`);
-  
+
   if (rawText.split('.').length !== 3) {
     event.waitUntil(
       self.registration.showNotification("Notificação", { body: "Dados crus capturados." })
@@ -32,12 +32,12 @@ self.addEventListener('push', function (event) {
           });
           return;
         }
-        
+
         if (payload.sub === "hand") {
           await processarHandshakeRecebido(payload, header, rawText);
           return;
         }
-        
+
         addDebugLog(`[SW-PUSH-ROUTER] ⚠️ JWT legado recebido e ignorado: ${payload.sub}`);
       } catch (err: any) {
         addDebugLog(`[SW-PUSH-ROUTER] ❌ Falha crítica no desempacotamento de Push: ${err.message}`);
@@ -48,4 +48,4 @@ self.addEventListener('push', function (event) {
       }
     })()
   );
-});
+}

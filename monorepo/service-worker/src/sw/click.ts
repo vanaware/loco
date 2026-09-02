@@ -1,16 +1,13 @@
 // src/sw/click.ts
-
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-self.addEventListener('notificationclick', function(event: any) {
+export function handleNotificationClick(event: any) {
   console.log("[SW-CLICK] 🔗 ===== CLIQUE NA NOTIFICAÇÃO DETECTADO =====");
   event.notification.close();
-  
-  // 🔥 ARQUITETURA: Usa o escopo do Service Worker registrado em vez de '/' hardcoded.
-  // Isso garante que o clique na notificação abra o app no diretório correto (ex: Github Pages).
+
   const urlParaAbrir = new URL(self.registration.scope).href;
-  
+
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then(function(windowClients) {
@@ -34,4 +31,4 @@ self.addEventListener('notificationclick', function(event: any) {
         }
       })
   );
-});
+}

@@ -28,6 +28,7 @@
     "./crypto": "./src/crypto/mod.ts",
     "./build": "./src/esbuild/mod.ts",
     "./db": "./src/db/mod.ts",
-    "./export": "./src/export/mod.ts"
+    "./export": "./src/export/mod.ts",
+    "./webtorrent": "./src/webtorrent/mod.ts"
   }
 }

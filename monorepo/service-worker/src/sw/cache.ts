@@ -1,12 +1,12 @@
 // src/sw/cache.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
-declare const __GENERATED_ASSETS__: string[];
+declare const GENERATED_ASSETS: string[];
 
 import { APP_VERSION } from "@loco/utils/config";
 
 const CACHE_NAME = `loco-proto-cache-v${APP_VERSION}`;
-const ASSETS_TO_CACHE: string[] = __GENERATED_ASSETS__;
+const ASSETS_TO_CACHE: string[] = GENERATED_ASSETS;
 
 self.addEventListener("install", (event) => {
   console.log("[SW-CACHE] 🛠️ Instalando novo Service Worker...");
@@ -40,31 +40,46 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-self.addEventListener("fetch", (event: any) => {
+/**
+ * Lógica de fetch para cache (Network-First com fallback para Cache).
+ * Exportada para ser orquestrada pelo service-worker.ts principal.
+ */
+export async function handleCacheFetch(event: FetchEvent): Promise<Response | undefined> {
+  // Ignora métodos que não sejam GET
   if (event.request.method !== "GET") {
-    return;
+    return undefined;
   }
+
+  // Ignora requisições externas à origem ou rotas de API (que devem ser tratadas por outras lógicas)
   if (!event.request.url.startsWith(self.location.origin) || event.request.url.includes("/api/")) {
-    return;
+    return undefined;
   }
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-        }
-        return response;
-      })
-      .catch(() => {
-        console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) return cachedResponse;
-          return new Response("Você está offline e este recurso não foi mapeado no cache.", {
-            status: 503,
-            headers: { "Content-Type": "text/plain; charset=utf-8" }
-          });
-        });
-      })
-  );
-});
+
+  try {
+    // Tenta buscar da rede primeiro
+    const networkResponse = await fetch(event.request);
+    
+    // Se for bem-sucedido, clona e salva no cache para futuras requisições offline
+    if (networkResponse.ok) {
+      const responseClone = networkResponse.clone();
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(event.request, responseClone);
+    }
+    
+    return networkResponse;
+  } catch (err) {
+    // Fallback Offline
+    console.log(`[SW-CACHE] 🔌 Usuário Offline. Servindo do cache: ${event.request.url}`);
+    const cache = await caches.open(CACHE_NAME);
+    const cachedResponse = await cache.match(event.request);
+    
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    
+    return new Response("Você está offline e este recurso não foi mapeado no cache.", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8" }
+    });
+  }
+}
