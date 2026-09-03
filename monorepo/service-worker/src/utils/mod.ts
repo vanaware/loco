@@ -3,19 +3,32 @@ import { addDebugLog } from '@loco/utils/debug';
 import { APP_VERSION } from '@loco/utils/config';
 import { EventBus } from '@loco/utils/eventbus';
 
+let uiAdapterInitialized = false;
+
 /**
  * Inicializa a Fronteira de Eventos da UI (Main Thread).
- * Este é o ÚNICO ponto na UI autorizado a escutar eventos nativos do SW e do Window.
+ * Traduz postMessage do SW e eventos nativos do Window para o EventBus da UI.
  */
-function initializeUiEventAdapter() {
-  // 1. Traduz postMessage do SW -> EventBus
+export function initializeUiEventAdapter() {
+  if (uiAdapterInitialized) {
+    return;
+  }
+  uiAdapterInitialized = true;
+
+  addDebugLog(`[UI-ADAPTER] 🌌 Inicializando Adaptador de Eventos da UI.`);
+
+  // 1. Traduz postMessage do SW -> EventBus da UI
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (!event.data) return;
     const { type, payload } = event.data;
-    
+
+    addDebugLog(`[UI-ADAPTER] 📬 postMessage recebido do SW: type=${type}`);
+
     if (type === 'CHAT_ATUALIZADO') {
+      addDebugLog(`[UI-ADAPTER] 🔄 Emitindo sw:notify:chat-updated (chatId: ${payload?.chatId})`);
       EventBus.emit('sw:notify:chat-updated', { chatId: payload.chatId });
     } else if (type === 'CONTATO_ATUALIZADO') {
+      addDebugLog(`[UI-ADAPTER] 🔄 Emitindo sw:notify:contact-updated (contatoHash: ${payload?.contatoHash})`);
       EventBus.emit('sw:notify:contact-updated', { contatoHash: payload.contatoHash });
     } else if (type === 'PONG_SW_VERSION') {
       EventBus.emit('sw:notify:pong-version', { version: payload.version });
@@ -24,11 +37,17 @@ function initializeUiEventAdapter() {
     }
   });
 
-  // 2. Traduz eventos de rede nativos -> EventBus
-  window.addEventListener('online', () => EventBus.emit('loco:network:online'));
-  window.addEventListener('offline', () => EventBus.emit('loco:network:offline'));
+  // 2. Traduz eventos de rede nativos -> EventBus da UI
+  window.addEventListener('online', () => {
+    addDebugLog(`[UI-ADAPTER] 🟢 Rede online detectada.`);
+    EventBus.emit('loco:network:online');
+  });
 
-  // 3. Traduz ciclo de vida da janela -> EventBus
+  window.addEventListener('offline', () => {
+    addDebugLog(`[UI-ADAPTER] 🔴 Rede offline detectada.`);
+    EventBus.emit('loco:network:offline');
+  });
+      // 3. Traduz ciclo de vida da janela -> EventBus
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       EventBus.emit('loco:app:backgrounded');
@@ -55,6 +74,7 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
   } else if (!basePath.endsWith('/')) {
     basePath += '/';
   }
+
   addDebugLog(`⏳ Registrando Service Worker no escopo: ${basePath}`);
 
   try {
@@ -62,9 +82,11 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
       `${basePath}service-worker.js?v=${APP_VERSION}`,
       { scope: basePath }
     );
+
     if (!registration) {
       throw new Error("Service Worker registration retornou null/undefined");
     }
+
     addDebugLog("✅ Service Worker registrado, aguardando ready...");
     const readyReg = await navigator.serviceWorker.ready;
 
@@ -78,9 +100,9 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
         if (event.data && event.data.type === 'PONG_SW_VERSION') {
           const swVersion = event.data.version;
           if (swVersion !== APP_VERSION) {
-            addDebugLog("warn", "SYSTEM", `⚠️ Inconsistência de Versão! App está rodando v${APP_VERSION}, mas o Service Worker ativo em background é v${swVersion}. Um recarregamento forçado pode ser necessário.`);
+            addDebugLog("warn", "SYSTEM", `⚠️ Inconsistência de Versão! App v${APP_VERSION} vs SW v${swVersion}.`);
           } else {
-            addDebugLog("info", "SYSTEM", `🔒 Match de versão verificado: App e SW estão sincronizados na v${APP_VERSION}.`);
+            addDebugLog("info", "SYSTEM", `🔒 Match de versão: App e SW em v${APP_VERSION}.`);
           }
         }
       };

@@ -23,8 +23,13 @@ import { profile, initProfileStore, initContatosStore, initMensagensStore, initT
 import { isCarregandoContatos } from './stores/contatosStore.ts';
 import { loadAllConfigs, getConfigValue } from './stores/config-store.ts';
 
+// 🔥 ARQUITETURA: Importar initializeUiEventAdapter para garantir que a UI
+// escute os eventos do SW desde o carregamento, mesmo sem criar perfil novo.
+import { registrarServiceWorker } from '@loco/service-worker/utils';
+
 // Roteador Reativo
 import { activeView, navigate } from './stores/router.ts';
+
 import "@material/web";
 import './styles.css';
 
@@ -52,10 +57,8 @@ const PushAlertBanner = () => {
   const p = profile.value;
   const _view = activeView.value;
   if (!p || !p.name) return null;
-
   const hasEndpoint = !!(p.subscription && p.subscription.endpoint);
   const hasPermission = 'Notification' in window && Notification.permission === 'granted';
-
   if (hasEndpoint && hasPermission) return null;
 
   return (
@@ -88,26 +91,30 @@ function App() {
 
   useEffect(() => {
     const init = async () => {
+      // 1. Registra o SW (que internamente chama initializeUiEventAdapter)
+      await registrarServiceWorker();
+
       const savedTheme = await getConfigValue('APP_THEME');
       if (savedTheme) appTheme.value = savedTheme as AppTheme;
-      
+
       addDebugLog("info", "SYSTEM", "Verificando roteamento de rede...");
       await loadAllConfigs();
+
       await initProfileStore();
-      
+
       const isIdentityValid = !!(profile.value && profile.value.e2ePrivateKeyJwk && profile.value.name);
       const isRouteAllowedWithoutProfile = ['profile', 'advanced', 'labs', 'settings', 'logout'].includes(activeView.value);
-      
       if (!isIdentityValid && !isRouteAllowedWithoutProfile) {
         navigate('#profile');
       }
-      
+
       await initContatosStore();
       await initMensagensStore();
       await initTorrentLabsStore();
-      
+
       setIsLoading(false);
     };
+
     init();
   }, []);
 
@@ -139,7 +146,7 @@ function App() {
   const contatoAtivo = contatosComHash.value.find(c => c.hash === contatoSelecionado.value)?.contato;
   const contatoDetalhesAtivo = contatosComHash.value.find(c => c.hash === contatoCompartilharHash.value)?.contato;
   const isOrphanChat = (activeView.value === 'chat' && !contatoAtivo) || (activeView.value === 'detail' && !contatoDetalhesAtivo);
-  
+
   const RouteComponent = isOrphanChat ? ViewMap['home']! : (ViewMap[viewToRender] || ViewMap['home']!);
 
   return (

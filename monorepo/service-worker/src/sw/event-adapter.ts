@@ -92,10 +92,9 @@ export function initializeSwEventAdapter() {
 
     if (type === 'CRIAR_HANDSHAKE_OUT') {
       const { rotasModulo, params } = payload;
-      
-      // ✅ Chave exata do EventMap
+      // ✅ Chave exata do EventMap (Apenas para log/rastro interno no SW)
       EventBus.emit('loco:sw:message-received', { type: 'CRIAR_HANDSHAKE_OUT', payload: { rotasModulo, params } });
-      
+
       if (rotasModulo === 'profile') {
         ProcessarProfile({ out: params }).catch(err => addDebugLog(`[SW-ADAPTER] Erro hand-profile: ${err.message}`));
       } else if (rotasModulo === 'mensagem') {
@@ -141,13 +140,16 @@ export function initializeSwEventAdapter() {
   // ==========================================
   // 6. BRIDGE: EventBus -> UI (postMessage)
   // ==========================================
-  // ✅ Chave exata do EventMap. O TypeScript agora sabe que 'type' e 'payload' existem.
-  EventBus.on('loco:sw:message-received', ({ type, payload }) => {
-    if (type === 'CHAT_ATUALIZADO') {
-      broadcastToClients({ type: 'CHAT_ATUALIZADO', payload });
-    } else if (type === 'CONTATO_ATUALIZADO') {
-      broadcastToClients({ type: 'CONTATO_ATUALIZADO', payload });
-    }
+  // 🔥 CORREÇÃO: O bridge agora escuta os eventos de negócio corretos emitidos pelos handlers 
+  // de handshake e os traduz para postMessage para a UI.
+  EventBus.on('sw:notify:chat-updated', ({ chatId }) => {
+    addDebugLog(`[SW-ADAPTER] 📡 Bridge: chat-updated -> UI (chatId: ${chatId})`);
+    broadcastToClients({ type: 'CHAT_ATUALIZADO', payload: { chatId } });
+  });
+
+  EventBus.on('sw:notify:contact-updated', ({ contatoHash }) => {
+    addDebugLog(`[SW-ADAPTER] 📡 Bridge: contact-updated -> UI (contatoHash: ${contatoHash})`);
+    broadcastToClients({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash } });
   });
 
   addDebugLog(`[SW-ADAPTER] ✅ Adaptador de Eventos inicializado e listeners nativos acoplados.`);

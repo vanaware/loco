@@ -4,6 +4,7 @@ import { listarChatPaginado, salvarChat, buscarChat, removerChat } from '@loco/u
 import { ExpurgarMensagens } from '@loco/service-worker/handshakes/mensagem';
 import type { Chat } from '@loco/utils/interfaces';
 import { contatoSelecionado } from './state.ts';
+import { EventBus } from '@loco/utils/eventbus'; // 🔥 NOVO: Importar o EventBus
 
 export const mensagensAtivas = signal<Chat[]>([]);
 export const hasMoreMessages = signal<boolean>(true);
@@ -11,6 +12,9 @@ export const isFetchingMensagens = signal<boolean>(false);
 
 const PAGE_SIZE = 30;
 let currentOffset = 0;
+
+// 🔥 NOVO: Flag para garantir que o listener do EventBus seja registrado apenas uma vez na vida do app
+let isChatUpdateListenerInitialized = false;
 
 export function limparMemoriaChat() {
   batch(() => {
@@ -24,6 +28,19 @@ export function limparMemoriaChat() {
 export async function inicializarChat(contatoHash: string) {
   limparMemoriaChat();
   await carregarMaisMensagens(contatoHash);
+
+  // 🔥 NOVO: Conectar o EventBus à lógica que já existe na sua store
+  if (!isChatUpdateListenerInitialized) {
+    isChatUpdateListenerInitialized = true;
+    
+    EventBus.on('sw:notify:chat-updated', async ({ chatId }) => {
+      // processarAtualizacaoDeStatusDB já sabe:
+      // 1. Buscar a mensagem atualizada no IndexedDB
+      // 2. Se for do contato ativo, atualizar o Signal (via atualizarOuAdicionarChatAtivo)
+      // 3. Se foi apagada ou é 'ALL_PURGED', remover do Signal
+      await processarAtualizacaoDeStatusDB(chatId);
+    });
+  }
 }
 
 export async function carregarMaisMensagens(contatoHash: string) {
