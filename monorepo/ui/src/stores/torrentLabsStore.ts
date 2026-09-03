@@ -17,7 +17,6 @@ export const pastasAtivas = signal<PastaMetadata[]>([]);
 export const progressoMap = signal<Record<string, { progress: number, speed: number, peers: number }>>({});
 
 let client: any = null;
-
 const RELIABLE_TRACKERS = [
   "wss://tracker.webtorrent.dev:443",
   "wss://tracker.openwebtorrent.com:443",
@@ -76,22 +75,22 @@ export async function criarNovaPastaOffline(
   const agora = Date.now();
   const fileArray = Array.from(arquivosInput);
   const fileMetadatas: FileMetadata[] = [];
-  
+
   for (const f of fileArray) {
     await salvarNoOPFS(id, f.name, f);
     fileMetadatas.push({ name: f.name, size: f.size, type: f.type, createdAt: agora, modifiedAt: agora });
   }
-  
+
   const novaPasta: PastaMetadata = {
     id, name: nomePasta, status: 'standby', complete: 100,
     permission: permissao, contatos: [], files: fileMetadatas,
     createdAt: agora, modifiedAt: agora
   };
-  
+
   await salvarPastaMetadata(novaPasta);
   await carregarPastasDoBanco();
   addDebugLog("success", "TORRENT_LAB", `Pasta '${nomePasta}' criada Offline no OPFS.`);
-  
+
   if (isMotorLigar.value) {
     novaPasta.status = 'seeding';
     await salvarPastaMetadata(novaPasta);
@@ -102,27 +101,26 @@ export async function criarNovaPastaOffline(
 export async function reseedPasta(pastaId: string) {
   const pasta = await buscarPastaMetadata(pastaId);
   if (!pasta || pasta.status === 'downloading' || pasta.status === 'standby' || !isMotorLigar.value) return;
-  
+
   const wt = getClient();
   const torrentId = pasta.infoHash || pasta.magnetURI;
   if (torrentId) {
     const t = wt.get(torrentId);
     if (t) t.destroy();
   }
-  
+
   const manifesto = { id: pasta.id, name: pasta.name };
   const manifestBlob = new Blob([JSON.stringify(manifesto, null, 2)], { type: 'application/json' });
   await salvarNoOPFS(pasta.id, '.loco-manifest.json', manifestBlob);
-  
+
   const filesToSeed: File[] = [];
   for (const f of pasta.files) {
     const file = await lerDoOPFS(pasta.id, f.name);
     if (file) filesToSeed.push(file);
   }
-  
   const manifestFile = await lerDoOPFS(pasta.id, '.loco-manifest.json');
   if (manifestFile) filesToSeed.push(manifestFile);
-  
+
   wt.seed(filesToSeed, { announce: RELIABLE_TRACKERS, name: pasta.name }, (torrent: any) => {
     pasta.magnetURI = torrent.magnetURI;
     pasta.infoHash = torrent.infoHash;
@@ -140,10 +138,8 @@ export async function adicionarArquivosPasta(pastaId: string, novosArquivos: Fil
     showToast("Coloque a pasta em Standby para adicionar arquivos.", "error");
     return;
   }
-  
   const agora = Date.now();
   const fileArray = Array.from(novosArquivos);
-  
   for (const f of fileArray) {
     await salvarNoOPFS(pasta.id, f.name, f);
     const existIndex = pasta.files.findIndex(x => x.name === f.name);
@@ -151,11 +147,9 @@ export async function adicionarArquivosPasta(pastaId: string, novosArquivos: Fil
     if (existIndex >= 0) pasta.files[existIndex] = meta;
     else pasta.files.push(meta);
   }
-  
   pasta.modifiedAt = agora;
   pasta.magnetURI = undefined;
   pasta.infoHash = undefined;
-  
   await salvarPastaMetadata(pasta);
   await carregarPastasDoBanco();
   showToast("Arquivos anexados. Ative a pasta para gerar o novo Seed.", "success");
@@ -168,13 +162,11 @@ export async function removerArquivoPasta(pastaId: string, fileName: string) {
     showToast("Coloque a pasta em Standby para excluir arquivos.", "error");
     return;
   }
-  
   await excluirDoOPFS(pasta.id, fileName);
   pasta.files = pasta.files.filter(f => f.name !== fileName);
   pasta.modifiedAt = Date.now();
   pasta.magnetURI = undefined;
   pasta.infoHash = undefined;
-  
   await salvarPastaMetadata(pasta);
   await carregarPastasDoBanco();
   showToast("Arquivo removido. Ative a pasta para gerar o novo Seed.", "info");
@@ -183,10 +175,8 @@ export async function removerArquivoPasta(pastaId: string, fileName: string) {
 export async function atualizarPermissaoPasta(pastaId: string, novaPermissao: 'public' | 'listed' | 'trusted') {
   const pasta = await buscarPastaMetadata(pastaId);
   if (!pasta) return;
-  
   pasta.permission = novaPermissao;
   pasta.modifiedAt = Date.now();
-  
   await salvarPastaMetadata(pasta);
   await carregarPastasDoBanco();
   showToast("Permissão de acesso atualizada internamente.", "success");
@@ -209,7 +199,6 @@ export async function baixarArquivoOpfs(pastaId: string, fileName: string) {
 export async function baixarZipPasta(pastaId: string) {
   const pasta = await buscarPastaMetadata(pastaId);
   if (!pasta || pasta.files.length === 0) return showToast("A pasta está vazia.", "error");
-  
   showToast("Compactando pasta em ZIP. Aguarde...", "info");
   try {
     const zipObj: Record<string, Uint8Array> = {};
@@ -238,32 +227,33 @@ export async function adicionarMagnetDownload(magnetURI: string) {
   if (!isMotorLigar.value) return;
   const wt = getClient();
   const torrent = wt.add(magnetURI, { announce: RELIABLE_TRACKERS });
-  
+
   torrent.on('metadata', () => {
     const manifestTorrentFile = torrent.files.find((f: any) => f.name === '.loco-manifest.json');
     if (manifestTorrentFile) {
-      manifestTorrentFile.getBuffer(async (err: any, buffer: Uint8Array) => {
+      // 🔥 CORREÇÃO DE TIPAGEM: buffer agora é opcional (buffer?: Uint8Array)
+      manifestTorrentFile.getBuffer(async (err: any, buffer?: Uint8Array) => {
         if (err || !buffer) return;
         try {
           const manifestStr = new TextDecoder().decode(buffer);
           const manifestJson = JSON.parse(manifestStr);
           const realId = manifestJson.id;
           const agora = Date.now();
-          
+
           const existe = await buscarPastaMetadata(realId);
           if (existe) {
             torrent.destroy();
             showToast("Você já possui esta pasta.", "info");
             return;
           }
-          
+
           const fileMetadatas: FileMetadata[] = torrent.files
             .filter((f: any) => f.name !== '.loco-manifest.json')
             .map((f: any) => ({
               name: f.name, size: f.length, type: 'application/octet-stream',
               createdAt: agora, modifiedAt: agora
             }));
-            
+
           const novaPasta: PastaMetadata = {
             id: realId, name: manifestJson.name || torrent.name,
             magnetURI: torrent.magnetURI, infoHash: torrent.infoHash,
@@ -271,7 +261,7 @@ export async function adicionarMagnetDownload(magnetURI: string) {
             permission: 'trusted', contatos: [],
             files: fileMetadatas, createdAt: agora, modifiedAt: agora
           };
-          
+
           await salvarPastaMetadata(novaPasta);
           await carregarPastasDoBanco();
           _anexarEventosTorrent(torrent, realId);
@@ -286,12 +276,11 @@ export async function adicionarMagnetDownload(magnetURI: string) {
 export async function alternarStatusPasta(pastaId: string) {
   const pasta = await buscarPastaMetadata(pastaId);
   if (!pasta) return;
-  
+
   if (pasta.status === 'standby') {
     pasta.status = pasta.complete === 100 ? 'seeding' : 'downloading';
     await salvarPastaMetadata(pasta);
     await carregarPastasDoBanco();
-    
     if (isMotorLigar.value) {
       if (pasta.status === 'seeding') await reseedPasta(pasta.id);
       else if (pasta.magnetURI) {
@@ -311,7 +300,6 @@ export async function alternarStatusPasta(pastaId: string) {
     const novoMapa = { ...progressoMap.value };
     delete novoMapa[pastaId];
     progressoMap.value = novoMapa;
-    
     await salvarPastaMetadata(pasta);
     await carregarPastasDoBanco();
   }
@@ -328,7 +316,7 @@ function _anexarEventosTorrent(torrent: any, pastaId: string) {
       }
     };
   });
-  
+
   torrent.on('done', async () => {
     progressoMap.value = { ...progressoMap.value, [pastaId]: { progress: 100, speed: 0, peers: torrent.numPeers } };
     const pasta = await buscarPastaMetadata(pastaId);
@@ -338,7 +326,6 @@ function _anexarEventosTorrent(torrent: any, pastaId: string) {
       await salvarPastaMetadata(pasta);
       await carregarPastasDoBanco();
     }
-    
     for (const file of torrent.files) {
       if (file.name === '.loco-manifest.json') continue;
       file.getBlob(async (err: any, blob: Blob | undefined) => {
