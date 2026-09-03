@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: SW
 
-Gerado automaticamente em: 9/2/2026, 9:26:28 PM
+Gerado automaticamente em: 9/2/2026, 11:06:29 PM
 
 ---
 
@@ -337,12 +337,12 @@ async function serve(event: FetchEvent): Promise<Response> {
 // src/sw/cache.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
-declare const GENERATED_ASSETS: string[];
+declare const __GENERATED_ASSETS__: string[];
 
 import { APP_VERSION } from "@loco/utils/config";
 
 const CACHE_NAME = `loco-proto-cache-v${APP_VERSION}`;
-const ASSETS_TO_CACHE: string[] = GENERATED_ASSETS;
+const ASSETS_TO_CACHE: string[] = typeof __GENERATED_ASSETS__ !== "undefined" ? __GENERATED_ASSETS__ : [];
 
 /**
  * Handler de instalação do Service Worker.

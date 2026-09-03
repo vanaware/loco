@@ -14,6 +14,7 @@ import {
   excluirMensagem
 } from '../stores/mensagensStore.ts';
 import type { Chat } from '@loco/utils/interfaces';
+import { EventBus } from '@loco/utils/eventbus';
 
 export function ChatSection() {
   const inputText = useSignal<string>('');
@@ -27,24 +28,18 @@ export function ChatSection() {
       });
     }
 
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data?.type === 'CHAT_ATUALIZADO' && e.data?.payload?.chatId) {
-        import('../stores/mensagensStore.ts').then(m => {
-           m.processarAtualizacaoDeStatusDB(e.data.payload.chatId).then(() => {
-             if (!isScrolledUp.value) rolarParaFim();
-           });
+    // ✅ ARQUITETURA: Escuta o EventBus em vez do Service Worker diretamente
+    const unsubscribe = EventBus.on('sw:notify:chat-updated', ({ chatId }) => {
+      import('../stores/mensagensStore.ts').then(m => {
+        m.processarAtualizacaoDeStatusDB(chatId).then(() => {
+          if (!isScrolledUp.value) rolarParaFim();
         });
-      }
-    };
-    
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleMessage);
-    }
-    
+      });
+    });
+
+    // Cleanup: remove a assinatura do EventBus quando o componente desmontar
     return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleMessage);
-      }
+      unsubscribe();
       limparMemoriaChat();
     };
   }, [contatoSelecionado.value]);
@@ -60,7 +55,7 @@ export function ChatSection() {
   const handleScroll = (e: Event) => {
     const target = e.target as HTMLDivElement;
     isScrolledUp.value = target.scrollHeight - target.scrollTop - target.clientHeight > 100;
-
+    
     if (target.scrollTop < 50 && hasMoreMessages.value) {
       const oldHeight = target.scrollHeight;
       carregarMaisMensagens(contatoSelecionado.value).then(() => {
@@ -76,10 +71,9 @@ export function ChatSection() {
   const handleEnviar = async () => {
     const texto = inputText.value.trim();
     const hashAtivo = contatoSelecionado.value;
-    
     if (!texto || !hashAtivo) return;
-    
-    inputText.value = ''; 
+
+    inputText.value = '';
     const msgId = gerarId();
     const handshakeId = gerarId();
     const agora = Date.now();
@@ -92,14 +86,14 @@ export function ChatSection() {
       createdAt: agora,
       handshake: handshakeId
     };
-    
+
     await atualizarOuAdicionarChatAtivo(novaMensagem);
     rolarParaFim(true);
 
     try {
       const reg = await navigator.serviceWorker.ready;
       if (!reg.active) throw new Error("Service Worker inativo");
-
+      
       reg.active.postMessage({
         type: 'CRIAR_HANDSHAKE_OUT',
         payload: {
@@ -127,7 +121,6 @@ export function ChatSection() {
 
   const renderStatus = (msg: Chat) => {
     if (msg.tipo === 'in') return null;
-
     if (msg.errorAt) {
       return <md-icon title="Falha no envio" style="font-size: 14px; color: var(--md-sys-color-error);">error</md-icon>;
     }
@@ -140,25 +133,22 @@ export function ChatSection() {
     if (msg.sentAt) {
       return <md-icon title="Enviada ao servidor" style="font-size: 14px; opacity: 0.8;">check</md-icon>;
     }
-    
     return <md-icon title="Aguardando rede..." style="font-size: 14px; opacity: 0.5;">schedule</md-icon>;
   };
 
   return (
     <div style="display: flex; flex-direction: column; height: 100%; flex-grow: 1; overflow: hidden;">
-      
-      <div 
+      <div
         ref={chatScrollRef}
         onScroll={handleScroll}
         style="flex-grow: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--md-sys-color-surface-container-lowest);"
       >
-        
         {isFetchingMensagens.value && (
-           <div style="text-align: center; padding: 10px;">
-             <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
-           </div>
+          <div style="text-align: center; padding: 10px;">
+            <md-circular-progress indeterminate style="width: 24px; height: 24px;"></md-circular-progress>
+          </div>
         )}
-
+        
         {!isFetchingMensagens.value && mensagensAtivas.value.length === 0 ? (
           <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">
             Nenhuma mensagem. Diga um "Olá" (criptografado)! 🔒
@@ -167,8 +157,8 @@ export function ChatSection() {
           mensagensAtivas.value.map(msg => {
             const isMine = msg.tipo === 'out';
             return (
-              <div 
-                key={msg.id} 
+              <div
+                key={msg.id}
                 style={`display: flex; flex-direction: column; max-width: 85%; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}
               >
                 <div style={`
@@ -185,14 +175,13 @@ export function ChatSection() {
                   {msg.conteudo}
                 </div>
                 
-                {/* 🔥 ARQUITETURA: Ícone sutil de lixeira injetado na meta-data da mensagem */}
                 <div style={`display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.7rem; color: #888; align-self: ${isMine ? 'flex-end' : 'flex-start'};`}>
                   <span>
                     {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   {renderStatus(msg)}
-                  <md-icon-button 
-                    onClick={() => handleExcluir(msg.id)} 
+                  <md-icon-button
+                    onClick={() => handleExcluir(msg.id)}
                     style="width: 20px; height: 20px; margin-left: 2px;"
                     title="Apagar mensagem"
                   >
@@ -204,7 +193,7 @@ export function ChatSection() {
           })
         )}
       </div>
-
+      
       <div style="flex-shrink: 0; padding: 12px 16px; background: var(--md-sys-color-surface); border-top: 1px solid var(--md-sys-color-outline-variant); display: flex; gap: 8px; align-items: flex-end;">
         <md-outlined-text-field
           style="flex-grow: 1; margin-bottom: 0;"
@@ -213,8 +202,7 @@ export function ChatSection() {
           onInput={(e: Event) => inputText.value = (e.target as HTMLInputElement).value}
           onKeyDown={handleKeyDown}
         ></md-outlined-text-field>
-        
-        <md-filled-icon-button 
+        <md-filled-icon-button
           onClick={handleEnviar}
           disabled={!inputText.value.trim()}
           style="height: 56px; width: 56px; border-radius: 16px;"
@@ -222,7 +210,6 @@ export function ChatSection() {
           <md-icon>send</md-icon>
         </md-filled-icon-button>
       </div>
-
     </div>
   );
 }

@@ -18,6 +18,7 @@ import { gerarContatoProprio } from "@loco/utils/db";
 import { ExpurgarMensagens } from "@loco/service-worker/handshakes/mensagem";
 import { ExpurgarHandshakesContato } from "@loco/service-worker/handshakes/contato";
 import { ExpurgarHandshakesProfile } from "@loco/service-worker/handshakes/profile";
+import { EventBus } from "@loco/utils/eventbus";
 
 export type { Contato };
 
@@ -62,19 +63,20 @@ export async function carregarContatos(): Promise<void> {
     addDebugLog("error", "STORE:CONTATO", "Erro ao carregar contatos do IndexedDB", err);
   } finally {
     isCarregandoContatos.value = false;
-  }
+    }
 }
 
 let isContatosListenerInitialized = false;
 
 export async function initContatosStore(): Promise<void> {
   await carregarContatos();
-  if (!isContatosListenerInitialized && 'serviceWorker' in navigator) {
+  
+  if (!isContatosListenerInitialized) {
     isContatosListenerInitialized = true;
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data?.type === 'CONTATO_ATUALIZADO') {
-        carregarContatos();
-      }
+    // ✅ ARQUITETURA: Escuta o EventBus em vez do Service Worker diretamente
+    EventBus.on('sw:notify:contact-updated', () => {
+      addDebugLog("info", "STORE:CONTATO", "Evento de atualização de contato recebido via EventBus. Recarregando...");
+      carregarContatos();
     });
   }
 }
@@ -119,8 +121,8 @@ export async function rebaixarConfiancaContatos(): Promise<void> {
   try {
     const atual = contatosRaw.value;
     if (atual.length === 0) return;
-    let mudouAlgum = false;
     
+    let mudouAlgum = false;
     const novaLista = atual.map(c => {
       if (c.me === 'trusted' || c.me === 'saved') {
         mudouAlgum = true;
@@ -128,13 +130,14 @@ export async function rebaixarConfiancaContatos(): Promise<void> {
       }
       return c;
     });
-    
+
     if (!mudouAlgum) return;
+
     contatosRaw.value = novaLista;
-    
     Promise.all(novaLista.map(c => salvarContato(c))).catch(err => {
       addDebugLog("error", "STORE:CONTATO", "Falha ao persistir rebaixamento no IndexedDB", err);
     });
+    
     addDebugLog("info", "STORE:CONTATO", `Status 'me' rebaixado para 'none' em contatos salvos para forçar o Piggybacking.`);
   } catch (err) {
     addDebugLog("error", "STORE:CONTATO", "Erro crítico ao rebaixar confiança dos contatos", err);
@@ -153,6 +156,7 @@ export async function removerContatoPorPublicKey(vapidPublicKey: JsonWebKey): Pr
 export async function removerContatoCompletamente(hash: string, notificarRemoto = true): Promise<void> {
   try {
     addDebugLog("warn", "STORE:CONTATO", `Iniciando EXPURGO DE DADOS TOTAL para o contato ${hash}`);
+    
     contatosRaw.value = contatosRaw.value.filter(c => c.id !== hash);
     
     await ExpurgarMensagens(hash, false);
@@ -163,7 +167,7 @@ export async function removerContatoCompletamente(hash: string, notificarRemoto 
     for (const h of handshakes) {
       if (h.aud === hash) await removerHandshake(h.id);
     }
-    
+
     const contatoExistente = await buscarContatoPorChave(hash);
     if (notificarRemoto && contatoExistente) {
       contatoExistente.me = 'deleted';

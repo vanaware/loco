@@ -1,13 +1,14 @@
-// src/components/AdvancedSection.tsx
+// Arquivo: monorepo/ui/src/components/AdvancedSection.tsx
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
 import { profile } from '../stores/profileStore.ts';
 import { showToast } from '../stores/state.ts';
 import { solicitarArmazenamentoPersistente, repararSubscricaoPush } from '../utils/mod.ts';
 import { DebugPanel } from './DebugPanel.tsx';
-import { APP_VERSION } from '@loco/utils/config'; 
+import { APP_VERSION } from '@loco/utils/config';
 import { navigate } from '../stores/router.ts';
 import { loadAllConfigs } from '../stores/config-store.ts';
+import { EventBus } from '@loco/utils/eventbus';
 
 export function AdvancedSection() {
   const diagnostic = useSignal({
@@ -29,17 +30,17 @@ export function AdvancedSection() {
       diagnostic.value = { ...diagnostic.value, proxyPath: config.proxy_path || '' };
     };
     
-    window.addEventListener('config-updated', updateConfig);
+    // ✅ ARQUITETURA: Escuta o EventBus para atualizações de config
+    const unsubscribeConfig = EventBus.on('loco:ui:config-updated', updateConfig);
     updateConfig();
     
     return () => {
-      window.removeEventListener('config-updated', updateConfig);
+      unsubscribeConfig();
     };
   }, []);
 
   const runDiagnostics = async () => {
     const p = profile.value;
-    
     let envelopeOK = false;
     if (p?.vapidPrivateKeyEnvelope) {
       try {
@@ -114,18 +115,24 @@ export function AdvancedSection() {
         }
       } catch {}
     }
-
+    
     diagnostic.value = diag;
   };
 
   useEffect(() => {
     runDiagnostics();
-    const updateOnlineStatus = () => { diagnostic.value = { ...diagnostic.value, isOnline: navigator.onLine }; };
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
+    
+    // ✅ ARQUITETURA: Escuta o EventBus em vez de window.addEventListener
+    const unsubOnline = EventBus.on('loco:network:online', () => {
+      diagnostic.value = { ...diagnostic.value, isOnline: true };
+    });
+    const unsubOffline = EventBus.on('loco:network:offline', () => {
+      diagnostic.value = { ...diagnostic.value, isOnline: false };
+    });
+
     return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
+      unsubOnline();
+      unsubOffline();
     };
   }, [profile.value]);
 
@@ -175,13 +182,12 @@ export function AdvancedSection() {
   };
 
   const handleFechar = () => {
-    navigate(''); 
+    navigate('');
   };
 
   return (
     <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; overflow-y: auto;">
       <div class="container" style="background: var(--md-sys-color-surface); max-width: 600px; width: 100%;">
-        
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <div style="display: flex; flex-direction: column;">
             <span style="font-size: 1rem; color: var(--md-sys-color-primary); font-weight: 600; display: flex; align-items: center; gap: 6px;">
@@ -195,7 +201,7 @@ export function AdvancedSection() {
             <md-icon>close</md-icon>
           </md-icon-button>
         </div>
-        
+
         {diag.loading ? (
           <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin: 0;">Analisando requisitos...</p>
         ) : (
@@ -214,7 +220,6 @@ export function AdvancedSection() {
                 <li>{diag.swAtivoEControlando ? '✅' : '❌'} Service Worker em controle ativo</li>
               </ul>
               
-              {/* 🔥 ARQUITETURA: Botão de Reparo de Push injetado caso haja falha na subscrição */}
               {(!diag.inscricaoValida || !diag.inscricaoRegistrada || !diag.permissoesNotificacao) && (
                 <div style="margin-top: 12px; padding: 12px; background: var(--md-sys-color-error-container); border-radius: 8px;">
                   <span style="display: block; color: var(--md-sys-color-on-error-container); font-size: 0.8rem; font-weight: 500; margin-bottom: 8px;">
@@ -227,7 +232,9 @@ export function AdvancedSection() {
                 </div>
               )}
             </div>
+
             <md-divider></md-divider>
+
             <div>
               <h4 style="font-size: 0.8rem; margin: 0 0 8px 0; color: var(--md-sys-color-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
                 ⚡ Recursos Desejáveis & Status
@@ -244,7 +251,6 @@ export function AdvancedSection() {
                    'ℹ️ Permissão de Câmera (Pendente)'}
                 </li>
                 <li>{diag.suporteBarcodeDetector ? '✅ Leitor Nativo de QR Code' : '⚠️ Leitor QR Nativo Indisponível'}</li>
-                
                 <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
                   <span>{diag.armazenamentoPersistido ? '✅ Armazenamento Persistente Protegido' : 'ℹ️ Armazenamento Padrão'}</span>
                   {!diag.armazenamentoPersistido && (
@@ -253,7 +259,6 @@ export function AdvancedSection() {
                     </md-outlined-button>
                   )}
                 </li>
-                
                 <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
                   <span>🔗 <strong>Proxy Path:</strong> {diag.proxyPath || '(Raiz Relativa)'}</span>
                   <md-outlined-button onClick={() => navigate('#settings')} style="height: 32px; font-size: 0.75rem; margin-bottom: 0;">
@@ -261,7 +266,6 @@ export function AdvancedSection() {
                     Configurar
                   </md-outlined-button>
                 </li>
-
                 <li style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--md-sys-color-outline-variant);">
                   <div style="display: flex; flex-direction: column;">
                     <span style="font-weight: bold; color: var(--md-sys-color-primary);">Fila de Handshakes</span>
@@ -272,7 +276,6 @@ export function AdvancedSection() {
                     Forçar Sync
                   </md-outlined-button>
                 </li>
-
                 {diag.cotaEspaco.livreMB > 0 && (
                   <li style="color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; margin-top: 12px; text-align: center;">
                     📊 Uso: <strong>{diag.cotaEspaco.usoMB} MB</strong> de ~{(diag.cotaEspaco.livreMB / 1024).toFixed(1)} GB livres
@@ -283,7 +286,7 @@ export function AdvancedSection() {
           </div>
         )}
       </div>
-
+      
       <div style="max-width: 600px; width: 100%;">
         <DebugPanel />
       </div>

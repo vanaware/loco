@@ -10,10 +10,6 @@ out/
 .env.local
 .env.*
 
-# Visual Studio Code
-.vscode/
-.vscode-test/
-
 # Node on Deno
 node_modules/
 vendor/

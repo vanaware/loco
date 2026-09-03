@@ -190,27 +190,21 @@ export interface TorrentFile {
   type: string;
   downloaded: number;
   progress: number;
-
   select(priority?: number): void;
   deselect(): void;
-
   createReadStream(opts?: FileSliceOptions): any;
   stream(opts?: FileSliceOptions): ReadableStream;
   [Symbol.asyncIterator](): AsyncIterableIterator<Uint8Array>;
   arrayBuffer(opts?: FileSliceOptions): Promise<ArrayBuffer>;
   blob(opts?: FileSliceOptions): Promise<Blob>;
-
   /**
    * Define a fonte de um elemento HTML para a URL de streaming.
    * Requer que `createServer` tenha sido chamado antes.
    */
   streamTo(elem: HTMLVideoElement | HTMLAudioElement | HTMLImageElement): void;
-
   /** URL virtual reconhecida pelo Service Worker */
   streamURL: string;
-
   includes(pieceIndex: number): boolean;
-
   on(event: 'done' | 'stream' | 'iterator' | string, callback: (...args: any[]) => void): this;
 }
 
@@ -246,7 +240,6 @@ export interface Torrent {
   created?: Date;
   createdBy?: string;
   comment?: string;
-
   destroy(opts?: { destroyStore?: boolean }, callback?: () => void): void;
   addPeer(peer: string | any): boolean;
   addWebSeed(urlOrConn: string | any): void;
@@ -257,7 +250,6 @@ export interface Torrent {
   pause(): void;
   resume(): void;
   rescanFiles(callback?: (err?: Error) => void): void;
-
   on(
     event:
       | 'infoHash'
@@ -395,7 +387,7 @@ class WebTorrentManager {
   // ==========================================================================
 
   /**
-   **LIGA** o WebTorrent.
+   * **LIGA** o WebTorrent.
    *
    * Executa o checklist completo de resiliência:
    * 1. Verifica `window.WebTorrent` (biblioteca carregada via <script>)
@@ -487,7 +479,7 @@ class WebTorrentManager {
   }
 
   /**
-   **DESLIGA** o WebTorrent.
+   * **DESLIGA** o WebTorrent.
    *
    * - Remove listeners de ciclo de vida
    * - Destrói todas as conexões de peer
@@ -850,11 +842,13 @@ class WebTorrentManager {
       const root = await navigator.storage.getDirectory();
       const wtDir = await root.getDirectoryHandle('webtorrent', { create: false });
       const torrentDir = await wtDir.getDirectoryHandle(infoHash, { create: false });
+      
       // Remove todos os arquivos dentro
       for await (const entry of (torrentDir as any).values()) {
         await torrentDir.removeEntry(entry.name, { recursive: true });
       }
       await wtDir.removeEntry(infoHash, { recursive: true });
+      
       console.log(`[WebTorrent] 🗑️ Pasta OPFS removida: /webtorrent/${infoHash}/`);
       return true;
     } catch (err) {
@@ -1134,7 +1128,8 @@ class WebTorrentManager {
    */
   private extractInfoHash(magnetUri: string): string | null {
     const match = magnetUri.match(/btih:([a-zA-Z0-9]+)/i);
-    return match ? match[1].toLowerCase() : null;
+    // 🔥 CORREÇÃO: Verificação explícita de match[1] para satisfazer noUncheckedIndexedAccess
+    return match && match[1] ? match[1].toLowerCase() : null;
   }
 
   /**
