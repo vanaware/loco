@@ -5,7 +5,7 @@
    // ============================================================================
    // 📋 Metadados do Projeto
    "name": "@vanaware/loco",
-   "version": "0.3.47-mtkpnhhp",
+   "version": "0.3.50-mtkr16wv",
    "exports": "./esbuild.ts",
    "description": "Mensageiro PWA focado em privacidade absoluta. Utiliza criptografia híbrida ponta-a-ponta e sincronização background (Offline-First).",
    "author": "Vanaware",

@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco [vdev] - Modo: SW
 
-Gerado automaticamente em: 9/2/2026, 8:24:43 PM
+Gerado automaticamente em: 9/2/2026, 9:26:28 PM
 
 ---
 
@@ -747,6 +747,177 @@ export function handleOnline(event: any) {
 
 ---
 
+## Arquivo: `monorepo/service-worker/src/sw/event-adapter.ts`
+
+```ts
+// monorepo/service-worker/src/sw/event-adapter.ts
+/// <reference lib="webworker" />
+declare const self: ServiceWorkerGlobalScope;
+
+import { EventBus } from "@loco/utils/eventbus";
+import { APP_VERSION } from "@loco/utils/config";
+import { addDebugLog } from "@loco/utils/debug";
+
+// === HANDLERS NATIVOS EXISTENTES (INFRAESTRUTURA) ===
+import { handleInstall, handleActivate, handleCacheFetch } from "./cache.ts";
+import { handlePush } from "./push.ts";
+import { handleNotificationClick } from "./click.ts";
+import { handleSync, handleOnline, processarFilaHandshake } from "./handshakes.ts";
+import { handleWebTorrentFetch, handleWebTorrentMessage } from "./webtorrent.ts";
+
+// === ROTAS DE HANDSHAKE (LÓGICA DE NEGÓCIO) ===
+import { Processar as ProcessarProfile } from "../handshakes/hand-profile.ts";
+import { Processar as ProcessarMensagem } from "../handshakes/hand-mensagem.ts";
+import { Processar as ProcessarContato } from "../handshakes/hand-contato.ts";
+
+/**
+ * Inicializa a Fronteira de Eventos do Service Worker.
+ * Este é o ÚNICO ponto onde addEventListener nativos devem ser registrados no SW.
+ */
+export function initializeSwEventAdapter() {
+  addDebugLog(`[SW-ADAPTER] 🌌 Inicializando Adaptador de Eventos do SW (v${APP_VERSION}).`);
+
+  // ==========================================
+  // 1. LIFECYCLE EVENTS
+  // ==========================================
+  self.addEventListener('install', (event) => {
+    handleInstall(event);
+  });
+
+  self.addEventListener('activate', (event) => {
+    handleActivate(event);
+    event.waitUntil(
+      (async () => {
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+          await processarFilaHandshake();
+          // ✅ Chave exata do EventMap
+          EventBus.emit('loco:network:sync-completed', { syncedCount: 1 });
+        } catch (e: any) {
+          addDebugLog(`[SW-ADAPTER] ❌ Erro ao processar fila na ativação: ${e.message}`);
+        }
+      })()
+    );
+  });
+
+  // ==========================================
+  // 2. FETCH EVENT
+  // ==========================================
+  self.addEventListener('fetch', (event: FetchEvent) => {
+    if (handleWebTorrentFetch(event)) {
+      return; 
+    }
+    const cachePromise = handleCacheFetch(event);
+    event.respondWith(
+      cachePromise.then(response => {
+        if (response) return response; 
+        return fetch(event.request);
+      })
+    );
+  });
+
+  // ==========================================
+  // 3. MESSAGE EVENT (A MÁGICA DO EVENTBUS)
+  // ==========================================
+  self.addEventListener('message', (event: ExtendableMessageEvent) => {
+    if (!event.data) return;
+    const { type, payload } = event.data;
+
+    if (type === 'WEBTORRENT_READY') {
+      // ✅ Chave exata do EventMap
+      EventBus.emit('loco:sw:message-received', { type: 'WEBTORRENT_READY', payload });
+      handleWebTorrentMessage(event);
+      return;
+    }
+
+    if (type === 'PING_SW_VERSION') {
+      if (event.ports && event.ports[0]) {
+        event.ports[0].postMessage({ type: 'PONG_SW_VERSION', version: APP_VERSION });
+      }
+      return;
+    }
+
+    if (type === 'PROCESSAR_FILA_HANDSHAKE') {
+      processarFilaHandshake().catch(err => addDebugLog(`[SW-ADAPTER] Erro na fila manual: ${err.message}`));
+      return;
+    }
+
+    if (type === 'CRIAR_HANDSHAKE_OUT') {
+      const { rotasModulo, params } = payload;
+      
+      // ✅ Chave exata do EventMap
+      EventBus.emit('loco:sw:message-received', { type: 'CRIAR_HANDSHAKE_OUT', payload: { rotasModulo, params } });
+      
+      if (rotasModulo === 'profile') {
+        ProcessarProfile({ out: params }).catch(err => addDebugLog(`[SW-ADAPTER] Erro hand-profile: ${err.message}`));
+      } else if (rotasModulo === 'mensagem') {
+        ProcessarMensagem({ out: params }).catch(err => addDebugLog(`[SW-ADAPTER] Erro hand-mensagem: ${err.message}`));
+      } else if (rotasModulo === 'contato') {
+        ProcessarContato({ out: params }).catch(err => addDebugLog(`[SW-ADAPTER] Erro hand-contato: ${err.message}`));
+      } else {
+        addDebugLog(`[SW-ADAPTER] ⚠️ Módulo de rotas desconhecido: ${rotasModulo}`);
+      }
+      return;
+    }
+  });
+
+  // ==========================================
+  // 4. PUSH & NOTIFICATION EVENTS
+  // ==========================================
+  self.addEventListener('push', (event: any) => {
+    handlePush(event);
+  });
+
+  self.addEventListener('notificationclick', (event: any) => {
+    handleNotificationClick(event);
+  });
+
+  // ==========================================
+  // 5. SYNC & NETWORK EVENTS
+  // ==========================================
+  self.addEventListener('sync', (event: any) => {
+    handleSync(event);
+  });
+
+  self.addEventListener('online', (event: any) => {
+    // ✅ Chave exata do EventMap
+    EventBus.emit('loco:network:online');
+    handleOnline(event);
+  });
+
+  self.addEventListener('offline', (event: any) => {
+    // ✅ Chave exata do EventMap
+    EventBus.emit('loco:network:offline');
+  });
+
+  // ==========================================
+  // 6. BRIDGE: EventBus -> UI (postMessage)
+  // ==========================================
+  // ✅ Chave exata do EventMap. O TypeScript agora sabe que 'type' e 'payload' existem.
+  EventBus.on('loco:sw:message-received', ({ type, payload }) => {
+    if (type === 'CHAT_ATUALIZADO') {
+      broadcastToClients({ type: 'CHAT_ATUALIZADO', payload });
+    } else if (type === 'CONTATO_ATUALIZADO') {
+      broadcastToClients({ type: 'CONTATO_ATUALIZADO', payload });
+    }
+  });
+
+  addDebugLog(`[SW-ADAPTER] ✅ Adaptador de Eventos inicializado e listeners nativos acoplados.`);
+}
+
+/**
+ * Helper para broadcast de mensagens para todas as janelas/abas do app.
+ */
+async function broadcastToClients(message: any) {
+  if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    clients.forEach(client => client.postMessage(message));
+  }
+}
+```
+
+---
+
 ## Arquivo: `monorepo/service-worker/src/handshakes/hand-sdp.ts`
 
 ```ts
@@ -948,7 +1119,7 @@ async function handleIncomingAnswer(context: HandshakeSdpContext): Promise<void>
 ## Arquivo: `monorepo/service-worker/src/handshakes/hand-mensagem.ts`
 
 ```ts
-// src/handshakes/hand-mensagem.ts
+// monorepo/service-worker/src/handshakes/hand-mensagem.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
@@ -956,6 +1127,7 @@ import { Handshake, Chat } from "@loco/utils/interfaces";
 import { gerarId, buscarHandshake, salvarHandshake, buscarChat, salvarChat, buscarContatoPorChave, buscarProfile, removerTodoHistoricoChat, removerChat, listarHandshakes, removerHandshake, ehContatoProprio } from "@loco/utils/db";
 import { processarFilaHandshake } from "../sw/handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug"; 
+import { EventBus } from "@loco/utils/eventbus";
 
 interface MensagemOutParams {
   function: string;
@@ -966,13 +1138,6 @@ interface MensagemOutParams {
   msgId?: string;        
   handshakeId?: string;  
   createdAt?: number;
-}
-
-async function notificarUI(chatId: string) {
-  if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
-  }
 }
 
 export async function ExpurgarMensagens(contatoHash: string, notificarRemoto = false) {
@@ -1007,13 +1172,12 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
-    
     const msgReq = handshake.in.rotas.mensagem;
     
     if (msgReq.limparHistorico === true) {
       addDebugLog("warn", "HAND-MENSAGEM", `📩 Solicitação de expurgo TOTAL de histórico recebida do contato ${handshake.aud}`);
       await removerTodoHistoricoChat(handshake.aud);
-      await notificarUI("ALL_PURGED");
+      EventBus.emit('sw:notify:chat-updated', { chatId: "ALL_PURGED" });
       addDebugLog("success", "HAND-MENSAGEM", `🗑️ Todo o histórico do contato ${handshake.aud} foi apagado com sucesso.`);
       return;
     }
@@ -1039,7 +1203,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (msgReq.data.status === 'entregue') msgLocal.receivedAt = Date.now();
         if (msgReq.data.status === 'lida') msgLocal.readAt = Date.now();
         await salvarChat(msgLocal);
-        await notificarUI(msgLocal.id);
+        EventBus.emit('sw:notify:chat-updated', { chatId: msgLocal.id });
       }
     }
     else if (msgReq.excluida && typeof msgReq.excluida === 'string') {
@@ -1047,7 +1211,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const msgLocal = await buscarChat(msgReq.excluida);
       if (msgLocal && msgLocal.contatoHash === handshake.aud) {
         await removerChat(msgReq.excluida, handshake.aud);
-        await notificarUI(msgReq.excluida);
+        EventBus.emit('sw:notify:chat-updated', { chatId: msgReq.excluida });
         addDebugLog(`[HAND-MENSAGEM] 🗑️ Mensagem ${msgReq.excluida} apagada remotamente com sucesso.`);
       }
     }
@@ -1063,7 +1227,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         handshake: handshakeId
       };
       await salvarChat(novaMsgRecebida);
-      
       const ackHandshake: Handshake = {
         id: gerarId(),
         aud: handshake.aud,
@@ -1091,11 +1254,12 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           tag: novaMsgRecebida.id
         });
       }
-      await notificarUI(novaMsgRecebida.id);
+      
+      EventBus.emit('sw:notify:chat-updated', { chatId: novaMsgRecebida.id });
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
-
+  
   if (outParams) {
     if (outParams.function === 'confirmarEntrega') {
       const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
@@ -1120,7 +1284,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     else if (outParams.function === 'enviarMensagem') {
       const { contato: contatoId, conteudo, msgId, handshakeId, createdAt } = outParams;
       if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
-      
       const profile = await buscarProfile();
       const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
       
@@ -1133,14 +1296,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           readAt: agora, notifiedAt: agora, handshake: 'self'
         };
         await salvarChat(chatAuto);
-        await notificarUI(idReal);
+        EventBus.emit('sw:notify:chat-updated', { chatId: idReal });
         return;
       }
       
       const idReal = msgId || gerarId();
       const handIdReal = handshakeId || gerarId();
       const chatExistente = await buscarChat(idReal);
-      
       if (!chatExistente) {
         const chatOut: Chat = {
           id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
@@ -1148,7 +1310,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         };
         await salvarChat(chatOut);
       }
-      
       const novoHandshake: Handshake = {
         id: handIdReal, aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
         out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: idReal, conteudo } } }
@@ -1166,7 +1327,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 ## Arquivo: `monorepo/service-worker/src/handshakes/hand-contato.ts`
 
 ```ts
-// src/handshakes/hand-contato.ts
+// monorepo/service-worker/src/handshakes/hand-contato.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
@@ -1174,6 +1335,7 @@ import { Handshake, Contato } from "@loco/utils/interfaces";
 import { gerarId, buscarHandshake, salvarHandshake, buscarProfile, buscarContatoPorChave, salvarContato, serializarPublicKeyVapid, listarHandshakes, removerHandshake, removerContatoPorHash, removerTodoHistoricoChat, extrairDadosCompactos, expandirDadosCompactos, CompactContact } from "@loco/utils/db";
 import { processarFilaHandshake } from "../sw/handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug";
+import { EventBus } from "@loco/utils/eventbus";
 
 interface ContatoOutParams {
   function: string;
@@ -1196,17 +1358,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
   if (handshakeId) {
     const handshake = await buscarHandshake(handshakeId);
     if (!handshake || !handshake.in || !handshake.in.rotas.contato) return;
-    
     const contatoReq = handshake.in.rotas.contato;
     
     if (contatoReq.removerContato === true) {
       addDebugLog("warn", "HAND-CONTATO", `📩 Comando de EXCLUSÃO DE CONTATO recebido do remoto (aud: ${handshake.aud})`);
       await removerTodoHistoricoChat(handshake.aud);
       await removerContatoPorHash(handshake.aud);
-      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-      }
+      EventBus.emit('sw:notify:contact-updated', { contatoHash: handshake.aud });
       addDebugLog("success", "HAND-CONTATO", `🗑️ Contato ${handshake.aud} e seu histórico foram expurgados remotamente por solicitação do remetente.`);
       return;
     }
@@ -1215,7 +1373,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       addDebugLog(`[HAND-CONTATO] 📩 Solicitação PULL de status recebida.`);
       const contato = await buscarContatoPorChave(handshake.aud);
       const rotasContatoData: Record<string, unknown> = { id: handshake.aud };
-      
       if (contato) {
         const camposSet = new Set(contatoReq.campos);
         const cp = await extrairDadosCompactos(contato);
@@ -1227,7 +1384,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (camposSet.has('name')) rotasContatoData.nm = cp.nm;
         if (camposSet.has('trusted')) rotasContatoData.tr = contato.trusted;
       }
-      
       handshake.out = { status: 'pendente', tentativas: 0, rotas: { contato: { data: rotasContatoData } } };
       handshake.updatedAt = Date.now();
       await salvarHandshake(handshake);
@@ -1237,34 +1393,26 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const contato = await buscarContatoPorChave(handshake.aud);
       const profile = await buscarProfile();
       if (!contato || !profile) return;
-      
       const d = contatoReq.data as Record<string, unknown>;
       const mp = await extrairDadosCompactos(profile);
       let novoMeStatus = contato.me;
-      
       if (!d.se) {
         novoMeStatus = 'none'; 
       } else {
         if (d.tr === true) novoMeStatus = 'trusted';
         else novoMeStatus = 'saved';
-        
         const d_vp = d.vp as any || { x: d.vx, y: d.vy };
         const d_ep = d.ep as any || { n: d.en };
-        
         if (d.se !== mp.se || d.sp !== mp.sp || d.sa !== mp.sa || 
             d_vp.x !== mp.vp.x || d_vp.y !== mp.vp.y || d_ep.n !== mp.ep.n || d.ve !== mp.ve) {
           novoMeStatus = 'wrong';
         }
       }
-      
       if (contato.me !== novoMeStatus) {
         contato.me = novoMeStatus;
         contato.updatedAt = Date.now();
         await salvarContato(contato);
-        if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
-          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-          clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-        }
+        EventBus.emit('sw:notify:contact-updated', { contatoHash: handshake.aud });
       }
     }
     else if (contatoReq.sync) {
@@ -1277,7 +1425,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const contatoAntigo = await buscarContatoPorChave(handshake.aud);
       const eleConfiaEmMim = syncData.tr === true; 
       const novoMeStatus = eleConfiaEmMim ? 'trusted' : 'saved';
-      
       const novoContato: Contato = {
         id: handshake.aud,
         vapidPublicKey: expanded.vapidPublicKey!,
@@ -1291,19 +1438,15 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         createdAt: contatoAntigo ? contatoAntigo.createdAt : Date.now(),
         updatedAt: Date.now()
       };
-      
       await salvarContato(novoContato);
-      if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
-        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach(client => client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: handshake.aud } }));
-      }
+      EventBus.emit('sw:notify:contact-updated', { contatoHash: handshake.aud });
       
       if (syncData.req) {
         await Processar({ out: { function: 'enviarSubscription', contato: handshake.aud, responder: true } });
       }
     }
   }
-
+  
   if (outParams) {
     if (outParams.function === 'confirmarSubscription') {
       const profile = await buscarProfile();
@@ -1322,7 +1465,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const contatoAlvo = await buscarContatoPorChave(outParams.contato);
       const euConfio = contatoAlvo ? (contatoAlvo.trusted === true) : false;
       const compactSyncData = await extrairDadosCompactos(profile, !outParams.responder, euConfio);
-      
       const novoHandshake: Handshake = {
         id: gerarId(), aud: outParams.contato, createdAt: Date.now(), updatedAt: Date.now(),
         out: { status: 'pendente', tentativas: 0, rotas: { contato: { sync: compactSyncData as unknown as Record<string, unknown> } } }
@@ -1339,7 +1481,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
 ## Arquivo: `monorepo/service-worker/src/handshakes/hand-profile.ts`
 
 ```ts
-// src/handshakes/hand-profile.ts
+// monorepo/service-worker/src/handshakes/hand-profile.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
@@ -1348,6 +1490,7 @@ import { gerarId, buscarHandshake, salvarHandshake, buscarProfile, buscarContato
 import { minifyVapidPublic, expandVapidPublic, minifyRsaPublic, expandRsaPublic } from "@loco/utils/crypto";
 import { processarFilaHandshake } from "../sw/handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug";
+import { EventBus } from "@loco/utils/eventbus";
 
 interface ProfileOutParams {
   function: string;
@@ -1373,24 +1516,21 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       addDebugLog(`[HAND-PROFILE] ⚠️ Handshake ${handshakeId} não contém rotas de profile.`);
       return;
     }
-
     const profileReq = handshake.in.rotas.profile;
+    
     if (Array.isArray(profileReq.campos)) {
       addDebugLog(`[HAND-PROFILE] 📩 Solicitação de dados recebida. Campos:`, profileReq.campos);
       const profile = await buscarProfile();
       if (!profile) throw new Error("Perfil local não encontrado para responder à requisição.");
-      
       const meuHash = await serializarPublicKeyVapid(profile.vapidPublicKey);
       const rotasProfileData: Record<string, unknown> = { id: meuHash };
       const camposSet = new Set(profileReq.campos);
-      
       if (camposSet.has('name')) rotasProfileData.name = profile.name;
       if (camposSet.has('email')) rotasProfileData.email = profile.email;
       if (camposSet.has('vapidPublicKey')) rotasProfileData.vapidPublicKey = minifyVapidPublic(profile.vapidPublicKey);
       if (camposSet.has('vapidPrivateKeyEnvelope')) rotasProfileData.vapidPrivateKeyEnvelope = profile.vapidPrivateKeyEnvelope;
       if (camposSet.has('e2ePublicKey')) rotasProfileData.e2ePublicKey = minifyRsaPublic(profile.e2ePublicKey);
       if (camposSet.has('subscription')) rotasProfileData.subscription = profile.subscription;
-
       handshake.out = {
         status: 'pendente',
         tentativas: 0,
@@ -1404,7 +1544,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       addDebugLog(`[HAND-PROFILE] 📩 Resposta de dados recebida do contato ${profileReq.data.id}`);
       const contatoId = profileReq.data.id;
       const contato = await buscarContatoPorChave(contatoId);
-      
       if (contato) {
         const d = profileReq.data;
         if (typeof d.name === 'string') contato.name = d.name;
@@ -1413,23 +1552,16 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (d.subscription !== undefined) contato.subscription = d.subscription as any;
         if (d.vapidPublicKey !== undefined) contato.vapidPublicKey = expandVapidPublic(d.vapidPublicKey);
         if (d.e2ePublicKey !== undefined) contato.e2ePublicKey = expandRsaPublic(d.e2ePublicKey);
-        
         contato.updatedAt = Date.now();
         await salvarContato(contato);
         addDebugLog(`[HAND-PROFILE] ✅ Contato ${contatoId} atualizado com sucesso no DB.`);
-        
-        if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
-          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-          clients.forEach(client => {
-            client.postMessage({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash: contatoId } });
-          });
-        }
+        EventBus.emit('sw:notify:contact-updated', { contatoHash: contatoId });
       } else {
         addDebugLog(`[HAND-PROFILE] ⚠️ Resposta recebida, mas contato ${contatoId} não existe no banco.`);
       }
     }
   }
-
+  
   if (outParams) {
     addDebugLog(`[HAND-PROFILE] 📤 Preparando saída manual de profile:`, outParams);
     if (outParams.function === 'solicitarPerfil') {
@@ -1470,29 +1602,63 @@ export * from "./utils/mod.ts";
 ## Arquivo: `monorepo/service-worker/src/utils/mod.ts`
 
 ```ts
-// src/sw/sw-utils.ts
+// monorepo/service-worker/src/utils/mod.ts
 import { addDebugLog } from '@loco/utils/debug';
 import { APP_VERSION } from '@loco/utils/config';
+import { EventBus } from '@loco/utils/eventbus';
 
+/**
+ * Inicializa a Fronteira de Eventos da UI (Main Thread).
+ * Este é o ÚNICO ponto na UI autorizado a escutar eventos nativos do SW e do Window.
+ */
+function initializeUiEventAdapter() {
+  // 1. Traduz postMessage do SW -> EventBus
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (!event.data) return;
+    const { type, payload } = event.data;
+    
+    if (type === 'CHAT_ATUALIZADO') {
+      EventBus.emit('sw:notify:chat-updated', { chatId: payload.chatId });
+    } else if (type === 'CONTATO_ATUALIZADO') {
+      EventBus.emit('sw:notify:contact-updated', { contatoHash: payload.contatoHash });
+    } else if (type === 'PONG_SW_VERSION') {
+      EventBus.emit('sw:notify:pong-version', { version: payload.version });
+    } else if (type === 'WEBTORRENT_ACK') {
+      EventBus.emit('sw:notify:webtorrent-ack');
+    }
+  });
+
+  // 2. Traduz eventos de rede nativos -> EventBus
+  window.addEventListener('online', () => EventBus.emit('loco:network:online'));
+  window.addEventListener('offline', () => EventBus.emit('loco:network:offline'));
+
+  // 3. Traduz ciclo de vida da janela -> EventBus
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      EventBus.emit('loco:app:backgrounded');
+    } else if (document.visibilityState === 'visible') {
+      EventBus.emit('loco:app:foregrounded');
+    }
+  });
+
+  addDebugLog("✅ EventAdapter da UI inicializado e ouvindo fronteiras nativas.");
+}
+
+/**
+ * Registra o Service Worker e inicializa o EventAdapter da UI.
+ */
 export async function registrarServiceWorker(): Promise<ServiceWorkerRegistration> {
   addDebugLog("📡 Verificando suporte ao Service Worker...");
   if (!("serviceWorker" in navigator)) {
     throw new Error("Service Worker não é suportado neste navegador.");
   }
 
-  // 🔥 ARQUITETURA: Resolução Dinâmica de Rota Base (Environment Agnostic)
-  // Lemos a URL atual para descobrir se estamos rodando na raiz (/) ou em um subdiretório (/loco/)
   let basePath = globalThis.location.pathname;
-  
-  // Se a URL aponta para um arquivo (ex: /loco/index.html), extraímos apenas o diretório
   if (basePath.split('/').pop()?.includes('.')) {
     basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
   } else if (!basePath.endsWith('/')) {
-    // Se a URL é /loco (sem barra no final), forçamos a barra. 
-    // Isso evita que o navegador interprete "loco" como arquivo e tente registrar o SW na raiz "/".
     basePath += '/';
   }
-
   addDebugLog(`⏳ Registrando Service Worker no escopo: ${basePath}`);
 
   try {
@@ -1500,24 +1666,21 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
       `${basePath}service-worker.js?v=${APP_VERSION}`,
       { scope: basePath }
     );
-    
     if (!registration) {
       throw new Error("Service Worker registration retornou null/undefined");
     }
-    
     addDebugLog("✅ Service Worker registrado, aguardando ready...");
     const readyReg = await navigator.serviceWorker.ready;
-    
-    // 🔥 ARQUITETURA: Checagem Introspectiva de Versão (App vs SW)
+
+    // 🔥 Inicializa o EventAdapter da UI assim que o SW estiver pronto
+    initializeUiEventAdapter();
+
+    // Checagem Introspectiva de Versão (App vs SW)
     if (readyReg.active) {
-      // Criamos um túnel de comunicação seguro (MessageChannel)
       const channel = new MessageChannel();
-      
-      // A UI fica escutando a porta 1
       channel.port1.onmessage = (event) => {
         if (event.data && event.data.type === 'PONG_SW_VERSION') {
           const swVersion = event.data.version;
-          
           if (swVersion !== APP_VERSION) {
             addDebugLog("warn", "SYSTEM", `⚠️ Inconsistência de Versão! App está rodando v${APP_VERSION}, mas o Service Worker ativo em background é v${swVersion}. Um recarregamento forçado pode ser necessário.`);
           } else {
@@ -1525,13 +1688,10 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
           }
         }
       };
-      
-      // A UI manda o sinal de PING pela porta 2 direto para o Worker ativo
       readyReg.active.postMessage({ type: 'PING_SW_VERSION' }, [channel.port2]);
     }
-    
+
     return readyReg;
-  // deno-lint-ignore no-explicit-any
   } catch (err: any) {
     addDebugLog("❌ Erro ao registrar Service Worker: " + (err?.message || String(err)));
     throw new Error(`Falha ao registrar Service Worker: ${err?.message || String(err)}`);
@@ -1544,118 +1704,19 @@ export async function registrarServiceWorker(): Promise<ServiceWorkerRegistratio
 ## Arquivo: `monorepo/service-worker/src/service-worker.ts`
 
 ```ts
-// src/service-worker.ts
+// monorepo/service-worker/src/service-worker.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-// === IMPORTAÇÃO DOS MÓDULOS AUXILIARES (HANDLERS) ===
-import { handleInstall, handleActivate, handleCacheFetch } from "./sw/cache.ts";
-import { handlePush } from "./sw/push.ts";
-import { handleNotificationClick } from "./sw/click.ts";
-import { handleSync, handleOnline, processarFilaHandshake } from "./sw/handshakes.ts";
-import { handleWebTorrentFetch, handleWebTorrentMessage } from "./sw/webtorrent.ts";
-
-// === IMPORTAÇÃO DAS ROTAS DE HANDSHAKE ===
-import { Processar as ProcessarProfile } from "./handshakes/hand-profile.ts";
-import { Processar as ProcessarMensagem } from "./handshakes/hand-mensagem.ts";
-import { Processar as ProcessarContato } from "./handshakes/hand-contato.ts";
-
+import { initializeSwEventAdapter } from "./sw/event-adapter.ts";
 import { APP_VERSION } from "@loco/utils/config";
 
 console.log(`[SW] 🌌 Service Worker orquestrador carregado (v${APP_VERSION}).`);
 
-// === LIFECYCLE EVENTS ===
-
-// 🔥 NOVO: Handler de instalação (delegado ao cache.ts)
-self.addEventListener('install', (event) => {
-  handleInstall(event);
-});
-
-// 🔥 CORRIGIDO: Handler de ativação (delegado ao cache.ts)
-self.addEventListener('activate', (event) => {
-  handleActivate(event);
-  
-  // Agendamento de processamento de filas pendentes
-  event.waitUntil(
-    (async () => {
-      await new Promise(r => setTimeout(r, 1000));
-      try {
-        await processarFilaHandshake();
-      } catch (e) {
-        console.error("[SW] Erro ao processar fila de handshakes:", e);
-      }
-    })()
-  );
-});
-
-// === FETCH EVENT (ORQUESTRADOR CENTRAL) ===
-self.addEventListener('fetch', (event: FetchEvent) => {
-  // 1. Prioridade Máxima: WebTorrent (Streaming P2P via OPFS)
-  if (handleWebTorrentFetch(event)) {
-    return; 
-  }
-
-  // 2. Prioridade Secundária: Cache de Assets e Fallback Offline
-  const cachePromise = handleCacheFetch(event);
-
-  event.respondWith(
-    cachePromise.then(response => {
-      if (response) {
-        return response; 
-      }
-      return fetch(event.request);
-    })
-  );
-});
-
-// === MESSAGE EVENT (ORQUESTRADOR CENTRAL) ===
-self.addEventListener('message', (event: ExtendableMessageEvent) => {
-  if (!event.data) return;
-  const { type, payload } = event.data;
-
-  // 1. Roteamento para WebTorrent
-  if (type === 'WEBTORRENT_READY') {
-    handleWebTorrentMessage(event);
-    return;
-  }
-
-  // 2. Checagem de Versão
-  if (type === 'PING_SW_VERSION') {
-    if (event.ports && event.ports[0]) {
-      event.ports[0].postMessage({ type: 'PONG_SW_VERSION', version: APP_VERSION });
-    }
-    return;
-  }
-
-  // 3. Comandos da UI para Handshakes
-  if (type === 'PROCESSAR_FILA_HANDSHAKE') {
-    processarFilaHandshake().catch(err => console.error(err));
-    return;
-  }
-
-  if (type === 'CRIAR_HANDSHAKE_OUT') {
-    const { rotasModulo, params } = payload;
-    console.log(`[SW] 📨 Recebido comando da UI para CRIAR_HANDSHAKE_OUT [Módulo: ${rotasModulo}]`);
-    
-    if (rotasModulo === 'profile') {
-      ProcessarProfile({ out: params }).catch(err => console.error("[SW] Erro no hand-profile: ", err));
-    } else if (rotasModulo === 'mensagem') {
-      ProcessarMensagem({ out: params }).catch(err => console.error("[SW] Erro no hand-mensagem: ", err));
-    } else if (rotasModulo === 'contato') {
-      ProcessarContato({ out: params }).catch(err => console.error("[SW] Erro no hand-contato: ", err));
-    } else {
-      console.warn(`[SW] ⚠️ Módulo de rotas desconhecido ou não implementado: ${rotasModulo}`);
-    }
-  }
-});
-
-// === PUSH & NOTIFICATION EVENTS ===
-self.addEventListener('push', (event: any) => handlePush(event));
-self.addEventListener('notificationclick', (event: any) => handleNotificationClick(event));
-
-// === SYNC & ONLINE EVENTS ===
-self.addEventListener('sync', (event: any) => handleSync(event));
-self.addEventListener('online', (event: any) => handleOnline(event));
+// Inicializa a Fronteira de Eventos.
+// Toda a lógica de addEventListener, roteamento de fetch, message, push, etc.
+// agora vive dentro do event-adapter.ts.
+initializeSwEventAdapter();
 ```
 
 ---

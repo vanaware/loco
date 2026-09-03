@@ -1,4 +1,4 @@
-// src/handshakes/hand-mensagem.ts
+// monorepo/service-worker/src/handshakes/hand-mensagem.ts
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
@@ -6,6 +6,7 @@ import { Handshake, Chat } from "@loco/utils/interfaces";
 import { gerarId, buscarHandshake, salvarHandshake, buscarChat, salvarChat, buscarContatoPorChave, buscarProfile, removerTodoHistoricoChat, removerChat, listarHandshakes, removerHandshake, ehContatoProprio } from "@loco/utils/db";
 import { processarFilaHandshake } from "../sw/handshakes.ts";
 import { addDebugLog } from "@loco/utils/debug"; 
+import { EventBus } from "@loco/utils/eventbus";
 
 interface MensagemOutParams {
   function: string;
@@ -16,13 +17,6 @@ interface MensagemOutParams {
   msgId?: string;        
   handshakeId?: string;  
   createdAt?: number;
-}
-
-async function notificarUI(chatId: string) {
-  if (typeof self !== 'undefined' && self.clients && typeof self.clients.matchAll === 'function') {
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    clients.forEach(client => client.postMessage({ type: 'CHAT_ATUALIZADO', payload: { chatId } }));
-  }
 }
 
 export async function ExpurgarMensagens(contatoHash: string, notificarRemoto = false) {
@@ -57,13 +51,12 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     addDebugLog(`[HAND-MENSAGEM] 📥 Processando entrada do handshake ${handshakeId}`);
     const handshake = await buscarHandshake(handshakeId);
     if (!handshake || !handshake.in || !handshake.in.rotas.mensagem) return;
-    
     const msgReq = handshake.in.rotas.mensagem;
     
     if (msgReq.limparHistorico === true) {
       addDebugLog("warn", "HAND-MENSAGEM", `📩 Solicitação de expurgo TOTAL de histórico recebida do contato ${handshake.aud}`);
       await removerTodoHistoricoChat(handshake.aud);
-      await notificarUI("ALL_PURGED");
+      EventBus.emit('sw:notify:chat-updated', { chatId: "ALL_PURGED" });
       addDebugLog("success", "HAND-MENSAGEM", `🗑️ Todo o histórico do contato ${handshake.aud} foi apagado com sucesso.`);
       return;
     }
@@ -89,7 +82,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         if (msgReq.data.status === 'entregue') msgLocal.receivedAt = Date.now();
         if (msgReq.data.status === 'lida') msgLocal.readAt = Date.now();
         await salvarChat(msgLocal);
-        await notificarUI(msgLocal.id);
+        EventBus.emit('sw:notify:chat-updated', { chatId: msgLocal.id });
       }
     }
     else if (msgReq.excluida && typeof msgReq.excluida === 'string') {
@@ -97,7 +90,7 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
       const msgLocal = await buscarChat(msgReq.excluida);
       if (msgLocal && msgLocal.contatoHash === handshake.aud) {
         await removerChat(msgReq.excluida, handshake.aud);
-        await notificarUI(msgReq.excluida);
+        EventBus.emit('sw:notify:chat-updated', { chatId: msgReq.excluida });
         addDebugLog(`[HAND-MENSAGEM] 🗑️ Mensagem ${msgReq.excluida} apagada remotamente com sucesso.`);
       }
     }
@@ -113,7 +106,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         handshake: handshakeId
       };
       await salvarChat(novaMsgRecebida);
-      
       const ackHandshake: Handshake = {
         id: gerarId(),
         aud: handshake.aud,
@@ -141,11 +133,12 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           tag: novaMsgRecebida.id
         });
       }
-      await notificarUI(novaMsgRecebida.id);
+      
+      EventBus.emit('sw:notify:chat-updated', { chatId: novaMsgRecebida.id });
       setTimeout(() => processarFilaHandshake(), 100);
     }
   }
-
+  
   if (outParams) {
     if (outParams.function === 'confirmarEntrega') {
       const { contato: contatoId, mensagem: mensagemId, campos } = outParams;
@@ -170,7 +163,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
     else if (outParams.function === 'enviarMensagem') {
       const { contato: contatoId, conteudo, msgId, handshakeId, createdAt } = outParams;
       if (!conteudo) throw new Error("Conteúdo da mensagem não fornecido.");
-      
       const profile = await buscarProfile();
       const ehParaSiMesmo = profile ? await ehContatoProprio(contatoId, profile) : false;
       
@@ -183,14 +175,13 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
           readAt: agora, notifiedAt: agora, handshake: 'self'
         };
         await salvarChat(chatAuto);
-        await notificarUI(idReal);
+        EventBus.emit('sw:notify:chat-updated', { chatId: idReal });
         return;
       }
       
       const idReal = msgId || gerarId();
       const handIdReal = handshakeId || gerarId();
       const chatExistente = await buscarChat(idReal);
-      
       if (!chatExistente) {
         const chatOut: Chat = {
           id: idReal, contatoHash: contatoId, conteudo, tipo: 'out',
@@ -198,7 +189,6 @@ export async function Processar({ in: handshakeId, out: outParams }: { in?: stri
         };
         await salvarChat(chatOut);
       }
-      
       const novoHandshake: Handshake = {
         id: handIdReal, aud: contatoId, createdAt: Date.now(), updatedAt: Date.now(),
         out: { status: 'pendente', tentativas: 0, rotas: { mensagem: { enviada: idReal, conteudo } } }

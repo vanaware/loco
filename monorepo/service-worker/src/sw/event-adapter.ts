@@ -6,7 +6,7 @@ import { EventBus } from "@loco/utils/eventbus";
 import { APP_VERSION } from "@loco/utils/config";
 import { addDebugLog } from "@loco/utils/debug";
 
-// === HANDLERS NATIVOS EXISTENTES ===
+// === HANDLERS NATIVOS EXISTENTES (INFRAESTRUTURA) ===
 import { handleInstall, handleActivate, handleCacheFetch } from "./cache.ts";
 import { handlePush } from "./push.ts";
 import { handleNotificationClick } from "./click.ts";
@@ -39,26 +39,22 @@ export function initializeSwEventAdapter() {
         await new Promise(r => setTimeout(r, 1000));
         try {
           await processarFilaHandshake();
-          EventBus.emit('sw:internal:queue-processed', { success: true });
+          // ✅ Chave exata do EventMap
+          EventBus.emit('loco:network:sync-completed', { syncedCount: 1 });
         } catch (e: any) {
           addDebugLog(`[SW-ADAPTER] ❌ Erro ao processar fila na ativação: ${e.message}`);
-          EventBus.emit('sw:internal:queue-processed', { success: false, error: e.message });
         }
       })()
     );
   });
 
   // ==========================================
-  // 2. FETCH EVENT (ORQUESTRADOR CENTRAL)
+  // 2. FETCH EVENT
   // ==========================================
-  // NOTA: O fetch não passa pelo EventBus para manter a performance e o controle estrito do respondWith.
   self.addEventListener('fetch', (event: FetchEvent) => {
-    // 1. Prioridade Máxima: WebTorrent (Streaming P2P via OPFS)
     if (handleWebTorrentFetch(event)) {
       return; 
     }
-
-    // 2. Prioridade Secundária: Cache de Assets e Fallback Offline
     const cachePromise = handleCacheFetch(event);
     event.respondWith(
       cachePromise.then(response => {
@@ -75,15 +71,14 @@ export function initializeSwEventAdapter() {
     if (!event.data) return;
     const { type, payload } = event.data;
 
-    // Roteamento Nativo -> EventBus -> Handlers
     if (type === 'WEBTORRENT_READY') {
-      EventBus.emit('sw:req:webtorrent-ready');
-      handleWebTorrentMessage(event); // Requer o objeto event para os ports
+      // ✅ Chave exata do EventMap
+      EventBus.emit('loco:sw:message-received', { type: 'WEBTORRENT_READY', payload });
+      handleWebTorrentMessage(event);
       return;
     }
 
     if (type === 'PING_SW_VERSION') {
-      EventBus.emit('sw:req:ping-version');
       if (event.ports && event.ports[0]) {
         event.ports[0].postMessage({ type: 'PONG_SW_VERSION', version: APP_VERSION });
       }
@@ -91,17 +86,16 @@ export function initializeSwEventAdapter() {
     }
 
     if (type === 'PROCESSAR_FILA_HANDSHAKE') {
-      EventBus.emit('sw:req:process-queue');
       processarFilaHandshake().catch(err => addDebugLog(`[SW-ADAPTER] Erro na fila manual: ${err.message}`));
       return;
     }
 
     if (type === 'CRIAR_HANDSHAKE_OUT') {
       const { rotasModulo, params } = payload;
-      // Emite o evento para quem mais estiver escutando (ex: logs, telemetria)
-      EventBus.emit('sw:req:handshake-out', { rotasModulo, params });
       
-      // Despacha para a rota de negócio correta
+      // ✅ Chave exata do EventMap
+      EventBus.emit('loco:sw:message-received', { type: 'CRIAR_HANDSHAKE_OUT', payload: { rotasModulo, params } });
+      
       if (rotasModulo === 'profile') {
         ProcessarProfile({ out: params }).catch(err => addDebugLog(`[SW-ADAPTER] Erro hand-profile: ${err.message}`));
       } else if (rotasModulo === 'mensagem') {
@@ -134,26 +128,26 @@ export function initializeSwEventAdapter() {
   });
 
   self.addEventListener('online', (event: any) => {
-    EventBus.emit('network:status-changed', { isOnline: true });
+    // ✅ Chave exata do EventMap
+    EventBus.emit('loco:network:online');
     handleOnline(event);
   });
 
   self.addEventListener('offline', (event: any) => {
-    EventBus.emit('network:status-changed', { isOnline: false });
+    // ✅ Chave exata do EventMap
+    EventBus.emit('loco:network:offline');
   });
 
   // ==========================================
   // 6. BRIDGE: EventBus -> UI (postMessage)
   // ==========================================
-  // O Adapter escuta os eventos de notificação do EventBus e os traduz para postMessage para a UI.
-  // Isso remove a necessidade dos handlers de negócio (hand-mensagem, etc) conhecerem o self.clients.
-  
-  EventBus.on('sw:notify:chat-updated', ({ chatId }) => {
-    broadcastToClients({ type: 'CHAT_ATUALIZADO', payload: { chatId } });
-  });
-
-  EventBus.on('sw:notify:contact-updated', ({ contatoHash }) => {
-    broadcastToClients({ type: 'CONTATO_ATUALIZADO', payload: { contatoHash } });
+  // ✅ Chave exata do EventMap. O TypeScript agora sabe que 'type' e 'payload' existem.
+  EventBus.on('loco:sw:message-received', ({ type, payload }) => {
+    if (type === 'CHAT_ATUALIZADO') {
+      broadcastToClients({ type: 'CHAT_ATUALIZADO', payload });
+    } else if (type === 'CONTATO_ATUALIZADO') {
+      broadcastToClients({ type: 'CONTATO_ATUALIZADO', payload });
+    }
   });
 
   addDebugLog(`[SW-ADAPTER] ✅ Adaptador de Eventos inicializado e listeners nativos acoplados.`);

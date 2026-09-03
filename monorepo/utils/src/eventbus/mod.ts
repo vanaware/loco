@@ -2,50 +2,48 @@
 // exportado como @loco/utils/eventbus
 
 /**
- * Barramento de Eventos Interno do Loco (Foco: Service Worker & Cross-Boundary).
+ * Barramento de Eventos Interno do Loco.
+ * Substitui a necessidade de espalhar addEventListener customizados pela aplicação.
+ * Garante tipagem estrita entre emissores e receptores.
  * 
- * Este módulo define o contrato de eventos para comunicação entre a UI e o Service Worker,
- * além de eventos internos do próprio SW.
- * 
- * IMPORTANTE: O EventBus é um singleton em memória. O SW e a UI terão instâncias isoladas.
- * O EventAdapter (camada de infraestrutura) será responsável por traduzir postMessage <-> EventBus.
+ * IMPORTANTE: Este é o contrato único. Se um arquivo tenta emitir um evento que não está aqui,
+ * o TypeScript irá falhar, protegendo a aplicação de erros de digitação ou eventos órfãos.
  */
-
 type EventMap = {
   // ==========================================
-  // 1. COMUNICAÇÃO UI <-> SW (CROSS-BOUNDARY)
+  // 1. COMUNICAÇÃO SW -> UI (Notificações de Estado)
   // ==========================================
-  
-  // --- Requests (UI -> SW) ---
-  // Comandos enviados pela UI para o SW processar.
-  'sw:req:handshake-out': { 
-    rotasModulo: 'profile' | 'mensagem' | 'contato'; 
-    params: unknown; // O tipo exato depende do rotasModulo (ex: MensagemOutParams)
-  };
-  'sw:req:process-queue': void;
-  'sw:req:webtorrent-ready': void;
-  'sw:req:ping-version': void;
-
-  // --- Notifications (SW -> UI) ---
-  // Avisos enviados pelo SW para a UI atualizar o estado reativo (Signals).
   'sw:notify:chat-updated': { chatId: string };
   'sw:notify:contact-updated': { contatoHash: string };
-  'sw:notify:webtorrent-ack': void;
   'sw:notify:pong-version': { version: string };
+  'sw:notify:webtorrent-ack': void;
 
   // ==========================================
-  // 2. EVENTOS INTERNOS DO SERVICE WORKER
+  // 2. EVENTOS DE REDE E CONECTIVIDADE
   // ==========================================
-  // Eventos de ciclo de vida e processamento interno do SW.
-  'sw:internal:queue-processed': { success: boolean; error?: string };
-  'sw:internal:push-received': { payload: unknown };
-  'sw:internal:sync-completed': { syncedCount: number };
+  'loco:network:online': void;
+  'loco:network:offline': void;
+  'loco:network:sync-completed': { syncedCount: number };
 
   // ==========================================
-  // 3. EVENTOS DE REDE (CROSS-CONTEXT)
+  // 3. EVENTOS DE HANDSHAKE E SW (Internos / Entrada)
   // ==========================================
-  // Eventos de conectividade que afetam tanto a UI quanto o SW.
-  'network:status-changed': { isOnline: boolean };
+  'loco:sw:ready': void;
+  'loco:sw:message-received': { type: string; payload: unknown };
+  'loco:handshake:state-changed': { newState: string; peerId: string };
+
+  // ==========================================
+  // 4. EVENTOS DE UI E NAVEGAÇÃO
+  // ==========================================
+  'loco:ui:route-changed': { path: string; params: Record<string, string> };
+  'loco:ui:theme-changed': { theme: 'light' | 'dark' };
+  'loco:ui:config-updated': { key: string; value: unknown };
+
+  // ==========================================
+  // 5. EVENTOS DE CICLO DE VIDA DO APP
+  // ==========================================
+  'loco:app:backgrounded': void;
+  'loco:app:foregrounded': void;
 };
 
 type EventCallback<T> = (payload: T) => void;
@@ -55,7 +53,7 @@ class EventBusImpl {
 
   /**
    * Assina um evento interno.
-   * Retorna uma função de cleanup para remover o listener (evita vazamentos de memória).
+   * Retorna uma função de cleanup para remover o listener (evita vazamentos).
    */
   on<K extends keyof EventMap>(
     event: K, 
@@ -99,14 +97,11 @@ class EventBusImpl {
 }
 
 // Instância Singleton
-// (Lembre-se: O SW e a UI terão instâncias separadas desta classe)
 export const EventBus = new EventBusImpl();
 
 /**
- * Hook utilitário para Preact (usar dentro de componentes da UI).
+ * Hook utilitário para Preact (usar dentro de componentes).
  * Garante que o listener seja removido automaticamente quando o componente desmontar.
- * 
- * NOTA: Este hook NÃO deve ser usado dentro do Service Worker.
  */
 export function useEvent<K extends keyof EventMap>(
   event: K,
