@@ -197,7 +197,10 @@ export { Peer } from "./network/peer.ts";
 export { Wire } from "./core/wire.ts";
 export { parseTorrent } from "./utils/parse-torrent.ts";
 export { decodePeerId, generateLocoPeerId, LOCO_PEER_ID_PREFIX } from "./utils/peerid.ts";
+export { UtMetadata } from "./extensions/ut-metadata.ts";
+export { UtPexExtension, encodePexUpdate, decodePexUpdate, PexPeerFlag } from "./extensions/ut-pex.ts";
 export type { ParsedTorrent } from "./utils/parse-torrent.ts";
 export type { ClientInfo } from "./utils/peerid.ts";
+export type { PexPeer, PexUpdate, UtPexOptions } from "./extensions/ut-pex.ts";
 
 

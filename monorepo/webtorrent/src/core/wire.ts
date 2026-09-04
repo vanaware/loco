@@ -1,7 +1,7 @@
 // /loco/monorepo/webtorrent/src/core/wire.ts
 
 import { TypedEventTarget } from "../utils/event-target.ts";
-import { readUInt32BE, writeUInt32BE, concat } from "../utils/buffer.ts";
+import { readUInt32BE, writeUInt32BE, concat, equals } from "../utils/buffer.ts";
 import { decode } from "../utils/bencode.ts";
 
 export interface Transport {
@@ -11,7 +11,7 @@ export interface Transport {
 }
 
 export interface WireEvents {
-  handshake: CustomEvent<{ peerId: Uint8Array; extensions: Uint8Array }>;
+  handshake: CustomEvent<{ peerId: Uint8Array; extensions: Uint8Array; infoHash: Uint8Array }>;
   choke: Event;
   unchoke: Event;
   interested: Event;
@@ -42,21 +42,24 @@ const HANDSHAKE_LENGTH = 68;
 export class Wire extends TypedEventTarget<WireEvents> {
   private transport: Transport;
   private buffer: Uint8Array = new Uint8Array(0);
-  
+
   public amChoking: boolean = true;
   public amInterested: boolean = false;
   public peerChoking: boolean = true;
   public peerInterested: boolean = false;
-  
+
   public peerId: string | null = null;
   public peerIdBuffer: Uint8Array | null = null;
 
   private handshakeSent: boolean = false;
   private handshakeReceived: boolean = false;
+  
+  private expectedInfoHash: Uint8Array | null = null;
 
-  constructor(transport: Transport) {
+  constructor(transport: Transport, expectedInfoHash?: Uint8Array) {
     super();
     this.transport = transport;
+    this.expectedInfoHash = expectedInfoHash || null;
     this.transport.onMessage((data) => this._onData(data));
   }
 
@@ -107,6 +110,11 @@ export class Wire extends TypedEventTarget<WireEvents> {
   }
 
   public sendRequest(index: number, offset: number, length: number): void {
+    // ⚠️ Backpressure: não enviar requests se o peer nos chokeou
+    if (this.peerChoking) {
+      this._debug(`sendRequest bloqueado: peer está nos choking (piece ${index})`);
+      return;
+    }
     const payload = new Uint8Array(12);
     writeUInt32BE(payload, index, 0);
     writeUInt32BE(payload, offset, 4);
@@ -150,21 +158,26 @@ export class Wire extends TypedEventTarget<WireEvents> {
       if (this.buffer.length >= HANDSHAKE_LENGTH) {
         const pstrlen = this.buffer[0]!;
         if (pstrlen !== 19) throw new Error(`Invalid handshake pstrlen: ${pstrlen}`);
-        
+
         const pstr = new TextDecoder().decode(this.buffer.subarray(1, 20));
         if (pstr !== "BitTorrent protocol") throw new Error("Invalid handshake protocol string");
 
         const extensions = this.buffer.subarray(20, 28);
-        const infoHash = this.buffer.subarray(28, 48); 
+        const receivedInfoHash = this.buffer.subarray(28, 48);
         const peerIdBuffer = this.buffer.subarray(48, 68);
+
+        // 🔒 Validação de segurança: verificar se o infoHash recebido corresponde ao esperado
+        if (this.expectedInfoHash && !equals(receivedInfoHash, this.expectedInfoHash)) {
+          throw new Error("InfoHash mismatch in handshake: peer announced a different torrent");
+        }
 
         this.buffer = this.buffer.subarray(HANDSHAKE_LENGTH);
         this.handshakeReceived = true;
-        
+
         this.peerIdBuffer = peerIdBuffer;
         this.peerId = Array.from(peerIdBuffer).map((b: number) => b.toString(16).padStart(2, "0")).join("");
 
-        this.emit("handshake", new CustomEvent("handshake", { detail: { peerId: peerIdBuffer, extensions } }));
+        this.emit("handshake", new CustomEvent("handshake", { detail: { peerId: peerIdBuffer, extensions, infoHash: receivedInfoHash } }));
       } else {
         return;
       }

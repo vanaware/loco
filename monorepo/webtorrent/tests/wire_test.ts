@@ -89,10 +89,15 @@ Deno.test("wire: sends and receives CHOKE and UNCHOKE", async () => {
 
 Deno.test("wire: sends and receives REQUEST and PIECE", async () => {
   const { wireA, wireB } = createWirePair();
-  
+
   wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
   wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
   await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // B envia unchoke para A, liberando requests
+  wireB.sendUnchoke();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(wireA.peerChoking, false);
 
   let requestReceived = false;
   let pieceReceived = false;
@@ -112,7 +117,7 @@ Deno.test("wire: sends and receives REQUEST and PIECE", async () => {
     pieceReceived = true;
   });
 
-  // A pede a peça para B
+  // A pede a peça para B (agora sem choking)
   wireA.sendRequest(5, 0, 16384);
   await new Promise((resolve) => setTimeout(resolve, 50));
   assertEquals(requestReceived, true);
@@ -159,3 +164,144 @@ Deno.test("wire: handles fragmented messages (Stream parsing)", async () => {
 
   assertEquals(unchoked, true);
 });
+
+Deno.test("wire: validates infoHash on handshake (rejects mismatch)", async () => {
+  let handlerB: ((data: Uint8Array) => void) | null = null;
+  let closed = false;
+
+  const transportB: Transport = {
+    send: (data: Uint8Array) => {
+      queueMicrotask(() => handlerA?.(data));
+    },
+    onMessage: (handler: (data: Uint8Array) => void) => { handlerB = handler; },
+    close: () => { closed = true; },
+  };
+
+  let handlerA: ((data: Uint8Array) => void) | null = null;
+  const transportA: Transport = {
+    send: (data: Uint8Array) => {
+      queueMicrotask(() => handlerB?.(data));
+    },
+    onMessage: (handler: (data: Uint8Array) => void) => { handlerA = handler; },
+    close: () => {},
+  };
+
+  // B espera infoHash com bytes 0x01; A vai enviar infoHash com bytes 0x02
+  const expectedInfoHash = new Uint8Array(20).fill(0x01);
+  const wrongInfoHash = new Uint8Array(20).fill(0x02);
+
+  const wireB = new Wire(transportB, expectedInfoHash);
+  const wireA = new Wire(transportA);
+
+  let errorReceived = false;
+  wireB.on("error", () => { errorReceived = true; });
+
+  // A envia handshake com infoHash errado
+  wireA.sendHandshake(wrongInfoHash, new Uint8Array(20).fill(66));
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // B deve detectar o mismatch, emitir erro e fechar a conexão
+  assertEquals(errorReceived, true);
+  assertEquals(closed, true);
+});
+
+Deno.test("wire: accepts handshake with matching infoHash", async () => {
+  let handlerA: ((data: Uint8Array) => void) | null = null;
+  let handlerB: ((data: Uint8Array) => void) | null = null;
+
+  const transportA: Transport = {
+    send: (data: Uint8Array) => { queueMicrotask(() => handlerB?.(data)); },
+    onMessage: (handler: (data: Uint8Array) => void) => { handlerA = handler; },
+    close: () => {},
+  };
+  const transportB: Transport = {
+    send: (data: Uint8Array) => { queueMicrotask(() => handlerA?.(data)); },
+    onMessage: (handler: (data: Uint8Array) => void) => { handlerB = handler; },
+    close: () => {},
+  };
+
+  const expectedInfoHash = new Uint8Array(20).fill(0xAB);
+  const wireA = new Wire(transportA, expectedInfoHash);
+  const wireB = new Wire(transportB, expectedInfoHash);
+
+  let handshakeReceived = false;
+  wireA.on("handshake", () => { handshakeReceived = true; });
+
+  wireA.sendHandshake(expectedInfoHash, new Uint8Array(20).fill(65));
+  wireB.sendHandshake(expectedInfoHash, new Uint8Array(20).fill(66));
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assertEquals(handshakeReceived, true);
+});
+
+Deno.test("wire: sendRequest blocked when peer is choking (backpressure)", async () => {
+  const { wireA, wireB } = createWirePair();
+
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // peerChoking começa como true por padrão
+  assertEquals(wireA.peerChoking, true);
+
+  let requestReceived = false;
+  wireB.on("request", () => { requestReceived = true; });
+
+  // A tenta pedir peça enquanto choked — deve ser bloqueado
+  wireA.sendRequest(5, 0, 16384);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(requestReceived, false);
+
+  // B envia unchoke, liberando A
+  wireB.sendUnchoke();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(wireA.peerChoking, false);
+
+  // Agora o request deve passar
+  wireA.sendRequest(5, 0, 16384);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(requestReceived, true);
+});
+
+Deno.test("wire: handshake event includes infoHash", async () => {
+  let handlerA: ((data: Uint8Array) => void) | null = null;
+  let handlerB: ((data: Uint8Array) => void) | null = null;
+
+  const transportA: Transport = {
+    send: (data: Uint8Array) => { queueMicrotask(() => handlerB?.(data)); },
+    onMessage: (handler: (data: Uint8Array) => void) => { handlerA = handler; },
+    close: () => {},
+  };
+  const transportB: Transport = {
+    send: (data: Uint8Array) => { queueMicrotask(() => handlerA?.(data)); },
+    onMessage: (handler: (data: Uint8Array) => void) => { handlerB = handler; },
+    close: () => {},
+  };
+
+  const infoHash = new Uint8Array(20).fill(0xCD);
+  const wireA = new Wire(transportA);
+  const wireB = new Wire(transportB);
+
+  let receivedInfoHash: Uint8Array | null = null;
+  wireA.on("handshake", (e: CustomEvent<{ peerId: Uint8Array; extensions: Uint8Array; infoHash: Uint8Array }>) => {
+    receivedInfoHash = e.detail.infoHash;
+  });
+
+  wireA.sendHandshake(infoHash, new Uint8Array(20).fill(65));
+  wireB.sendHandshake(infoHash, new Uint8Array(20).fill(66));
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assertEquals(receivedInfoHash !== null, true);
+  assertEquals(equals(receivedInfoHash!, infoHash), true);
+});
+
+function equals(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}

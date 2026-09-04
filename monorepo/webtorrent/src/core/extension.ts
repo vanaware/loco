@@ -5,6 +5,7 @@ import { TypedEventTarget } from "../utils/event-target.ts";
 export interface ExtensionEvents {
   warning: CustomEvent<{ error: Error }>;
   metadata: CustomEvent<{ metadata: Uint8Array }>;
+  info: CustomEvent<{ message: string }>;
 }
 
 /**

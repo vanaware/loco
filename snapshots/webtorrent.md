@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WEBTORRENT
 
-Gerado automaticamente em: 9/4/2026, 5:18:33 PM
+Gerado automaticamente em: 9/4/2026, 5:42:31 PM
 
 ---
 
@@ -126,399 +126,6 @@ export function writeUInt32BE(buf: Uint8Array, value: number, offset = 0): void 
   buf[offset + 1] = (value >>> 16) & 0xff;
   buf[offset + 2] = (value >>> 8) & 0xff;
   buf[offset + 3] = value & 0xff;
-}
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/src/utils/magnet.ts`
-
-```ts
-// /loco/monorepo/webtorrent/src/utils/magnet.ts
-
-export interface ParsedMagnet {
-  infoHash: string;
-  infoHashBuffer: Uint8Array;
-  name?: string;
-  trackers: string[];
-  webSeeds: string[];
-  peerAddresses: string[];
-  torrentFileUrl?: string;
-  magnetUri: string;
-}
-
-const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-const BASE32_LOOKUP: Record<string, number> = {};
-
-// 🔥 CORREÇÃO: Usar non-null assertion ou charAt para satisfazer o TS
-for (let i = 0; i < BASE32_CHARS.length; i++) {
-  BASE32_LOOKUP[BASE32_CHARS.charAt(i)] = i;
-}
-
-function decodeBase32(input: string): Uint8Array {
-  const cleaned = input.replace(/=+$/, "").toUpperCase();
-  const outputLength = Math.floor((cleaned.length * 5) / 8);
-  const output = new Uint8Array(outputLength);
-  
-  let buffer = 0;
-  let bitsLeft = 0;
-  let outputIndex = 0;
-  
-  for (const char of cleaned) {
-    const value = BASE32_LOOKUP[char];
-    if (value === undefined) {
-      throw new Error(`Invalid base32 character: ${char}`);
-    }
-    
-    buffer = (buffer << 5) | value;
-    bitsLeft += 5;
-    
-    if (bitsLeft >= 8) {
-      output[outputIndex++] = (buffer >> (bitsLeft - 8)) & 0xff;
-      bitsLeft -= 8;
-    }
-  }
-  
-  return output;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  if (hex.length % 2 !== 0) {
-    throw new Error("Invalid hex string length");
-  }
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
-}
-
-export function parseMagnet(uri: string): ParsedMagnet {
-  if (!uri.startsWith("magnet:?")) {
-    throw new Error("Invalid magnet URI: must start with 'magnet:?'");
-  }
-  
-  const queryString = uri.substring(8);
-  const params = new URLSearchParams(queryString);
-  const xt = params.get("xt");
-  
-  if (!xt) {
-    throw new Error("Missing 'xt' parameter in magnet URI");
-  }
-  
-  const match = xt.match(/^urn:btih:(.+)$/i);
-  
-  // 🔥 CORREÇÃO: Validar explicitamente o match para garantir que hashValue é string
-  if (!match || !match[1]) {
-    throw new Error(`Invalid 'xt' parameter format: ${xt}`);
-  }
-  
-  const hashValue = match[1];
-  let infoHash: string;
-  let infoHashBuffer: Uint8Array;
-  
-  if (hashValue.length === 40 && /^[0-9a-f]+$/i.test(hashValue)) {
-    infoHash = hashValue.toLowerCase();
-    infoHashBuffer = hexToBytes(infoHash);
-  } else if (hashValue.length === 32 && /^[A-Z2-7]+$/i.test(hashValue)) {
-    infoHashBuffer = decodeBase32(hashValue);
-    infoHash = bytesToHex(infoHashBuffer);
-  } else {
-    throw new Error(
-      `Invalid infoHash format: expected 40 hex chars or 32 base32 chars, got ${hashValue.length} chars`
-    );
-  }
-  
-  const trackers: string[] = [];
-  params.getAll("tr").forEach((tr) => trackers.push(decodeURIComponent(tr)));
-  
-  const webSeeds: string[] = [];
-  params.getAll("ws").forEach((ws) => webSeeds.push(decodeURIComponent(ws)));
-  
-  const peerAddresses: string[] = [];
-  params.getAll("x.pe").forEach((pe) => peerAddresses.push(decodeURIComponent(pe)));
-  
-  const dn = params.get("dn");
-  const name = dn ? decodeURIComponent(dn) : undefined;
-  
-  const xs = params.get("xs");
-  const torrentFileUrl = xs ? decodeURIComponent(xs) : undefined;
-  
-  return {
-    infoHash,
-    infoHashBuffer,
-    name,
-    trackers,
-    webSeeds,
-    peerAddresses,
-    torrentFileUrl,
-    magnetUri: uri,
-  };
-}
-
-export function encodeMagnet(parsed: Omit<ParsedMagnet, "magnetUri">): string {
-  const parts: string[] = [];
-  parts.push(`xt=urn:btih:${parsed.infoHash}`);
-  
-  if (parsed.name) parts.push(`dn=${encodeURIComponent(parsed.name)}`);
-  for (const tracker of parsed.trackers) parts.push(`tr=${encodeURIComponent(tracker)}`);
-  for (const webSeed of parsed.webSeeds) parts.push(`ws=${encodeURIComponent(webSeed)}`);
-  for (const peer of parsed.peerAddresses) parts.push(`x.pe=${encodeURIComponent(peer)}`);
-  if (parsed.torrentFileUrl) parts.push(`xs=${encodeURIComponent(parsed.torrentFileUrl)}`);
-  
-  return `magnet:?${parts.join("&")}`;
-}
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/src/utils/parse-torrent.ts`
-
-```ts
-// /loco/monorepo/webtorrent/src/utils/parse-torrent.ts
-
-import { decode, encode, BencodeValue, BencodeDict } from "./bencode.ts";
-import { parseMagnet, encodeMagnet } from "./magnet.ts";
-import { sha1 } from "../crypto/hasher.ts";
-
-export interface ParsedTorrentFile {
-  path: string;
-  name: string;
-  length: number;
-  offset: number;
-}
-
-export interface ParsedTorrent {
-  infoHash: string;
-  infoHashBuffer: Uint8Array;
-  name?: string;
-  announce: string[];
-  urlList: string[];
-  peerAddresses: string[];
-  files: ParsedTorrentFile[];
-  length: number;
-  pieceLength: number;
-  pieces: Uint8Array[];
-  info: BencodeDict;
-  magnetURI: string;
-  comment?: string;
-  createdBy?: string;
-}
-
-export async function parseTorrent(
-  torrentId: string | Uint8Array | ParsedTorrent
-): Promise<ParsedTorrent> {
-  // 1. Se já for um objeto ParsedTorrent, apenas retorna
-  if (typeof torrentId === "object" && "infoHash" in torrentId && "files" in torrentId) {
-    return torrentId as ParsedTorrent;
-  }
-
-  // 2. Se for string, assume que é Magnet URI (ou infoHash puro)
-  if (typeof torrentId === "string") {
-    let magnetUri = torrentId;
-    if (/^[a-f0-9]{40}$/i.test(torrentId) || /^[a-z2-7]{32}$/i.test(torrentId)) {
-      magnetUri = `magnet:?xt=urn:btih:${torrentId}`;
-    }
-    if (!magnetUri.startsWith("magnet:?")) {
-      throw new Error("Invalid torrent identifier");
-    }
-    return magnetToParsed(parseMagnet(magnetUri));
-  }
-
-  // 3. Se for Uint8Array, assume que é um arquivo .torrent codificado em Bencode
-  if (torrentId instanceof Uint8Array) {
-    return await bufferToParsed(torrentId);
-  }
-
-  throw new Error("Invalid torrent identifier type");
-}
-
-function magnetToParsed(magnet: ReturnType<typeof parseMagnet>): ParsedTorrent {
-  return {
-    infoHash: magnet.infoHash,
-    infoHashBuffer: magnet.infoHashBuffer,
-    name: magnet.name,
-    announce: magnet.trackers,
-    urlList: magnet.webSeeds,
-    peerAddresses: magnet.peerAddresses,
-    files: [], // Arquivos desconhecidos até baixar metadados via ut_metadata
-    length: 0,
-    pieceLength: 0,
-    pieces: [],
-    info: {},
-    magnetURI: magnet.magnetUri,
-  };
-}
-
-async function bufferToParsed(buffer: Uint8Array): Promise<ParsedTorrent> {
-  const torrentObj = decode(buffer) as BencodeDict;
-  
-  const info = torrentObj["info"] as BencodeDict | undefined;
-  if (!info) {
-    throw new Error("Torrent is missing required field: info");
-  }
-
-  // 🔥 CRÍTICO: O infoHash é o SHA-1 do dicionário 'info' CODIFICADO EM BENCODE.
-  // Nosso encoder já garante a ordenação lexicográfica das chaves, conforme a spec.
-  const infoBuffer = encode(info);
-  const infoHash = await sha1(infoBuffer);
-  
-  const infoHashBuffer = new Uint8Array(20);
-  for (let i = 0; i < 20; i++) {
-    infoHashBuffer[i] = parseInt(infoHash.substring(i * 2, i * 2 + 2), 16);
-  }
-
-  const pieceLength = info["piece length"] as number | undefined;
-  if (typeof pieceLength !== "number") {
-    throw new Error("Torrent is missing required field: info['piece length']");
-  }
-
-  const piecesRaw = info["pieces"];
-  let pieces: Uint8Array[] = [];
-  
-  if (piecesRaw instanceof Uint8Array) {
-    if (piecesRaw.length % 20 !== 0) {
-      throw new Error("Invalid pieces length (must be multiple of 20)");
-    }
-    for (let i = 0; i < piecesRaw.length; i += 20) {
-      pieces.push(piecesRaw.subarray(i, i + 20));
-    }
-  } else if (typeof piecesRaw === "string") {
-    throw new Error("Pieces must be binary data (Uint8Array)");
-  }
-
-  const files: ParsedTorrentFile[] = [];
-  let totalLength = 0;
-  const textDecoder = new TextDecoder();
-
-  if (info["files"]) {
-    // Multi-file torrent
-    const filesList = info["files"] as BencodeDict[];
-    for (const fileDict of filesList) {
-      const length = fileDict["length"] as number;
-      const pathList = fileDict["path"] as (Uint8Array | string)[];
-      
-      const pathParts = pathList.map((p) => 
-        typeof p === "string" ? p : textDecoder.decode(p)
-      );
-      
-      const path = pathParts.join("/");
-      const name = pathParts[pathParts.length - 1]!;
-      
-      files.push({
-        path,
-        name,
-        length,
-        offset: totalLength,
-      });
-      
-      totalLength += length;
-    }
-  } else {
-    // Single-file torrent
-    const length = info["length"] as number;
-    if (typeof length !== "number") {
-      throw new Error("Torrent is missing required field: info.length or info.files");
-    }
-    
-    const nameRaw = info["name"];
-    const name = typeof nameRaw === "string" 
-      ? nameRaw 
-      : textDecoder.decode(nameRaw as Uint8Array);
-      
-    files.push({
-      path: name,
-      name,
-      length,
-      offset: 0,
-    });
-    
-    totalLength = length;
-  }
-
-  // Extrai trackers (announce e announce-list)
-  const announce: string[] = [];
-  const announceSingle = torrentObj["announce"];
-  if (announceSingle) {
-    const url = typeof announceSingle === "string" 
-      ? announceSingle 
-      : textDecoder.decode(announceSingle as Uint8Array);
-    announce.push(url);
-  }
-  
-  const announceList = torrentObj["announce-list"] as (Uint8Array | string)[][] | undefined;
-  if (announceList) {
-    for (const tier of announceList) {
-      for (const tracker of tier) {
-        const url = typeof tracker === "string" 
-          ? tracker 
-          : textDecoder.decode(tracker);
-        if (!announce.includes(url)) {
-          announce.push(url);
-        }
-      }
-    }
-  }
-
-  // Extrai web seeds (url-list)
-  const urlList: string[] = [];
-  const urlListRaw = torrentObj["url-list"];
-  if (urlListRaw) {
-    const list = Array.isArray(urlListRaw) ? urlListRaw : [urlListRaw];
-    for (const url of list) {
-      const decoded = typeof url === "string" ? url : textDecoder.decode(url as Uint8Array);
-      urlList.push(decoded);
-    }
-  }
-
-  // Extrai metadados opcionais
-  const commentRaw = torrentObj["comment"];
-  const comment = commentRaw 
-    ? (typeof commentRaw === "string" ? commentRaw : textDecoder.decode(commentRaw as Uint8Array))
-    : undefined;
-
-  const createdByRaw = torrentObj["created by"];
-  const createdBy = createdByRaw
-    ? (typeof createdByRaw === "string" ? createdByRaw : textDecoder.decode(createdByRaw as Uint8Array))
-    : undefined;
-
-  const nameRootRaw = info["name"];
-  const nameRoot = nameRootRaw
-    ? (typeof nameRootRaw === "string" ? nameRootRaw : textDecoder.decode(nameRootRaw as Uint8Array))
-    : undefined;
-
-  // Gera a Magnet URI equivalente
-  const magnetURI = encodeMagnet({
-    infoHash,
-    infoHashBuffer,
-    name: nameRoot,
-    trackers: announce,
-    webSeeds: urlList,
-    peerAddresses: [],
-  });
-
-  return {
-    infoHash,
-    infoHashBuffer,
-    name: nameRoot,
-    announce,
-    urlList,
-    peerAddresses: [],
-    files,
-    length: totalLength,
-    pieceLength,
-    pieces,
-    info,
-    magnetURI,
-    comment,
-    createdBy,
-  };
 }
 ```
 
@@ -1228,6 +835,341 @@ export class Bitfield {
     this.buffer = newBuffer;
     this._length = newLength;
   }
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/utils/encode-util.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/utils/encode-util.ts
+
+/**
+ * Converte um Uint8Array em uma string onde cada caractere representa um byte.
+ * Isso é essencial para enviar info_hash e peer_id em URLs de trackers HTTP,
+ * pois o encodeURIComponent padrão corrompe bytes > 0x7F.
+ */
+export function uint8ArrayToBinaryString(buffer: Uint8Array): string {
+  let result = "";
+  for (let i = 0; i < buffer.length; i++) {
+    result += String.fromCharCode(buffer[i]!);
+  }
+  return result;
+}
+
+/**
+ * Converte uma string de byte único de volta para Uint8Array.
+ */
+export function binaryStringToUint8Array(str: string): Uint8Array {
+  const buffer = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) {
+    buffer[i] = str.charCodeAt(i);
+  }
+  return buffer;
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/utils/magnet.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/utils/magnet.ts
+
+export interface ParsedMagnet {
+  infoHash: string;
+  infoHashBuffer: Uint8Array;
+  name?: string;
+  announce: string[];
+  webSeeds: string[];
+  peerAddresses: string[];
+  torrentFileUrl?: string;
+  magnetURI: string;
+}
+
+const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const BASE32_LOOKUP: Record<string, number> = {};
+
+for (let i = 0; i < BASE32_CHARS.length; i++) {
+  BASE32_LOOKUP[BASE32_CHARS.charAt(i)] = i;
+}
+
+function base32ToHex(base32: string): string {
+  let bits = "";
+  let hex = "";
+  for (let i = 0; i < base32.length; i++) {
+    // 🔥 CORREÇÃO: Non-null assertion (!) para satisfazer o TypeScript
+    const char = base32[i]!.toUpperCase();
+    const val = BASE32_LOOKUP[char];
+    if (val === undefined) throw new Error("Invalid base32 character");
+    bits += val.toString(2).padStart(5, "0");
+  }
+  for (let i = 0; i + 4 <= bits.length; i += 4) {
+    const chunk = bits.slice(i, i + 4);
+    hex += parseInt(chunk, 2).toString(16);
+  }
+  return hex;
+}
+
+export function parseMagnet(uri: string): ParsedMagnet {
+  if (!uri.startsWith("magnet:?")) {
+    throw new Error("Invalid magnet URI: must start with 'magnet:?'");
+  }
+
+  const searchParams = new URLSearchParams(uri.slice(8));
+  const xt = searchParams.get("xt");
+
+  if (!xt || !xt.startsWith("urn:btih:")) {
+    throw new Error("Invalid magnet URI: missing or invalid 'xt' parameter");
+  }
+
+  let infoHash = xt.slice(9).toLowerCase();
+  let infoHashBuffer: Uint8Array;
+
+  if (infoHash.length === 32) {
+    infoHash = base32ToHex(infoHash);
+  } else if (infoHash.length !== 40) {
+    throw new Error("Invalid infoHash length in magnet URI");
+  }
+
+  infoHashBuffer = new Uint8Array(20);
+  for (let i = 0; i < 20; i++) {
+    infoHashBuffer[i] = parseInt(infoHash.slice(i * 2, i * 2 + 2), 16);
+  }
+
+  const announce: string[] = [];
+  searchParams.getAll("tr").forEach((tr) => {
+    if (tr && !announce.includes(tr)) announce.push(tr);
+  });
+
+  const webSeeds: string[] = [];
+  searchParams.getAll("ws").forEach((ws) => {
+    if (ws && !webSeeds.includes(ws)) webSeeds.push(ws);
+  });
+
+  const peerAddresses: string[] = [];
+  searchParams.getAll("x.pe").forEach((pe) => {
+    if (pe && !peerAddresses.includes(pe)) peerAddresses.push(pe);
+  });
+
+  return {
+    infoHash,
+    infoHashBuffer,
+    name: searchParams.get("dn") || undefined,
+    announce,
+    webSeeds,
+    peerAddresses,
+    torrentFileUrl: searchParams.get("xs") || undefined,
+    magnetURI: uri,
+  };
+}
+
+export function encodeMagnet(parsed: Omit<ParsedMagnet, "infoHashBuffer" | "magnetURI">): string {
+  const parts: string[] = [`xt=urn:btih:${parsed.infoHash}`];
+  if (parsed.name) parts.push(`dn=${encodeURIComponent(parsed.name)}`);
+  for (const tracker of parsed.announce) parts.push(`tr=${encodeURIComponent(tracker)}`);
+  for (const webSeed of parsed.webSeeds) parts.push(`ws=${encodeURIComponent(webSeed)}`);
+  for (const peer of parsed.peerAddresses) parts.push(`x.pe=${encodeURIComponent(peer)}`);
+  if (parsed.torrentFileUrl) parts.push(`xs=${encodeURIComponent(parsed.torrentFileUrl)}`);
+  
+  return `magnet:?${parts.join("&")}`;
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/utils/parse-torrent.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/utils/parse-torrent.ts
+
+import { decode, encode, BencodeValue, BencodeDict } from "./bencode.ts";
+import { sha1 } from "../crypto/hasher.ts";
+import { parseMagnet, ParsedMagnet } from "./magnet.ts";
+
+export interface ParsedTorrentFile {
+  path: string;
+  name: string;
+  length: number;
+  offset: number;
+}
+
+export interface ParsedTorrent {
+  infoHash: string;
+  infoHashBuffer: Uint8Array;
+  name: string;
+  announce: string[];
+  urlList: string[];
+  peerAddresses: string[];
+  files: ParsedTorrentFile[];
+  length: number;
+  pieceLength: number;
+  pieces: Uint8Array[];
+  info: BencodeDict;
+  magnetURI: string;
+  comment?: string;
+  createdBy?: string;
+}
+
+export async function parseTorrent(
+  torrentId: string | Uint8Array | ParsedTorrent
+): Promise<ParsedTorrent> {
+  // 1. Se já for um objeto ParsedTorrent, apenas retorna
+  if (typeof torrentId === "object" && "infoHash" in torrentId && "files" in torrentId) {
+    return torrentId as ParsedTorrent;
+  }
+
+  // 2. Se for string, assume que é Magnet URI (ou infoHash puro)
+  if (typeof torrentId === "string") {
+    let magnetUri = torrentId;
+    if (/^[a-f0-9]{40}$/i.test(torrentId) || /^[a-z2-7]{32}$/i.test(torrentId)) {
+      magnetUri = `magnet:?xt=urn:btih:${torrentId}`;
+    }
+    if (!magnetUri.startsWith("magnet:?")) {
+      throw new Error("Invalid torrent identifier");
+    }
+    return magnetToParsed(parseMagnet(magnetUri));
+  }
+
+  // 3. Se for Uint8Array, assume que é um arquivo .torrent codificado em Bencode
+  if (torrentId instanceof Uint8Array) {
+    return await bufferToParsed(torrentId);
+  }
+
+  throw new Error("Invalid torrent identifier type");
+}
+
+function magnetToParsed(magnet: ParsedMagnet): ParsedTorrent {
+  return {
+    infoHash: magnet.infoHash,
+    infoHashBuffer: magnet.infoHashBuffer,
+    name: magnet.name || "Unknown",
+    announce: magnet.announce,
+    urlList: magnet.webSeeds,
+    peerAddresses: magnet.peerAddresses,
+    files: [],
+    length: 0,
+    pieceLength: 0,
+    pieces: [],
+    info: {},
+    magnetURI: magnet.magnetURI,
+  };
+}
+
+async function bufferToParsed(buffer: Uint8Array): Promise<ParsedTorrent> {
+  const torrentObj = decode(buffer) as BencodeDict;
+  const info = torrentObj["info"] as BencodeDict | undefined;
+  
+  if (!info) {
+    throw new Error("Torrent is missing required field: info");
+  }
+
+  const infoBuffer = encode(info);
+  const infoHashHex = await sha1(infoBuffer);
+  
+  const infoHashBuffer = new Uint8Array(20);
+  for (let i = 0; i < 20; i++) {
+    infoHashBuffer[i] = parseInt(infoHashHex.substring(i * 2, i * 2 + 2), 16);
+  }
+
+  const pieceLength = info["piece length"] as number;
+  const piecesRaw = info["pieces"] as Uint8Array;
+  const pieces: Uint8Array[] = [];
+  
+  for (let i = 0; i < piecesRaw.length; i += 20) {
+    pieces.push(piecesRaw.subarray(i, i + 20));
+  }
+
+  const files: ParsedTorrentFile[] = [];
+  let totalLength = 0;
+  const textDecoder = new TextDecoder();
+
+  if (info["files"]) {
+    const filesList = info["files"] as BencodeDict[];
+    for (const fileDict of filesList) {
+      const length = fileDict["length"] as number;
+      const pathList = fileDict["path"] as (Uint8Array | string)[];
+      const pathParts = pathList.map((p) => typeof p === "string" ? p : textDecoder.decode(p));
+      const path = pathParts.join("/");
+      const name = pathParts[pathParts.length - 1]!;
+      
+      files.push({ path, name, length, offset: totalLength });
+      totalLength += length;
+    }
+  } else {
+    const length = info["length"] as number;
+    const nameRaw = info["name"];
+    const name = typeof nameRaw === "string" ? nameRaw : textDecoder.decode(nameRaw as Uint8Array);
+    
+    files.push({ path: name, name, length, offset: 0 });
+    totalLength = length;
+  }
+
+  const announce: string[] = [];
+  if (torrentObj["announce"]) {
+    const ann = torrentObj["announce"];
+    if (typeof ann === "string") announce.push(ann);
+  }
+  if (torrentObj["announce-list"]) {
+    const list = torrentObj["announce-list"] as (string | Uint8Array)[][];
+    for (const tier of list) {
+      for (const url of tier) {
+        const urlStr = typeof url === "string" ? url : textDecoder.decode(url);
+        if (!announce.includes(urlStr)) announce.push(urlStr);
+      }
+    }
+  }
+
+  const urlList: string[] = [];
+  if (torrentObj["url-list"]) {
+    const urls = torrentObj["url-list"];
+    if (Array.isArray(urls)) {
+      for (const url of urls) {
+        const urlStr = typeof url === "string" ? url : textDecoder.decode(url as Uint8Array);
+        if (!urlList.includes(urlStr)) urlList.push(urlStr);
+      }
+    } else if (typeof urls === "string") {
+      urlList.push(urls);
+    } else {
+      urlList.push(textDecoder.decode(urls as Uint8Array));
+    }
+  }
+
+  const nameRaw = info["name"];
+  const nameRoot = typeof nameRaw === "string" ? nameRaw : textDecoder.decode(nameRaw as Uint8Array);
+
+  // 🔥 CORREÇÃO: Verificar se é string antes de usar textDecoder.decode
+  const commentRaw = torrentObj["comment"];
+  const comment = commentRaw 
+    ? typeof commentRaw === "string" 
+      ? commentRaw 
+      : textDecoder.decode(commentRaw as Uint8Array)
+    : undefined;
+
+  const createdByRaw = torrentObj["created by"];
+  const createdBy = createdByRaw
+    ? typeof createdByRaw === "string"
+      ? createdByRaw
+      : textDecoder.decode(createdByRaw as Uint8Array)
+    : undefined;
+
+  return {
+    infoHash: infoHashHex,
+    infoHashBuffer: infoHashBuffer,
+    name: nameRoot,
+    announce,
+    urlList,
+    peerAddresses: [],
+    files,
+    length: totalLength,
+    pieceLength,
+    pieces,
+    info,
+    magnetURI: "",
+    comment,
+    createdBy,
+  };
 }
 ```
 
@@ -2379,289 +2321,6 @@ export class Bitfield {
 
 ---
 
-## Arquivo: `monorepo/webtorrent/src/network/tracker.ts`
-
-```ts
-// /loco/monorepo/webtorrent/src/network/tracker.ts
-
-/**
- * Tracker Client para descoberta de peers no Browser/Deno.
- * Substitui o 'bittorrent-tracker' do npm, focando apenas em HTTP e WebSocket.
- * 
- * @module @loco/network/tracker
- */
-
-import { encode, decode, BencodeDict } from "../utils/bencode.ts";
-
-export interface TrackerOptions {
-  infoHash: Uint8Array; // 20 bytes
-  peerId: Uint8Array;   // 20 bytes
-  port?: number;
-  uploaded?: number;
-  downloaded?: number;
-  left?: number;
-  compact?: boolean;
-  numwant?: number;
-}
-
-export interface TrackerAnnounceEvent {
-  event?: "started" | "stopped" | "completed";
-}
-
-export interface TrackerPeer {
-  ip?: string;
-  port?: number;
-  // Para WebSockets, podemos receber ofertas SDP diretamente
-  offerId?: string;
-  offer?: RTCSessionDescriptionInit;
-  peerId?: string;
-}
-
-export interface TrackerResponse {
-  complete?: number; // Seeders
-  incomplete?: number; // Leechers
-  interval?: number;
-  peers: TrackerPeer[];
-}
-
-/**
- * Classe abstrata base para Trackers.
- */
-export abstract class Tracker {
-  protected announceUrl: string;
-  protected opts: TrackerOptions;
-
-  constructor(announceUrl: string, opts: TrackerOptions) {
-    this.announceUrl = announceUrl;
-    this.opts = opts;
-  }
-
-  abstract announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse>;
-  abstract scrape(): Promise<void>;
-  abstract destroy(): void;
-}
-
-/**
- * Tracker HTTP/HTTPS (Usa fetch nativo).
- * O protocolo exige que os parâmetros binários (info_hash, peer_id) sejam 
- * codificados em URL-encoding bruto (não o padrão do encodeURIComponent).
- */
-export class HttpTracker extends Tracker {
-  private timeoutId: number | null = null;
-
-  async announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse> {
-    const params = new URLSearchParams();
-    
-    // Função helper para codificar bytes brutos na URL (BitTorrent spec)
-    const encodeBinary = (bytes: Uint8Array) => {
-      return Array.from(bytes).map(b => String.fromCharCode(b)).join("");
-    };
-
-    params.set("info_hash", encodeBinary(this.opts.infoHash));
-    params.set("peer_id", encodeBinary(this.opts.peerId));
-    params.set("port", String(this.opts.port || 6881));
-    params.set("uploaded", String(this.opts.uploaded || 0));
-    params.set("downloaded", String(this.opts.downloaded || 0));
-    params.set("left", String(this.opts.left || 0));
-    params.set("compact", "1");
-    params.set("numwant", String(this.opts.numwant || 80));
-    
-    if (event?.event) {
-      params.set("event", event.event);
-    }
-
-    const url = `${this.announceUrl}?${params.toString()}`;
-
-    try {
-      const controller = new AbortController();
-      this.timeoutId = setTimeout(() => controller.abort(), 15000) as unknown as number;
-
-      const res = await fetch(url, { 
-        signal: controller.signal,
-        headers: { "User-Agent": "LocoWebTorrent/1.0" } 
-      });
-
-      clearTimeout(this.timeoutId!);
-
-      if (!res.ok) {
-        throw new Error(`Tracker HTTP error: ${res.status}`);
-      }
-
-      const buffer = new Uint8Array(await res.arrayBuffer());
-      const decoded = decode(buffer) as BencodeDict;
-
-      if (decoded["failure reason"]) {
-        const reason = decoded["failure reason"];
-        const msg = typeof reason === "string" ? reason : new TextDecoder().decode(reason as Uint8Array);
-        throw new Error(`Tracker failure: ${msg}`);
-      }
-
-      return this.parsePeers(decoded);
-    } catch (err) {
-      if (this.timeoutId) clearTimeout(this.timeoutId);
-      throw err;
-    }
-  }
-
-  private parsePeers(decoded: BencodeDict): TrackerResponse {
-    const peers: TrackerPeer[] = [];
-    const peersData = decoded["peers"];
-
-    if (peersData instanceof Uint8Array) {
-      // Formato Compact (6 bytes por peer: 4 IP + 2 Porta)
-      // Usamos '!' para afirmar ao TypeScript que o índice existe, 
-      // já que sabemos que o length é múltiplo de 6.
-      for (let i = 0; i < peersData.length; i += 6) {
-        const ip = `${peersData[i]!}.${peersData[i + 1]!}.${peersData[i + 2]!}.${peersData[i + 3]!}`;
-        const port = (peersData[i + 4]! << 8) | peersData[i + 5]!;
-        peers.push({ ip, port });
-      }
-    } else if (Array.isArray(peersData)) {
-      // Formato Dictionary (menos comum, mas suportado)
-      for (const p of peersData) {
-        const dict = p as BencodeDict;
-        const ipRaw = dict["ip"];
-        const ip = typeof ipRaw === "string" ? ipRaw : new TextDecoder().decode(ipRaw as Uint8Array);
-        peers.push({ ip, port: dict["port"] as number });
-      }
-    }
-
-    return {
-      complete: decoded["complete"] as number | undefined,
-      incomplete: decoded["incomplete"] as number | undefined,
-      interval: decoded["interval"] as number | undefined,
-      peers,
-    };
-  }
-
-  async scrape(): Promise<void> {
-    // Implementação básica de scrape (opcional para o Loco)
-    throw new Error("Scrape not implemented for HTTP tracker");
-  }
-
-  destroy(): void {
-    if (this.timeoutId) clearTimeout(this.timeoutId);
-  }
-}
-
-/**
- * Tracker WebSocket (wss://).
- * Usa a API nativa WebSocket e JSON para comunicação.
- * Essencial para o WebTorrent no browser, pois permite a troca de ofertas SDP (WebRTC).
- */
-export class WsTracker extends Tracker {
-  private socket: WebSocket | null = null;
-  private pendingRequests: Map<string, { resolve: Function; reject: Function }> = new Map();
-
-  async announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse> {
-    return new Promise((resolve, reject) => {
-      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-        this.socket = new WebSocket(this.announceUrl);
-        
-        this.socket.onopen = () => {
-          this.sendAnnounce(event, resolve, reject);
-        };
-
-        this.socket.onmessage = (msgEvent) => {
-          this.handleMessage(msgEvent.data);
-        };
-
-        this.socket.onerror = (err) => {
-          reject(new Error("WebSocket tracker error"));
-        };
-
-        this.socket.onclose = () => {
-          reject(new Error("WebSocket tracker closed"));
-        };
-      } else {
-        this.sendAnnounce(event, resolve, reject);
-      }
-    });
-  }
-
-  private sendAnnounce(event: TrackerAnnounceEvent | undefined, resolve: Function, reject: Function) {
-    const requestId = crypto.randomUUID();
-    this.pendingRequests.set(requestId, { resolve, reject });
-
-    const payload = {
-      action: "announce",
-      info_hash: Array.from(this.opts.infoHash).map(b => String.fromCharCode(b)).join(""),
-      peer_id: Array.from(this.opts.peerId).map(b => String.fromCharCode(b)).join(""),
-      offers: [], // No browser, we generate WebRTC offers locally and send them here
-      numwant: this.opts.numwant || 5,
-      uploaded: this.opts.uploaded || 0,
-      downloaded: this.opts.downloaded || 0,
-      left: this.opts.left || 0,
-      event: event?.event,
-    };
-
-    this.socket!.send(JSON.stringify(payload));
-  }
-
-  private handleMessage(data: string) {
-    try {
-      const msg = JSON.parse(data);
-      
-      if (msg["failure reason"]) {
-        const req = this.pendingRequests.get(msg.id);
-        if (req) req.reject(new Error(msg["failure reason"]));
-        return;
-      }
-
-      // O tracker WS retorna peers com ofertas WebRTC pré-geradas por outros peers
-      const peers: TrackerPeer[] = (msg.offers || []).map((o: any) => ({
-        offerId: o.offer_id,
-        offer: o.offer,
-        peerId: o.peer_id,
-      }));
-
-      const response: TrackerResponse = {
-        complete: msg.complete,
-        incomplete: msg.incomplete,
-        interval: msg.interval,
-        peers,
-      };
-
-      // Notifica a promise pendente
-      const req = this.pendingRequests.get(msg.id);
-      if (req) {
-        req.resolve(response);
-        this.pendingRequests.delete(msg.id);
-      }
-    } catch (err) {
-      console.warn("[WsTracker] Failed to parse message:", err);
-    }
-  }
-
-  async scrape(): Promise<void> {
-    throw new Error("Scrape not implemented for WS tracker");
-  }
-
-  destroy(): void {
-    if (this.socket) {
-      this.socket.close();
-      this.socket = null;
-    }
-    this.pendingRequests.clear();
-  }
-}
-
-/**
- * Factory para criar o Tracker correto baseado na URL.
- */
-export function createTracker(announceUrl: string, opts: TrackerOptions): Tracker {
-  if (announceUrl.startsWith("http://") || announceUrl.startsWith("https://")) {
-    return new HttpTracker(announceUrl, opts);
-  }
-  if (announceUrl.startsWith("ws://") || announceUrl.startsWith("wss://")) {
-    return new WsTracker(announceUrl, opts);
-  }
-  throw new Error(`Unsupported tracker protocol: ${announceUrl}`);
-}
-```
-
----
-
 ## Arquivo: `monorepo/webtorrent/src/network/swarm.ts`
 
 ```ts
@@ -3261,6 +2920,231 @@ export class Peer extends TypedEventTarget<PeerEvents> {
 
 ---
 
+## Arquivo: `monorepo/webtorrent/src/network/tracker.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/network/tracker.ts
+
+import { encode, decode, BencodeDict } from "../utils/bencode.ts";
+
+export interface TrackerOptions {
+  infoHash: Uint8Array;
+  peerId: Uint8Array;
+  port?: number;
+  uploaded?: number;
+  downloaded?: number;
+  left?: number;
+  compact?: boolean;
+  numwant?: number;
+}
+
+export interface TrackerAnnounceEvent {
+  event?: "started" | "stopped" | "completed";
+}
+
+export interface TrackerResponse {
+  interval: number;
+  minInterval?: number;
+  complete: number;
+  incomplete: number;
+  peers: { ip: string; port: number }[];
+}
+
+export interface Tracker {
+  announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse>;
+  destroy(): void;
+}
+
+/**
+ * Converte um Uint8Array em uma string de byte único.
+ * Essencial para enviar info_hash e peer_id em URLs de trackers HTTP.
+ */
+function uint8ArrayToBinaryString(buffer: Uint8Array): string {
+  let result = "";
+  for (let i = 0; i < buffer.length; i++) {
+    result += String.fromCharCode(buffer[i]!);
+  }
+  return result;
+}
+
+export class HttpTracker implements Tracker {
+  private baseUrl: string;
+  private opts: TrackerOptions;
+  private abortController: AbortController | null = null;
+
+  constructor(baseUrl: string, opts: TrackerOptions) {
+    this.baseUrl = baseUrl;
+    this.opts = opts;
+  }
+
+  async announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse> {
+    this.abortController = new AbortController();
+    
+    const queryParams = new URLSearchParams({
+      info_hash: uint8ArrayToBinaryString(this.opts.infoHash),
+      peer_id: uint8ArrayToBinaryString(this.opts.peerId),
+      port: String(this.opts.port || 6881),
+      uploaded: String(this.opts.uploaded || 0),
+      downloaded: String(this.opts.downloaded || 0),
+      left: String(this.opts.left || 0),
+      compact: "1",
+      numwant: String(this.opts.numwant || 50),
+    });
+
+    if (event?.event) {
+      queryParams.set("event", event.event);
+    }
+
+    const url = `${this.baseUrl}?${queryParams.toString()}`;
+
+    try {
+      const response = await fetch(url, {
+        signal: this.abortController.signal,
+        headers: { "User-Agent": "Loco-WebTorrent/0.1.0" },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Tracker HTTP error: ${response.status}`);
+      }
+
+      const buffer = await response.arrayBuffer();
+      const data = decode(new Uint8Array(buffer)) as BencodeDict;
+
+      const peers: { ip: string; port: number }[] = [];
+      const peersData = data["peers"];
+
+      if (peersData instanceof Uint8Array) {
+        // Formato compacto (6 bytes por peer: 4 IP + 2 Porta)
+        for (let i = 0; i < peersData.length; i += 6) {
+          const ip = `${peersData[i]}.${peersData[i + 1]}.${peersData[i + 2]}.${peersData[i + 3]}`;
+          const port = (peersData[i + 4]! << 8) | peersData[i + 5]!;
+          peers.push({ ip, port });
+        }
+      } else if (Array.isArray(peersData)) {
+        // Formato de dicionário
+        for (const p of peersData) {
+          const peerDict = p as BencodeDict;
+          const ipBytes = peerDict["ip"] as Uint8Array | string;
+          const ip = typeof ipBytes === "string" ? ipBytes : new TextDecoder().decode(ipBytes);
+          peers.push({ ip, port: peerDict["port"] as number });
+        }
+      }
+
+      return {
+        interval: (data["interval"] as number) || 1800,
+        minInterval: data["min interval"] as number | undefined,
+        complete: (data["complete"] as number) || 0,
+        incomplete: (data["incomplete"] as number) || 0,
+        peers,
+      };
+    } catch (err) {
+      if ((err as Error).name === "AbortError") {
+        throw new Error("Tracker announce aborted");
+      }
+      throw err;
+    }
+  }
+
+  destroy(): void {
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+  }
+}
+
+export class WsTracker implements Tracker {
+  private url: string;
+  private opts: TrackerOptions;
+  private ws: WebSocket | null = null;
+  private resolveQueue: Map<string, (value: TrackerResponse) => void> = new Map();
+
+  constructor(url: string, opts: TrackerOptions) {
+    this.url = url;
+    this.opts = opts;
+  }
+
+  async announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.ws = new WebSocket(this.url);
+        
+        this.ws.onopen = () => {
+          const msg = {
+            action: "announce",
+            info_hash: uint8ArrayToBinaryString(this.opts.infoHash),
+            peer_id: uint8ArrayToBinaryString(this.opts.peerId),
+            port: this.opts.port || 6881,
+            uploaded: this.opts.uploaded || 0,
+            downloaded: this.opts.downloaded || 0,
+            left: this.opts.left || 0,
+            compact: 1,
+            numwant: this.opts.numwant || 50,
+            ...(event?.event ? { event: event.event } : {}),
+          };
+          this.ws?.send(JSON.stringify(msg));
+        };
+
+        this.ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.action === "announce") {
+              const peers: { ip: string; port: number }[] = [];
+              if (Array.isArray(data.peers)) {
+                for (const p of data.peers) {
+                  peers.push({ ip: p.ip || p.ipv4 || p.ipv6, port: p.port });
+                }
+              }
+              
+              const response: TrackerResponse = {
+                interval: data.interval || 1800,
+                complete: data.complete || 0,
+                incomplete: data.incomplete || 0,
+                peers,
+              };
+              
+              resolve(response);
+              this.ws?.close();
+            } else if (data["failure reason"]) {
+              reject(new Error(data["failure reason"]));
+              this.ws?.close();
+            }
+          } catch (err) {
+            reject(err);
+            this.ws?.close();
+          }
+        };
+
+        this.ws.onerror = () => {
+          reject(new Error("WebSocket connection failed"));
+        };
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  destroy(): void {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+}
+
+export function createTracker(announceUrl: string, opts: TrackerOptions): Tracker {
+  if (announceUrl.startsWith("http://") || announceUrl.startsWith("https://")) {
+    return new HttpTracker(announceUrl, opts);
+  }
+  if (announceUrl.startsWith("ws://") || announceUrl.startsWith("wss://")) {
+    return new WsTracker(announceUrl, opts);
+  }
+  throw new Error(`Unsupported tracker protocol: ${announceUrl}`);
+}
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/src/extensions/ut-metadata.ts`
 
 ```ts
@@ -3794,107 +3678,6 @@ Deno.test("crypto: generateId returns 40 char hex string", () => {
 
 ---
 
-## Arquivo: `monorepo/webtorrent/tests/magnet_test.ts`
-
-```ts
-// /loco/monorepo/webtorrent/tests/magnet_test.ts
-
-import { assertEquals, assertThrows } from "jsr:@std/assert";
-import { parseMagnet, encodeMagnet } from "../src/utils/magnet.ts";
-
-Deno.test("magnet: parse simple hex infoHash", () => {
-  const uri = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel";
-  const parsed = parseMagnet(uri);
-  
-  assertEquals(parsed.infoHash, "08ada5a7a6183aae1e09d831df6748d566095a10");
-  assertEquals(parsed.infoHashBuffer.length, 20);
-  assertEquals(parsed.name, "Sintel");
-  assertEquals(parsed.trackers.length, 0);
-});
-
-Deno.test("magnet: parse with multiple trackers", () => {
-  const uri = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&tr=udp%3A%2F%2Ftracker.example.com%3A6969&tr=wss%3A%2F%2Ftracker.btorrent.xyz";
-  const parsed = parseMagnet(uri);
-  
-  assertEquals(parsed.trackers.length, 2);
-  assertEquals(parsed.trackers[0], "udp://tracker.example.com:6969");
-  assertEquals(parsed.trackers[1], "wss://tracker.btorrent.xyz");
-});
-
-Deno.test("magnet: parse base32 infoHash", () => {
-  // Base32 encoding of 20 zero bytes = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" (32 chars)
-  const uri = "magnet:?xt=urn:btih:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-  const parsed = parseMagnet(uri);
-  
-  assertEquals(parsed.infoHash, "0000000000000000000000000000000000000000");
-  assertEquals(parsed.infoHashBuffer.length, 20);
-});
-
-Deno.test("magnet: parse web seeds and peers", () => {
-  const uri = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F&x.pe=192.168.1.1%3A6881";
-  const parsed = parseMagnet(uri);
-  
-  assertEquals(parsed.webSeeds.length, 1);
-  assertEquals(parsed.webSeeds[0], "https://webtorrent.io/torrents/");
-  assertEquals(parsed.peerAddresses.length, 1);
-  assertEquals(parsed.peerAddresses[0], "192.168.1.1:6881");
-});
-
-Deno.test("magnet: parse torrent file URL (xs)", () => {
-  const uri = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&xs=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2Fsintel.torrent";
-  const parsed = parseMagnet(uri);
-  
-  assertEquals(parsed.torrentFileUrl, "https://webtorrent.io/torrents/sintel.torrent");
-});
-
-Deno.test("magnet: throws on invalid URI", () => {
-  assertThrows(
-    () => parseMagnet("http://example.com"),
-    Error,
-    "must start with 'magnet:?'"
-  );
-});
-
-Deno.test("magnet: throws on missing infoHash", () => {
-  assertThrows(
-    () => parseMagnet("magnet:?dn=Test"),
-    Error,
-    "Missing 'xt' parameter"
-  );
-});
-
-Deno.test("magnet: throws on invalid infoHash length", () => {
-  assertThrows(
-    () => parseMagnet("magnet:?xt=urn:btih:12345"),
-    Error,
-    "Invalid infoHash format"
-  );
-});
-
-Deno.test("magnet: encode and decode roundtrip", () => {
-  const original = {
-    infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
-    infoHashBuffer: new Uint8Array(20),
-    name: "Sintel",
-    trackers: ["udp://tracker.example.com:6969", "wss://tracker.btorrent.xyz"],
-    webSeeds: ["https://webtorrent.io/torrents/"],
-    peerAddresses: [],
-    torrentFileUrl: "https://webtorrent.io/torrents/sintel.torrent",
-  };
-  
-  const encoded = encodeMagnet(original);
-  const decoded = parseMagnet(encoded);
-  
-  assertEquals(decoded.infoHash, original.infoHash);
-  assertEquals(decoded.name, original.name);
-  assertEquals(decoded.trackers, original.trackers);
-  assertEquals(decoded.webSeeds, original.webSeeds);
-  assertEquals(decoded.torrentFileUrl, original.torrentFileUrl);
-});
-```
-
----
-
 ## Arquivo: `monorepo/webtorrent/tests/chunk-store_test.ts`
 
 ```ts
@@ -3986,127 +3769,6 @@ Deno.test("chunk-store: destroy clears all chunks", async () => {
     Error,
     "closed"
   );
-});
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/tests/parse-torrent_test.ts`
-
-```ts
-// /loco/monorepo/webtorrent/tests/parse-torrent_test.ts
-
-import { assertEquals, assertRejects } from "jsr:@std/assert";
-import { parseTorrent, ParsedTorrent } from "../src/utils/parse-torrent.ts";
-import { encode, BencodeValue } from "../src/utils/bencode.ts";
-
-const TEXT_ENCODER = new TextEncoder();
-
-// Helper para criar um .torrent falso em memória
-function createFakeTorrentBuffer(isMultiFile = false): Uint8Array {
-  const pieces = new Uint8Array(40); // 2 peças de 20 bytes cada
-  
-  const info: Record<string, BencodeValue> = {
-    "piece length": 16384,
-    pieces,
-  };
-
-  if (isMultiFile) {
-    info["files"] = [
-      { length: 1000, path: [TEXT_ENCODER.encode("folder"), TEXT_ENCODER.encode("file1.txt")] },
-      { length: 2000, path: [TEXT_ENCODER.encode("folder"), TEXT_ENCODER.encode("file2.txt")] },
-    ];
-    info["name"] = TEXT_ENCODER.encode("my-multi-file-torrent");
-  } else {
-    info["length"] = 5000;
-    info["name"] = TEXT_ENCODER.encode("single-file.mp4");
-  }
-
-  const torrentObj: Record<string, BencodeValue> = {
-    info,
-    announce: TEXT_ENCODER.encode("udp://tracker.example.com:6969"),
-    "announce-list": [
-      [TEXT_ENCODER.encode("udp://tracker.example.com:6969")],
-      [TEXT_ENCODER.encode("wss://tracker.btorrent.xyz")],
-    ],
-    "url-list": [TEXT_ENCODER.encode("https://webtorrent.io/torrents/")],
-    comment: TEXT_ENCODER.encode("Test torrent"),
-    "created by": TEXT_ENCODER.encode("Loco WebTorrent"),
-  };
-
-  return encode(torrentObj);
-}
-
-Deno.test("parse-torrent: parse single-file .torrent buffer", async () => {
-  const buffer = createFakeTorrentBuffer(false);
-  const parsed = await parseTorrent(buffer);
-
-  assertEquals(parsed.files.length, 1);
-  assertEquals(parsed.files[0]!.name, "single-file.mp4");
-  assertEquals(parsed.files[0]!.length, 5000);
-  assertEquals(parsed.length, 5000);
-  assertEquals(parsed.pieceLength, 16384);
-  assertEquals(parsed.pieces.length, 2); // 40 bytes / 20 bytes por peça
-  assertEquals(parsed.announce.length, 2); // deduplicado
-  assertEquals(parsed.urlList.length, 1);
-  assertEquals(parsed.comment, "Test torrent");
-  assertEquals(parsed.infoHash.length, 40);
-});
-
-Deno.test("parse-torrent: parse multi-file .torrent buffer", async () => {
-  const buffer = createFakeTorrentBuffer(true);
-  const parsed = await parseTorrent(buffer);
-
-  assertEquals(parsed.files.length, 2);
-  assertEquals(parsed.files[0]!.path, "folder/file1.txt");
-  assertEquals(parsed.files[0]!.offset, 0);
-  assertEquals(parsed.files[1]!.path, "folder/file2.txt");
-  assertEquals(parsed.files[1]!.offset, 1000);
-  assertEquals(parsed.length, 3000);
-  assertEquals(parsed.name, "my-multi-file-torrent");
-});
-
-Deno.test("parse-torrent: parse magnet URI", async () => {
-  const magnet = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.example.com";
-  const parsed = await parseTorrent(magnet);
-
-  assertEquals(parsed.infoHash, "08ada5a7a6183aae1e09d831df6748d566095a10");
-  assertEquals(parsed.name, "Sintel");
-  assertEquals(parsed.announce.length, 1);
-  assertEquals(parsed.files.length, 0); // Magnet não tem arquivos até baixar metadados
-  assertEquals(parsed.length, 0);
-});
-
-Deno.test("parse-torrent: parse raw infoHash string", async () => {
-  const parsed = await parseTorrent("08ada5a7a6183aae1e09d831df6748d566095a10");
-  assertEquals(parsed.infoHash, "08ada5a7a6183aae1e09d831df6748d566095a10");
-});
-
-Deno.test("parse-torrent: throws on invalid input", async () => {
-  await assertRejects(
-    () => parseTorrent("invalid-string"),
-    Error,
-    "Invalid torrent identifier"
-  );
-});
-
-Deno.test("parse-torrent: returns same object if already parsed", async () => {
-  const original: ParsedTorrent = {
-    infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
-    infoHashBuffer: new Uint8Array(20),
-    announce: [],
-    urlList: [],
-    peerAddresses: [],
-    files: [],
-    length: 0,
-    pieceLength: 0,
-    pieces: [],
-    info: {},
-    magnetURI: "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10",
-  };
-  
-  const result = await parseTorrent(original);
-  assertEquals(result, original);
 });
 ```
 
@@ -5358,6 +5020,208 @@ Deno.test("peerid: decodePeerId handles short input gracefully", () => {
   const shortId = new TextEncoder().encode("short");
   assertEquals(decodePeerId(shortId), null);
   assertEquals(decodePeerId("short"), null);
+});
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/tests/magnet_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/magnet_test.ts
+
+import { assertEquals, assertThrows } from "jsr:@std/assert";
+import { parseMagnet, encodeMagnet } from "../src/utils/magnet.ts";
+
+Deno.test("magnet: parse simple hex infoHash", () => {
+  const uri = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel";
+  const parsed = parseMagnet(uri);
+  assertEquals(parsed.infoHash, "08ada5a7a6183aae1e09d831df6748d566095a10");
+  assertEquals(parsed.infoHashBuffer.length, 20);
+  assertEquals(parsed.name, "Sintel");
+  assertEquals(parsed.announce.length, 0); // 🔥 CORREÇÃO: Usar announce em vez de trackers
+});
+
+Deno.test("magnet: parse with multiple trackers", () => {
+  const uri = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&tr=udp%3A%2F%2Ftracker.example.com%3A6969&tr=wss%3A%2F%2Ftracker.btorrent.xyz";
+  const parsed = parseMagnet(uri);
+  assertEquals(parsed.announce.length, 2); // 🔥 CORREÇÃO
+  assertEquals(parsed.announce[0], "udp://tracker.example.com:6969"); // 🔥 CORREÇÃO
+  assertEquals(parsed.announce[1], "wss://tracker.btorrent.xyz"); // 🔥 CORREÇÃO
+});
+
+Deno.test("magnet: parse base32 infoHash", () => {
+  const uri = "magnet:?xt=urn:btih:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const parsed = parseMagnet(uri);
+  assertEquals(parsed.infoHash, "0000000000000000000000000000000000000000");
+});
+
+Deno.test("magnet: parse web seeds and peers", () => {
+  const uri = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F&x.pe=192.168.1.1%3A6881";
+  const parsed = parseMagnet(uri);
+  assertEquals(parsed.webSeeds.length, 1);
+  assertEquals(parsed.webSeeds[0], "https://webtorrent.io/torrents/");
+  assertEquals(parsed.peerAddresses.length, 1);
+  assertEquals(parsed.peerAddresses[0], "192.168.1.1:6881");
+});
+
+Deno.test("magnet: parse torrent file URL (xs)", () => {
+  const uri = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&xs=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2Fsintel.torrent";
+  const parsed = parseMagnet(uri);
+  assertEquals(parsed.torrentFileUrl, "https://webtorrent.io/torrents/sintel.torrent");
+});
+
+Deno.test("magnet: throws on invalid URI", () => {
+  assertThrows(() => parseMagnet("http://example.com"), Error, "must start with 'magnet:?'");
+});
+
+Deno.test("magnet: throws on missing infoHash", () => {
+  assertThrows(() => parseMagnet("magnet:?dn=Test"), Error, "missing or invalid 'xt' parameter");
+});
+
+Deno.test("magnet: throws on invalid infoHash length", () => {
+  assertThrows(() => parseMagnet("magnet:?xt=urn:btih:123"), Error, "Invalid infoHash length");
+});
+
+Deno.test("magnet: encode and decode roundtrip", () => {
+  const original = {
+    infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
+    name: "Sintel",
+    announce: ["udp://tracker.example.com:6969"], // 🔥 CORREÇÃO: Usar announce
+    webSeeds: ["https://webtorrent.io/torrents/"],
+    peerAddresses: [] as string[],
+    torrentFileUrl: "https://webtorrent.io/torrents/sintel.torrent",
+  };
+  
+  const encoded = encodeMagnet(original);
+  const decoded = parseMagnet(encoded);
+  
+  assertEquals(decoded.infoHash, original.infoHash);
+  assertEquals(decoded.name, original.name);
+  assertEquals(decoded.announce, original.announce); // 🔥 CORREÇÃO
+  assertEquals(decoded.webSeeds, original.webSeeds);
+  assertEquals(decoded.torrentFileUrl, original.torrentFileUrl);
+});
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/tests/parse-torrent_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/parse-torrent_test.ts
+
+// ... (mantenha todo o resto do arquivo igual)
+import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { parseTorrent, ParsedTorrent } from "../src/utils/parse-torrent.ts";
+import { encode, BencodeValue } from "../src/utils/bencode.ts";
+
+const TEXT_ENCODER = new TextEncoder();
+
+// Helper para criar um .torrent falso em memória
+function createFakeTorrentBuffer(isMultiFile = false): Uint8Array {
+  const pieces = new Uint8Array(40); // 2 peças de 20 bytes cada
+  
+  const info: Record<string, BencodeValue> = {
+    "piece length": 16384,
+    pieces,
+  };
+
+  if (isMultiFile) {
+    info["files"] = [
+      { length: 1000, path: [TEXT_ENCODER.encode("folder"), TEXT_ENCODER.encode("file1.txt")] },
+      { length: 2000, path: [TEXT_ENCODER.encode("folder"), TEXT_ENCODER.encode("file2.txt")] },
+    ];
+    info["name"] = TEXT_ENCODER.encode("my-multi-file-torrent");
+  } else {
+    info["length"] = 5000;
+    info["name"] = TEXT_ENCODER.encode("single-file.mp4");
+  }
+
+  const torrentObj: Record<string, BencodeValue> = {
+    info,
+    announce: TEXT_ENCODER.encode("udp://tracker.example.com:6969"),
+    "announce-list": [
+      [TEXT_ENCODER.encode("udp://tracker.example.com:6969")],
+      [TEXT_ENCODER.encode("wss://tracker.btorrent.xyz")],
+    ],
+    "url-list": [TEXT_ENCODER.encode("https://webtorrent.io/torrents/")],
+    comment: TEXT_ENCODER.encode("Test torrent"),
+    "created by": TEXT_ENCODER.encode("Loco WebTorrent"),
+  };
+
+  return encode(torrentObj);
+}
+
+Deno.test("parse-torrent: parse single-file .torrent buffer", async () => {
+  const buffer = createFakeTorrentBuffer(false);
+  const parsed = await parseTorrent(buffer);
+
+  assertEquals(parsed.files.length, 1);
+  assertEquals(parsed.files[0]!.name, "single-file.mp4");
+  assertEquals(parsed.files[0]!.length, 5000);
+  assertEquals(parsed.length, 5000);
+  assertEquals(parsed.pieceLength, 16384);
+  assertEquals(parsed.pieces.length, 2); // 40 bytes / 20 bytes por peça
+  assertEquals(parsed.announce.length, 2); // deduplicado
+  assertEquals(parsed.urlList.length, 1);
+  assertEquals(parsed.comment, "Test torrent");
+  assertEquals(parsed.infoHash.length, 40);
+});
+
+Deno.test("parse-torrent: parse multi-file .torrent buffer", async () => {
+  const buffer = createFakeTorrentBuffer(true);
+  const parsed = await parseTorrent(buffer);
+
+  assertEquals(parsed.files.length, 2);
+  assertEquals(parsed.files[0]!.path, "folder/file1.txt");
+  assertEquals(parsed.files[0]!.offset, 0);
+  assertEquals(parsed.files[1]!.path, "folder/file2.txt");
+  assertEquals(parsed.files[1]!.offset, 1000);
+  assertEquals(parsed.length, 3000);
+  assertEquals(parsed.name, "my-multi-file-torrent");
+});
+
+Deno.test("parse-torrent: parse magnet URI", async () => {
+  const magnet = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.example.com";
+  const parsed = await parseTorrent(magnet);
+
+  assertEquals(parsed.infoHash, "08ada5a7a6183aae1e09d831df6748d566095a10");
+  assertEquals(parsed.name, "Sintel");
+  assertEquals(parsed.announce.length, 1);
+  assertEquals(parsed.files.length, 0); // Magnet não tem arquivos até baixar metadados
+  assertEquals(parsed.length, 0);
+});
+
+Deno.test("parse-torrent: parse raw infoHash string", async () => {
+  const parsed = await parseTorrent("08ada5a7a6183aae1e09d831df6748d566095a10");
+  assertEquals(parsed.infoHash, "08ada5a7a6183aae1e09d831df6748d566095a10");
+});
+
+Deno.test("parse-torrent: throws on invalid input", async () => {
+  await assertRejects(
+    () => parseTorrent("invalid-string"),
+    Error,
+    "Invalid torrent identifier"
+  );
+});
+Deno.test("parse-torrent: returns same object if already parsed", async () => {
+  const original: ParsedTorrent = {
+    infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
+    infoHashBuffer: new Uint8Array(20),
+    name: "Unknown", // 🔥 CORREÇÃO: Adicionado 'name' para satisfazer a interface
+    announce: [],
+    urlList: [],
+    peerAddresses: [],
+    files: [],
+    length: 0,
+    pieceLength: 0,
+    pieces: [],
+    info: {},
+    magnetURI: "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10",
+  };
+  const result = await parseTorrent(original);
+  assertEquals(result, original);
 });
 ```
 
