@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WEBTORRENT
 
-Gerado automaticamente em: 9/4/2026, 12:47:03 AM
+Gerado automaticamente em: 9/4/2026, 12:58:42 AM
 
 ---
 
@@ -2843,6 +2843,189 @@ export class UtMetadata extends EventEmitter {
 
 ---
 
+## Arquivo: `monorepo/webtorrent/src/mod.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/mod.ts
+
+import { TypedEventTarget } from "./utils/event-target.ts";
+import { parseTorrent, ParsedTorrent } from "./utils/parse-torrent.ts";
+import { Torrent } from "./core/torrent.ts";
+import { Swarm } from "./network/swarm.ts";
+import { generateId } from "./crypto/random.ts";
+import { OPFSChunkStore } from "./storage/opfs-chunk-store.ts";
+import { MemoryChunkStore } from "./storage/memory-chunk-store.ts";
+
+export interface WebTorrentEvents {
+  torrent: CustomEvent<{ torrent: Torrent }>;
+  error: CustomEvent<{ error: Error }>;
+  ready: Event;
+}
+
+export interface WebTorrentOptions {
+  peerId?: string;
+  maxConns?: number;
+  port?: number;
+  useOPFS?: boolean;
+  rtcConfig?: RTCConfiguration;
+}
+
+export interface AddTorrentOptions {
+  skipVerify?: boolean;
+  destroyStoreOnDestroy?: boolean;
+  onReady?: (torrent: Torrent) => void;
+}
+
+export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
+  public readonly peerId: string;
+  public readonly peerIdBuffer: Uint8Array;
+  public readonly torrents: Map<string, Torrent> = new Map();
+  public readonly torrentList: Torrent[] = [];
+  
+  private opts: WebTorrentOptions;
+  private destroyed = false;
+  private ready = false;
+
+  constructor(opts: WebTorrentOptions = {}) {
+    super();
+    this.opts = opts;
+    
+    const peerIdHex = opts.peerId || generateId();
+    this.peerId = peerIdHex;
+    this.peerIdBuffer = new Uint8Array(20);
+    for (let i = 0; i < 20; i++) {
+      this.peerIdBuffer[i] = parseInt(peerIdHex.substring(i * 2, i * 2 + 2), 16);
+    }
+    
+    queueMicrotask(() => {
+      this.ready = true;
+      this.emit("ready");
+    });
+  }
+
+  get isReady(): boolean {
+    return this.ready && !this.destroyed;
+  }
+
+  get isDestroyed(): boolean {
+    return this.destroyed;
+  }
+
+  get torrentCount(): number {
+    return this.torrents.size;
+  }
+
+  async add(
+    torrentId: string | Uint8Array | ParsedTorrent,
+    opts: AddTorrentOptions = {}
+  ): Promise<Torrent> {
+    if (this.destroyed) {
+      throw new Error("WebTorrent client is destroyed");
+    }
+
+    const parsed = await parseTorrent(torrentId);
+    
+    if (this.torrents.has(parsed.infoHash)) {
+      return this.torrents.get(parsed.infoHash)!;
+    }
+
+    const store = await this._createChunkStore(parsed);
+
+    const torrent = new Torrent(parsed, {
+      store,
+      skipVerify: opts.skipVerify,
+    });
+
+    const swarm = new Swarm({
+      infoHash: parsed.infoHashBuffer,
+      peerId: this.peerIdBuffer,
+      announce: parsed.announce,
+      maxConns: this.opts.maxConns,
+      port: this.opts.port,
+    });
+
+    swarm.on("wire", () => {
+      // Integração com Wire será adicionada aqui
+    });
+
+    swarm.on("error", (e) => {
+      this.emit("error", new CustomEvent("error", { detail: { error: e.detail.error } }));
+    });
+
+    swarm.start();
+
+    this.torrents.set(parsed.infoHash, torrent);
+    this.torrentList.push(torrent);
+
+    this.emit("torrent", new CustomEvent("torrent", { detail: { torrent } }));
+
+    if (opts.onReady) {
+      torrent.on("ready", () => opts.onReady!(torrent));
+    }
+
+    return torrent;
+  }
+
+  async remove(infoHash: string, destroyStore = false): Promise<void> {
+    const torrent = this.torrents.get(infoHash);
+    if (!torrent) return;
+
+    await torrent.destroy(destroyStore);
+
+    this.torrents.delete(infoHash);
+    const index = this.torrentList.indexOf(torrent);
+    if (index !== -1) {
+      this.torrentList.splice(index, 1);
+    }
+  }
+
+  async destroy(callback?: () => void): Promise<void> {
+    if (this.destroyed) return;
+    this.destroyed = true;
+
+    for (const [, torrent] of this.torrents) {
+      await torrent.destroy(false);
+    }
+    this.torrents.clear();
+    this.torrentList.length = 0;
+
+    if (callback) callback();
+  }
+
+  private async _createChunkStore(parsed: ParsedTorrent): Promise<any> {
+    const useOPFS = this.opts.useOPFS !== false;
+    
+    if (useOPFS && globalThis.navigator?.storage?.getDirectory) {
+      try {
+        const rootDir = await globalThis.navigator.storage.getDirectory();
+        const torrentDir = await rootDir.getDirectoryHandle(`webtorrent-${parsed.infoHash}`, { create: true });
+        return new OPFSChunkStore({
+          chunkLength: parsed.pieceLength,
+          length: parsed.length,
+          rootDir: torrentDir,
+        });
+      } catch (err) {
+        console.warn("[WebTorrent] OPFS not available, falling back to memory store:", err);
+      }
+    }
+    
+    return new MemoryChunkStore({
+      chunkLength: parsed.pieceLength,
+      length: parsed.length,
+    });
+  }
+}
+
+export { Torrent } from "./core/torrent.ts";
+export { Swarm } from "./network/swarm.ts";
+export { Peer } from "./network/peer.ts";
+export { Wire } from "./core/wire.ts";
+export { parseTorrent } from "./utils/parse-torrent.ts";
+export type { ParsedTorrent } from "./utils/parse-torrent.ts";
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/deno.jsonc`
 
 ```json
@@ -4169,6 +4352,102 @@ Deno.test("ut-metadata: setMetadata marks as complete", () => {
 
 ---
 
+## Arquivo: `monorepo/webtorrent/tests/mod_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/mod_test.ts
+
+import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { WebTorrent } from "../src/mod.ts";
+
+Deno.test("webtorrent: initializes with default options", () => {
+  const client = new WebTorrent();
+  
+  assertEquals(client.peerId.length, 40);
+  assertEquals(client.peerIdBuffer.length, 20);
+  assertEquals(client.torrentCount, 0);
+  assertEquals(client.isDestroyed, false);
+  
+  client.destroy();
+});
+
+Deno.test("webtorrent: initializes with custom peerId", () => {
+  const customPeerId = "a".repeat(40);
+  const client = new WebTorrent({ peerId: customPeerId });
+  
+  assertEquals(client.peerId, customPeerId);
+  assertEquals(client.peerIdBuffer[0], 0xaa);
+  
+  client.destroy();
+});
+
+Deno.test("webtorrent: emits 'ready' event", async () => {
+  const client = new WebTorrent();
+  
+  let readyEmitted = false;
+  client.on("ready", () => {
+    readyEmitted = true;
+  });
+  
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  
+  assertEquals(readyEmitted, true);
+  assertEquals(client.isReady, true);
+  
+  client.destroy();
+});
+
+Deno.test("webtorrent: add() throws if client is destroyed", async () => {
+  const client = new WebTorrent();
+  client.destroy();
+  
+  await assertRejects(
+    () => client.add("magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10"),
+    Error,
+    "WebTorrent client is destroyed"
+  );
+});
+
+Deno.test("webtorrent: destroy() cleans up all torrents", async () => {
+  const client = new WebTorrent();
+  
+  const torrent = await client.add("magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10");
+  assertEquals(client.torrentCount, 1);
+  
+  await client.destroy();
+  
+  assertEquals(client.torrentCount, 0);
+  assertEquals(client.isDestroyed, true);
+});
+
+Deno.test("webtorrent: remove() removes a specific torrent", async () => {
+  const client = new WebTorrent();
+  
+  const torrent = await client.add("magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10");
+  assertEquals(client.torrentCount, 1);
+  
+  await client.remove(torrent.infoHash);
+  assertEquals(client.torrentCount, 0);
+  
+  client.destroy();
+});
+
+Deno.test("webtorrent: add() returns same torrent if already exists", async () => {
+  const client = new WebTorrent();
+  
+  const magnet = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10";
+  const torrent1 = await client.add(magnet);
+  const torrent2 = await client.add(magnet);
+  
+  assertEquals(torrent1, torrent2);
+  assertEquals(client.torrentCount, 1);
+  
+  client.destroy();
+});
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/docs/01-objetivo-e-apis-nativas.md`
 
 ```md
@@ -4242,9 +4521,7 @@ Abaixo está a lista exaustiva das APIs nativas do browser que este pacote utili
 ## Arquivo: `monorepo/webtorrent/docs/02-modulos-e-funcoes-implementadas.md`
 
 ```md
-# /loco/monorepo/webtorrent/docs/02-modulos-e-funcoes-implementadas.md
-
-# Módulos e Funções Implementadas (Fase 1 e 2)
+# Módulos e Funções Implementadas (Fases 1 a 5)
 
 Este documento cataloga todas as funções, classes e tipos que foram implementados, refatorados e validados por testes unitários no pacote `@loco/webtorrent`.
 
@@ -4256,10 +4533,10 @@ Este documento cataloga todas as funções, classes e tipos que foram implementa
 Helpers para manipulação de `Uint8Array`, substituindo o `Buffer` do Node.js com foco em performance e compatibilidade com o protocolo BitTorrent.
 - `alloc(size: number): Uint8Array` - Cria um array preenchido com zeros.
 - `from(input, encoding): Uint8Array` - Cria um array a partir de string (hex/utf8), array ou ArrayBuffer.
-- `concat(arrays, totalLength?): Uint8Array` - Concatena múltiplos arrays de forma eficiente (calculando o tamanho total antes da alocação).
+- `concat(arrays, totalLength?): Uint8Array` - Concatena múltiplos arrays de forma eficiente.
 - `toString(buf, encoding, start, end): string` - Converte fatias do buffer para string hex ou utf8.
 - `equals(a, b): boolean` - Comparação byte a byte de dois buffers.
-- `readUInt32BE(buf, offset): number` - Leitura de inteiro sem sinal de 32 bits (Big-Endian), essencial para o Wire Protocol.
+- `readUInt32BE(buf, offset): number` - Leitura de inteiro sem sinal de 32 bits (Big-Endian).
 - `writeUInt32BE(buf, value, offset): void` - Escrita de inteiro sem sinal de 32 bits (Big-Endian).
 
 ### `event-target.ts`
@@ -4276,9 +4553,8 @@ Substituto tipado para o `EventEmitter` do Node.js, utilizando a API nativa `Eve
 
 ### `hasher.ts`
 Wrapper para a API nativa `crypto.subtle` do browser/Deno.
-- `sha1(data: Uint8Array): Promise<string>` - Calcula o hash SHA-1 (usado para verificação de peças e infoHash v1). *Nota: Utiliza `.slice()` no buffer para satisfazer a tipagem estrita de `ArrayBuffer` do Deno.*
+- `sha1(data: Uint8Array): Promise<string>` - Calcula o hash SHA-1 (usado para verificação de peças e infoHash v1).
 - `sha256(data: Uint8Array): Promise<string>` - Calcula o hash SHA-256 (para infoHash v2 e extensões futuras).
-- `sha1Sync(data: Uint8Array): string` - Lança erro intencionalmente, pois WebCrypto é assíncrono no browser.
 
 ### `random.ts`
 Geração de números aleatórios criptograficamente seguros.
@@ -4292,12 +4568,12 @@ Geração de números aleatórios criptograficamente seguros.
 ### `bencode.ts`
 Implementação pura de Bencode (Encoder/Decoder) com suporte a tipos recursivos e BigInt.
 - **Tipos:** `BencodeValue` (string | number | bigint | Uint8Array | BencodeList | BencodeDict).
-- `decode(data: Uint8Array): BencodeValue` - Parser de descida recursiva (Zero-Copy via `subarray`). Inclui heurística para retornar `string` (se for UTF-8 válido) ou `Uint8Array` (se contiver bytes binários como hashes).
-- `encode(data: BencodeValue): Uint8Array` - Codificador que **garante a ordenação lexicográfica das chaves dos dicionários**, requisito crítico para que o `info_hash` do torrent seja consistente.
+- `decode(data: Uint8Array): BencodeValue` - Parser de descida recursiva com heurística para distinguir strings UTF-8 de dados binários (verifica caracteres de controle como `\x00`).
+- `encode(data: BencodeValue): Uint8Array` - Codificador que garante a ordenação lexicográfica das chaves dos dicionários.
 
 ### `magnet.ts`
 Parser e codificador de URIs Magnéticas.
-- `parseMagnet(uri: string): ParsedMagnet` - Extrai `infoHash` (hex e buffer), `trackers`, `webSeeds`, `name`, etc. Suporta decodificação nativa de Base32 para Hex sem dependências externas.
+- `parseMagnet(uri: string): ParsedMagnet` - Extrai `infoHash` (hex e buffer), `trackers`, `webSeeds`, `name`, etc. Suporta decodificação nativa de Base32 para Hex.
 - `encodeMagnet(parsed: Omit<ParsedMagnet, "magnetUri">): string` - Reconstrói a URI magnética a partir de um objeto.
 
 ### `parse-torrent.ts`
@@ -4323,19 +4599,111 @@ Fallback em memória para ambientes onde o OPFS não está disponível ou para t
 Armazenamento persistente utilizando o **Origin Private File System (OPFS)** do navegador.
 - `class OPFSChunkStore`
   - Construtor aceita `rootDir: FileSystemDirectoryHandle` para isolamento por `infoHash`.
-  - `get(index, opts?, cb?)` - Lê o arquivo `<index>.chunk` do OPFS. Se o arquivo não existir, retorna erro com propriedade `notFound: true`.
-  - `put(index, buf, cb?)` - Escreve o chunk no OPFS usando `FileSystemWritableFileStream`. *Nota: Utiliza `.slice()` no buffer para garantir compatibilidade com `ArrayBuffer` estrito.*
-  - `close(cb?)` - Fecha a referência ao diretório (não deleta arquivos).
-  - `destroy(cb?)` - Itera e deleta todos os arquivos `.chunk` dentro do diretório do torrent, limpando o armazenamento.
+  - `get(index, opts?, cb?)` - Lê o arquivo `<index>.chunk` do OPFS.
+  - `put(index, buf, cb?)` - Escreve o chunk no OPFS usando `FileSystemWritableFileStream`.
+  - `close(cb?)` - Fecha a referência ao diretório.
+  - `destroy(cb?)` - Deleta todos os arquivos `.chunk` dentro do diretório do torrent.
+
+---
+
+## 🧠 5. Núcleo BitTorrent (`src/core/`)
+
+### `bitfield.ts`
+Estrutura de dados ultra-eficiente para rastrear o estado de peças (pieces).
+- `class Bitfield`
+  - `constructor(length: number)` - Inicializa com o número de peças.
+  - `get(index: number): boolean` - Verifica se a peça está marcada.
+  - `set(index: number): void` - Marca a peça como completa.
+  - `count(): number` - Conta quantas peças estão marcadas.
+  - `toBuffer(): Uint8Array` - Retorna uma cópia do buffer bruto.
+
+### `wire.ts`
+Implementação do Wire Protocol (BEP 3) sobre um transporte abstrato.
+- `class Wire extends TypedEventTarget<WireEvents>`
+  - `sendHandshake(infoHash, peerId, extensions)` - Envia o handshake do BitTorrent.
+  - `sendChoke()`, `sendUnchoke()`, `sendInterested()`, `sendNotInterested()` - Controle de fluxo.
+  - `sendHave(index)`, `sendBitfield(bitfield)` - Gerenciamento de peças.
+  - `sendRequest(index, offset, length)`, `sendPiece(index, offset, block)` - Transferência de dados.
+  - `sendExtended(extId, payload)` - Mensagens estendidas (BEP 10).
+  - Eventos: `handshake`, `choke`, `unchoke`, `interested`, `have`, `bitfield`, `request`, `piece`, `extended`, `error`.
+
+### `torrent.ts`
+O "cérebro" do download. Orquestra o estado das peças, validação criptográfica e persistência.
+- `class Torrent extends TypedEventTarget<TorrentEvents>`
+  - `constructor(parsedTorrent, opts)` - Inicializa com metadados e opções (store, skipVerify).
+  - `receivePiece(index, buf)` - Recebe um chunk, valida o SHA-1 e persiste no store.
+  - `getPiece(index)` - Lê uma peça do store.
+  - `destroy(destroyStore?)` - Destrói o torrent e libera recursos.
+  - Getters: `ready`, `destroyed`, `downloaded`, `uploaded`, `progress`, `numPieces`, `lastPieceLength`.
+  - Eventos: `ready`, `download`, `upload`, `done`, `verified`, `error`.
+
+---
+
+## 🌐 6. Rede e Protocolo (`src/network/`)
+
+### `tracker.ts`
+Cliente para descoberta de peers via HTTP e WebSocket.
+- `createTracker(announceUrl, opts): Tracker` - Factory que retorna `HttpTracker` ou `WsTracker`.
+- `class HttpTracker` - Usa `fetch()` com `AbortController` para timeout.
+- `class WsTracker` - Usa `WebSocket` nativo e JSON para comunicação.
+- `announce(event?)` - Envia announce para o tracker e retorna lista de peers.
+- `destroy()` - Fecha a conexão com o tracker.
+
+### `peer.ts`
+Gerenciador de conexão P2P via WebRTC.
+- `class Peer extends TypedEventTarget<PeerEvents>`
+  - `constructor(opts)` - Inicializa com `initiator`, `infoHash`, `peerId`, `wrtc?`.
+  - `signal(data)` - Processa dados de sinalização (offer, answer, ICE candidates).
+  - `destroy()` - Destrói a conexão e libera recursos.
+  - Getter: `isReady` - Retorna `true` se conectado e com handshake completo.
+  - Eventos: `signal`, `connect`, `handshake`, `close`, `error`.
+
+### `swarm.ts`
+Orquestrador de múltiplas conexões P2P para um torrent.
+- `class Swarm extends TypedEventTarget<SwarmEvents>`
+  - `constructor(opts)` - Inicializa com `infoHash`, `peerId`, `announce`, `maxConns?`, `wrtc?`.
+  - `start()` - Inicia a descoberta de peers via trackers.
+  - `addPeer(addr)` - Adiciona um peer manualmente (respeita `maxConns`).
+  - `removePeer(addr)` - Remove um peer ativo.
+  - `pause()` / `resume()` - Controla a conexão com novos peers.
+  - `destroy()` - Destrói o swarm e todas as conexões.
+  - Eventos: `peer`, `wire`, `error`, `warning`, `trackerAnnounce`, `noPeers`.
+
+---
+
+## 🔗 7. Extensões (`src/extensions/`)
+
+### `ut-metadata.ts`
+Extensão ut_metadata (BEP 9) para troca de metadados de torrent.
+- `class UtMetadata extends EventTarget`
+  - `constructor(wire, opts?)` - Inicializa com o Wire e metadata opcional.
+  - `onExtendedHandshake(handshake)` - Processa o handshake estendido e inicia o download.
+  - `onMessage(buf)` - Processa mensagens ut_metadata recebidas.
+  - `fetch()` - Inicia o download do metadata.
+  - `cancel()` - Cancela o download.
+  - `setMetadata(metadata)` - Define o metadata localmente (para servir a outros peers).
+  - Eventos: `metadata`, `warning`.
 
 ---
 
 ## ✅ Status dos Testes
-Todos os módulos acima possuem suítes de testes correspondentes na pasta `/tests/` (`utils_test.ts`, `bencode_test.ts`, `magnet_test.ts`, `parse-torrent_test.ts`, `chunk-store_test.ts`), validando:
+Todos os módulos acima possuem suítes de testes correspondentes na pasta `/tests/`, validando:
 - Codificação/Decodificação roundtrip.
 - Manipulação correta de tipos (especialmente a distinção entre string e Uint8Array no Bencode).
-- Validação de tamanhos de chunks e tratamento de erros (ex: chunk não encontrado, armazenamento fechado).
+- Validação de tamanhos de chunks e tratamento de erros.
 - Conformidade com o type-checking rigoroso do Deno 2.x.
+- **Total: 66 testes passando (✅)**
+
+---
+
+## 🚀 Próximos Passos (Fase 6: API Pública)
+
+A próxima fase é criar a **API Pública Principal** (`src/mod.ts`), que une todos esses módulos em uma interface limpa e pronta para ser consumida pelo Loco PWA. A API deve ser compatível com o WebTorrent original, expondo métodos como:
+- `client.add(torrentId, opts)` - Adiciona um torrent (Magnet URI ou .torrent)
+- `client.seed(input, opts)` - Compartilha um arquivo como seed
+- `client.createServer()` - Cria um servidor HTTP para streaming (usando Service Worker)
+- `torrent.files` - Lista de arquivos do torrent
+- `torrent.files[0].getBlobURL()` - Gera uma URL para streaming de vídeo
 ```
 
 ---
@@ -5643,6 +6011,205 @@ Peer's remote port. Only exists for tcp/utp peers.
 ## `wire.destroy()`
 
 Close the connection with the peer. This however doesn't prevent the peer from simply re-connecting.
+
+````
+
+---
+
+## Arquivo: `monorepo/webtorrent/docs/05-fase-5-swarm-e-ut-metadata.md`
+
+````md
+# /loco/monorepo/webtorrent/docs/05-fase-5-swarm-e-ut-metadata.md
+
+# Fase 5: Swarm Manager e Extensão ut_metadata
+
+## 🎯 Objetivo da Fase
+Nesta fase, implementamos as duas peças finais que tornam o WebTorrent funcional de ponta a ponta no browser:
+
+1. **Swarm Manager**: Orquestra múltiplas conexões P2P simultâneas, gerenciando o ciclo de vida dos peers, limites de conexão e estratégias de reconexão.
+2. **Extensão ut_metadata (BEP 9)**: Permite baixar o dicionário `info` (metadados do torrent) diretamente de outros peers, tornando os **Magnet URIs** totalmente funcionais sem necessidade de um servidor HTTP para buscar o arquivo `.torrent`.
+
+---
+
+## 🐝 1. Swarm Manager (`src/network/swarm.ts`)
+
+O Swarm é o "gerente de tráfego" do BitTorrent. Ele conecta o **Tracker** (que descobre peers) ao **Torrent** (que gerencia o download), orquestrando múltiplas conexões P2P simultâneas.
+
+### Decisões Arquiteturais
+
+1. **Limite de Conexões (`maxConns`)**: Respeita o limite configurável (padrão: 55 conexões) para evitar sobrecarga de recursos. Peers além do limite são colocados em uma fila (`queue`) com tamanho máximo de 200.
+
+2. **Reconexão Inteligente com Backoff Exponencial**: Quando um peer desconecta, o Swarm tenta reconectar com delays crescentes:
+   - 1ª tentativa: 1 segundo
+   - 2ª tentativa: 5 segundos
+   - 3ª tentativa: 15 segundos
+   - Após isso, o peer é descartado.
+
+3. **Injeção de Dependência (`wrtc`)**: O construtor aceita um parâmetro opcional `wrtc: typeof RTCPeerConnection` para permitir testes unitários sem depender de um navegador real. Isso é crucial para testar a lógica de conexão em ambientes CI/CD.
+
+4. **Eventos Tipados**: O Swarm emite eventos como `peer`, `wire`, `error`, `warning`, `trackerAnnounce` e `noPeers`, permitindo que a classe `Torrent` reaja a mudanças no estado da rede.
+
+5. **Controle de Fluxo (`pause`/`resume`)**: Permite pausar a conexão com novos peers sem destruir as conexões existentes, útil para gerenciamento de banda ou quando o usuário pausa o download.
+
+### Fluxo de Descoberta e Conexão
+
+```
+┌─────────────┐
+│   Tracker   │
+│  (HTTP/WS)  │
+└──────┬──────┘
+       │ announce() → Lista de peers
+       ▼
+┌─────────────────────────────────────┐
+│         Swarm Manager               │
+│  - Gerencia fila de peers           │
+│  - Respeita maxConns                │
+│  - Reconexão com backoff            │
+└──────┬──────────────────────────────┘
+       │ Para cada peer na fila
+       ▼
+┌─────────────┐
+│    Peer     │
+│  (WebRTC)   │
+└──────┬──────┘
+       │ Conexão estabelecida
+       ▼
+┌─────────────┐
+│    Wire     │
+│ (BitTorrent)│
+└──────┬──────┘
+       │ Handshake + ut_metadata
+       ▼
+┌─────────────┐
+│   Torrent   │
+│  (Download) │
+└─────────────┘
+```
+
+### APIs Nativas Utilizadas
+
+| API Nativa | Uso | Status |
+|------------|-----|--------|
+| `RTCPeerConnection` | Conexão P2P via WebRTC | ✅ Implementado |
+| `RTCDataChannel` | Canal de dados confiável | ✅ Implementado |
+| `setTimeout` / `clearTimeout` | Backoff de reconexão | ✅ Implementado |
+
+---
+
+## 🔗 2. Extensão ut_metadata (BEP 9)
+
+A extensão `ut_metadata` é essencial para o Loco, pois os usuários compartilharão **Magnet URIs** (que contêm apenas o `infoHash`), não arquivos `.torrent` completos. Esta extensão permite que um peer solicite o dicionário `info` de outro peer que já possui o torrent completo.
+
+### Como Funciona (BEP 9)
+
+1. **Handshake Estendido (BEP 10)**: Após o handshake do BitTorrent, os peers trocam um "extended handshake" informando quais extensões suportam. Se o peer remoto suporta `ut_metadata`, ele informa o `metadata_size` (tamanho do dicionário `info` em bytes).
+
+2. **Divisão em Peças de 16KB**: O metadata é dividido em peças de 16384 bytes (16KB). Cada peça é solicitada individualmente via mensagem `request` (msg_type: 0).
+
+3. **Resposta com Dados**: O peer que possui o metadata responde com uma mensagem `data` (msg_type: 1) contendo o dicionário Bencode seguido pelos bytes brutos da peça.
+
+4. **Verificação de Integridade**: Após receber todas as peças, o cliente monta o metadata completo, calcula o SHA-1 do dicionário `info` e compara com o `infoHash` esperado. Se bater, o metadata é válido.
+
+5. **Rejeição e Retry**: Se um peer rejeita o pedido (msg_type: 2), o cliente tenta novamente com outros peers. Há um limite de rejeições (`remainingRejects = 2 * numPieces`) para evitar loops infinitos.
+
+### Decisões Arquiteturais
+
+1. **EventTarget Nativo**: A classe `UtMetadata` estende `EventTarget` (nativo do browser) em vez de `EventEmitter` do Node.js, emitindo eventos como `metadata` e `warning` via `dispatchEvent`.
+
+2. **Bitfield Nativo**: Usa nossa implementação nativa de `Bitfield` (`src/core/bitfield.ts`) para rastrear quais peças do metadata já foram recebidas, evitando dependências externas.
+
+3. **Parsing Híbrido de Payload**: A mensagem `data` contém um dicionário Bencode seguido por dados binários brutos. Usamos uma heurística segura: procuramos pela sequência `"ee"` (101, 101 em ASCII) no `Uint8Array` para encontrar onde o dicionário termina e fatiar o buffer sem cópias desnecessárias.
+
+4. **Verificação Assíncrona de Hash**: Como a API `crypto.subtle` do browser é assíncrona, a verificação do SHA-1 é feita de forma não-bloqueante, evitando travar a thread principal.
+
+5. **Resiliência a Dados Inválidos**: O método `setMetadata` usa `try/catch` ao decodificar o metadata, permitindo que buffers inválidos (ex: em testes) não causem exceções não tratadas ou loops infinitos.
+
+### Fluxo de Download de Metadata
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Cliente A (Leech)                        │
+│  - Tem apenas o infoHash (Magnet URI)                       │
+│  - Precisa do dicionário 'info'                             │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           │ 1. Conecta via WebRTC
+                           │ 2. Handshake BitTorrent
+                           │ 3. Extended Handshake (BEP 10)
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Cliente B (Seed)                         │
+│  - Tem o .torrent completo                                  │
+│  - Informa: "Suporto ut_metadata, metadata_size = 50000"    │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           │ 4. Cliente A: "Quero peça 0"
+                           │ 5. Cliente B: "Aqui está peça 0"
+                           │ 6. Repete para peças 1, 2, 3...
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Cliente A (Leech)                        │
+│  - Monta metadata completo                                  │
+│  - Calcula SHA-1 do dicionário 'info'                       │
+│  - Compara com infoHash esperado                            │
+│  - Se bater: metadata válido! Inicia download das peças.    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### APIs Nativas Utilizadas
+
+| API Nativa | Uso | Status |
+|------------|-----|--------|
+| `EventTarget` | Emissão de eventos (`metadata`, `warning`) | ✅ Implementado |
+| `TextEncoder` / `TextDecoder` | Conversão de bytes para string (parsing) | ✅ Implementado |
+| `Uint8Array.set()` | Cópia de dados sem `.copy()` do Node.js | ✅ Implementado |
+| `crypto.subtle.digest()` | Verificação SHA-1 do metadata | ✅ Implementado |
+
+---
+
+## 🧪 Testes Implementados
+
+### `tests/swarm_test.ts`
+- ✅ Inicialização com `infoHash` correto
+- ✅ Respeito ao limite `maxConns` (peers excedentes vão para a fila)
+- ✅ `pause()` previne novas conexões
+- ✅ `destroy()` limpa todos os recursos (peers, trackers, fila)
+- ✅ Peers duplicados são rejeitados
+
+### `tests/ut-metadata_test.ts`
+- ✅ Inicialização correta
+- ✅ Processamento do extended handshake (solicita peças automaticamente)
+- ✅ Rejeição de `metadata_size` inválido (negativo ou > 10MB)
+- ✅ `setMetadata()` marca como completo e emite evento
+- ✅ Resposta a requests de outros peers quando temos o metadata
+
+---
+
+## 🚀 Próximos Passos (Fase 6: API Pública)
+
+Com o Swarm e o `ut_metadata` prontos, temos todas as peças do quebra-cabeça:
+- ✅ **Utilitários**: Bencode, Buffer, Crypto, Magnet, Parse-Torrent
+- ✅ **Armazenamento**: ChunkStore (OPFS/Memória)
+- ✅ **Núcleo**: Torrent, Bitfield
+- ✅ **Rede**: Tracker, Wire, Peer, Swarm
+- ✅ **Extensões**: ut_metadata
+
+A próxima fase é criar a **API Pública Principal** (`src/mod.ts`), que une todos esses módulos em uma interface limpa e pronta para ser consumida pelo Loco PWA. A API deve ser compatível com o WebTorrent original, expondo métodos como:
+- `client.add(torrentId, opts)` - Adiciona um torrent (Magnet URI ou .torrent)
+- `client.seed(input, opts)` - Compartilha um arquivo como seed
+- `client.createServer()` - Cria um servidor HTTP para streaming (usando Service Worker)
+- `torrent.files` - Lista de arquivos do torrent
+- `torrent.files[0].getBlobURL()` - Gera uma URL para streaming de vídeo
+
+---
+
+## 📚 Referências
+
+- [BEP 9: Extension for Peers to Send Metadata Files](http://www.bittorrent.org/beps/bep_0009.html)
+- [BEP 10: Extension Protocol](http://www.bittorrent.org/beps/bep_0010.html)
+- [WebTorrent Browser API](https://github.com/webtorrent/webtorrent/blob/master/docs/api.md#browser-usage)
+
+
 
 ````
 
