@@ -1,13 +1,13 @@
 // /loco/monorepo/webtorrent/src/mod.ts
-
 import { TypedEventTarget } from "./utils/event-target.ts";
 import { parseTorrent, ParsedTorrent } from "./utils/parse-torrent.ts";
 import { Torrent } from "./core/torrent.ts";
 import { Swarm } from "./network/swarm.ts";
-import { generateId } from "./crypto/random.ts";
+import { generateLocoPeerId } from "./utils/peerid.ts"; // 🔥 Substitui generateId
 import { OPFSChunkStore } from "./storage/opfs-chunk-store.ts";
 import { MemoryChunkStore } from "./storage/memory-chunk-store.ts";
 import { encode } from "./utils/bencode.ts";
+
 
 export interface WebTorrentEvents {
   torrent: CustomEvent<{ torrent: Torrent }>;
@@ -16,7 +16,7 @@ export interface WebTorrentEvents {
 }
 
 export interface WebTorrentOptions {
-  peerId?: string;
+  peerId?: Uint8Array | string; // 🔥 Aceita Uint8Array ou hex string
   maxConns?: number;
   port?: number;
   useOPFS?: boolean;
@@ -34,9 +34,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   public readonly peerIdBuffer: Uint8Array;
   public readonly torrents: Map<string, Torrent> = new Map();
   public readonly torrentList: Torrent[] = [];
-  
   private swarms: Map<string, Swarm> = new Map();
-  
   private opts: WebTorrentOptions;
   private destroyed = false;
   private ready = false;
@@ -44,14 +42,30 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   constructor(opts: WebTorrentOptions = {}) {
     super();
     this.opts = opts;
+
+    // 🔥 NOVO: Usa a identidade oficial do Loco ("-LO0100-") por padrão
+    let peerIdBuffer: Uint8Array;
     
-    const peerIdHex = opts.peerId || generateId();
-    this.peerId = peerIdHex;
-    this.peerIdBuffer = new Uint8Array(20);
-    for (let i = 0; i < 20; i++) {
-      this.peerIdBuffer[i] = parseInt(peerIdHex.substring(i * 2, i * 2 + 2), 16);
+    if (opts.peerId) {
+      if (typeof opts.peerId === "string") {
+        // Converte hex string para Uint8Array
+        peerIdBuffer = new Uint8Array(20);
+        for (let i = 0; i < 20; i++) {
+          peerIdBuffer[i] = parseInt(opts.peerId.substring(i * 2, i * 2 + 2), 16);
+        }
+      } else {
+        peerIdBuffer = opts.peerId;
+      }
+    } else {
+      // Gera o PeerId oficial do Loco
+      peerIdBuffer = generateLocoPeerId();
     }
-    
+
+    this.peerIdBuffer = peerIdBuffer;
+    this.peerId = Array.from(peerIdBuffer)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
     queueMicrotask(() => {
       this.ready = true;
       this.emit("ready");
@@ -69,7 +83,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     if (this.destroyed) throw new Error("WebTorrent client is destroyed");
 
     const parsed = await parseTorrent(torrentId);
-    
+
     if (this.torrents.has(parsed.infoHash)) {
       return this.torrents.get(parsed.infoHash)!;
     }
@@ -87,14 +101,11 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
       announce: parsed.announce,
       maxConns: this.opts.maxConns,
       port: this.opts.port,
-      // Se já temos os metadados (ex: .torrent completo), passamos para o Swarm servir via ut_metadata
       metadata: parsed.pieces.length > 0 ? encode(parsed.info) : undefined,
     });
 
-    // 🔥 INTEGRAÇÃO CRÍTICA: Quando o Swarm recebe metadados via ut_metadata, repassa para o Torrent
     swarm.on("metadata", async (e: any) => {
       const metadataBuffer = e.detail.metadata;
-      // O Torrent irá decodificar o Bencode, atualizar arquivos/peças e emitir o evento 'metadata' para a UI
       await torrent.setMetadata(metadataBuffer);
     });
 
@@ -120,6 +131,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   async remove(infoHash: string, destroyStore = false): Promise<void> {
     const torrent = this.torrents.get(infoHash);
     const swarm = this.swarms.get(infoHash);
+
     if (!torrent) return;
 
     if (swarm) {
@@ -128,8 +140,8 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     }
 
     await torrent.destroy(destroyStore);
-
     this.torrents.delete(infoHash);
+
     const index = this.torrentList.indexOf(torrent);
     if (index !== -1) {
       this.torrentList.splice(index, 1);
@@ -156,11 +168,12 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
 
   private async _createChunkStore(parsed: ParsedTorrent): Promise<any> {
     const useOPFS = this.opts.useOPFS !== false;
-    
+
     if (useOPFS && globalThis.navigator?.storage?.getDirectory) {
       try {
         const rootDir = await globalThis.navigator.storage.getDirectory();
         const torrentDir = await rootDir.getDirectoryHandle(`webtorrent-${parsed.infoHash}`, { create: true });
+        
         return new OPFSChunkStore({
           chunkLength: parsed.pieceLength || 16384,
           length: parsed.length || 0,
@@ -170,7 +183,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
         console.warn("[WebTorrent] OPFS not available, falling back to memory store:", err);
       }
     }
-    
+
     return new MemoryChunkStore({
       chunkLength: parsed.pieceLength || 16384,
       length: parsed.length || 0,
@@ -183,4 +196,8 @@ export { Swarm } from "./network/swarm.ts";
 export { Peer } from "./network/peer.ts";
 export { Wire } from "./core/wire.ts";
 export { parseTorrent } from "./utils/parse-torrent.ts";
+export { decodePeerId, generateLocoPeerId, LOCO_PEER_ID_PREFIX } from "./utils/peerid.ts";
 export type { ParsedTorrent } from "./utils/parse-torrent.ts";
+export type { ClientInfo } from "./utils/peerid.ts";
+
+

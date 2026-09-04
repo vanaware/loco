@@ -22,3 +22,21 @@ export function generateId(): string {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+/**
+ * Gera uma string aleatória de caracteres ASCII visíveis.
+ */
+export function generateRandomString(length: number): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
+  let result = "";
+
+  const bytes = randomBytes(length);
+  
+  for (let i = 0; i < length; i++) {
+    // 🔥 CORREÇÃO: Non-null assertions (!) para satisfazer o TypeScript rigoroso (noUncheckedIndexedAccess)
+    const byte = bytes[i]!;
+    result += chars[byte % chars.length]!;
+  }
+  
+  return result;
+}

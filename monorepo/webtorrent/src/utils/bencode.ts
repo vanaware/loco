@@ -91,7 +91,7 @@ class BencodeDecoder {
     
     try {
       const str = decoder.decode(bytes);
-      // 🔥 CORREÇÃO: Verifica se é UTF-8 válido E não contém caracteres de controle 
+      // 🔥 Heurística: Verifica se é UTF-8 válido E não contém caracteres de controle
       // (comuns em hashes binários e dados de peças, como o byte nulo 0x00)
       if (!str.includes('\uFFFD') && !/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(str)) {
         return str;

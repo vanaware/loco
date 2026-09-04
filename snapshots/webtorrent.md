@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WEBTORRENT
 
-Gerado automaticamente em: 9/4/2026, 1:14:53 AM
+Gerado automaticamente em: 9/4/2026, 2:36:16 PM
 
 ---
 
@@ -698,7 +698,7 @@ class BencodeDecoder {
     
     try {
       const str = decoder.decode(bytes);
-      // 🔥 CORREÇÃO: Verifica se é UTF-8 válido E não contém caracteres de controle 
+      // 🔥 Heurística: Verifica se é UTF-8 válido E não contém caracteres de controle
       // (comuns em hashes binários e dados de peças, como o byte nulo 0x00)
       if (!str.includes('\uFFFD') && !/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(str)) {
         return str;
@@ -781,6 +781,217 @@ function _encodeValue(value: BencodeValue, parts: Uint8Array[]): void {
 
 ---
 
+## Arquivo: `monorepo/webtorrent/src/utils/peerid.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/utils/peerid.ts
+
+import { generateRandomString } from "../crypto/random.ts";
+
+export interface ClientInfo {
+  code: string;
+  name?: string;
+  version?: string;
+  style: "azureus" | "shadow" | "unknown";
+}
+
+export const LOCO_PEER_ID_PREFIX = "-LO0100-";
+
+const AZUREUS_CLIENTS: Record<string, string> = {
+  "AG": "Ares",
+  "A~": "Ares",
+  "AR": "Arctic",
+  "AT": "Artemis",
+  "AV": "Avicora",
+  "AX": "BitPump",
+  "AZ": "Azureus/Vuze",
+  "BB": "BitBuddy",
+  "BC": "BitComet",
+  "BE": "Baretorrent",
+  "BF": "Bitflu",
+  "BG": "BTG (libtorrent)",
+  "BL": "BitCometLite",
+  "BP": "BitTorrent Pro",
+  "BR": "BitRocket",
+  "BS": "BTSlave",
+  "BT": "mainline BitTorrent",
+  "BW": "BitWombat",
+  "BX": "~Bittorrent X",
+  "CD": "Enhanced CTorrent",
+  "CT": "CTorrent",
+  "DE": "Deluge",
+  "DP": "Propagate Data Client",
+  "EB": "EBit",
+  "ES": "electric sheep",
+  "FC": "FileCroc",
+  "FD": "Free Download Manager",
+  "FT": "FoxTorrent",
+  "FX": "Freebox BitTorrent",
+  "GS": "GSTorrent",
+  "HK": "Hekate",
+  "HL": "Halite",
+  "HM": "hMule (libtorrent)",
+  "HN": "Hydranode",
+  "IL": "iLivid",
+  "JS": "Justseed.it",
+  "JT": "JavaTorrent",
+  "KG": "KGet",
+  "KT": "KTorrent",
+  "LC": "LeechCraft",
+  "LH": "LH-ABC",
+  "LO": "Loco", // 🔥 NOSSO CLIENTE
+  "LP": "Lphant",
+  "LT": "libtorrent (Rasterbar)",
+  "lt": "libTorrent (Rakshasa)",
+  "LW": "LimeWire",
+  "MK": "Meerkat",
+  "MO": "MonoTorrent",
+  "MP": "MooPolice",
+  "MR": "Miro",
+  "MT": "MoonlightTorrent",
+  "NB": "Net::BitTorrent",
+  "NX": "Net Transport",
+  "OS": "OneSwarm",
+  "OT": "OmegaTorrent",
+  "PB": "Protocol::BitTorrent",
+  "PD": "Pando",
+  "PI": "PicoTorrent",
+  "PT": "PHPTracker",
+  "qB": "qBittorrent",
+  "QD": "QQDownload",
+  "QT": "Qt 4 Torrent",
+  "RT": "Retriever",
+  "RZ": "RezTorrent",
+  "S~": "Shareaza (alpha/beta)",
+  "SB": "~Swiftbit",
+  "SD": "Thunder (XùnLéi)",
+  "SM": "SoMud",
+  "SP": "BitSpirit",
+  "SS": "SwarmScope",
+  "ST": "SymTorrent",
+  "st": "sharktorrent",
+  "SZ": "Shareaza",
+  "TB": "Torch",
+  "TE": "terasaur Seed Bank",
+  "TL": "Tribler",
+  "TN": "TorrentDotNET",
+  "TR": "Transmission",
+  "TS": "Torrentstorm",
+  "TT": "TuoTu",
+  "UL": "uLeecher!",
+  "UM": "µTorrent for Mac",
+  "UT": "µTorrent",
+  "VG": "Vagaa",
+  "WD": "WebTorrent Desktop",
+  "WT": "BitLet",
+  "WW": "WebTorrent",
+  "WY": "FireTorrent",
+  "XF": "Xfplay",
+  "XL": "Xunlei",
+  "XS": "XSwifter",
+  "XT": "XanTorrent",
+  "XX": "Xtorrent",
+  "ZT": "ZipTorrent",
+};
+
+const SHADOW_CLIENTS: Record<string, string> = {
+  "A": "ABC",
+  "O": "Osprey Permaseed",
+  "Q": "BTQueue",
+  "R": "Tribler",
+  "S": "Shadow's Client",
+  "T": "BitTornado",
+  "U": "UPnP NAT Bit Torrent",
+};
+
+export function isAzStyle(peerid: string): boolean {
+  return (
+    peerid.length >= 8 &&
+    peerid[0] === "-" &&
+    peerid[7] === "-" &&
+    /^[A-Za-z0-9]{2}$/.test(peerid.slice(1, 3)) &&
+    /^\d{4}$/.test(peerid.slice(3, 7))
+  );
+}
+
+export function isShadowStyle(peerid: string): boolean {
+  return (
+    peerid.length >= 9 &&
+    /^[A-Za-z]$/.test(peerid[0]!) && // 🔥 Ajuste TS: non-null assertion
+    peerid.slice(6, 9) === "---"
+  );
+}
+
+function parseAzVersion(versionStr: string): string {
+  if (versionStr.length !== 4) return versionStr;
+  const major = versionStr[0];
+  const minor = versionStr[1];
+  // 🔥 CORREÇÃO: Usar parseInt para remover zeros à esquerda (ex: "00" vira "0")
+  const patch = parseInt(versionStr.slice(2), 10).toString();
+  return `${major}.${minor}.${patch}`;
+}
+
+function parseShadowVersion(versionStr: string): string {
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-";
+  const parts: number[] = [];
+  
+  for (const char of versionStr) {
+    if (char === "-") break;
+    const idx = chars.indexOf(char);
+    if (idx !== -1) parts.push(idx);
+  }
+  
+  return parts.length > 0 ? parts.join(".") : "0";
+}
+
+export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
+  const peeridStr = typeof peerId === "string" 
+    ? peerId 
+    : new TextDecoder("utf-8", { fatal: false }).decode(peerId);
+  
+  if (peeridStr.length < 20) return null;
+  const id = peeridStr.slice(0, 20);
+
+  if (isAzStyle(id)) {
+    const code = id.slice(1, 3);
+    const versionRaw = id.slice(3, 7);
+    const name = AZUREUS_CLIENTS[code] || `Unknown (${code})`;
+    const version = parseAzVersion(versionRaw);
+    
+    return { code, name, version, style: "azureus" };
+  }
+
+  if (isShadowStyle(id)) {
+    const code = id[0]!; // 🔥 Ajuste TS: non-null assertion
+    const versionRaw = id.slice(1, 6);
+    const name = SHADOW_CLIENTS[code] || `Unknown (${code})`;
+    const version = parseShadowVersion(versionRaw);
+    
+    return { code, name, version, style: "shadow" };
+  }
+
+  // 🔥 CORREÇÃO: Retornar null para peers desconhecidos, conforme esperado pelos testes
+  return null;
+}
+
+export function getPeerIdClientName(peerId: string | Uint8Array): string {
+  const info = decodePeerId(peerId);
+  return info?.name || "Unknown Client";
+}
+
+export function generateLocoPeerId(): Uint8Array {
+  const prefix = LOCO_PEER_ID_PREFIX;
+  const randomPart = generateRandomString(20 - prefix.length);
+  const peerIdStr = prefix + randomPart;
+  
+  return new TextEncoder().encode(peerIdStr);
+}
+
+
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/src/crypto/random.ts`
 
 ```ts
@@ -807,6 +1018,24 @@ export function generateId(): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/**
+ * Gera uma string aleatória de caracteres ASCII visíveis.
+ */
+export function generateRandomString(length: number): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
+  let result = "";
+
+  const bytes = randomBytes(length);
+  
+  for (let i = 0; i < length; i++) {
+    // 🔥 CORREÇÃO: Non-null assertions (!) para satisfazer o TypeScript rigoroso (noUncheckedIndexedAccess)
+    const byte = bytes[i]!;
+    result += chars[byte % chars.length]!;
+  }
+  
+  return result;
 }
 ```
 
@@ -2123,276 +2352,6 @@ export function createTracker(announceUrl: string, opts: TrackerOptions): Tracke
 
 ---
 
-## Arquivo: `monorepo/webtorrent/src/network/peer.ts`
-
-```ts
-// /loco/monorepo/webtorrent/src/network/peer.ts
-
-import { TypedEventTarget } from "../utils/event-target.ts";
-import { Wire, Transport } from "../core/wire.ts";
-
-export interface PeerEvents {
-  signal: CustomEvent<{ data: RTCSessionDescriptionInit | RTCIceCandidateInit }>;
-  connect: Event;
-  handshake: CustomEvent<{ peerId: Uint8Array; extensions: Uint8Array }>;
-  close: Event;
-  error: CustomEvent<{ error: Error }>;
-}
-
-export interface PeerOptions {
-  initiator: boolean;
-  infoHash: Uint8Array;
-  peerId: Uint8Array;
-  wrtc?: typeof RTCPeerConnection;
-  config?: RTCConfiguration;
-  channelName?: string;
-}
-
-export class Peer extends TypedEventTarget<PeerEvents> {
-  public id: string = "unknown";
-  public readonly type = "webrtc";
-  public wire: Wire | null = null;
-  
-  private pc: RTCPeerConnection | null = null;
-  private channel: RTCDataChannel | null = null;
-  private opts: PeerOptions;
-  
-  public destroyed = false;
-  private connected = false;
-  private handshakeCompleted = false;
-  
-  private connectTimeoutId: number | null = null;
-  private handshakeTimeoutId: number | null = null;
-
-  constructor(opts: PeerOptions) {
-    super();
-    this.opts = opts;
-    this.id = "unknown";
-
-    const RTCPeerConnectionCtor = opts.wrtc || globalThis.RTCPeerConnection;
-    if (!RTCPeerConnectionCtor) {
-      throw new Error("WebRTC not supported. Provide 'wrtc' option or run in a supported browser.");
-    }
-
-    this.pc = new RTCPeerConnectionCtor(opts.config || {
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
-
-    this._setupPeerConnection();
-    this._startConnectTimeout();
-
-    if (opts.initiator) {
-      this._initiateConnection();
-    }
-  }
-
-  get isReady(): boolean {
-    return this.connected && this.handshakeCompleted;
-  }
-
-  public async signal(data: RTCSessionDescriptionInit | RTCIceCandidateInit): Promise<void> {
-    if (this.destroyed) return;
-
-    try {
-      if ("type" in data && (data.type === "offer" || data.type === "answer")) {
-        await this.pc!.setRemoteDescription(data);
-        
-        if (data.type === "offer" && !this.opts.initiator) {
-          const answer = await this.pc!.createAnswer();
-          await this.pc!.setLocalDescription(answer);
-          this.emit("signal", new CustomEvent("signal", { detail: { data: answer } }));
-        }
-      } else if ("candidate" in data && data.candidate) {
-        await this.pc!.addIceCandidate(data);
-      }
-    } catch (err) {
-      this._onError(err instanceof Error ? err : new Error(String(err)));
-    }
-  }
-
-  public destroy(): void {
-    if (this.destroyed) return;
-    this.destroyed = true;
-
-    this._clearTimeouts();
-
-    if (this.wire) {
-      this.wire.destroy();
-      this.wire = null;
-    }
-
-    if (this.channel) {
-      try {
-        this.channel.close();
-      } catch (err) {
-        // Ignora erros de fechamento
-      }
-      this.channel = null;
-    }
-
-    if (this.pc) {
-      try {
-        this.pc.close();
-      } catch (err) {
-        // Ignora erros de fechamento
-      }
-      this.pc = null;
-    }
-
-    this.connected = false;
-    this.handshakeCompleted = false;
-    this.emit("close");
-  }
-
-  private _setupPeerConnection(): void {
-    this.pc!.onicecandidate = (event) => {
-      if (event.candidate) {
-        this.emit("signal", new CustomEvent("signal", { detail: { data: event.candidate.toJSON() } }));
-      }
-    };
-
-    this.pc!.onconnectionstatechange = () => {
-      const state = this.pc!.connectionState;
-      if (state === "failed" || state === "closed") {
-        this._onError(new Error(`WebRTC connection ${state}`));
-      }
-    };
-
-    if (!this.opts.initiator) {
-      this.pc!.ondatachannel = (event) => {
-        this._setupData(event.channel);
-      };
-    }
-  }
-
-  private async _initiateConnection(): Promise<void> {
-    const channelName = this.opts.channelName || "webtorrent";
-    const channel = this.pc!.createDataChannel(channelName, {
-      ordered: true,
-      negotiated: false,
-    });
-    this._setupData(channel);
-
-    try {
-      const offer = await this.pc!.createOffer();
-      await this.pc!.setLocalDescription(offer);
-      this.emit("signal", new CustomEvent("signal", { detail: { data: offer } }));
-    } catch (err) {
-      this._onError(err instanceof Error ? err : new Error(String(err)));
-    }
-  }
-
-  private _setupData(channel: RTCDataChannel): void {
-    this.channel = channel;
-    this.channel.binaryType = "arraybuffer";
-
-    this.channel.onopen = () => {
-      this._clearConnectTimeout();
-      this.connected = true;
-      this.emit("connect");
-      this._setupWire();
-    };
-
-    this.channel.onclose = () => {
-      if (!this.destroyed) {
-        this.destroy();
-      }
-    };
-
-    this.channel.onerror = () => {
-      this._onError(new Error("DataChannel error"));
-    };
-  }
-
-  private _setupWire(): void {
-    if (!this.channel) return;
-
-    const transport: Transport = {
-      send: (data: Uint8Array) => {
-        if (this.channel && this.channel.readyState === "open") {
-          const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-          this.channel.send(arrayBuffer as ArrayBuffer);
-        }
-      },
-      onMessage: (handler: (data: Uint8Array) => void) => {
-        if (this.channel) {
-          this.channel.onmessage = (event) => {
-            const buf = event.data instanceof ArrayBuffer 
-              ? new Uint8Array(event.data) 
-              : new Uint8Array(event.data);
-            handler(buf);
-          };
-        }
-      },
-      close: () => {
-        if (this.channel) {
-          this.channel.close();
-        }
-      },
-    };
-
-    this.wire = new Wire(transport);
-
-    this.wire.on("handshake", (e: CustomEvent<{ peerId: Uint8Array; extensions: Uint8Array }>) => {
-      this.id = Array.from(e.detail.peerId).map((b: number) => b.toString(16).padStart(2, "0")).join("");
-      this._clearHandshakeTimeout();
-      this.handshakeCompleted = true;
-      this.emit("handshake", new CustomEvent("handshake", { detail: e.detail }));
-    });
-
-    this.wire.on("error", (e: CustomEvent<{ error: Error }>) => {
-      this._onError(e.detail.error);
-    });
-
-    this._startHandshakeTimeout();
-    this.wire.sendHandshake(this.opts.infoHash, this.opts.peerId);
-  }
-
-  private _startConnectTimeout(): void {
-    this.connectTimeoutId = setTimeout(() => {
-      if (!this.connected && !this.destroyed) {
-        this._onError(new Error("WebRTC connection timeout"));
-      }
-    }, 25000) as unknown as number;
-  }
-
-  private _clearConnectTimeout(): void {
-    if (this.connectTimeoutId !== null) {
-      clearTimeout(this.connectTimeoutId);
-      this.connectTimeoutId = null;
-    }
-  }
-
-  private _startHandshakeTimeout(): void {
-    this.handshakeTimeoutId = setTimeout(() => {
-      if (!this.handshakeCompleted && !this.destroyed) {
-        this._onError(new Error("BitTorrent handshake timeout"));
-      }
-    }, 25000) as unknown as number;
-  }
-
-  private _clearHandshakeTimeout(): void {
-    if (this.handshakeTimeoutId !== null) {
-      clearTimeout(this.handshakeTimeoutId);
-      this.handshakeTimeoutId = null;
-    }
-  }
-
-  private _clearTimeouts(): void {
-    this._clearConnectTimeout();
-    this._clearHandshakeTimeout();
-  }
-
-  private _onError(err: Error): void {
-    if (this.destroyed) return;
-    this.emit("error", new CustomEvent("error", { detail: { error: err } }));
-    this.destroy();
-  }
-}
-```
-
----
-
 ## Arquivo: `monorepo/webtorrent/src/network/swarm.ts`
 
 ```ts
@@ -2663,6 +2622,335 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
 
 ---
 
+## Arquivo: `monorepo/webtorrent/src/network/peer.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/network/peer.ts
+
+import { TypedEventTarget } from "../utils/event-target.ts";
+import { Wire, Transport } from "../core/wire.ts";
+
+// ============================================================================
+// TIPOS E INTERFACES
+// ============================================================================
+
+export interface PeerEvents {
+  /** Emitido quando o Peer precisa enviar dados de sinalização (offer, answer, ICE) para o Tracker/SW */
+  signal: CustomEvent<{ data: RTCSessionDescriptionInit | RTCIceCandidateInit }>;
+  /** Emitido quando a conexão WebRTC e o DataChannel estão abertos */
+  connect: Event;
+  /** Emitido quando o handshake do BitTorrent é concluído com sucesso */
+  handshake: CustomEvent<{ peerId: Uint8Array; extensions: Uint8Array }>;
+  /** Emitido quando a conexão é fechada (normalmente ou por erro) */
+  close: Event;
+  /** Emitido em caso de erro fatal */
+  error: CustomEvent<{ error: Error }>;
+}
+
+export interface PeerOptions {
+  /** Se true, este peer inicia a conexão (cria a offer). Se false, aguarda uma offer. */
+  initiator: boolean;
+  /** InfoHash do torrent (usado para validação no handshake) */
+  infoHash: Uint8Array;
+  /** PeerId local (20 bytes) */
+  peerId: Uint8Array;
+  /** Construtor do RTCPeerConnection (injetável para testes ou fallbacks) */
+  wrtc?: typeof RTCPeerConnection;
+  /** Configuração ICE (servidores STUN/TURN) */
+  config?: RTCConfiguration;
+  /** Nome do canal (padrão: "webtorrent") */
+  channelName?: string;
+}
+
+// ============================================================================
+// CLASSE PEER
+// ============================================================================
+
+export class Peer extends TypedEventTarget<PeerEvents> {
+  /** PeerId remoto em formato hex (preenchido após o handshake) */
+  public id: string = "unknown";
+  public readonly type = "webrtc";
+  public wire: Wire | null = null;
+  
+  private pc: RTCPeerConnection | null = null;
+  private channel: RTCDataChannel | null = null;
+  private opts: PeerOptions;
+  
+  public destroyed = false;
+  private connected = false;
+  private handshakeCompleted = false;
+  
+  private connectTimeoutId: number | null = null;
+  private handshakeTimeoutId: number | null = null;
+
+  constructor(opts: PeerOptions) {
+    super();
+    this.opts = opts;
+    this.id = "unknown";
+
+    // 🔥 CORREÇÃO: Fallback seguro para ambiente de teste ou browser
+    const RTCPeerConnectionCtor = opts.wrtc || globalThis.RTCPeerConnection;
+    if (!RTCPeerConnectionCtor) {
+      throw new Error("WebRTC not supported. Provide 'wrtc' option or run in a supported browser.");
+    }
+
+    this.pc = new RTCPeerConnectionCtor(opts.config || {
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    this._setupPeerConnection();
+    this._startConnectTimeout();
+
+    if (opts.initiator) {
+      this._initiateConnection();
+    }
+  }
+
+  // ==========================================================================
+  // GETTERS
+  // ==========================================================================
+
+  /** Retorna true se o peer está conectado e com handshake do BitTorrent completo */
+  get isReady(): boolean {
+    return this.connected && this.handshakeCompleted;
+  }
+
+  // ==========================================================================
+  // API PÚBLICA
+  // ==========================================================================
+
+  /**
+   * Processa dados de sinalização recebidos do Tracker ou Service Worker.
+   * Pode ser uma offer, answer ou ICE candidate.
+   */
+  public async signal(data: RTCSessionDescriptionInit | RTCIceCandidateInit): Promise<void> {
+    if (this.destroyed) return;
+
+    try {
+      if ("type" in data && (data.type === "offer" || data.type === "answer")) {
+        await this.pc!.setRemoteDescription(data);
+        
+        // Se recebemos uma offer e não somos o iniciador, geramos uma answer
+        if (data.type === "offer" && !this.opts.initiator) {
+          const answer = await this.pc!.createAnswer();
+          await this.pc!.setLocalDescription(answer);
+          this.emit("signal", new CustomEvent("signal", { detail: { data: answer } }));
+        }
+      } else if ("candidate" in data && data.candidate) {
+        await this.pc!.addIceCandidate(data);
+      }
+    } catch (err) {
+      this._onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  /**
+   * Destrói a conexão, liberando todos os recursos WebRTC e de protocolo.
+   * Pode ser chamado múltiplas vezes sem erro (idempotente).
+   */
+  public destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+
+    this._clearTimeouts();
+
+    if (this.wire) {
+      this.wire.destroy();
+      this.wire = null;
+    }
+
+    if (this.channel) {
+      try {
+        this.channel.close();
+      } catch {
+        // Ignora erros de fechamento
+      }
+      this.channel = null;
+    }
+
+    if (this.pc) {
+      try {
+        this.pc.close();
+      } catch {
+        // Ignora erros de fechamento
+      }
+      this.pc = null;
+    }
+
+    this.connected = false;
+    this.handshakeCompleted = false;
+    this.emit("close");
+  }
+
+  // ==========================================================================
+  // LÓGICA INTERNA (WebRTC)
+  // ==========================================================================
+
+  private _setupPeerConnection(): void {
+    this.pc!.onicecandidate = (event) => {
+      if (event.candidate) {
+        this.emit("signal", new CustomEvent("signal", { detail: { data: event.candidate.toJSON() } }));
+      }
+    };
+
+    this.pc!.onconnectionstatechange = () => {
+      const state = this.pc!.connectionState;
+      if (state === "failed" || state === "closed") {
+        this._onError(new Error(`WebRTC connection ${state}`));
+      }
+    };
+
+    // Se não somos o iniciador, esperamos o outro peer criar o DataChannel
+    if (!this.opts.initiator) {
+      this.pc!.ondatachannel = (event) => {
+        this._setupData(event.channel);
+      };
+    }
+  }
+
+  private async _initiateConnection(): Promise<void> {
+    const channelName = this.opts.channelName || "webtorrent";
+    const channel = this.pc!.createDataChannel(channelName, {
+      ordered: true, // BitTorrent exige ordem nas mensagens de controle
+      negotiated: false,
+    });
+    this._setupData(channel);
+
+    try {
+      const offer = await this.pc!.createOffer();
+      await this.pc!.setLocalDescription(offer);
+      this.emit("signal", new CustomEvent("signal", { detail: { data: offer } }));
+    } catch (err) {
+      this._onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  private _setupData(channel: RTCDataChannel): void {
+    this.channel = channel;
+    this.channel.binaryType = "arraybuffer";
+
+    this.channel.onopen = () => {
+      this._clearConnectTimeout();
+      this.connected = true;
+      this.emit("connect");
+      this._setupWire();
+    };
+
+    this.channel.onclose = () => {
+      if (!this.destroyed) {
+        this.destroy();
+      }
+    };
+
+    this.channel.onerror = () => {
+      this._onError(new Error("DataChannel error"));
+    };
+  }
+
+  // ==========================================================================
+  // LÓGICA INTERNA (Wire Protocol / BitTorrent)
+  // ==========================================================================
+
+  private _setupWire(): void {
+    if (!this.channel) return;
+
+    // Criamos um Transport que adapta o RTCDataChannel para a interface esperada pelo Wire
+    const transport: Transport = {
+      send: (data: Uint8Array) => {
+        if (this.channel && this.channel.readyState === "open") {
+          // 🔥 CORREÇÃO: Extrair um ArrayBuffer estrito para satisfazer os tipos rigorosos do Deno
+          const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+          this.channel.send(arrayBuffer as ArrayBuffer);
+        }
+      },
+      onMessage: (handler: (data: Uint8Array) => void) => {
+        if (this.channel) {
+          this.channel.onmessage = (event) => {
+            const buf = event.data instanceof ArrayBuffer
+              ? new Uint8Array(event.data)
+              : new Uint8Array(event.data);
+            handler(buf);
+          };
+        }
+      },
+      close: () => {
+        if (this.channel) {
+          this.channel.close();
+        }
+      },
+    };
+
+    this.wire = new Wire(transport);
+
+    // Listener do Handshake do BitTorrent
+    this.wire.on("handshake", (e: CustomEvent<{ peerId: Uint8Array; extensions: Uint8Array }>) => {
+      // Converte o peerId remoto (Uint8Array) para string hex para facilitar logs e UI
+      this.id = Array.from(e.detail.peerId).map((b: number) => b.toString(16).padStart(2, "0")).join("");
+      this._clearHandshakeTimeout();
+      this.handshakeCompleted = true;
+      this.emit("handshake", new CustomEvent("handshake", { detail: e.detail }));
+    });
+
+    // Listener de erro do Wire
+    this.wire.on("error", (e: CustomEvent<{ error: Error }>) => {
+      this._onError(e.detail.error);
+    });
+
+    this._startHandshakeTimeout();
+    
+    // Inicia o handshake do BitTorrent
+    this.wire.sendHandshake(this.opts.infoHash, this.opts.peerId);
+  }
+
+  // ==========================================================================
+  // TIMEOUTS E ERROS
+  // ==========================================================================
+
+  private _startConnectTimeout(): void {
+    this.connectTimeoutId = setTimeout(() => {
+      if (!this.connected && !this.destroyed) {
+        this._onError(new Error("WebRTC connection timeout"));
+      }
+    }, 25000) as unknown as number;
+  }
+
+  private _clearConnectTimeout(): void {
+    if (this.connectTimeoutId !== null) {
+      clearTimeout(this.connectTimeoutId);
+      this.connectTimeoutId = null;
+    }
+  }
+
+  private _startHandshakeTimeout(): void {
+    this.handshakeTimeoutId = setTimeout(() => {
+      if (!this.handshakeCompleted && !this.destroyed) {
+        this._onError(new Error("BitTorrent handshake timeout"));
+      }
+    }, 25000) as unknown as number;
+  }
+
+  private _clearHandshakeTimeout(): void {
+    if (this.handshakeTimeoutId !== null) {
+      clearTimeout(this.handshakeTimeoutId);
+      this.handshakeTimeoutId = null;
+    }
+  }
+
+  private _clearTimeouts(): void {
+    this._clearConnectTimeout();
+    this._clearHandshakeTimeout();
+  }
+
+  private _onError(err: Error): void {
+    if (this.destroyed) return;
+    this.emit("error", new CustomEvent("error", { detail: { error: err } }));
+    this.destroy();
+  }
+}
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/src/extensions/ut-metadata.ts`
 
 ```ts
@@ -2891,15 +3179,15 @@ export class UtMetadata extends EventEmitter {
 
 ```ts
 // /loco/monorepo/webtorrent/src/mod.ts
-
 import { TypedEventTarget } from "./utils/event-target.ts";
 import { parseTorrent, ParsedTorrent } from "./utils/parse-torrent.ts";
 import { Torrent } from "./core/torrent.ts";
 import { Swarm } from "./network/swarm.ts";
-import { generateId } from "./crypto/random.ts";
+import { generateLocoPeerId } from "./utils/peerid.ts"; // 🔥 Substitui generateId
 import { OPFSChunkStore } from "./storage/opfs-chunk-store.ts";
 import { MemoryChunkStore } from "./storage/memory-chunk-store.ts";
 import { encode } from "./utils/bencode.ts";
+
 
 export interface WebTorrentEvents {
   torrent: CustomEvent<{ torrent: Torrent }>;
@@ -2908,7 +3196,7 @@ export interface WebTorrentEvents {
 }
 
 export interface WebTorrentOptions {
-  peerId?: string;
+  peerId?: Uint8Array | string; // 🔥 Aceita Uint8Array ou hex string
   maxConns?: number;
   port?: number;
   useOPFS?: boolean;
@@ -2926,9 +3214,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   public readonly peerIdBuffer: Uint8Array;
   public readonly torrents: Map<string, Torrent> = new Map();
   public readonly torrentList: Torrent[] = [];
-  
   private swarms: Map<string, Swarm> = new Map();
-  
   private opts: WebTorrentOptions;
   private destroyed = false;
   private ready = false;
@@ -2936,14 +3222,30 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   constructor(opts: WebTorrentOptions = {}) {
     super();
     this.opts = opts;
+
+    // 🔥 NOVO: Usa a identidade oficial do Loco ("-LO0100-") por padrão
+    let peerIdBuffer: Uint8Array;
     
-    const peerIdHex = opts.peerId || generateId();
-    this.peerId = peerIdHex;
-    this.peerIdBuffer = new Uint8Array(20);
-    for (let i = 0; i < 20; i++) {
-      this.peerIdBuffer[i] = parseInt(peerIdHex.substring(i * 2, i * 2 + 2), 16);
+    if (opts.peerId) {
+      if (typeof opts.peerId === "string") {
+        // Converte hex string para Uint8Array
+        peerIdBuffer = new Uint8Array(20);
+        for (let i = 0; i < 20; i++) {
+          peerIdBuffer[i] = parseInt(opts.peerId.substring(i * 2, i * 2 + 2), 16);
+        }
+      } else {
+        peerIdBuffer = opts.peerId;
+      }
+    } else {
+      // Gera o PeerId oficial do Loco
+      peerIdBuffer = generateLocoPeerId();
     }
-    
+
+    this.peerIdBuffer = peerIdBuffer;
+    this.peerId = Array.from(peerIdBuffer)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
     queueMicrotask(() => {
       this.ready = true;
       this.emit("ready");
@@ -2961,7 +3263,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     if (this.destroyed) throw new Error("WebTorrent client is destroyed");
 
     const parsed = await parseTorrent(torrentId);
-    
+
     if (this.torrents.has(parsed.infoHash)) {
       return this.torrents.get(parsed.infoHash)!;
     }
@@ -2979,14 +3281,11 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
       announce: parsed.announce,
       maxConns: this.opts.maxConns,
       port: this.opts.port,
-      // Se já temos os metadados (ex: .torrent completo), passamos para o Swarm servir via ut_metadata
       metadata: parsed.pieces.length > 0 ? encode(parsed.info) : undefined,
     });
 
-    // 🔥 INTEGRAÇÃO CRÍTICA: Quando o Swarm recebe metadados via ut_metadata, repassa para o Torrent
     swarm.on("metadata", async (e: any) => {
       const metadataBuffer = e.detail.metadata;
-      // O Torrent irá decodificar o Bencode, atualizar arquivos/peças e emitir o evento 'metadata' para a UI
       await torrent.setMetadata(metadataBuffer);
     });
 
@@ -3012,6 +3311,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   async remove(infoHash: string, destroyStore = false): Promise<void> {
     const torrent = this.torrents.get(infoHash);
     const swarm = this.swarms.get(infoHash);
+
     if (!torrent) return;
 
     if (swarm) {
@@ -3020,8 +3320,8 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     }
 
     await torrent.destroy(destroyStore);
-
     this.torrents.delete(infoHash);
+
     const index = this.torrentList.indexOf(torrent);
     if (index !== -1) {
       this.torrentList.splice(index, 1);
@@ -3048,11 +3348,12 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
 
   private async _createChunkStore(parsed: ParsedTorrent): Promise<any> {
     const useOPFS = this.opts.useOPFS !== false;
-    
+
     if (useOPFS && globalThis.navigator?.storage?.getDirectory) {
       try {
         const rootDir = await globalThis.navigator.storage.getDirectory();
         const torrentDir = await rootDir.getDirectoryHandle(`webtorrent-${parsed.infoHash}`, { create: true });
+        
         return new OPFSChunkStore({
           chunkLength: parsed.pieceLength || 16384,
           length: parsed.length || 0,
@@ -3062,7 +3363,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
         console.warn("[WebTorrent] OPFS not available, falling back to memory store:", err);
       }
     }
-    
+
     return new MemoryChunkStore({
       chunkLength: parsed.pieceLength || 16384,
       length: parsed.length || 0,
@@ -3075,7 +3376,12 @@ export { Swarm } from "./network/swarm.ts";
 export { Peer } from "./network/peer.ts";
 export { Wire } from "./core/wire.ts";
 export { parseTorrent } from "./utils/parse-torrent.ts";
+export { decodePeerId, generateLocoPeerId, LOCO_PEER_ID_PREFIX } from "./utils/peerid.ts";
 export type { ParsedTorrent } from "./utils/parse-torrent.ts";
+export type { ClientInfo } from "./utils/peerid.ts";
+
+
+
 ```
 
 ---
@@ -4629,6 +4935,120 @@ Deno.test("torrent: integration - setMetadata handles multi-file torrents correc
   assertEquals(torrent.files[1]!.path, "my-folder/subfolder/doc2.txt");
   assertEquals(torrent.files[1]!.offset, 500);
   assertEquals(torrent.files[1]!.length, 1500);
+});
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/tests/peerid_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/peerid_test.ts
+
+import { assertEquals } from "jsr:@std/assert";
+import {
+  decodePeerId,
+  generateLocoPeerId,
+  LOCO_PEER_ID_PREFIX,
+  isAzStyle,
+  isShadowStyle,
+  getPeerIdClientName,
+} from "../src/utils/peerid.ts";
+
+import { generateRandomString } from "../src/crypto/random.ts";
+
+Deno.test("peerid: LOCO_PEER_ID_PREFIX is correct length", () => {
+  assertEquals(LOCO_PEER_ID_PREFIX, "-LO0100-");
+  assertEquals(LOCO_PEER_ID_PREFIX.length, 8);
+});
+
+Deno.test("peerid: generateLocoPeerId returns exactly 20 bytes", () => {
+  const peerId = generateLocoPeerId();
+  assertEquals(peerId.length, 20);
+  
+  const str = new TextDecoder().decode(peerId);
+  assertEquals(str.startsWith(LOCO_PEER_ID_PREFIX), true);
+});
+
+Deno.test("peerid: decodePeerId correctly parses Loco PeerId", () => {
+  const peerId = generateLocoPeerId();
+  const clientInfo = decodePeerId(peerId);
+  
+  assertEquals(clientInfo?.code, "LO");
+  assertEquals(clientInfo?.name, "Loco");
+  // "0100" -> major: 0, minor: 1, patch: parseInt("00") -> "0"
+  assertEquals(clientInfo?.version, "0.1.0");
+  assertEquals(clientInfo?.style, "azureus");
+});
+
+Deno.test("peerid: decodePeerId correctly parses Azureus style (e.g., qBittorrent)", () => {
+  const peerIdStr = "-qB4520-xxxxxxxxxxxx";
+  const peerId = new TextEncoder().encode(peerIdStr);
+  const clientInfo = decodePeerId(peerId);
+  
+  assertEquals(clientInfo?.code, "qB");
+  assertEquals(clientInfo?.name, "qBittorrent");
+  assertEquals(clientInfo?.version, "4.5.20");
+  assertEquals(clientInfo?.style, "azureus");
+});
+
+Deno.test("peerid: decodePeerId correctly parses Azureus style (e.g., Transmission)", () => {
+  const peerIdStr = "-TR3000-xxxxxxxxxxxx";
+  const peerId = new TextEncoder().encode(peerIdStr);
+  const clientInfo = decodePeerId(peerId);
+  
+  assertEquals(clientInfo?.code, "TR");
+  assertEquals(clientInfo?.name, "Transmission");
+  assertEquals(clientInfo?.version, "3.0.0");
+});
+
+Deno.test("peerid: decodePeerId correctly parses Shadow style (e.g., BitTornado)", () => {
+  const peerIdStr = "T58B-----xxxxxxxxxxx";
+  const peerId = new TextEncoder().encode(peerIdStr);
+  const clientInfo = decodePeerId(peerId);
+  
+  assertEquals(clientInfo?.code, "T");
+  assertEquals(clientInfo?.name, "BitTornado");
+  assertEquals(clientInfo?.style, "shadow");
+});
+
+Deno.test("peerid: decodePeerId returns null for unrecognized PeerId", () => {
+  const peerIdStr = "xxxxxxxxxxxxxxxxxxxx";
+  const peerId = new TextEncoder().encode(peerIdStr);
+  const clientInfo = decodePeerId(peerId);
+  
+  // 🔥 CORREÇÃO: PeerIds que não seguem os padrões Azureus ou Shadow retornam null
+  assertEquals(clientInfo, null);
+});
+
+Deno.test("peerid: getPeerIdClientName returns correct name or fallback", () => {
+  assertEquals(getPeerIdClientName("-qB4520-xxxxxxxxxxxx"), "qBittorrent");
+  assertEquals(getPeerIdClientName("xxxxxxxxxxxxxxxxxxxx"), "Unknown Client");
+});
+
+Deno.test("peerid: isAzStyle validation", () => {
+  assertEquals(isAzStyle("-UT3500-xxxxxxxxxxxx"), true);
+  assertEquals(isAzStyle("UT3500-xxxxxxxxxxxxx"), false);
+  assertEquals(isAzStyle("-UT350-xxxxxxxxxxxxx"), false);
+});
+
+Deno.test("peerid: isShadowStyle validation", () => {
+  assertEquals(isShadowStyle("S58B-----xxxxxxxxxx"), true);
+  assertEquals(isShadowStyle("S58Bxxxxxxxxxxxxxxxx"), false);
+  assertEquals(isShadowStyle("12345---xxxxxxxxxx"), false);
+});
+
+Deno.test("peerid: generateRandomString generates correct length string", () => {
+  const str = generateRandomString(12);
+  assertEquals(str.length, 12);
+  const str2 = generateRandomString(32);
+  assertEquals(str2.length, 32);
+});
+
+Deno.test("peerid: decodePeerId handles short input gracefully", () => {
+  const shortId = new TextEncoder().encode("short");
+  assertEquals(decodePeerId(shortId), null);
+  assertEquals(decodePeerId("short"), null);
 });
 ```
 
