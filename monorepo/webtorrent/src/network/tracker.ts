@@ -1,17 +1,10 @@
 // /loco/monorepo/webtorrent/src/network/tracker.ts
 
-/**
- * Tracker Client para descoberta de peers no Browser/Deno.
- * Substitui o 'bittorrent-tracker' do npm, focando apenas em HTTP e WebSocket.
- * 
- * @module @loco/network/tracker
- */
-
 import { encode, decode, BencodeDict } from "../utils/bencode.ts";
 
 export interface TrackerOptions {
-  infoHash: Uint8Array; // 20 bytes
-  peerId: Uint8Array;   // 20 bytes
+  infoHash: Uint8Array;
+  peerId: Uint8Array;
   port?: number;
   uploaded?: number;
   downloaded?: number;
@@ -24,247 +17,196 @@ export interface TrackerAnnounceEvent {
   event?: "started" | "stopped" | "completed";
 }
 
-export interface TrackerPeer {
-  ip?: string;
-  port?: number;
-  // Para WebSockets, podemos receber ofertas SDP diretamente
-  offerId?: string;
-  offer?: RTCSessionDescriptionInit;
-  peerId?: string;
+export interface TrackerResponse {
+  interval: number;
+  minInterval?: number;
+  complete: number;
+  incomplete: number;
+  peers: { ip: string; port: number }[];
 }
 
-export interface TrackerResponse {
-  complete?: number; // Seeders
-  incomplete?: number; // Leechers
-  interval?: number;
-  peers: TrackerPeer[];
+export interface Tracker {
+  announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse>;
+  destroy(): void;
 }
 
 /**
- * Classe abstrata base para Trackers.
+ * Converte um Uint8Array em uma string de byte único.
+ * Essencial para enviar info_hash e peer_id em URLs de trackers HTTP.
  */
-export abstract class Tracker {
-  protected announceUrl: string;
-  protected opts: TrackerOptions;
+function uint8ArrayToBinaryString(buffer: Uint8Array): string {
+  let result = "";
+  for (let i = 0; i < buffer.length; i++) {
+    result += String.fromCharCode(buffer[i]!);
+  }
+  return result;
+}
 
-  constructor(announceUrl: string, opts: TrackerOptions) {
-    this.announceUrl = announceUrl;
+export class HttpTracker implements Tracker {
+  private baseUrl: string;
+  private opts: TrackerOptions;
+  private abortController: AbortController | null = null;
+
+  constructor(baseUrl: string, opts: TrackerOptions) {
+    this.baseUrl = baseUrl;
     this.opts = opts;
   }
 
-  abstract announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse>;
-  abstract scrape(): Promise<void>;
-  abstract destroy(): void;
-}
-
-/**
- * Tracker HTTP/HTTPS (Usa fetch nativo).
- * O protocolo exige que os parâmetros binários (info_hash, peer_id) sejam 
- * codificados em URL-encoding bruto (não o padrão do encodeURIComponent).
- */
-export class HttpTracker extends Tracker {
-  private timeoutId: number | null = null;
-
   async announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse> {
-    const params = new URLSearchParams();
+    this.abortController = new AbortController();
     
-    // Função helper para codificar bytes brutos na URL (BitTorrent spec)
-    const encodeBinary = (bytes: Uint8Array) => {
-      return Array.from(bytes).map(b => String.fromCharCode(b)).join("");
-    };
+    const queryParams = new URLSearchParams({
+      info_hash: uint8ArrayToBinaryString(this.opts.infoHash),
+      peer_id: uint8ArrayToBinaryString(this.opts.peerId),
+      port: String(this.opts.port || 6881),
+      uploaded: String(this.opts.uploaded || 0),
+      downloaded: String(this.opts.downloaded || 0),
+      left: String(this.opts.left || 0),
+      compact: "1",
+      numwant: String(this.opts.numwant || 50),
+    });
 
-    params.set("info_hash", encodeBinary(this.opts.infoHash));
-    params.set("peer_id", encodeBinary(this.opts.peerId));
-    params.set("port", String(this.opts.port || 6881));
-    params.set("uploaded", String(this.opts.uploaded || 0));
-    params.set("downloaded", String(this.opts.downloaded || 0));
-    params.set("left", String(this.opts.left || 0));
-    params.set("compact", "1");
-    params.set("numwant", String(this.opts.numwant || 80));
-    
     if (event?.event) {
-      params.set("event", event.event);
+      queryParams.set("event", event.event);
     }
 
-    const url = `${this.announceUrl}?${params.toString()}`;
+    const url = `${this.baseUrl}?${queryParams.toString()}`;
 
     try {
-      const controller = new AbortController();
-      this.timeoutId = setTimeout(() => controller.abort(), 15000) as unknown as number;
-
-      const res = await fetch(url, { 
-        signal: controller.signal,
-        headers: { "User-Agent": "LocoWebTorrent/1.0" } 
+      const response = await fetch(url, {
+        signal: this.abortController.signal,
+        headers: { "User-Agent": "Loco-WebTorrent/0.1.0" },
       });
 
-      clearTimeout(this.timeoutId!);
-
-      if (!res.ok) {
-        throw new Error(`Tracker HTTP error: ${res.status}`);
+      if (!response.ok) {
+        throw new Error(`Tracker HTTP error: ${response.status}`);
       }
 
-      const buffer = new Uint8Array(await res.arrayBuffer());
-      const decoded = decode(buffer) as BencodeDict;
+      const buffer = await response.arrayBuffer();
+      const data = decode(new Uint8Array(buffer)) as BencodeDict;
 
-      if (decoded["failure reason"]) {
-        const reason = decoded["failure reason"];
-        const msg = typeof reason === "string" ? reason : new TextDecoder().decode(reason as Uint8Array);
-        throw new Error(`Tracker failure: ${msg}`);
+      const peers: { ip: string; port: number }[] = [];
+      const peersData = data["peers"];
+
+      if (peersData instanceof Uint8Array) {
+        // Formato compacto (6 bytes por peer: 4 IP + 2 Porta)
+        for (let i = 0; i < peersData.length; i += 6) {
+          const ip = `${peersData[i]}.${peersData[i + 1]}.${peersData[i + 2]}.${peersData[i + 3]}`;
+          const port = (peersData[i + 4]! << 8) | peersData[i + 5]!;
+          peers.push({ ip, port });
+        }
+      } else if (Array.isArray(peersData)) {
+        // Formato de dicionário
+        for (const p of peersData) {
+          const peerDict = p as BencodeDict;
+          const ipBytes = peerDict["ip"] as Uint8Array | string;
+          const ip = typeof ipBytes === "string" ? ipBytes : new TextDecoder().decode(ipBytes);
+          peers.push({ ip, port: peerDict["port"] as number });
+        }
       }
 
-      return this.parsePeers(decoded);
+      return {
+        interval: (data["interval"] as number) || 1800,
+        minInterval: data["min interval"] as number | undefined,
+        complete: (data["complete"] as number) || 0,
+        incomplete: (data["incomplete"] as number) || 0,
+        peers,
+      };
     } catch (err) {
-      if (this.timeoutId) clearTimeout(this.timeoutId);
+      if ((err as Error).name === "AbortError") {
+        throw new Error("Tracker announce aborted");
+      }
       throw err;
     }
   }
 
-  private parsePeers(decoded: BencodeDict): TrackerResponse {
-    const peers: TrackerPeer[] = [];
-    const peersData = decoded["peers"];
-
-    if (peersData instanceof Uint8Array) {
-      // Formato Compact (6 bytes por peer: 4 IP + 2 Porta)
-      // Usamos '!' para afirmar ao TypeScript que o índice existe, 
-      // já que sabemos que o length é múltiplo de 6.
-      for (let i = 0; i < peersData.length; i += 6) {
-        const ip = `${peersData[i]!}.${peersData[i + 1]!}.${peersData[i + 2]!}.${peersData[i + 3]!}`;
-        const port = (peersData[i + 4]! << 8) | peersData[i + 5]!;
-        peers.push({ ip, port });
-      }
-    } else if (Array.isArray(peersData)) {
-      // Formato Dictionary (menos comum, mas suportado)
-      for (const p of peersData) {
-        const dict = p as BencodeDict;
-        const ipRaw = dict["ip"];
-        const ip = typeof ipRaw === "string" ? ipRaw : new TextDecoder().decode(ipRaw as Uint8Array);
-        peers.push({ ip, port: dict["port"] as number });
-      }
-    }
-
-    return {
-      complete: decoded["complete"] as number | undefined,
-      incomplete: decoded["incomplete"] as number | undefined,
-      interval: decoded["interval"] as number | undefined,
-      peers,
-    };
-  }
-
-  async scrape(): Promise<void> {
-    // Implementação básica de scrape (opcional para o Loco)
-    throw new Error("Scrape not implemented for HTTP tracker");
-  }
-
   destroy(): void {
-    if (this.timeoutId) clearTimeout(this.timeoutId);
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
   }
 }
 
-/**
- * Tracker WebSocket (wss://).
- * Usa a API nativa WebSocket e JSON para comunicação.
- * Essencial para o WebTorrent no browser, pois permite a troca de ofertas SDP (WebRTC).
- */
-export class WsTracker extends Tracker {
-  private socket: WebSocket | null = null;
-  private pendingRequests: Map<string, { resolve: Function; reject: Function }> = new Map();
+export class WsTracker implements Tracker {
+  private url: string;
+  private opts: TrackerOptions;
+  private ws: WebSocket | null = null;
+  private resolveQueue: Map<string, (value: TrackerResponse) => void> = new Map();
+
+  constructor(url: string, opts: TrackerOptions) {
+    this.url = url;
+    this.opts = opts;
+  }
 
   async announce(event?: TrackerAnnounceEvent): Promise<TrackerResponse> {
     return new Promise((resolve, reject) => {
-      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-        this.socket = new WebSocket(this.announceUrl);
+      try {
+        this.ws = new WebSocket(this.url);
         
-        this.socket.onopen = () => {
-          this.sendAnnounce(event, resolve, reject);
+        this.ws.onopen = () => {
+          const msg = {
+            action: "announce",
+            info_hash: uint8ArrayToBinaryString(this.opts.infoHash),
+            peer_id: uint8ArrayToBinaryString(this.opts.peerId),
+            port: this.opts.port || 6881,
+            uploaded: this.opts.uploaded || 0,
+            downloaded: this.opts.downloaded || 0,
+            left: this.opts.left || 0,
+            compact: 1,
+            numwant: this.opts.numwant || 50,
+            ...(event?.event ? { event: event.event } : {}),
+          };
+          this.ws?.send(JSON.stringify(msg));
         };
 
-        this.socket.onmessage = (msgEvent) => {
-          this.handleMessage(msgEvent.data);
+        this.ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.action === "announce") {
+              const peers: { ip: string; port: number }[] = [];
+              if (Array.isArray(data.peers)) {
+                for (const p of data.peers) {
+                  peers.push({ ip: p.ip || p.ipv4 || p.ipv6, port: p.port });
+                }
+              }
+              
+              const response: TrackerResponse = {
+                interval: data.interval || 1800,
+                complete: data.complete || 0,
+                incomplete: data.incomplete || 0,
+                peers,
+              };
+              
+              resolve(response);
+              this.ws?.close();
+            } else if (data["failure reason"]) {
+              reject(new Error(data["failure reason"]));
+              this.ws?.close();
+            }
+          } catch (err) {
+            reject(err);
+            this.ws?.close();
+          }
         };
 
-        this.socket.onerror = (err) => {
-          reject(new Error("WebSocket tracker error"));
+        this.ws.onerror = () => {
+          reject(new Error("WebSocket connection failed"));
         };
-
-        this.socket.onclose = () => {
-          reject(new Error("WebSocket tracker closed"));
-        };
-      } else {
-        this.sendAnnounce(event, resolve, reject);
+      } catch (err) {
+        reject(err);
       }
     });
   }
 
-  private sendAnnounce(event: TrackerAnnounceEvent | undefined, resolve: Function, reject: Function) {
-    const requestId = crypto.randomUUID();
-    this.pendingRequests.set(requestId, { resolve, reject });
-
-    const payload = {
-      action: "announce",
-      info_hash: Array.from(this.opts.infoHash).map(b => String.fromCharCode(b)).join(""),
-      peer_id: Array.from(this.opts.peerId).map(b => String.fromCharCode(b)).join(""),
-      offers: [], // No browser, we generate WebRTC offers locally and send them here
-      numwant: this.opts.numwant || 5,
-      uploaded: this.opts.uploaded || 0,
-      downloaded: this.opts.downloaded || 0,
-      left: this.opts.left || 0,
-      event: event?.event,
-    };
-
-    this.socket!.send(JSON.stringify(payload));
-  }
-
-  private handleMessage(data: string) {
-    try {
-      const msg = JSON.parse(data);
-      
-      if (msg["failure reason"]) {
-        const req = this.pendingRequests.get(msg.id);
-        if (req) req.reject(new Error(msg["failure reason"]));
-        return;
-      }
-
-      // O tracker WS retorna peers com ofertas WebRTC pré-geradas por outros peers
-      const peers: TrackerPeer[] = (msg.offers || []).map((o: any) => ({
-        offerId: o.offer_id,
-        offer: o.offer,
-        peerId: o.peer_id,
-      }));
-
-      const response: TrackerResponse = {
-        complete: msg.complete,
-        incomplete: msg.incomplete,
-        interval: msg.interval,
-        peers,
-      };
-
-      // Notifica a promise pendente
-      const req = this.pendingRequests.get(msg.id);
-      if (req) {
-        req.resolve(response);
-        this.pendingRequests.delete(msg.id);
-      }
-    } catch (err) {
-      console.warn("[WsTracker] Failed to parse message:", err);
-    }
-  }
-
-  async scrape(): Promise<void> {
-    throw new Error("Scrape not implemented for WS tracker");
-  }
-
   destroy(): void {
-    if (this.socket) {
-      this.socket.close();
-      this.socket = null;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
     }
-    this.pendingRequests.clear();
   }
 }
 
-/**
- * Factory para criar o Tracker correto baseado na URL.
- */
 export function createTracker(announceUrl: string, opts: TrackerOptions): Tracker {
   if (announceUrl.startsWith("http://") || announceUrl.startsWith("https://")) {
     return new HttpTracker(announceUrl, opts);

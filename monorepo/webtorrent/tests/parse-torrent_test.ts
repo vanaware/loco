@@ -1,5 +1,6 @@
 // /loco/monorepo/webtorrent/tests/parse-torrent_test.ts
 
+// ... (mantenha todo o resto do arquivo igual)
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { parseTorrent, ParsedTorrent } from "../src/utils/parse-torrent.ts";
 import { encode, BencodeValue } from "../src/utils/bencode.ts";
@@ -93,11 +94,11 @@ Deno.test("parse-torrent: throws on invalid input", async () => {
     "Invalid torrent identifier"
   );
 });
-
 Deno.test("parse-torrent: returns same object if already parsed", async () => {
   const original: ParsedTorrent = {
     infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
     infoHashBuffer: new Uint8Array(20),
+    name: "Unknown", // 🔥 CORREÇÃO: Adicionado 'name' para satisfazer a interface
     announce: [],
     urlList: [],
     peerAddresses: [],
@@ -108,7 +109,6 @@ Deno.test("parse-torrent: returns same object if already parsed", async () => {
     info: {},
     magnetURI: "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10",
   };
-  
   const result = await parseTorrent(original);
   assertEquals(result, original);
 });

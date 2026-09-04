@@ -1,8 +1,8 @@
 // /loco/monorepo/webtorrent/src/utils/parse-torrent.ts
 
 import { decode, encode, BencodeValue, BencodeDict } from "./bencode.ts";
-import { parseMagnet, encodeMagnet } from "./magnet.ts";
 import { sha1 } from "../crypto/hasher.ts";
+import { parseMagnet, ParsedMagnet } from "./magnet.ts";
 
 export interface ParsedTorrentFile {
   path: string;
@@ -14,7 +14,7 @@ export interface ParsedTorrentFile {
 export interface ParsedTorrent {
   infoHash: string;
   infoHashBuffer: Uint8Array;
-  name?: string;
+  name: string;
   announce: string[];
   urlList: string[];
   peerAddresses: string[];
@@ -56,58 +56,45 @@ export async function parseTorrent(
   throw new Error("Invalid torrent identifier type");
 }
 
-function magnetToParsed(magnet: ReturnType<typeof parseMagnet>): ParsedTorrent {
+function magnetToParsed(magnet: ParsedMagnet): ParsedTorrent {
   return {
     infoHash: magnet.infoHash,
     infoHashBuffer: magnet.infoHashBuffer,
-    name: magnet.name,
-    announce: magnet.trackers,
+    name: magnet.name || "Unknown",
+    announce: magnet.announce,
     urlList: magnet.webSeeds,
     peerAddresses: magnet.peerAddresses,
-    files: [], // Arquivos desconhecidos até baixar metadados via ut_metadata
+    files: [],
     length: 0,
     pieceLength: 0,
     pieces: [],
     info: {},
-    magnetURI: magnet.magnetUri,
+    magnetURI: magnet.magnetURI,
   };
 }
 
 async function bufferToParsed(buffer: Uint8Array): Promise<ParsedTorrent> {
   const torrentObj = decode(buffer) as BencodeDict;
-  
   const info = torrentObj["info"] as BencodeDict | undefined;
+  
   if (!info) {
     throw new Error("Torrent is missing required field: info");
   }
 
-  // 🔥 CRÍTICO: O infoHash é o SHA-1 do dicionário 'info' CODIFICADO EM BENCODE.
-  // Nosso encoder já garante a ordenação lexicográfica das chaves, conforme a spec.
   const infoBuffer = encode(info);
-  const infoHash = await sha1(infoBuffer);
+  const infoHashHex = await sha1(infoBuffer);
   
   const infoHashBuffer = new Uint8Array(20);
   for (let i = 0; i < 20; i++) {
-    infoHashBuffer[i] = parseInt(infoHash.substring(i * 2, i * 2 + 2), 16);
+    infoHashBuffer[i] = parseInt(infoHashHex.substring(i * 2, i * 2 + 2), 16);
   }
 
-  const pieceLength = info["piece length"] as number | undefined;
-  if (typeof pieceLength !== "number") {
-    throw new Error("Torrent is missing required field: info['piece length']");
-  }
-
-  const piecesRaw = info["pieces"];
-  let pieces: Uint8Array[] = [];
+  const pieceLength = info["piece length"] as number;
+  const piecesRaw = info["pieces"] as Uint8Array;
+  const pieces: Uint8Array[] = [];
   
-  if (piecesRaw instanceof Uint8Array) {
-    if (piecesRaw.length % 20 !== 0) {
-      throw new Error("Invalid pieces length (must be multiple of 20)");
-    }
-    for (let i = 0; i < piecesRaw.length; i += 20) {
-      pieces.push(piecesRaw.subarray(i, i + 20));
-    }
-  } else if (typeof piecesRaw === "string") {
-    throw new Error("Pieces must be binary data (Uint8Array)");
+  for (let i = 0; i < piecesRaw.length; i += 20) {
+    pieces.push(piecesRaw.subarray(i, i + 20));
   }
 
   const files: ParsedTorrentFile[] = [];
@@ -115,114 +102,77 @@ async function bufferToParsed(buffer: Uint8Array): Promise<ParsedTorrent> {
   const textDecoder = new TextDecoder();
 
   if (info["files"]) {
-    // Multi-file torrent
     const filesList = info["files"] as BencodeDict[];
     for (const fileDict of filesList) {
       const length = fileDict["length"] as number;
       const pathList = fileDict["path"] as (Uint8Array | string)[];
-      
-      const pathParts = pathList.map((p) => 
-        typeof p === "string" ? p : textDecoder.decode(p)
-      );
-      
+      const pathParts = pathList.map((p) => typeof p === "string" ? p : textDecoder.decode(p));
       const path = pathParts.join("/");
       const name = pathParts[pathParts.length - 1]!;
       
-      files.push({
-        path,
-        name,
-        length,
-        offset: totalLength,
-      });
-      
+      files.push({ path, name, length, offset: totalLength });
       totalLength += length;
     }
   } else {
-    // Single-file torrent
     const length = info["length"] as number;
-    if (typeof length !== "number") {
-      throw new Error("Torrent is missing required field: info.length or info.files");
-    }
-    
     const nameRaw = info["name"];
-    const name = typeof nameRaw === "string" 
-      ? nameRaw 
-      : textDecoder.decode(nameRaw as Uint8Array);
-      
-    files.push({
-      path: name,
-      name,
-      length,
-      offset: 0,
-    });
+    const name = typeof nameRaw === "string" ? nameRaw : textDecoder.decode(nameRaw as Uint8Array);
     
+    files.push({ path: name, name, length, offset: 0 });
     totalLength = length;
   }
 
-  // Extrai trackers (announce e announce-list)
   const announce: string[] = [];
-  const announceSingle = torrentObj["announce"];
-  if (announceSingle) {
-    const url = typeof announceSingle === "string" 
-      ? announceSingle 
-      : textDecoder.decode(announceSingle as Uint8Array);
-    announce.push(url);
+  if (torrentObj["announce"]) {
+    const ann = torrentObj["announce"];
+    if (typeof ann === "string") announce.push(ann);
   }
-  
-  const announceList = torrentObj["announce-list"] as (Uint8Array | string)[][] | undefined;
-  if (announceList) {
-    for (const tier of announceList) {
-      for (const tracker of tier) {
-        const url = typeof tracker === "string" 
-          ? tracker 
-          : textDecoder.decode(tracker);
-        if (!announce.includes(url)) {
-          announce.push(url);
-        }
+  if (torrentObj["announce-list"]) {
+    const list = torrentObj["announce-list"] as (string | Uint8Array)[][];
+    for (const tier of list) {
+      for (const url of tier) {
+        const urlStr = typeof url === "string" ? url : textDecoder.decode(url);
+        if (!announce.includes(urlStr)) announce.push(urlStr);
       }
     }
   }
 
-  // Extrai web seeds (url-list)
   const urlList: string[] = [];
-  const urlListRaw = torrentObj["url-list"];
-  if (urlListRaw) {
-    const list = Array.isArray(urlListRaw) ? urlListRaw : [urlListRaw];
-    for (const url of list) {
-      const decoded = typeof url === "string" ? url : textDecoder.decode(url as Uint8Array);
-      urlList.push(decoded);
+  if (torrentObj["url-list"]) {
+    const urls = torrentObj["url-list"];
+    if (Array.isArray(urls)) {
+      for (const url of urls) {
+        const urlStr = typeof url === "string" ? url : textDecoder.decode(url as Uint8Array);
+        if (!urlList.includes(urlStr)) urlList.push(urlStr);
+      }
+    } else if (typeof urls === "string") {
+      urlList.push(urls);
+    } else {
+      urlList.push(textDecoder.decode(urls as Uint8Array));
     }
   }
 
-  // Extrai metadados opcionais
+  const nameRaw = info["name"];
+  const nameRoot = typeof nameRaw === "string" ? nameRaw : textDecoder.decode(nameRaw as Uint8Array);
+
+  // 🔥 CORREÇÃO: Verificar se é string antes de usar textDecoder.decode
   const commentRaw = torrentObj["comment"];
   const comment = commentRaw 
-    ? (typeof commentRaw === "string" ? commentRaw : textDecoder.decode(commentRaw as Uint8Array))
+    ? typeof commentRaw === "string" 
+      ? commentRaw 
+      : textDecoder.decode(commentRaw as Uint8Array)
     : undefined;
 
   const createdByRaw = torrentObj["created by"];
   const createdBy = createdByRaw
-    ? (typeof createdByRaw === "string" ? createdByRaw : textDecoder.decode(createdByRaw as Uint8Array))
+    ? typeof createdByRaw === "string"
+      ? createdByRaw
+      : textDecoder.decode(createdByRaw as Uint8Array)
     : undefined;
-
-  const nameRootRaw = info["name"];
-  const nameRoot = nameRootRaw
-    ? (typeof nameRootRaw === "string" ? nameRootRaw : textDecoder.decode(nameRootRaw as Uint8Array))
-    : undefined;
-
-  // Gera a Magnet URI equivalente
-  const magnetURI = encodeMagnet({
-    infoHash,
-    infoHashBuffer,
-    name: nameRoot,
-    trackers: announce,
-    webSeeds: urlList,
-    peerAddresses: [],
-  });
 
   return {
-    infoHash,
-    infoHashBuffer,
+    infoHash: infoHashHex,
+    infoHashBuffer: infoHashBuffer,
     name: nameRoot,
     announce,
     urlList,
@@ -232,7 +182,7 @@ async function bufferToParsed(buffer: Uint8Array): Promise<ParsedTorrent> {
     pieceLength,
     pieces,
     info,
-    magnetURI,
+    magnetURI: "",
     comment,
     createdBy,
   };
