@@ -1,14 +1,19 @@
 // /loco/monorepo/webtorrent/src/extensions/ut-metadata.ts
 
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 import { encode, decode, BencodeDict } from "../utils/bencode.ts";
 import { Bitfield } from "../core/bitfield.ts";
 
 const MAX_METADATA_SIZE = 10_000_000;
 const PIECE_LENGTH = 16384;
 
+export interface UtMetadataOptions {
+  metadata?: Uint8Array;
+}
+
 export class UtMetadata extends EventEmitter {
   public name = "ut_metadata";
+  
   private _wire: any;
   private _fetching = false;
   private _metadataComplete = false;
@@ -17,47 +22,42 @@ export class UtMetadata extends EventEmitter {
   private _remainingRejects = 0;
   private _bitfield: Bitfield;
   public metadata: Uint8Array | null = null;
-  private _infoHash: string | null = null;
 
-  constructor(wire: any) {
+  constructor(wire: any, opts?: UtMetadataOptions) {
     super();
     this._wire = wire;
-    // 🔥 CORREÇÃO: Nossa implementação de Bitfield aceita apenas o tamanho (length).
     this._bitfield = new Bitfield(0);
+    if (opts?.metadata) {
+      this.setMetadata(opts.metadata);
+    }
   }
 
-  onHandshake(infoHash: string, _peerId: string, _extensions: any) {
-    this._infoHash = infoHash;
+  public onHandshake(_infoHash: string, _peerId: string, _extensions: any) {
+    // Opcional
   }
 
-  onExtendedHandshake(handshake: any) {
-    if (handshake.m && handshake.m.ut_metadata) {
-      if (handshake.metadata_size) {
-        if (
-          typeof handshake.metadata_size !== "number" ||
-          handshake.metadata_size > MAX_METADATA_SIZE ||
-          handshake.metadata_size <= 0
-        ) {
-          this.emit("warning", new Error("Peer gave invalid metadata size"));
-        } else {
-          this._metadataSize = handshake.metadata_size;
-          // 🔥 CORREÇÃO: Non-null assertion para agradar o TypeScript, 
-          // pois já validamos que é um número > 0 acima.
-          this._numPieces = Math.ceil(this._metadataSize! / PIECE_LENGTH);
-          this._remainingRejects = 2 * this._numPieces;
-          this._requestPieces();
-        }
+  public onExtendedHandshake(handshake: any) {
+    if (handshake.m && typeof handshake.m.ut_metadata === "number") {
+      if (typeof handshake.metadata_size !== "number" || handshake.metadata_size > MAX_METADATA_SIZE || handshake.metadata_size <= 0) {
+        this.emit("warning", new Error("Peer gave invalid metadata size"));
       } else {
-        this.emit("warning", new Error("Peer does not have metadata"));
+        const size = handshake.metadata_size;
+        this._metadataSize = size;
+        this._numPieces = Math.ceil(size / PIECE_LENGTH);
+        this._remainingRejects = 2 * this._numPieces;
+        this._bitfield = new Bitfield(this._numPieces);
+        // 🔥 CORREÇÃO: Definir _fetching como true antes de solicitar peças
+        this._fetching = true;
+        this._requestPieces();
       }
     } else {
       this.emit("warning", new Error("Peer does not support ut_metadata"));
     }
   }
 
-  onMessage(buf: Uint8Array) {
-    let dict: any;
-    let trailer: Uint8Array | undefined;
+  public onMessage(buf: Uint8Array) {
+    let dict: BencodeDict;
+    let trailer: Uint8Array;
     try {
       const str = new TextDecoder().decode(buf);
       const trailerIndex = str.indexOf("ee") + 2;
@@ -69,56 +69,57 @@ export class UtMetadata extends EventEmitter {
 
     switch (dict.msg_type) {
       case 0:
-        this._onRequest(dict.piece);
+        this._onRequest(dict.piece as number);
         break;
       case 1:
-        this._onData(dict.piece, trailer!, dict.total_size);
+        this._onData(dict.piece as number, trailer, dict.total_size as number | undefined);
         break;
       case 2:
-        this._onReject(dict.piece);
+        this._onReject(dict.piece as number);
+        break;
     }
   }
 
-  fetch() {
+  public fetch() {
     if (!this._metadataComplete) {
       this._fetching = true;
-      if (this._metadataSize) this._requestPieces();
+      if (this._metadataSize) {
+        this._requestPieces();
+      }
     }
   }
 
-  cancel() {
+  public cancel() {
     this._fetching = false;
   }
 
-  setMetadata(metadata: Uint8Array): boolean {
+  public setMetadata(newMetadata: Uint8Array): boolean {
     if (this._metadataComplete) return true;
     
+    let validMetadata = newMetadata;
     try {
-      const info = (decode(metadata) as BencodeDict).info;
-      if (info) {
-        metadata = encode(info);
+      const decoded = decode(newMetadata) as BencodeDict;
+      if (decoded && (decoded as any).info) {
+        validMetadata = encode((decoded as any).info);
       }
     } catch (err) {
-      // Ignora erros de parsing, usa o buffer cru
+      // Ignora erros de decode, usa o buffer cru
     }
 
-    // Nota: A verificação de hash SHA-1 síncrona não é viável no browser/Deno 
-    // com WebCrypto. Confiamos na integridade do bencode e no tamanho.
     this.cancel();
-    this.metadata = metadata;
+    this.metadata = validMetadata;
     this._metadataComplete = true;
     this._metadataSize = this.metadata.length;
     
-    // @ts-ignore: extendedHandshake pode não estar tipado, mas existe no wire
     if (this._wire.extendedHandshake) {
       this._wire.extendedHandshake.metadata_size = this._metadataSize;
     }
     
-    this.emit("metadata", encode({ info: decode(this.metadata) }));
+    this.emit("metadata", this.metadata);
     return true;
   }
 
-  _send(dict: BencodeDict, trailer?: Uint8Array) {
+  private _send(dict: BencodeDict, trailer?: Uint8Array) {
     let buf = encode(dict);
     if (trailer) {
       const combined = new Uint8Array(buf.length + trailer.length);
@@ -129,11 +130,11 @@ export class UtMetadata extends EventEmitter {
     this._wire.extended("ut_metadata", buf);
   }
 
-  _request(piece: number) {
+  private _request(piece: number) {
     this._send({ msg_type: 0, piece });
   }
 
-  _data(piece: number, buf: Uint8Array, totalSize?: number) {
+  private _data(piece: number, buf: Uint8Array, totalSize?: number) {
     const msg: BencodeDict = { msg_type: 1, piece };
     if (typeof totalSize === "number") {
       (msg as any).total_size = totalSize;
@@ -141,37 +142,36 @@ export class UtMetadata extends EventEmitter {
     this._send(msg, buf);
   }
 
-  _reject(piece: number) {
+  private _reject(piece: number) {
     this._send({ msg_type: 2, piece });
   }
 
-  _onRequest(piece: number) {
-    if (!this._metadataComplete) {
-      this._reject(piece);
-      return;
+  private _onRequest(piece: number) {
+    if (!this._metadataComplete || !this._metadataSize) {
+      return this._reject(piece);
     }
     const start = piece * PIECE_LENGTH;
     let end = start + PIECE_LENGTH;
-    if (end > this._metadataSize!) {
-      end = this._metadataSize!;
+    if (end > this._metadataSize) {
+      end = this._metadataSize;
     }
     const buf = this.metadata!.slice(start, end);
-    this._data(piece, buf, this._metadataSize!);
+    this._data(piece, buf, this._metadataSize);
   }
 
-  _onData(piece: number, buf: Uint8Array, _totalSize?: number) {
-    if (buf.length > PIECE_LENGTH || !this._fetching) return;
+  private _onData(piece: number, buf: Uint8Array, _totalSize?: number) {
+    if (buf.length > PIECE_LENGTH || !this._fetching || !this._metadataSize) return;
+    
     if (!this.metadata) {
-      this.metadata = new Uint8Array(this._metadataSize!);
+      this.metadata = new Uint8Array(this._metadataSize);
     }
-    // 🔥 CORREÇÃO: Usando .set() nativo do Uint8Array em vez de .copy() do Node.js
-    buf.copy(this.metadata, piece * PIECE_LENGTH); // Nota: Uint8Array.copy existe no Deno/Node, mas .set é mais universal.
+    this.metadata.set(buf, piece * PIECE_LENGTH);
     this._bitfield.set(piece);
     this._checkDone();
   }
 
-  _onReject(piece: number) {
-    if (0 < this._remainingRejects && this._fetching) {
+  private _onReject(piece: number) {
+    if (this._remainingRejects > 0 && this._fetching) {
       this._request(piece);
       this._remainingRejects -= 1;
     } else {
@@ -179,16 +179,16 @@ export class UtMetadata extends EventEmitter {
     }
   }
 
-  _requestPieces() {
-    if (this._fetching) {
-      this.metadata = new Uint8Array(this._metadataSize!);
+  private _requestPieces() {
+    if (this._fetching && this._metadataSize) {
+      this.metadata = new Uint8Array(this._metadataSize);
       for (let piece = 0; piece < this._numPieces; piece++) {
         this._request(piece);
       }
     }
   }
 
-  _checkDone() {
+  private _checkDone() {
     let done = true;
     for (let piece = 0; piece < this._numPieces; piece++) {
       if (!this._bitfield.get(piece)) {
@@ -196,19 +196,19 @@ export class UtMetadata extends EventEmitter {
         break;
       }
     }
-    if (done) {
-      const success = this.setMetadata(this.metadata!);
+    if (done && this.metadata) {
+      const success = this.setMetadata(this.metadata);
       if (!success) {
         this._failedMetadata();
       }
     }
   }
 
-  _failedMetadata() {
-    // 🔥 CORREÇÃO: Bitfield aceita apenas o tamanho.
-    this._bitfield = new Bitfield(0);
+  private _failedMetadata() {
+    if (!this._metadataSize) return;
+    this._bitfield = new Bitfield(this._numPieces);
     this._remainingRejects -= this._numPieces;
-    if (0 < this._remainingRejects) {
+    if (this._remainingRejects > 0) {
       this._requestPieces();
     } else {
       this.emit("warning", new Error("Peer sent invalid metadata"));

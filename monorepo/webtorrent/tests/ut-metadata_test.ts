@@ -6,39 +6,40 @@ import { encode } from "../src/utils/bencode.ts";
 
 class MockWire {
   public extendedHandshake: any = { metadata_size: 100 };
-  public extendedCalls: { name: string; payload: Uint8Array }[] = [];
+  public extendedCalls: { type: string; payload: Uint8Array }[] = [];
 
-  extended(name: string, payload: Uint8Array) {
-    this.extendedCalls.push({ name, payload });
+  extended(type: string, payload: Uint8Array) {
+    this.extendedCalls.push({ type, payload });
   }
 }
 
 Deno.test("ut-metadata: initializes correctly", () => {
   const mockWire = new MockWire();
-  const ut = new UtMetadata(mockWire as any);
+  const ut = new UtMetadata(mockWire);
+  assertEquals(ut.name, "ut_metadata");
   assertEquals(ut.metadata, null);
 });
 
 Deno.test("ut-metadata: processes extended handshake", () => {
   const mockWire = new MockWire();
-  const ut = new UtMetadata(mockWire as any);
+  const ut = new UtMetadata(mockWire);
 
   ut.onExtendedHandshake({
     m: { ut_metadata: 1 },
     metadata_size: 50000,
   });
 
-  assertEquals(mockWire.extendedCalls.length > 0, true);
+  // 50000 bytes / 16384 = 3.05 -> 4 peças. Deve ter solicitado 4 vezes.
+  assertEquals(mockWire.extendedCalls.length, 4);
 });
 
 Deno.test("ut-metadata: rejects invalid metadata size", () => {
   const mockWire = new MockWire();
-  const ut = new UtMetadata(mockWire as any);
+  const ut = new UtMetadata(mockWire);
   let warningEmitted = false;
 
-  // 🔥 CORREÇÃO: Usar addEventListener nativo do EventTarget
-  ut.addEventListener("warning", () => { warningEmitted = true; });
-  
+  ut.on("warning", () => { warningEmitted = true; });
+
   ut.onExtendedHandshake({
     metadata_size: -1,
     m: { ut_metadata: 1 },
@@ -49,9 +50,15 @@ Deno.test("ut-metadata: rejects invalid metadata size", () => {
 
 Deno.test("ut-metadata: setMetadata marks as complete", () => {
   const mockWire = new MockWire();
-  const ut = new UtMetadata(mockWire as any);
+  const ut = new UtMetadata(mockWire);
+  
+  // Buffer inválido de propósito para testar a resiliência do try/catch
   const fakeMetadata = new Uint8Array(100).fill(42);
 
-  ut.setMetadata(fakeMetadata);
+  // 🔥 CORREÇÃO: Isso não deve mais travar o sistema, pois o decode falho é capturado
+  // e o evento "metadata" é emitido com o buffer bruto, sem reprocessamento inseguro.
+  const result = ut.setMetadata(fakeMetadata);
+  
+  assertEquals(result, true);
   assertEquals(ut.metadata, fakeMetadata);
 });

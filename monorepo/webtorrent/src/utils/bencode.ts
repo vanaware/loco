@@ -1,20 +1,5 @@
 // /loco/monorepo/webtorrent/src/utils/bencode.ts
 
-/**
- * Utilitário Bencode puro para Browser/Deno.
- * Substitui o pacote 'bencode' do npm.
- * 
- * Tipos suportados:
- * - Strings: Representadas como string (UTF-8) ou Uint8Array (bytes brutos)
- * - Inteiros: number ou bigint (para tamanhos de torrent > 9PB)
- * - Listas: Array de BencodeValue
- * - Dicionários: Record<string, BencodeValue>
- */
-
-// ============================================================================
-// TIPOS EXPORTADOS (Usando interfaces para evitar TS2456 em tipos recursivos)
-// ============================================================================
-
 export interface BencodeDict {
   [key: string]: BencodeValue;
 }
@@ -22,10 +7,6 @@ export interface BencodeDict {
 export interface BencodeList extends Array<BencodeValue> {}
 
 export type BencodeValue = string | number | bigint | Uint8Array | BencodeList | BencodeDict;
-
-// ============================================================================
-// IMPLEMENTAÇÃO
-// ============================================================================
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -57,6 +38,10 @@ class BencodeDecoder {
   constructor(private readonly data: Uint8Array) {}
 
   public decode(): BencodeValue {
+    if (this.pos >= this.data.length) {
+      throw new Error("Unexpected end of data");
+    }
+    
     const char = this.data[this.pos]!;
     
     if (char === 105) return this.decodeInteger(); // 'i'
@@ -69,14 +54,16 @@ class BencodeDecoder {
   private decodeInteger(): number | bigint {
     this.pos++;
     let end = this.pos;
-    while (this.data[end] !== 101) {
+    while (end < this.data.length && this.data[end] !== 101) { // 101 é 'e'
       end++;
+    }
+    if (end >= this.data.length) {
+      throw new Error("Invalid integer format: missing 'e'");
     }
     const numStr = decoder.decode(this.data.subarray(this.pos, end));
     this.pos = end + 1;
     
     const num = Number(numStr);
-    // Retorna bigint se exceder o limite de inteiro seguro do JS (comum em tamanhos de torrent)
     if (Number.isSafeInteger(num)) {
       return num;
     }
@@ -85,43 +72,44 @@ class BencodeDecoder {
 
   private decodeString(): Uint8Array | string {
     let end = this.pos;
-    while (this.data[end] !== 58) {
+    while (end < this.data.length && this.data[end] !== 58) { // 58 é ':'
       end++;
+    }
+    if (end >= this.data.length) {
+      throw new Error("Invalid string format: missing ':'");
     }
     const lenStr = decoder.decode(this.data.subarray(this.pos, end));
     const len = parseInt(lenStr, 10);
     this.pos = end + 1;
     
+    if (this.pos + len > this.data.length) {
+      throw new Error("String length exceeds buffer size");
+    }
+    
     const bytes = this.data.subarray(this.pos, this.pos + len);
     this.pos += len;
     
-    // Heurística aprimorada para distinguir texto de dados binários (ex: hashes SHA-1)
     try {
       const str = decoder.decode(bytes);
-      
-      // 1. Se houver caractere de substituição, é binário inválido em UTF-8
-      if (str.includes('\uFFFD')) {
-        return bytes;
+      // 🔥 CORREÇÃO: Verifica se é UTF-8 válido E não contém caracteres de controle 
+      // (comuns em hashes binários e dados de peças, como o byte nulo 0x00)
+      if (!str.includes('\uFFFD') && !/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(str)) {
+        return str;
       }
-      
-      // 2. Se houver caracteres de controle ASCII (ex: byte nulo 0x00, comum em hashes), 
-      // tratamos como binário. Metadados de texto legíveis de torrent raramente os possuem.
-      if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(str)) {
-        return bytes;
-      }
-      
-      return str;
     } catch {
-      // Fallback seguro para binário em caso de falha na decodificação
-      return bytes;
+      // Ignora e retorna Uint8Array em caso de falha na decodificação
     }
+    return bytes;
   }
 
   private decodeList(): BencodeList {
     this.pos++;
     const list: BencodeValue[] = [];
-    while (this.data[this.pos] !== 101) {
+    while (this.pos < this.data.length && this.data[this.pos] !== 101) { // 101 é 'e'
       list.push(this.decode());
+    }
+    if (this.pos >= this.data.length) {
+      throw new Error("Invalid list format: missing 'e'");
     }
     this.pos++;
     return list as BencodeList;
@@ -130,10 +118,13 @@ class BencodeDecoder {
   private decodeDict(): BencodeDict {
     this.pos++;
     const dict: BencodeDict = {};
-    while (this.data[this.pos] !== 101) {
+    while (this.pos < this.data.length && this.data[this.pos] !== 101) { // 101 é 'e'
       const keyBytes = this.decodeString();
       const key = typeof keyBytes === 'string' ? keyBytes : decoder.decode(keyBytes);
       dict[key] = this.decode();
+    }
+    if (this.pos >= this.data.length) {
+      throw new Error("Invalid dict format: missing 'e'");
     }
     this.pos++;
     return dict;
@@ -159,8 +150,6 @@ function _encodeValue(value: BencodeValue, parts: Uint8Array[]): void {
   } else if (typeof value === 'object' && value !== null) {
     parts.push(encoder.encode("d"));
     
-    // CRÍTICO: As chaves do dicionário DEVEM ser ordenadas lexicograficamente
-    // para que o info_hash do torrent seja consistente entre todos os clientes.
     const keys = Object.keys(value).sort((a, b) => {
       if (a < b) return -1;
       if (a > b) return 1;
