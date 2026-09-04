@@ -8,7 +8,7 @@ Deno.test("chunk-store: put and get chunk", async () => {
   const chunk = new Uint8Array(1024).fill(42);
   
   await store.put(0, chunk);
-  const retrieved = (await store.get(0)) as Uint8Array;
+  const retrieved = await store.get(0);
   
   assertEquals(retrieved.length, 1024);
   assertEquals(retrieved[0], 42);
@@ -21,7 +21,7 @@ Deno.test("chunk-store: get with offset and length", async () => {
   for (let i = 0; i < 1024; i++) chunk[i] = i % 256;
   
   await store.put(0, chunk);
-  const sliced = (await store.get(0, { offset: 100, length: 50 })) as Uint8Array;
+  const sliced = await store.get(0, { offset: 100, length: 50 });
   
   assertEquals(sliced.length, 50);
   assertEquals(sliced[0], 100);
@@ -33,7 +33,7 @@ Deno.test("chunk-store: throws on invalid chunk length", async () => {
   const invalidChunk = new Uint8Array(512);
   
   await assertRejects(
-    () => store.put(0, invalidChunk),
+    async () => await store.put(0, invalidChunk),
     Error,
     "Invalid chunk length"
   );
@@ -43,7 +43,7 @@ Deno.test("chunk-store: throws on chunk not found", async () => {
   const store = new MemoryChunkStore({ chunkLength: 1024 });
   
   await assertRejects(
-    () => store.get(999),
+    async () => await store.get(999),
     Error,
     "not found"
   );
@@ -60,7 +60,7 @@ Deno.test("chunk-store: handles last chunk with different length", async () => {
   await store.put(1, chunk1);
   await store.put(2, chunk2);
   
-  const retrieved2 = (await store.get(2)) as Uint8Array;
+  const retrieved2 = await store.get(2);
   assertEquals(retrieved2.length, 452);
   assertEquals(retrieved2[0], 3);
 });
@@ -70,7 +70,7 @@ Deno.test("chunk-store: close prevents further operations", async () => {
   await store.close();
   
   await assertRejects(
-    () => store.put(0, new Uint8Array(1024)),
+    async () => await store.put(0, new Uint8Array(1024)),
     Error,
     "closed"
   );
@@ -82,7 +82,7 @@ Deno.test("chunk-store: destroy clears all chunks", async () => {
   await store.destroy();
   
   await assertRejects(
-    () => store.get(0),
+    async () => await store.get(0),
     Error,
     "closed"
   );

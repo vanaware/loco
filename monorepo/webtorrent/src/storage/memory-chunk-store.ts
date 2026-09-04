@@ -28,25 +28,24 @@ export class MemoryChunkStore implements ChunkStore {
     }
   }
 
-  async get(index: number, opts?: { offset?: number; length?: number }): Promise<Uint8Array>;
-  async get(index: number, cb: (err: Error | null, buf?: Uint8Array) => void): void;
-  async get(index: number, opts: { offset?: number; length?: number }, cb: (err: Error | null, buf?: Uint8Array) => void): void;
-  async get(
-    index: number,
-    optsOrCb?: { offset?: number; length?: number } | ((err: Error | null, buf?: Uint8Array) => void),
-    cb?: (err: Error | null, buf?: Uint8Array) => void
-  ): Promise<Uint8Array> | void {
-    const opts = typeof optsOrCb === "function" ? undefined : optsOrCb;
+  // ── Overloads ──
+  get(index: number, opts?: { offset?: number; length?: number }): Promise<Uint8Array>;
+  get(index: number, cb: (err: Error | null, buf?: Uint8Array) => void): void;
+  get(index: number, opts: { offset?: number; length?: number }, cb: (err: Error | null, buf?: Uint8Array) => void): void;
+  
+  // ── Implementation (SEM a palavra-chave 'async') ──
+  get(index: number, optsOrCb?: any, cb?: any): Promise<Uint8Array> | void {
+    const opts = typeof optsOrCb === "object" ? optsOrCb : undefined;
     const callback = typeof optsOrCb === "function" ? optsOrCb : cb;
 
     if (callback) {
       this._getAsync(index, opts)
         .then((buf) => callback(null, buf))
         .catch((err) => callback(err));
-      return;
+      return; // Retorna void para a assinatura do callback
     }
 
-    return this._getAsync(index, opts);
+    return this._getAsync(index, opts); // Retorna Promise<Uint8Array>
   }
 
   private async _getAsync(index: number, opts?: { offset?: number; length?: number }): Promise<Uint8Array> {
@@ -68,12 +67,12 @@ export class MemoryChunkStore implements ChunkStore {
     return buf;
   }
 
-  async put(index: number, buf: Uint8Array, cb?: (err: Error | null) => void): void | Promise<void> {
+  async put(index: number, buf: Uint8Array, cb?: (err: Error | null) => void): Promise<void> {
+    const promise = this._putAsync(index, buf);
     if (cb) {
-      this._putAsync(index, buf).then(() => cb(null)).catch((err) => cb(err));
-      return;
+      promise.then(() => cb(null)).catch((err) => cb(err));
     }
-    return this._putAsync(index, buf);
+    return promise;
   }
 
   private async _putAsync(index: number, buf: Uint8Array): Promise<void> {
@@ -89,12 +88,12 @@ export class MemoryChunkStore implements ChunkStore {
     this.chunks.set(index, buf);
   }
 
-  async close(cb?: (err: Error | null) => void): void | Promise<void> {
+  async close(cb?: (err: Error | null) => void): Promise<void> {
+    const promise = this._closeAsync();
     if (cb) {
-      this._closeAsync().then(() => cb(null)).catch((err) => cb(err));
-      return;
+      promise.then(() => cb(null)).catch((err) => cb(err));
     }
-    return this._closeAsync();
+    return promise;
   }
 
   private async _closeAsync(): Promise<void> {
@@ -103,12 +102,12 @@ export class MemoryChunkStore implements ChunkStore {
     this.chunks.clear();
   }
 
-  async destroy(cb?: (err: Error | null) => void): void | Promise<void> {
+  async destroy(cb?: (err: Error | null) => void): Promise<void> {
+    const promise = this._destroyAsync();
     if (cb) {
-      this._destroyAsync().then(() => cb(null)).catch((err) => cb(err));
-      return;
+      promise.then(() => cb(null)).catch((err) => cb(err));
     }
-    return this._destroyAsync();
+    return promise;
   }
 
   private async _destroyAsync(): Promise<void> {

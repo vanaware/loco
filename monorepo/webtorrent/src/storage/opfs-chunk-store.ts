@@ -7,9 +7,9 @@ export interface ChunkStore {
   get(index: number, opts?: { offset?: number; length?: number }): Promise<Uint8Array>;
   get(index: number, cb: (err: Error | null, buf?: Uint8Array) => void): void;
   get(index: number, opts: { offset?: number; length?: number }, cb: (err: Error | null, buf?: Uint8Array) => void): void;
-  put(index: number, buf: Uint8Array, cb?: (err: Error | null) => void): void | Promise<void>;
-  close(cb?: (err: Error | null) => void): void | Promise<void>;
-  destroy(cb?: (err: Error | null) => void): void | Promise<void>;
+  put(index: number, buf: Uint8Array, cb?: (err: Error | null) => void): Promise<void>;
+  close(cb?: (err: Error | null) => void): Promise<void>;
+  destroy(cb?: (err: Error | null) => void): Promise<void>;
 }
 
 export interface ChunkStoreOptions {
@@ -47,23 +47,21 @@ export class OPFSChunkStore implements ChunkStore {
     }
   }
 
-  async get(index: number, opts?: { offset?: number; length?: number }): Promise<Uint8Array>;
-  async get(index: number, cb: (err: Error | null, buf?: Uint8Array) => void): void;
-  async get(index: number, opts: { offset?: number; length?: number }, cb: (err: Error | null, buf?: Uint8Array) => void): void;
-  async get(
-    index: number,
-    optsOrCb?: { offset?: number; length?: number } | ((err: Error | null, buf?: Uint8Array) => void),
-    cb?: (err: Error | null, buf?: Uint8Array) => void
-  ): Promise<Uint8Array> | void {
+  // ── Overloads ──
+  get(index: number, opts?: { offset?: number; length?: number }): Promise<Uint8Array>;
+  get(index: number, cb: (err: Error | null, buf?: Uint8Array) => void): void;
+  get(index: number, opts: { offset?: number; length?: number }, cb: (err: Error | null, buf?: Uint8Array) => void): void;
+  
+  // ── Implementation (SEM a palavra-chave 'async') ──
+  get(index: number, optsOrCb?: any, cb?: any): Promise<Uint8Array> | void {
     if (this.fallbackStore) {
-      // Fallback delegation simplificada para testes
       if (typeof optsOrCb === "function") {
         return this.fallbackStore.get(index, optsOrCb);
       }
       return this.fallbackStore.get(index, optsOrCb as any, cb as any);
     }
 
-    const opts = typeof optsOrCb === "function" ? undefined : optsOrCb;
+    const opts = typeof optsOrCb === "object" ? optsOrCb : undefined;
     const callback = typeof optsOrCb === "function" ? optsOrCb : cb;
 
     if (callback) {
@@ -112,12 +110,12 @@ export class OPFSChunkStore implements ChunkStore {
     }
   }
 
-  async put(index: number, buf: Uint8Array, cb?: (err: Error | null) => void): void | Promise<void> {
+  async put(index: number, buf: Uint8Array, cb?: (err: Error | null) => void): Promise<void> {
+    const promise = this._putAsync(index, buf);
     if (cb) {
-      this._putAsync(index, buf).then(() => cb(null)).catch((err) => cb(err));
-      return;
+      promise.then(() => cb(null)).catch((err) => cb(err));
     }
-    return this._putAsync(index, buf);
+    return promise;
   }
 
   private async _putAsync(index: number, buf: Uint8Array): Promise<void> {
@@ -137,21 +135,21 @@ export class OPFSChunkStore implements ChunkStore {
       const fileHandle = await this.rootDir.getFileHandle(fileName, { create: true });
       const writable = await fileHandle.createWritable();
       
-      // 🔥 CORREÇÃO: Extrair ArrayBuffer estrito do Uint8Array para satisfazer o Deno
-      const strictArrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-      await writable.write(strictArrayBuffer);
+      // Cast explícito para satisfazer o Deno
+      const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+      await writable.write(arrayBuffer);
       await writable.close();
     } catch (err) {
       throw new Error(`Failed to write chunk ${index}: ${err}`);
     }
   }
 
-  async close(cb?: (err: Error | null) => void): void | Promise<void> {
+  async close(cb?: (err: Error | null) => void): Promise<void> {
+    const promise = this._closeAsync();
     if (cb) {
-      this._closeAsync().then(() => cb(null)).catch((err) => cb(err));
-      return;
+      promise.then(() => cb(null)).catch((err) => cb(err));
     }
-    return this._closeAsync();
+    return promise;
   }
 
   private async _closeAsync(): Promise<void> {
@@ -160,12 +158,12 @@ export class OPFSChunkStore implements ChunkStore {
     this.rootDir = null;
   }
 
-  async destroy(cb?: (err: Error | null) => void): void | Promise<void> {
+  async destroy(cb?: (err: Error | null) => void): Promise<void> {
+    const promise = this._destroyAsync();
     if (cb) {
-      this._destroyAsync().then(() => cb(null)).catch((err) => cb(err));
-      return;
+      promise.then(() => cb(null)).catch((err) => cb(err));
     }
-    return this._destroyAsync();
+    return promise;
   }
 
   private async _destroyAsync(): Promise<void> {
@@ -179,7 +177,7 @@ export class OPFSChunkStore implements ChunkStore {
         if (entry.kind === "file") {
           await this.rootDir.removeEntry(entry.name);
         }
-        }
+      }
     } catch (err) {
       console.warn("[OPFSChunkStore] Error during destroy:", err);
     }
