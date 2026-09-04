@@ -1,205 +1,183 @@
 // /loco/monorepo/webtorrent/src/utils/bencode.ts
 
 /**
- * @module @loco/utils/bencode
- * @description
- * Implementação completa, nativa e estritamente tipada de Bencode para o Loco.
- * Bencode é o formato de serialização utilizado pelo BitTorrent para arquivos .torrent
- * e para a comunicação do protocolo Wire (DHT, PEX, etc).
+ * Utilitário Bencode puro para Browser/Deno.
+ * Substitui o pacote 'bencode' do npm.
  * 
- * Este módulo lida corretamente com o `noUncheckedIndexedAccess` do TypeScript,
- * evitando erros de compilação ao acessar chaves de objetos dinâmicos e omitindo
- * valores `undefined` conforme a especificação do BitTorrent.
+ * Tipos suportados:
+ * - Strings: Representadas como string (UTF-8) ou Uint8Array (bytes brutos)
+ * - Inteiros: number ou bigint (para tamanhos de torrent > 9PB)
+ * - Listas: Array de BencodeValue
+ * - Dicionários: Record<string, BencodeValue>
  */
 
-export type BencodeValue =
-  | string
-  | number
-  | bigint
-  | Uint8Array
-  | BencodeValue[]
-  | { [key: string]: BencodeValue };
+// ============================================================================
+// TIPOS EXPORTADOS (Usando interfaces para evitar TS2456 em tipos recursivos)
+// ============================================================================
 
-const TEXT_ENCODER = new TextEncoder();
-const TEXT_DECODER = new TextDecoder();
+export interface BencodeDict {
+  [key: string]: BencodeValue;
+}
 
-/**
- * Codifica um valor JavaScript em um Uint8Array no formato Bencode.
- * 
- * @param value - O valor a ser codificado
- * @returns Uint8Array contendo os dados Bencode
- * @throws Error se o valor for null, undefined ou de tipo não suportado
- */
-export function encode(value: BencodeValue): Uint8Array {
-  const parts: (string | Uint8Array)[] = [];
-  _encodeValue(value, parts);
+export interface BencodeList extends Array<BencodeValue> {}
 
-  // Calcula o tamanho total para alocar o buffer final de uma vez (performance)
-  let totalLength = 0;
-  for (const part of parts) {
-    totalLength += typeof part === 'string' ? TEXT_ENCODER.encode(part).length : part.length;
-  }
+export type BencodeValue = string | number | bigint | Uint8Array | BencodeList | BencodeDict;
 
+// ============================================================================
+// IMPLEMENTAÇÃO
+// ============================================================================
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+export function decode(data: Uint8Array): BencodeValue {
+  const parser = new BencodeDecoder(data);
+  return parser.decode();
+}
+
+export function encode(data: BencodeValue): Uint8Array {
+  const parts: Uint8Array[] = [];
+  _encodeValue(data, parts);
+  
+  const totalLength = parts.reduce((sum, part) => sum + part.length, 0);
   const result = new Uint8Array(totalLength);
+  
   let offset = 0;
   for (const part of parts) {
-    if (typeof part === 'string') {
-      const encoded = TEXT_ENCODER.encode(part);
-      result.set(encoded, offset);
-      offset += encoded.length;
-    } else {
-      result.set(part, offset);
-      offset += part.length;
-    }
+    result.set(part, offset);
+    offset += part.length;
   }
-
+  
   return result;
 }
 
-function _encodeValue(value: BencodeValue, parts: (string | Uint8Array)[]): void {
-  if (value === null || value === undefined) {
-    throw new Error('[Bencode] Bencode não suporta valores null ou undefined.');
+class BencodeDecoder {
+  private pos = 0;
+
+  constructor(private readonly data: Uint8Array) {}
+
+  public decode(): BencodeValue {
+    const char = this.data[this.pos]!;
+    
+    if (char === 105) return this.decodeInteger(); // 'i'
+    if (char === 108) return this.decodeList();    // 'l'
+    if (char === 100) return this.decodeDict();    // 'd'
+    
+    return this.decodeString();
   }
 
-  if (typeof value === 'string') {
-    const encoded = TEXT_ENCODER.encode(value);
-    parts.push(`${encoded.length}:`);
-    parts.push(encoded);
-  } else if (typeof value === 'number' || typeof value === 'bigint') {
-    parts.push(`i${value.toString()}e`);
-  } else if (value instanceof Uint8Array) {
-    parts.push(`${value.length}:`);
-    parts.push(value);
-  } else if (Array.isArray(value)) {
-    parts.push('l');
-    for (const item of value) {
-      _encodeValue(item, parts);
+  private decodeInteger(): number | bigint {
+    this.pos++;
+    let end = this.pos;
+    while (this.data[end] !== 101) {
+      end++;
     }
-    parts.push('e');
-  } else if (typeof value === 'object') {
-    parts.push('d');
-    // A especificação Bencode exige que as chaves do dicionário sejam strings e estejam ordenadas
-    const keys = Object.keys(value).sort();
-    for (const key of keys) {
-      // 🔥 CORREÇÃO TS2345:
-      // Com `noUncheckedIndexedAccess` ativado, `value[key]` é inferido como `BencodeValue | undefined`.
-      // Extraímos a variável e validamos para satisfazer o TS e a spec do BitTorrent.
-      const val = (value as Record<string, BencodeValue>)[key];
+    const numStr = decoder.decode(this.data.subarray(this.pos, end));
+    this.pos = end + 1;
+    
+    const num = Number(numStr);
+    // Retorna bigint se exceder o limite de inteiro seguro do JS (comum em tamanhos de torrent)
+    if (Number.isSafeInteger(num)) {
+      return num;
+    }
+    return BigInt(numStr);
+  }
+
+  private decodeString(): Uint8Array | string {
+    let end = this.pos;
+    while (this.data[end] !== 58) {
+      end++;
+    }
+    const lenStr = decoder.decode(this.data.subarray(this.pos, end));
+    const len = parseInt(lenStr, 10);
+    this.pos = end + 1;
+    
+    const bytes = this.data.subarray(this.pos, this.pos + len);
+    this.pos += len;
+    
+    // Heurística aprimorada para distinguir texto de dados binários (ex: hashes SHA-1)
+    try {
+      const str = decoder.decode(bytes);
       
-      if (val !== undefined) {
-        // Codifica a chave
-        const encodedKey = TEXT_ENCODER.encode(key);
-        parts.push(`${encodedKey.length}:`);
-        parts.push(encodedKey);
-        // Codifica o valor
-        _encodeValue(val, parts);
+      // 1. Se houver caractere de substituição, é binário inválido em UTF-8
+      if (str.includes('\uFFFD')) {
+        return bytes;
       }
+      
+      // 2. Se houver caracteres de controle ASCII (ex: byte nulo 0x00, comum em hashes), 
+      // tratamos como binário. Metadados de texto legíveis de torrent raramente os possuem.
+      if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(str)) {
+        return bytes;
+      }
+      
+      return str;
+    } catch {
+      // Fallback seguro para binário em caso de falha na decodificação
+      return bytes;
     }
-    parts.push('e');
-  } else {
-    throw new Error(`[Bencode] Tipo não suportado para codificação: ${typeof value}`);
+  }
+
+  private decodeList(): BencodeList {
+    this.pos++;
+    const list: BencodeValue[] = [];
+    while (this.data[this.pos] !== 101) {
+      list.push(this.decode());
+    }
+    this.pos++;
+    return list as BencodeList;
+  }
+
+  private decodeDict(): BencodeDict {
+    this.pos++;
+    const dict: BencodeDict = {};
+    while (this.data[this.pos] !== 101) {
+      const keyBytes = this.decodeString();
+      const key = typeof keyBytes === 'string' ? keyBytes : decoder.decode(keyBytes);
+      dict[key] = this.decode();
+    }
+    this.pos++;
+    return dict;
   }
 }
 
-/**
- * Decodifica um Uint8Array Bencode para uma estrutura JavaScript.
- * 
- * @param data - O buffer Bencode
- * @returns O valor JavaScript decodificado
- * @throws Error se os dados forem malformados
- */
-export function decode(data: Uint8Array): BencodeValue {
-  let offset = 0;
-
-  function decodeNext(): BencodeValue {
-    if (offset >= data.length) {
-      throw new Error('[Bencode] Fim inesperado dos dados.');
+function _encodeValue(value: BencodeValue, parts: Uint8Array[]): void {
+  if (typeof value === 'string') {
+    const encoded = encoder.encode(value);
+    parts.push(encoder.encode(`${encoded.length}:`));
+    parts.push(encoded);
+  } else if (typeof value === 'number' || typeof value === 'bigint') {
+    parts.push(encoder.encode(`i${value}e`));
+  } else if (value instanceof Uint8Array) {
+    parts.push(encoder.encode(`${value.length}:`));
+    parts.push(value);
+  } else if (Array.isArray(value)) {
+    parts.push(encoder.encode("l"));
+    for (const item of value) {
+      _encodeValue(item, parts);
     }
-
-    // 🔥 CORREÇÃO TS18048:
-    // O TypeScript com `noUncheckedIndexedAccess` infere `data[offset]` como `number | undefined`.
-    // Como já validamos `offset >= data.length` acima, sabemos que é seguro usar `!`.
-    const byte = data[offset]!;
-
-    // Inteiro: i<número>e
-    if (byte === 0x69) { // 'i'
-      offset++;
-      const end = data.indexOf(0x65, offset); // 'e'
-      if (end === -1) throw new Error('[Bencode] Inteiro não terminado.');
-      const numStr = TEXT_DECODER.decode(data.subarray(offset, end));
-      offset = end + 1;
-      
-      // Tenta converter para Number, cai para BigInt se exceder MAX_SAFE_INTEGER
-      const num = Number(numStr);
-      return Number.isSafeInteger(num) ? num : BigInt(numStr);
-    }
-
-    // Lista: l<itens>e
-    if (byte === 0x6c) { // 'l'
-      offset++;
-      const list: BencodeValue[] = [];
-      while (offset < data.length && data[offset]! !== 0x65) { // 'e'
-        list.push(decodeNext());
+    parts.push(encoder.encode("e"));
+  } else if (typeof value === 'object' && value !== null) {
+    parts.push(encoder.encode("d"));
+    
+    // CRÍTICO: As chaves do dicionário DEVEM ser ordenadas lexicograficamente
+    // para que o info_hash do torrent seja consistente entre todos os clientes.
+    const keys = Object.keys(value).sort((a, b) => {
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    });
+    
+    for (const key of keys) {
+      const val = (value as Record<string, BencodeValue>)[key];
+      if (val !== undefined) {
+        const encodedKey = encoder.encode(key);
+        parts.push(encoder.encode(`${encodedKey.length}:`));
+        parts.push(encodedKey);
+        _encodeValue(val, parts);
       }
-      if (data[offset]! !== 0x65) throw new Error('[Bencode] Lista não terminada.');
-      offset++; // pula o 'e'
-      return list;
     }
-
-    // Dicionário: d<chave><valor>...e
-    if (byte === 0x64) { // 'd'
-      offset++;
-      const dict: Record<string, BencodeValue> = {};
-      while (offset < data.length && data[offset]! !== 0x65) { // 'e'
-        const key = decodeNext();
-        let keyStr: string;
-        
-        if (typeof key === 'string') {
-          keyStr = key;
-        } else if (key instanceof Uint8Array) {
-          keyStr = TEXT_DECODER.decode(key);
-        } else {
-          throw new Error('[Bencode] Chave de dicionário inválida (deve ser string ou bytes).');
-        }
-        
-        dict[keyStr] = decodeNext();
-      }
-      if (data[offset]! !== 0x65) throw new Error('[Bencode] Dicionário não terminado.');
-      offset++; // pula o 'e'
-      return dict;
-    }
-
-    // String ou ByteArray: <tamanho>:<conteúdo>
-    if (byte >= 0x30 && byte <= 0x39) { // '0'-'9'
-      const colon = data.indexOf(0x3a, offset); // ':'
-      if (colon === -1) throw new Error('[Bencode] Tamanho de string inválido.');
-      const lengthStr = TEXT_DECODER.decode(data.subarray(offset, colon));
-      const length = parseInt(lengthStr, 10);
-      offset = colon + 1;
-      
-      if (offset + length > data.length) {
-        throw new Error('[Bencode] String excede o tamanho do buffer.');
-      }
-      
-      const bytes = data.subarray(offset, offset + length);
-      offset += length;
-
-      // Heurística: Tenta decodificar como UTF-8. Se for válido e não contiver 
-      // o caractere de substituição (), assumimos que é uma string.
-      // Caso contrário, retornamos o Uint8Array cru (comum para hashes SHA-1 e peças).
-      try {
-        const str = TEXT_DECODER.decode(bytes);
-        if (!str.includes('\uFFFD')) {
-          return str;
-        }
-      } catch {
-        // Ignora e retorna Uint8Array
-      }
-      return new Uint8Array(bytes);
-    }
-
-    throw new Error(`[Bencode] Dados inválidos no offset ${offset} (byte: ${byte})`);
+    parts.push(encoder.encode("e"));
+  } else {
+    throw new TypeError(`Tipo não suportado para bencode: ${typeof value}`);
   }
-
-  return decodeNext();
 }
