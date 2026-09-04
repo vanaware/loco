@@ -1,4 +1,7 @@
 {
+    "name": "@loco/webtorrent",
+  "version": "0.1.0",
+  "exports": "./src/mod.ts",
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
@@ -13,12 +16,10 @@
     "@std/fs": "jsr:@std/fs",
     "@std/path": "jsr:@std/path",
     "@std/http": "jsr:@std/http",
-    "esbuild": "npm:esbuild@0.24.0",
-    "@deno/esbuild-plugin": "jsr:@deno/esbuild-plugin@1.2.1"
   },
   "tasks": {
-    "build": "deno run -A esbuild.ts",
-    "serve": "deno run -A server.ts",
-    "dev": "deno task build && deno task serve"
+    "test": "deno test -A tests/",
+    "example": "deno run -A --watch example/main.ts",
+    "check": "deno check src/**/*.ts"
   }
 }

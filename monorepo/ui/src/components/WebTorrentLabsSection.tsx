@@ -15,6 +15,7 @@ import {
   baixarArquivoOpfs,
   baixarZipPasta,
   alternarStatusPasta,
+  excluirPasta,
 } from "../stores/torrentLabsStore.ts";
 
 export function WebTorrentLabsSection() {
@@ -23,6 +24,7 @@ export function WebTorrentLabsSection() {
   const newFilePermission = useSignal<"public" | "listed" | "trusted">("trusted");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const appendInputRef = useRef<HTMLInputElement>(null);
+  const confirmDeleteOpen = useSignal<boolean>(false);
 
   const p = useComputed(() =>
     pastasAtivas.value.find((x) => x.id === pastaSelecionada.value),
@@ -67,6 +69,33 @@ export function WebTorrentLabsSection() {
     }
   };
 
+  const handleExcluirPasta = async () => {
+    if (!p.value) return;
+
+    const success = await excluirPasta(p.value.id);
+    if (success) {
+      confirmDeleteOpen.value = false;
+      navigate("#labs");
+    }
+  };
+
+  const handleDebugConsole = () => {
+    const pasta = p.value;
+    const motor = isMotorLigar.value;
+    const magnet = inputMagnet.value;
+
+    console.group("🔍 Debug WebTorrent Labs");
+    console.log("Motor P2P:", motor ? "✅ Ligado" : "❌ Desligado");
+    console.log("Magnet URI:", magnet || "(vazio)");
+    console.log("Pasta selecionada:", pasta || "(nenhuma)");
+    console.log("Pastas ativas:", pastasAtivas.value.length);
+    console.log("Mapa de progresso:", progressoMap.value);
+    console.log("WebTorrent disponível:", typeof (window as any).WebTorrent !== "undefined");
+    console.groupEnd();
+
+    showToast("Logs enviados para o Console (F12)", "info");
+  };
+
   const formatSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
     const k = 1024;
@@ -74,6 +103,51 @@ export function WebTorrentLabsSection() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
+
+  // ========================================================================
+  // DIÁLOGO DE CONFIRMAÇÃO DE EXCLUSÃO
+  // ========================================================================
+  if (confirmDeleteOpen.value && p.value) {
+    return (
+      <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; padding: 24px;">
+        <div
+          style="max-width: 500px; width: 100%; background: var(--md-sys-color-surface-container-high); border-radius: 16px; padding: 24px;"
+        >
+          <h3
+            style="margin: 0 0 16px 0; color: var(--md-sys-color-error); display: flex; align-items: center; gap: 8px;"
+          >
+            <md-icon>warning</md-icon>
+            Confirmar Exclusão
+          </h3>
+          <p style="margin: 0 0 16px 0; color: var(--md-sys-color-on-surface-variant);">
+            Tem certeza que deseja excluir a pasta <strong>"{p.value.name}"</strong>?
+          </p>
+          <div
+            style="background: var(--md-sys-color-error-container); padding: 12px; border-radius: 8px; margin-bottom: 24px;"
+          >
+            <p
+              style="margin: 0; font-size: 0.9rem; color: var(--md-sys-color-on-error-container);"
+            >
+              ⚠️ <strong>Atenção:</strong> Esta ação é irreversível. Todos os arquivos, o torrent
+              ativo e os metadados serão permanentemente removidos.
+            </p>
+          </div>
+          <div style="display: flex; gap: 12px; justify-content: flex-end;">
+            <md-outlined-button onClick={() => (confirmDeleteOpen.value = false)}>
+              Cancelar
+            </md-outlined-button>
+            <md-filled-button
+              onClick={handleExcluirPasta}
+              style="--md-sys-color-primary: var(--md-sys-color-error);"
+            >
+              <md-icon slot="icon">delete_forever</md-icon>
+              Excluir Permanentemente
+            </md-filled-button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ========================================================================
   // ESTADO VAZIO — criação de pasta + download via magnet
@@ -92,8 +166,7 @@ export function WebTorrentLabsSection() {
         <p
           style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;"
         >
-          Crie pastas locais. Você pode adicionar arquivos livremente offline e
-          compartilhar depois!
+          Crie pastas locais. Você pode adicionar arquivos livremente offline e compartilhar depois!
         </p>
         <div style="display: flex; flex-direction: column; gap: 12px;">
           <md-outlined-text-field
@@ -156,6 +229,13 @@ export function WebTorrentLabsSection() {
           style="font-size: 1.1rem; margin-top: 0; color: var(--md-sys-color-on-surface); display: flex; align-items: center; gap: 8px;"
         >
           <md-icon>download</md-icon> Baixar Mídia Externa
+          {!isMotorLigar.value && (
+            <span
+              style="font-size: 0.75rem; color: var(--md-sys-color-error); font-weight: 500; margin-left: 8px;"
+            >
+              ⚠️ Motor desligado
+            </span>
+          )}
         </h3>
         <p
           style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px;"
@@ -173,6 +253,10 @@ export function WebTorrentLabsSection() {
           ></md-outlined-text-field>
           <md-filled-button
             onClick={() => {
+              if (!inputMagnet.value.trim()) {
+                showToast("Cole um Magnet URI primeiro.", "error");
+                return;
+              }
               adicionarMagnetDownload(inputMagnet.value);
               inputMagnet.value = "";
               navigate("#labs");
@@ -180,9 +264,18 @@ export function WebTorrentLabsSection() {
             disabled={!inputMagnet.value.trim() || !isMotorLigar.value}
             style="height: 56px;"
           >
+            <md-icon slot="icon">download</md-icon>
             Baixar
           </md-filled-button>
         </div>
+      </div>
+
+      {/* Botão de Debug */}
+      <div style="margin-top: 16px; text-align: center;">
+        <md-text-button onClick={handleDebugConsole}>
+          <md-icon slot="icon">bug_report</md-icon>
+          Debug (Console)
+        </md-text-button>
       </div>
     </div>
   );
@@ -202,7 +295,9 @@ export function WebTorrentLabsSection() {
   const isStandby = p.value.status === "standby";
 
   return (
-    <div style="flex-grow: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 24px;">
+    <div
+      style="flex-grow: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 24px;"
+    >
       <div style="max-width: 800px; width: 100%; margin: 0 auto;">
         {/* CABEÇALHO DA PASTA */}
         <div
@@ -284,6 +379,11 @@ export function WebTorrentLabsSection() {
               <md-outlined-button
                 onClick={() => handleCopiarMagnet(p.value?.magnetURI)}
                 disabled={!p.value.magnetURI}
+                title={
+                  !p.value.magnetURI
+                    ? "Ligue o motor P2P e ative a pasta para gerar o Magnet URI"
+                    : "Copiar Magnet URI"
+                }
               >
                 <md-icon slot="icon">share</md-icon> Copiar Magnet
               </md-outlined-button>
@@ -296,6 +396,31 @@ export function WebTorrentLabsSection() {
               </span>
             )}
           </div>
+        </div>
+
+        {/* BOTÃO DE EXCLUIR PASTA */}
+        <div
+          style="margin-bottom: 24px; padding: 16px; background: var(--md-sys-color-error-container); border-radius: 12px; display: flex; justify-content: space-between; align-items: center;"
+        >
+          <div>
+            <h4
+              style="margin: 0 0 4px 0; color: var(--md-sys-color-on-error-container); font-size: 1rem;"
+            >
+              Zona de Perigo
+            </h4>
+            <p
+              style="margin: 0; font-size: 0.85rem; color: var(--md-sys-color-on-error-container); opacity: 0.9;"
+            >
+              Excluir esta pasta removerá permanentemente todos os arquivos e metadados.
+            </p>
+          </div>
+          <md-filled-button
+            onClick={() => (confirmDeleteOpen.value = true)}
+            style="--md-sys-color-primary: var(--md-sys-color-error); --md-sys-color-on-primary: var(--md-sys-color-on-error);"
+          >
+            <md-icon slot="icon">delete_forever</md-icon>
+            Excluir Pasta
+          </md-filled-button>
         </div>
 
         {/* TELEMETRIA */}
@@ -418,6 +543,14 @@ export function WebTorrentLabsSection() {
               ))
             )}
           </md-list>
+        </div>
+
+        {/* BOTÃO DE DEBUG */}
+        <div style="margin-top: 24px; text-align: center;">
+          <md-text-button onClick={handleDebugConsole}>
+            <md-icon slot="icon">bug_report</md-icon>
+            Debug (Console)
+          </md-text-button>
         </div>
       </div>
     </div>

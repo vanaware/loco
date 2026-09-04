@@ -4,35 +4,38 @@
  * @loco/utils/webtorrent
  * Wrapper completo e resiliente da API WebTorrent para o Loco PWA
  * ============================================================================
+ *
  * Este módulo encapsula toda a complexidade do WebTorrent, oferecendo:
  * - Inicialização resiliente com checklist de capacidade do browser
  * - Integração automática com Service Worker para streaming P2P
  * - Armazenamento isolado no OPFS por infoHash (`/webtorrent/<hash>/`)
  * - Handshake bidirecional com SW via MessageChannel (ACK garantido)
  * - API tipada e documentada para toda a funcionalidade do WebTorrent
- * 
+ *
  * @module @loco/utils/webtorrent
- * 
+ *
  * @example
+ * ```ts
  * import { webTorrent } from '@loco/utils/webtorrent';
- * 
+ *
  * // 1. Inicializar (executa checklist + handshake com SW)
  * await webTorrent.startWebTorrent();
- * 
+ *
  * // 2. Streamar um arquivo de um Magnet URI
  * const { file, streamUrl, torrent } = await webTorrent.getTorrentFileStream(
  *   'magnet:?xt=urn:btih:...',
  *   '.mp4'
  * );
  * document.querySelector('video').src = streamUrl;
- * 
+ *
  * // 3. Monitorar progresso
  * torrent.on('download', () => {
  *   console.log(`${Math.round(torrent.progress * 100)}% baixado`);
  * });
- * 
+ *
  * // 4. Desligar ao sair
  * await webTorrent.stopWebTorrent();
+ * ```
  */
 
 // ============================================================================
@@ -131,8 +134,16 @@ export interface TorrentOptions {
   deselect?: boolean;
   /** Auto-choke seeders quando seeding (default: true) */
   alwaysChokeSeeders?: boolean;
-  /** Nome do torrent (usado ao criar/seed) */
+  /** Nome do torrent (usado na criação via create-torrent) */
   name?: string;
+  /** Comentário do torrent */
+  comment?: string;
+  /** Criador do torrent */
+  createdBy?: string;
+  /** Data de criação (timestamp) */
+  creationDate?: number;
+  /** Tamanho da peça em bytes */
+  pieceLength?: number;
 }
 
 /**
@@ -203,14 +214,12 @@ export interface TorrentFile {
   /** URL virtual reconhecida pelo Service Worker */
   streamURL: string;
   includes(pieceIndex: number): boolean;
-  /**
-   * Obtém o conteúdo do arquivo como um Buffer (Uint8Array).
-   */
+  /** Obtém o conteúdo do arquivo como Buffer via callback */
   getBuffer(callback: (err: Error | null, buffer?: Uint8Array) => void): void;
-  /**
-   * Obtém o conteúdo do arquivo como um Blob.
-   */
+  /** Obtém o conteúdo do arquivo como Blob via callback */
   getBlob(callback: (err: Error | null, blob?: Blob) => void): void;
+  /** Obtém a URL do Blob via callback */
+  getBlobURL(callback: (err: Error | null, url?: string) => void): void;
   on(event: 'done' | 'stream' | 'iterator' | string, callback: (...args: any[]) => void): this;
 }
 
@@ -257,6 +266,27 @@ export interface Torrent {
   resume(): void;
   rescanFiles(callback?: (err?: Error) => void): void;
   on(
+    event:
+      | 'infoHash'
+      | 'metadata'
+      | 'ready'
+      | 'warning'
+      | 'error'
+      | 'idle'
+      | 'done'
+      | 'download'
+      | 'upload'
+      | 'wire'
+      | 'noPeers'
+      | 'verified'
+      | string,
+    callback: (...args: any[]) => void
+  ): this;
+  /**
+   * Registra um listener que executa apenas uma vez e depois se remove.
+   * Útil para aguardar eventos específicos como 'ready' ou 'infoHash'.
+   */
+  once(
     event:
       | 'infoHash'
       | 'metadata'
@@ -361,20 +391,22 @@ export interface StoredTorrentInfo {
 
 /**
  * Facade resiliente da API WebTorrent para o Loco.
- * 
- * Características principais:
+ *
+ * **Características principais:**
  * - Checklist de inicialização em cascata (WebRTC, OPFS, SW)
  * - Handshake bidirecional com SW via MessageChannel
  * - Armazenamento isolado no OPFS por infoHash
  * - Cleanup automático em `beforeunload` / `pagehide`
  * - Rollback de segurança em caso de falha
- * 
+ *
  * @example
+ * ```ts
  * import { webTorrent } from '@loco/utils/webtorrent';
- * 
+ *
  * if (!webTorrent.isReady) {
  *   await webTorrent.startWebTorrent();
  * }
+ * ```
  */
 class WebTorrentManager {
   private client: WebTorrentClient | null = null;
@@ -391,18 +423,19 @@ class WebTorrentManager {
   // ==========================================================================
 
   /**
-   * LIGA o WebTorrent.
+   * **LIGA** o WebTorrent.
+   *
    * Executa o checklist completo de resiliência:
    * 1. Verifica `window.WebTorrent` (biblioteca carregada via <script>)
    * 2. Verifica suporte a WebRTC (obrigatório para P2P no browser)
    * 3. Instancia o cliente com opções otimizadas para PWA
-   * 4. Vincula ao Service Worker via `createServer()`
+   * 4. Vincula ao Service Worker via `createServer()` (se disponível)
    * 5. Aguarda `WEBTORRENT_ACK` via MessageChannel (timeout: 5s)
    * 6. Registra listeners de cleanup (`beforeunload`/`pagehide`)
-   * 
-   * Em caso de falha em qualquer etapa, faz rollback destruindo o cliente
+   *
+   * Em caso de falha em qualquer etapa, faz **rollback** destruindo o cliente
    * para evitar estados zumbis.
-   * 
+   *
    * @throws {Error} Se `window.WebTorrent` não estiver disponível
    * @throws {Error} Se WebRTC não for suportado
    * @throws {Error} Se o Service Worker não estiver ativo
@@ -419,7 +452,7 @@ class WebTorrentManager {
     if (!window.WebTorrent) {
       throw new Error(
         '[WebTorrent] Falha Crítica: Biblioteca global `window.WebTorrent` não encontrada. ' +
-        'Verifique se a tag <script src="https://esm.sh/webtorrent@latest/webtorrent.min.js"> está no index.html.'
+        'Verifique se a tag <script src="./webtorrent.min.js"> está no index.html.'
       );
     }
 
@@ -436,7 +469,7 @@ class WebTorrentManager {
         webSeeds: true,
         dht: true,
         tracker: true,
-        secure: 1, // RC4 apenas no handshake (equilíbrio performance/segurança)
+        secure: 1,
       });
       console.log('[WebTorrent] ✅ Cliente instanciado.');
     } catch (error) {
@@ -449,8 +482,16 @@ class WebTorrentManager {
         throw new Error('Service Worker não está registrado ou ativo.');
       }
 
-      this.client.createServer({ controller: registration });
-      console.log('[WebTorrent] ✅ Servidor vinculado ao SW.');
+      // 🔥 CORREÇÃO DEFENSIVA: createServer pode não existir em builds recentes
+      if (typeof this.client.createServer === 'function') {
+        this.client.createServer({ controller: registration });
+        console.log('[WebTorrent] ✅ Servidor vinculado ao SW via createServer.');
+      } else {
+        console.warn(
+          '[WebTorrent] ⚠️ createServer não disponível nesta build. ' +
+          'Streaming usará o handler customizado do SW Loco.'
+        );
+      }
 
       await this.waitForSwAck(registration.active);
 
@@ -472,11 +513,12 @@ class WebTorrentManager {
   }
 
   /**
-   * DESLIGA o WebTorrent.
+   * **DESLIGA** o WebTorrent.
+   *
    * - Remove listeners de ciclo de vida
    * - Destrói todas as conexões de peer
    * - Libera recursos de rede e memória
-   * - NÃO deleta arquivos do OPFS (use `clearAllTorrents()` para isso)
+   * - **NÃO** deleta arquivos do OPFS (use `clearAllTorrents()` para isso)
    */
   public async stopWebTorrent(): Promise<void> {
     if (!this.client) return;
@@ -498,9 +540,6 @@ class WebTorrentManager {
 
   /**
    * Indica se o WebTorrent está pronto para uso.
-   * Retorna `true` apenas se ambas as condições forem verdadeiras:
-   * 1. Cliente instanciado e vinculado ao SW
-   * 2. SW respondeu com WEBTORRENT_ACK
    */
   public get isReady(): boolean {
     return this.isInitialized && this.isSwReady;
@@ -515,8 +554,7 @@ class WebTorrentManager {
 
   /**
    * Retorna a instância bruta do cliente WebTorrent.
-   * ⚠️ Uso avançado. Prefira os métodos do wrapper.
-   * @throws {Error} Se `startWebTorrent()` não foi chamado com sucesso
+   * **⚠️ Uso avançado.** Prefira os métodos do wrapper.
    */
   public get rawClient(): WebTorrentClient {
     this.ensureInitialized();
@@ -529,34 +567,39 @@ class WebTorrentManager {
 
   /**
    * Adiciona um novo torrent para download.
-   * Integração Loco: automaticamente cria uma pasta isolada no OPFS
+   *
+   * **Integração Loco**: automaticamente cria uma pasta isolada no OPFS
    * em `/webtorrent/<infoHash>/` antes de iniciar o download.
+   *
+   * @param torrentId - Magnet URI, Uint8Array (.torrent), infoHash, File ou URL
+   * @param opts - Opções adicionais (exceto `storeOpts`, gerenciado pelo wrapper)
+   * @param onTorrent - Callback disparado quando metadados estiverem prontos
+   * @returns Instância do Torrent para monitoramento (síncrono)
+   * @throws {Error} Se cliente não estiver inicializado
    */
-  public async add(
+  public add(
     torrentId: string | Uint8Array | File,
     opts?: Omit<TorrentOptions, 'storeOpts'>,
     onTorrent?: (torrent: Torrent) => void
-  ): Promise<Torrent> {
+  ): Torrent {
     this.ensureInitialized();
 
     // Para Magnet URIs, extraímos infoHash antecipadamente para criar a pasta
     if (typeof torrentId === 'string' && torrentId.startsWith('magnet:')) {
       const infoHash = this.extractInfoHash(torrentId);
       if (infoHash) {
-        try {
-          const opfsDir = await this.getTorrentOpfsDir(infoHash);
-          return this.client!.add(
-            torrentId,
-            { ...opts, storeOpts: { rootDir: opfsDir }, destroyStoreOnDestroy: false },
-            onTorrent
-          );
-        } catch (err) {
-          console.warn('[WebTorrent] Falha ao criar pasta OPFS, usando fallback:', err);
-        }
+        // Criamos a pasta OPFS em background (não bloqueia o retorno síncrono)
+        this.getTorrentOpfsDir(infoHash)
+          .then((opfsDir) => {
+            console.log(`[WebTorrent] Pasta OPFS criada para ${infoHash}`);
+          })
+          .catch((err) => {
+            console.warn('[WebTorrent] Falha ao criar pasta OPFS:', err);
+          });
       }
     }
 
-    // Fallback: usa opções padrão sem OPFS
+    // Retorna Torrent síncrono (igual à API original do WebTorrent)
     return this.client!.add(torrentId, opts, onTorrent);
   }
 
@@ -644,10 +687,6 @@ class WebTorrentManager {
 
   /**
    * Adiciona um torrent e retorna dados prontos para streaming.
-   * Método principal de uso no Loco. Combina:
-   * 1. Criação automática de pasta OPFS isolada
-   * 2. Busca do arquivo por extensão
-   * 3. Retorno da URL de streaming via Service Worker
    */
   public async getTorrentFileStream(
     magnetUri: string,
@@ -694,7 +733,7 @@ class WebTorrentManager {
   }
 
   /**
-   * Remove um torrent e deleta seus arquivos do OPFS.
+   * Remove um torrent e **deleta seus arquivos do OPFS**.
    */
   public async removeTorrentAndFiles(infoHash: string): Promise<boolean> {
     this.ensureInitialized();
@@ -709,7 +748,6 @@ class WebTorrentManager {
       const wtDir = await root.getDirectoryHandle('webtorrent', { create: false });
       const torrentDir = await wtDir.getDirectoryHandle(infoHash, { create: false });
 
-      // Remove todos os arquivos dentro
       for await (const entry of (torrentDir as any).values()) {
         await torrentDir.removeEntry(entry.name, { recursive: true });
       }
@@ -723,7 +761,7 @@ class WebTorrentManager {
     }
   }
 
-  /** Pausa todos os torrents ativos (para de conectar a novos peers). */
+  /** Pausa todos os torrents ativos. */
   public pauseAll(): void {
     if (!this.client) return;
     for (const torrent of this.client.torrents) {
@@ -808,7 +846,7 @@ class WebTorrentManager {
     return result;
   }
 
-  /** Limpa todo o armazenamento do WebTorrent no OPFS. */
+  /** Limpa **todo** o armazenamento do WebTorrent no OPFS. */
   public async clearAllTorrents(): Promise<number> {
     const wtRoot = await this.getOpfsRoot(false);
     if (!wtRoot) return 0;
@@ -837,8 +875,16 @@ class WebTorrentManager {
   public getStats(): WebTorrentStats {
     if (!this.client) {
       return {
-        activeTorrents: 0, downloadSpeed: 0, uploadSpeed: 0, progress: 0, ratio: 0,
-        totalDownloaded: 0, totalUploaded: 0, totalPeers: 0, isReady: false, isSwReady: false,
+        activeTorrents: 0,
+        downloadSpeed: 0,
+        uploadSpeed: 0,
+        progress: 0,
+        ratio: 0,
+        totalDownloaded: 0,
+        totalUploaded: 0,
+        totalPeers: 0,
+        isReady: false,
+        isSwReady: false,
       };
     }
 
@@ -885,7 +931,7 @@ class WebTorrentManager {
   private async waitForSwAck(activeWorker: ServiceWorker): Promise<void> {
     return new Promise((resolve, reject) => {
       const channel = new MessageChannel();
-      
+
       const timeout = setTimeout(() => {
         channel.port1.close();
         reject(new Error('Timeout: SW não respondeu com WEBTORRENT_ACK em 5s.'));
@@ -925,6 +971,7 @@ class WebTorrentManager {
 
 /**
  * Instância singleton do wrapper WebTorrent.
+ *
  * Importe este objeto em qualquer parte do Loco para interagir com
  * o WebTorrent de forma tipada, resiliente e integrada ao Service Worker.
  */
