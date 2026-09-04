@@ -3,6 +3,7 @@
 import { TypedEventTarget } from "../utils/event-target.ts";
 import { Peer } from "./peer.ts";
 import { createTracker, Tracker, TrackerOptions, TrackerResponse } from "./tracker.ts";
+import { UtMetadata } from "../extensions/ut-metadata.ts";
 
 export interface SwarmEvents {
   peer: CustomEvent<{ peer: Peer; source: string }>;
@@ -11,6 +12,7 @@ export interface SwarmEvents {
   warning: CustomEvent<{ error: Error }>;
   trackerAnnounce: Event;
   noPeers: CustomEvent<{ source: string }>;
+  metadata: CustomEvent<{ metadata: Uint8Array; peer: Peer }>;
 }
 
 export interface SwarmOptions {
@@ -19,7 +21,8 @@ export interface SwarmOptions {
   announce: string[];
   maxConns?: number;
   port?: number;
-  wrtc?: typeof RTCPeerConnection; // 🔥 CORREÇÃO: Permitir injeção de mock para testes
+  wrtc?: typeof RTCPeerConnection;
+  metadata?: Uint8Array; // Metadata já conhecido (para seed)
 }
 
 interface QueuedPeer {
@@ -39,7 +42,8 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
   private queue: QueuedPeer[] = [];
   private trackers: Tracker[] = [];
   private maxConns: number;
-  private wrtc?: typeof RTCPeerConnection; // 🔥 CORREÇÃO
+  private wrtc?: typeof RTCPeerConnection;
+  private metadata?: Uint8Array;
   
   public destroyed = false;
   private paused = false;
@@ -49,7 +53,8 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
     this.infoHash = opts.infoHash;
     this.peerId = opts.peerId;
     this.maxConns = opts.maxConns || 55;
-    this.wrtc = opts.wrtc; // 🔥 CORREÇÃO
+    this.wrtc = opts.wrtc;
+    this.metadata = opts.metadata;
 
     for (const announceUrl of opts.announce) {
       try {
@@ -158,7 +163,7 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
       initiator: true,
       infoHash: this.infoHash,
       peerId: this.peerId,
-      wrtc: this.wrtc, // 🔥 CORREÇÃO: Passar o mock para o Peer
+      wrtc: this.wrtc,
     });
 
     this.peers.set(addr, peer);
@@ -167,10 +172,39 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
       this.emit("peer", new CustomEvent("peer", { detail: { peer, source: "tracker" } }));
     });
 
+    // 🔥 INTEGRAÇÃO: Quando o Wire é criado, registrar extensão ut_metadata
     peer.on("handshake", (e) => {
       if (peer.wire) {
+        const wire = peer.wire;
+        
+        // Cria e registra a extensão ut_metadata
+        const utMetadata = new UtMetadata(wire, { metadata: this.metadata });
+        
+        // Se temos o metadata, define no ut_metadata para servir a outros peers
+        if (this.metadata) {
+          utMetadata.setMetadata(this.metadata);
+        }
+        
+        // Registra listener para quando o metadata for recebido
+        utMetadata.on("metadata", (metadataEvent: any) => {
+          const metadata = metadataEvent.detail?.metadata || metadataEvent;
+          this.emit("metadata", new CustomEvent("metadata", { 
+            detail: { metadata, peer } 
+          }));
+        });
+        
+        utMetadata.on("warning", (warningEvent: any) => {
+          const error = warningEvent.detail?.error || warningEvent;
+          this.emit("warning", new CustomEvent("warning", { detail: { error } }));
+        });
+        
+        // Inicia o fetch do metadata se não temos
+        if (!this.metadata) {
+          utMetadata.fetch();
+        }
+        
         this.emit("wire", new CustomEvent("wire", {
-          detail: { wire: peer.wire, addr }
+          detail: { wire, addr }
         }));
       }
     });

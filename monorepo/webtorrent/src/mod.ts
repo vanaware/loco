@@ -7,6 +7,7 @@ import { Swarm } from "./network/swarm.ts";
 import { generateId } from "./crypto/random.ts";
 import { OPFSChunkStore } from "./storage/opfs-chunk-store.ts";
 import { MemoryChunkStore } from "./storage/memory-chunk-store.ts";
+import { encode } from "./utils/bencode.ts";
 
 export interface WebTorrentEvents {
   torrent: CustomEvent<{ torrent: Torrent }>;
@@ -34,6 +35,8 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   public readonly torrents: Map<string, Torrent> = new Map();
   public readonly torrentList: Torrent[] = [];
   
+  private swarms: Map<string, Swarm> = new Map();
+  
   private opts: WebTorrentOptions;
   private destroyed = false;
   private ready = false;
@@ -55,25 +58,15 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     });
   }
 
-  get isReady(): boolean {
-    return this.ready && !this.destroyed;
-  }
-
-  get isDestroyed(): boolean {
-    return this.destroyed;
-  }
-
-  get torrentCount(): number {
-    return this.torrents.size;
-  }
+  get isReady(): boolean { return this.ready && !this.destroyed; }
+  get isDestroyed(): boolean { return this.destroyed; }
+  get torrentCount(): number { return this.torrents.size; }
 
   async add(
     torrentId: string | Uint8Array | ParsedTorrent,
     opts: AddTorrentOptions = {}
   ): Promise<Torrent> {
-    if (this.destroyed) {
-      throw new Error("WebTorrent client is destroyed");
-    }
+    if (this.destroyed) throw new Error("WebTorrent client is destroyed");
 
     const parsed = await parseTorrent(torrentId);
     
@@ -94,19 +87,25 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
       announce: parsed.announce,
       maxConns: this.opts.maxConns,
       port: this.opts.port,
+      // Se já temos os metadados (ex: .torrent completo), passamos para o Swarm servir via ut_metadata
+      metadata: parsed.pieces.length > 0 ? encode(parsed.info) : undefined,
     });
 
-    swarm.on("wire", () => {
-      // Integração com Wire será adicionada aqui
+    // 🔥 INTEGRAÇÃO CRÍTICA: Quando o Swarm recebe metadados via ut_metadata, repassa para o Torrent
+    swarm.on("metadata", async (e: any) => {
+      const metadataBuffer = e.detail.metadata;
+      // O Torrent irá decodificar o Bencode, atualizar arquivos/peças e emitir o evento 'metadata' para a UI
+      await torrent.setMetadata(metadataBuffer);
     });
 
-    swarm.on("error", (e) => {
+    swarm.on("error", (e: any) => {
       this.emit("error", new CustomEvent("error", { detail: { error: e.detail.error } }));
     });
 
     swarm.start();
 
     this.torrents.set(parsed.infoHash, torrent);
+    this.swarms.set(parsed.infoHash, swarm);
     this.torrentList.push(torrent);
 
     this.emit("torrent", new CustomEvent("torrent", { detail: { torrent } }));
@@ -120,7 +119,13 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
 
   async remove(infoHash: string, destroyStore = false): Promise<void> {
     const torrent = this.torrents.get(infoHash);
+    const swarm = this.swarms.get(infoHash);
     if (!torrent) return;
+
+    if (swarm) {
+      swarm.destroy();
+      this.swarms.delete(infoHash);
+    }
 
     await torrent.destroy(destroyStore);
 
@@ -134,6 +139,11 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   async destroy(callback?: () => void): Promise<void> {
     if (this.destroyed) return;
     this.destroyed = true;
+
+    for (const [, swarm] of this.swarms) {
+      swarm.destroy();
+    }
+    this.swarms.clear();
 
     for (const [, torrent] of this.torrents) {
       await torrent.destroy(false);
@@ -152,8 +162,8 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
         const rootDir = await globalThis.navigator.storage.getDirectory();
         const torrentDir = await rootDir.getDirectoryHandle(`webtorrent-${parsed.infoHash}`, { create: true });
         return new OPFSChunkStore({
-          chunkLength: parsed.pieceLength,
-          length: parsed.length,
+          chunkLength: parsed.pieceLength || 16384,
+          length: parsed.length || 0,
           rootDir: torrentDir,
         });
       } catch (err) {
@@ -162,8 +172,8 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     }
     
     return new MemoryChunkStore({
-      chunkLength: parsed.pieceLength,
-      length: parsed.length,
+      chunkLength: parsed.pieceLength || 16384,
+      length: parsed.length || 0,
     });
   }
 }

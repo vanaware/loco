@@ -5,8 +5,9 @@ import { Torrent } from "../src/core/torrent.ts";
 import { MemoryChunkStore } from "../src/storage/memory-chunk-store.ts";
 import { sha1 } from "../src/crypto/hasher.ts";
 import { ParsedTorrent } from "../src/utils/parse-torrent.ts";
+import { encode } from "../src/utils/bencode.ts";
 
-// Helper para criar um ParsedTorrent fake com peças reais
+// Helper para criar um ParsedTorrent fake com peças reais (simulando um .torrent completo)
 async function createFakeParsedTorrent(): Promise<ParsedTorrent> {
   const pieceLength = 1024;
   const piece1 = new Uint8Array(pieceLength).fill(1);
@@ -34,8 +35,31 @@ async function createFakeParsedTorrent(): Promise<ParsedTorrent> {
     length: 2048,
     pieceLength,
     pieces: [hashToBytes(hash1Hex), hashToBytes(hash2Hex)],
-    info: {},
+    info: {
+      name: "fake.bin",
+      length: 2048,
+      "piece length": pieceLength,
+      pieces: new Uint8Array(40).fill(0), // Dummy pieces for info dict
+    },
     magnetURI: "",
+  };
+}
+
+// Helper para criar um ParsedTorrent vazio (simulando um Magnet URI recém-adicionado)
+function createFakeMagnetParsedTorrent(): ParsedTorrent {
+  return {
+    infoHash: "1".repeat(40),
+    infoHashBuffer: new Uint8Array(20).fill(1),
+    name: "Unknown",
+    announce: ["udp://tracker.example.com:6969"],
+    urlList: [],
+    peerAddresses: [],
+    files: [],
+    length: 0,
+    pieceLength: 0,
+    pieces: [],
+    info: {},
+    magnetURI: "magnet:?xt=urn:btih:1111111111111111111111111111111111111111",
   };
 }
 
@@ -65,15 +89,15 @@ Deno.test("torrent: receives valid piece, updates bitfield and emits events", as
   let downloadedBytes = 0;
   let verifiedIndex = -1;
   
-  torrent.on("download", (e) => { downloadedBytes += e.detail.bytes; });
-  torrent.on("verified", (e) => { verifiedIndex = e.detail.index; });
+  torrent.on("download", (e: any) => { downloadedBytes += e.detail.bytes; });
+  torrent.on("verified", (e: any) => { verifiedIndex = e.detail.index; });
 
   const success = await torrent.receivePiece(0, validPiece);
 
   assertEquals(success, true);
   assertEquals(downloadedBytes, parsed.pieceLength);
   assertEquals(verifiedIndex, 0);
-  assertEquals(torrent.progress, 0.5); // 1 de 2 peças
+  assertEquals(torrent.progress, 0.5);
 });
 
 Deno.test("torrent: rejects piece with invalid hash", async () => {
@@ -83,12 +107,12 @@ Deno.test("torrent: rejects piece with invalid hash", async () => {
 
   await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
 
-  const invalidPiece = new Uint8Array(parsed.pieceLength).fill(99); // Dados errados
+  const invalidPiece = new Uint8Array(parsed.pieceLength).fill(99);
   
   const success = await torrent.receivePiece(0, invalidPiece);
 
   assertEquals(success, false);
-  assertEquals(torrent.progress, 0); // Não deve ter mudado
+  assertEquals(torrent.progress, 0);
 });
 
 Deno.test("torrent: emits 'done' when all pieces are received", async () => {
@@ -116,7 +140,6 @@ Deno.test("torrent: skips verification of existing pieces if skipVerify is true"
   const parsed = await createFakeParsedTorrent();
   const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
   
-  // Coloca dados inválidos no store diretamente
   const invalidPiece = new Uint8Array(parsed.pieceLength).fill(99);
   await store.put(0, invalidPiece);
 
@@ -124,6 +147,115 @@ Deno.test("torrent: skips verification of existing pieces if skipVerify is true"
 
   await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
 
-  // O bitfield não deve ter a peça 0 marcada, pois pulamos a verificação
   assertEquals(torrent.progress, 0);
+});
+
+// ============================================================================
+// TESTES DE INTEGRAÇÃO: FLUXO DE METADATA DINÂMICO (MAGNET URI)
+// ============================================================================
+
+Deno.test("torrent: integration - setMetadata dynamically updates torrent state from Magnet URI", async () => {
+  const magnetParsed = createFakeMagnetParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: 16384, length: 0 });
+  const torrent = new Torrent(magnetParsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.name, "Unknown");
+  assertEquals(torrent.length, 0);
+  assertEquals(torrent.numPieces, 0);
+  assertEquals(torrent.files.length, 0);
+
+  // 🔥 CORREÇÃO: Usar byte 1 (caractere de controle) para garantir que o decode retorne Uint8Array
+  const mockPieceHashes = new Uint8Array(40);
+  mockPieceHashes.fill(1);
+  
+  const infoDict = {
+    name: "loco-update-v2.zip",
+    length: 2048,
+    "piece length": 1024,
+    pieces: mockPieceHashes,
+  };
+  const infoBuffer = encode(infoDict);
+
+  let metadataEventEmitted = false;
+  torrent.on("metadata", (e: any) => {
+    metadataEventEmitted = true;
+    assertEquals(e.detail.name, "loco-update-v2.zip");
+    assertEquals(e.detail.length, 2048);
+    assertEquals(e.detail.files.length, 1);
+    assertEquals(e.detail.files[0].name, "loco-update-v2.zip");
+  });
+
+  const success = await torrent.setMetadata(infoBuffer);
+
+  assertEquals(success, true);
+  assertEquals(metadataEventEmitted, true);
+  assertEquals(torrent.name, "loco-update-v2.zip");
+  assertEquals(torrent.length, 2048);
+  assertEquals(torrent.pieceLength, 1024);
+  assertEquals(torrent.numPieces, 2);
+  assertEquals(torrent.files.length, 1);
+  assertEquals(torrent.files[0]!.path, "loco-update-v2.zip");
+  assertEquals(torrent.progress, 0);
+});
+
+Deno.test("torrent: integration - setMetadata is idempotent (ignores subsequent calls)", async () => {
+  const magnetParsed = createFakeMagnetParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: 16384, length: 0 });
+  const torrent = new Torrent(magnetParsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  const infoDict = {
+    name: "test.txt",
+    length: 100,
+    "piece length": 100,
+    pieces: new Uint8Array(20).fill(1), // 🔥 CORREÇÃO
+  };
+  const infoBuffer = encode(infoDict);
+
+  const firstCall = await torrent.setMetadata(infoBuffer);
+  assertEquals(firstCall, true);
+  assertEquals(torrent.name, "test.txt");
+
+  const secondCall = await torrent.setMetadata(infoBuffer);
+  assertEquals(secondCall, false);
+  assertEquals(torrent.name, "test.txt");
+});
+
+Deno.test("torrent: integration - setMetadata handles multi-file torrents correctly", async () => {
+  const magnetParsed = createFakeMagnetParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: 16384, length: 0 });
+  const torrent = new Torrent(magnetParsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  const infoDict = {
+    name: "my-folder",
+    "piece length": 1024,
+    pieces: new Uint8Array(40).fill(1), // 🔥 CORREÇÃO
+    files: [
+      { length: 500, path: ["my-folder", "doc1.txt"] },
+      { length: 1500, path: ["my-folder", "subfolder", "doc2.txt"] },
+    ],
+  };
+  const infoBuffer = encode(infoDict);
+
+  await torrent.setMetadata(infoBuffer);
+
+  assertEquals(torrent.name, "my-folder");
+  assertEquals(torrent.length, 2000);
+  assertEquals(torrent.numPieces, 2);
+  assertEquals(torrent.files.length, 2);
+  
+  assertEquals(torrent.files[0]!.name, "doc1.txt");
+  assertEquals(torrent.files[0]!.path, "my-folder/doc1.txt");
+  assertEquals(torrent.files[0]!.offset, 0);
+  assertEquals(torrent.files[0]!.length, 500);
+
+  assertEquals(torrent.files[1]!.name, "doc2.txt");
+  assertEquals(torrent.files[1]!.path, "my-folder/subfolder/doc2.txt");
+  assertEquals(torrent.files[1]!.offset, 500);
+  assertEquals(torrent.files[1]!.length, 1500);
 });

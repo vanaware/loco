@@ -1,10 +1,11 @@
 // /loco/monorepo/webtorrent/src/core/torrent.ts
 
 import { TypedEventTarget } from "../utils/event-target.ts";
-import { ParsedTorrent } from "../utils/parse-torrent.ts";
+import { ParsedTorrent, ParsedTorrentFile } from "../utils/parse-torrent.ts";
 import { ChunkStore } from "../storage/opfs-chunk-store.ts";
 import { Bitfield } from "./bitfield.ts";
 import { sha1 } from "../crypto/hasher.ts";
+import { decode, encode, BencodeDict } from "../utils/bencode.ts";
 
 // ============================================================================
 // TIPOS DE EVENTOS
@@ -12,6 +13,8 @@ import { sha1 } from "../crypto/hasher.ts";
 
 export interface TorrentEvents {
   ready: Event;
+  /** Emitido quando os metadados são recebidos dinamicamente (ex: via ut_metadata de um Magnet URI) */
+  metadata: CustomEvent<{ files: ParsedTorrentFile[]; length: number; name: string }>;
   download: CustomEvent<{ bytes: number }>;
   upload: CustomEvent<{ bytes: number }>;
   done: Event;
@@ -21,33 +24,30 @@ export interface TorrentEvents {
 
 export interface TorrentOptions {
   store: ChunkStore;
-  skipVerify?: boolean; // Pula a verificação de peças existentes no store (útil para downloads novos)
+  skipVerify?: boolean;
 }
 
 // ============================================================================
 // CLASSE TORRENT
 // ============================================================================
 
-/**
- * O "cérebro" do download. Orquestra o estado das peças, validação criptográfica
- * e persistência via ChunkStore.
- */
 export class Torrent extends TypedEventTarget<TorrentEvents> {
   public readonly infoHash: string;
-  public readonly name: string;
-  public readonly pieceLength: number;
-  public readonly length: number;
-  public readonly files: ParsedTorrent["files"];
+  public name: string;
+  public pieceLength: number;
+  public length: number;
+  public files: ParsedTorrentFile[];
   
   private parsedTorrent: ParsedTorrent;
   private store: ChunkStore;
   private bitfield: Bitfield;
-  private expectedPieces: Uint8Array[]; // Hashes SHA-1 esperados para cada peça
+  private expectedPieces: Uint8Array[];
   
   private _downloaded: number = 0;
   private _uploaded: number = 0;
   private _destroyed: boolean = false;
   private _ready: boolean = false;
+  private _metadataReceived: boolean = false;
 
   constructor(parsedTorrent: ParsedTorrent, opts: TorrentOptions) {
     super();
@@ -63,10 +63,6 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
     this.bitfield = new Bitfield(parsedTorrent.pieces.length);
     this.expectedPieces = parsedTorrent.pieces;
     
-    // 🔥 CORREÇÃO: Deferimos a inicialização para a próxima microtask.
-    // Isso garante que o código chamador tenha tempo de registrar listeners 
-    // de evento (como 'ready' ou 'error') de forma síncrona após a construção,
-    // evitando race conditions onde o evento é emitido antes do listener ser registrado.
     queueMicrotask(() => {
       this._init(opts.skipVerify || false).catch((err) => {
         this._onError(err instanceof Error ? err : new Error(String(err)));
@@ -75,36 +71,104 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   }
 
   // ==========================================================================
-  // GETTERS COMPUTADOS (Propriedades em tempo real)
+  // GETTERS COMPUTADOS
   // ==========================================================================
 
-  get ready(): boolean {
-    return this._ready;
-  }
-
-  get destroyed(): boolean {
-    return this._destroyed;
-  }
-
-  get downloaded(): number {
-    return this._downloaded;
-  }
-
-  get uploaded(): number {
-    return this._uploaded;
-  }
-
+  get ready(): boolean { return this._ready; }
+  get destroyed(): boolean { return this._destroyed; }
+  get downloaded(): number { return this._downloaded; }
+  get uploaded(): number { return this._uploaded; }
+  
   get progress(): number {
     if (this.length === 0) return 0;
     return this._downloaded / this.length;
   }
 
-  get numPieces(): number {
-    return this.expectedPieces.length;
-  }
+  get numPieces(): number { return this.expectedPieces.length; }
 
   get lastPieceLength(): number {
     return this.length % this.pieceLength || this.pieceLength;
+  }
+
+  // ==========================================================================
+  // API PÚBLICA: INJEÇÃO TARDIA DE METADADOS (Para Magnet URIs)
+  // ==========================================================================
+
+  /**
+   * Recebe o dicionário 'info' codificado em Bencode (recebido via ut_metadata)
+   * e atualiza dinamicamente o estado do Torrent (arquivos, tamanho, peças).
+   */
+  public async setMetadata(infoBuffer: Uint8Array): Promise<boolean> {
+    if (this._metadataReceived) return false; // Já temos os metadados
+
+    try {
+      const info = decode(infoBuffer) as BencodeDict;
+      
+      // 1. Extrair Piece Length e Pieces (Hashes)
+      const pieceLength = info["piece length"] as number;
+      const piecesRaw = info["pieces"];
+      
+      if (typeof pieceLength !== "number" || !(piecesRaw instanceof Uint8Array)) {
+        throw new Error("Invalid metadata: missing piece length or pieces");
+      }
+
+      const newExpectedPieces: Uint8Array[] = [];
+      for (let i = 0; i < piecesRaw.length; i += 20) {
+        newExpectedPieces.push(piecesRaw.subarray(i, i + 20));
+      }
+
+      // 2. Extrair Arquivos e Tamanho Total
+      const newFiles: ParsedTorrentFile[] = [];
+      let totalLength = 0;
+      const textDecoder = new TextDecoder();
+
+      if (info["files"]) {
+        const filesList = info["files"] as BencodeDict[];
+        for (const fileDict of filesList) {
+          const length = fileDict["length"] as number;
+          const pathList = fileDict["path"] as (Uint8Array | string)[];
+          const pathParts = pathList.map((p) => typeof p === "string" ? p : textDecoder.decode(p));
+          const path = pathParts.join("/");
+          const name = pathParts[pathParts.length - 1]!;
+          
+          newFiles.push({ path, name, length, offset: totalLength });
+          totalLength += length;
+        }
+      } else {
+        const length = info["length"] as number;
+        const nameRaw = info["name"];
+        const name = typeof nameRaw === "string" ? nameRaw : textDecoder.decode(nameRaw as Uint8Array);
+        
+        newFiles.push({ path: name, name, length, offset: 0 });
+        totalLength = length;
+      }
+
+      // 3. Atualizar Estado Interno
+      this.pieceLength = pieceLength;
+      this.length = totalLength;
+      this.files = newFiles;
+      this.expectedPieces = newExpectedPieces;
+      
+      const nameRaw = info["name"];
+      this.name = typeof nameRaw === "string" ? nameRaw : textDecoder.decode(nameRaw as Uint8Array);
+
+      // 4. Recriar o Bitfield com o novo número de peças
+      this.bitfield = new Bitfield(this.numPieces);
+      this._metadataReceived = true;
+
+      // 5. Notificar a UI
+      this.emit("metadata", new CustomEvent("metadata", {
+        detail: { files: this.files, length: this.length, name: this.name }
+      }));
+
+      // 6. Se o store já tiver dados (ex: retomada), verificar peças existentes
+      await this._verifyExistingPieces();
+
+      return true;
+    } catch (err) {
+      this._onError(err instanceof Error ? err : new Error(String(err)));
+      return false;
+    }
   }
 
   // ==========================================================================
@@ -113,7 +177,9 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
 
   private async _init(skipVerify: boolean): Promise<void> {
     try {
-      if (!skipVerify) {
+      // Se já temos os metadados (ex: veio de um .torrent completo), verificamos as peças.
+      // Se for Magnet URI, this.numPieces será 0, então _verifyExistingPieces não fará nada.
+      if (!skipVerify && this.numPieces > 0) {
         await this._verifyExistingPieces();
       }
       this._ready = true;
@@ -123,9 +189,6 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
     }
   }
 
-  /**
-   * Verifica peças que já podem existir no ChunkStore (ex: retomada de download via OPFS).
-   */
   private async _verifyExistingPieces(): Promise<void> {
     for (let i = 0; i < this.numPieces; i++) {
       try {
@@ -133,7 +196,6 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
         const buf = await this.store.get(i, opts);
         await this._verifyPiece(i, buf);
       } catch (err: any) {
-        // Se a peça não existe no store (notFound), apenas ignoramos e seguimos.
         if (!err.notFound) {
           console.warn(`[Torrent] Erro ao verificar peça ${i}:`, err);
         }
@@ -142,30 +204,23 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   }
 
   // ==========================================================================
-  // API PÚBLICA (Recebimento e Persistência de Dados)
+  // RECEBIMENTO E PERSISTÊNCIA DE DADOS
   // ==========================================================================
 
-  /**
-   * Recebe um chunk de dados de um peer/webseed, valida e persiste no store.
-   * Este é o método que o módulo de Rede (Wire/Peer) chamará ao receber dados.
-   */
   public async receivePiece(index: number, buf: Uint8Array): Promise<boolean> {
     if (this._destroyed) return false;
-    if (this.bitfield.get(index)) return true; // Já temos essa peça
+    if (this.bitfield.get(index)) return true;
+    // Se ainda não recebemos os metadados, não podemos validar nem salvar peças.
+    if (!this._metadataReceived && this.numPieces === 0) return false;
 
     try {
-      // 1. Validação Criptográfica (SHA-1)
       await this._verifyPiece(index, buf);
-
-      // 2. Persistência no ChunkStore
       await this.store.put(index, buf);
 
-      // 3. Atualização de Estado
       this.bitfield.set(index);
       const pieceLength = index === this.numPieces - 1 ? this.lastPieceLength : this.pieceLength;
       this._downloaded += pieceLength;
 
-      // 4. Notificação
       this.emit("verified", new CustomEvent("verified", { detail: { index } }));
       this.emit("download", new CustomEvent("download", { detail: { bytes: pieceLength } }));
 
@@ -175,15 +230,11 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
 
       return true;
     } catch (err) {
-      // Peça inválida ou corrompida. O módulo de rede deve desconectar o peer que a enviou.
       console.warn(`[Torrent] Peça ${index} rejeitada (hash inválido).`);
       return false;
     }
   }
 
-  /**
-   * Lê uma peça do ChunkStore (útil para uploading para outros peers ou streaming).
-   */
   public async getPiece(index: number): Promise<Uint8Array | null> {
     if (!this.bitfield.get(index)) return null;
     try {
@@ -194,9 +245,6 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
     }
   }
 
-  /**
-   * Destrói o torrent, fechando o store e liberando recursos.
-   */
   public async destroy(destroyStore: boolean = false): Promise<void> {
     if (this._destroyed) return;
     this._destroyed = true;
@@ -213,7 +261,7 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   }
 
   // ==========================================================================
-  // MÉTODOS PRIVADOS (Validação e Erros)
+  // MÉTODOS PRIVADOS
   // ==========================================================================
 
   private async _verifyPiece(index: number, buf: Uint8Array): Promise<void> {
@@ -222,10 +270,7 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
       throw new Error(`Índice de peça ${index} fora do limite.`);
     }
 
-    // Calcula o SHA-1 do buffer recebido
     const actualHashHex = await sha1(buf);
-    
-    // Converte o hash esperado (Uint8Array de 20 bytes) para hex para comparação
     const expectedHashHex = Array.from(expectedHashBuffer)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");

@@ -4,10 +4,6 @@ import { TypedEventTarget } from "../utils/event-target.ts";
 import { readUInt32BE, writeUInt32BE, concat } from "../utils/buffer.ts";
 import { decode } from "../utils/bencode.ts";
 
-// ============================================================================
-// TIPOS E INTERFACES
-// ============================================================================
-
 export interface Transport {
   send(data: Uint8Array): void;
   onMessage(handler: (data: Uint8Array) => void): void;
@@ -29,7 +25,6 @@ export interface WireEvents {
   error: CustomEvent<{ error: Error }>;
 }
 
-// IDs das mensagens do protocolo BitTorrent (BEP 3)
 const MSG_CHOKE = 0;
 const MSG_UNCHOKE = 1;
 const MSG_INTERESTED = 2;
@@ -39,26 +34,20 @@ const MSG_BITFIELD = 5;
 const MSG_REQUEST = 6;
 const MSG_PIECE = 7;
 const MSG_CANCEL = 8;
-const MSG_EXTENDED = 20; // BEP 10 (Extension Protocol)
+const MSG_EXTENDED = 20;
 
 const PSTR = new TextEncoder().encode("BitTorrent protocol");
 const HANDSHAKE_LENGTH = 68;
-
-// ============================================================================
-// CLASSE WIRE
-// ============================================================================
 
 export class Wire extends TypedEventTarget<WireEvents> {
   private transport: Transport;
   private buffer: Uint8Array = new Uint8Array(0);
   
-  // Estado do protocolo
   public amChoking: boolean = true;
   public amInterested: boolean = false;
   public peerChoking: boolean = true;
   public peerInterested: boolean = false;
   
-  // Propriedades expostas para uso pelo Peer
   public peerId: string | null = null;
   public peerIdBuffer: Uint8Array | null = null;
 
@@ -71,29 +60,21 @@ export class Wire extends TypedEventTarget<WireEvents> {
     this.transport.onMessage((data) => this._onData(data));
   }
 
-  // ==========================================================================
-  // HANDSHAKE
-  // ==========================================================================
-
   public sendHandshake(infoHash: Uint8Array, peerId: Uint8Array, extensions: Uint8Array = new Uint8Array(8)): void {
     if (infoHash.length !== 20 || peerId.length !== 20 || extensions.length !== 8) {
       throw new Error("Handshake parameters must be exactly 20 bytes (infoHash/peerId) and 8 bytes (extensions).");
     }
 
     const handshake = new Uint8Array(HANDSHAKE_LENGTH);
-    handshake[0] = 19; // pstrlen
-    handshake.set(PSTR, 1); // pstr
-    handshake.set(extensions, 20); // reserved
-    handshake.set(infoHash, 28); // info_hash
-    handshake.set(peerId, 48); // peer_id
+    handshake[0] = 19;
+    handshake.set(PSTR, 1);
+    handshake.set(extensions, 20);
+    handshake.set(infoHash, 28);
+    handshake.set(peerId, 48);
 
     this.transport.send(handshake);
     this.handshakeSent = true;
   }
-
-  // ==========================================================================
-  // ENVIAR MENSAGENS (TX)
-  // ==========================================================================
 
   public sendChoke(): void {
     this.amChoking = true;
@@ -153,12 +134,7 @@ export class Wire extends TypedEventTarget<WireEvents> {
     this._sendMessage(MSG_EXTENDED, concat([header, payload]));
   }
 
-  // ==========================================================================
-  // RECEBER MENSAGENS (RX)
-  // ==========================================================================
-
   private _onData(chunk: Uint8Array): void {
-    // Acumula os dados recebidos no buffer interno
     this.buffer = concat([this.buffer, chunk]);
 
     try {
@@ -170,7 +146,6 @@ export class Wire extends TypedEventTarget<WireEvents> {
   }
 
   private _processBuffer(): void {
-    // 1. Processa o Handshake (se ainda não recebido)
     if (!this.handshakeReceived) {
       if (this.buffer.length >= HANDSHAKE_LENGTH) {
         const pstrlen = this.buffer[0]!;
@@ -186,29 +161,25 @@ export class Wire extends TypedEventTarget<WireEvents> {
         this.buffer = this.buffer.subarray(HANDSHAKE_LENGTH);
         this.handshakeReceived = true;
         
-        // Salvar o peerId
         this.peerIdBuffer = peerIdBuffer;
         this.peerId = Array.from(peerIdBuffer).map((b: number) => b.toString(16).padStart(2, "0")).join("");
 
         this.emit("handshake", new CustomEvent("handshake", { detail: { peerId: peerIdBuffer, extensions } }));
       } else {
-        return; // Espera mais dados para completar o handshake
+        return;
       }
     }
 
-    // 2. Processa mensagens do protocolo (Loop enquanto houver mensagens completas)
     while (this.buffer.length >= 4) {
       const length = readUInt32BE(this.buffer, 0);
       
-      // Keep-alive (length === 0)
       if (length === 0) {
         this.buffer = this.buffer.subarray(4);
         continue;
       }
 
-      // Verifica se o payload completo já chegou no buffer
       if (this.buffer.length < 4 + length) {
-        return; // Espera mais dados
+        return;
       }
 
       const msgId = this.buffer[4]!;
@@ -216,7 +187,6 @@ export class Wire extends TypedEventTarget<WireEvents> {
 
       this._handleMessage(msgId, payload);
       
-      // Remove a mensagem processada do buffer
       this.buffer = this.buffer.subarray(4 + length);
     }
   }
@@ -282,7 +252,6 @@ export class Wire extends TypedEventTarget<WireEvents> {
         const extPayload = payload.subarray(1);
         
         if (extId === 0) {
-          // Extended handshake
           try {
             const handshake = decode(extPayload) as any;
             this.emit("extended", new CustomEvent("extended", { detail: { id: 0, payload: handshake } }));
@@ -298,12 +267,8 @@ export class Wire extends TypedEventTarget<WireEvents> {
     }
   }
 
-  // ==========================================================================
-  // HELPERS
-  // ==========================================================================
-
   private _sendMessage(id: number, payload: Uint8Array = new Uint8Array(0)): void {
-    const length = payload.length + 1; // +1 para o byte do ID
+    const length = payload.length + 1;
     const buf = new Uint8Array(4 + length);
     
     writeUInt32BE(buf, length, 0);
