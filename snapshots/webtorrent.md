@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WEBTORRENT
 
-Gerado automaticamente em: 9/4/2026, 2:36:16 PM
+Gerado automaticamente em: 9/4/2026, 5:18:33 PM
 
 ---
 
@@ -992,6 +992,247 @@ export function generateLocoPeerId(): Uint8Array {
 
 ---
 
+## Arquivo: `monorepo/webtorrent/src/utils/constants.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/utils/constants.ts
+
+/**
+ * Constantes do protocolo BitTorrent (BEP 3, BEP 10).
+ * Centraliza todos os IDs de mensagens e códigos de extensão.
+ */
+
+// ============================================================================
+// IDs DE MENSAGENS DO PROTOCOLO BITTORRENT (BEP 3)
+// ============================================================================
+
+export const MSG_CHOKE = 0;
+export const MSG_UNCHOKE = 1;
+export const MSG_INTERESTED = 2;
+export const MSG_NOT_INTERESTED = 3;
+export const MSG_HAVE = 4;
+export const MSG_BITFIELD = 5;
+export const MSG_REQUEST = 6;
+export const MSG_PIECE = 7;
+export const MSG_CANCEL = 8;
+export const MSG_PORT = 9; // DHT port (BEP 5)
+export const MSG_SUGGEST = 13; // BEP 6 (Fast Extension)
+export const MSG_HAVE_ALL = 14; // BEP 6
+export const MSG_HAVE_NONE = 15; // BEP 6
+export const MSG_REJECT = 16; // BEP 6
+export const MSG_ALLOWED_FAST = 17; // BEP 6
+
+// ============================================================================
+// PROTOCOLO DE EXTENSÃO (BEP 10)
+// ============================================================================
+
+export const MSG_EXTENDED = 20;
+export const EXT_HANDSHAKE = 0; // ID reservado para handshake de extensões
+
+// ============================================================================
+// TAMANHOS DE MENSAGENS
+// ============================================================================
+
+export const HANDSHAKE_LENGTH = 68; // 1 + 19 + 8 + 20 + 20
+export const KEEP_ALIVE_LENGTH = 4; // Apenas o length prefix (0)
+
+// ============================================================================
+// LIMITES E TIMEOUTS
+// ============================================================================
+
+export const DEFAULT_MAX_CONNS = 55;
+export const WEBRTC_CONNECT_TIMEOUT = 25_000; // 25 segundos
+export const BITTORRENT_HANDSHAKE_TIMEOUT = 25_000; // 25 segundos
+export const TRACKER_TIMEOUT = 15_000; // 15 segundos
+
+// ============================================================================
+// PROTOCOLO STRING
+// ============================================================================
+
+export const PSTR = "BitTorrent protocol";
+export const PSTR_BUFFER = new TextEncoder().encode(PSTR);
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/utils/errors.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/utils/errors.ts
+
+/**
+ * Classes de erro customizadas para o Loco WebTorrent.
+ * Facilita debugging e tratamento de erros específicos.
+ */
+
+export class BitfieldError extends Error {
+  constructor(message: string, public code: string = "BITFIELD_ERROR") {
+    super(message);
+    this.name = "BitfieldError";
+  }
+}
+
+export class WireError extends Error {
+  constructor(message: string, public code: string = "WIRE_ERROR") {
+    super(message);
+    this.name = "WireError";
+  }
+}
+
+export class TrackerError extends Error {
+  constructor(message: string, public code: string = "TRACKER_ERROR") {
+    super(message);
+    this.name = "TrackerError";
+  }
+}
+
+export class PeerError extends Error {
+  constructor(message: string, public code: string = "PEER_ERROR") {
+    super(message);
+    this.name = "PeerError";
+  }
+}
+
+export class TorrentError extends Error {
+  constructor(message: string, public code: string = "TORRENT_ERROR") {
+    super(message);
+    this.name = "TorrentError";
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/utils/bitfield.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/core/bitfield.ts
+
+import { BitfieldError } from "../utils/errors.ts";
+
+export interface BitfieldOptions {
+  /** Tamanho inicial do bitfield (número de bits) */
+  length: number;
+  /** Se true, permite crescimento dinâmico quando um índice fora do range é acessado */
+  grow?: boolean | number;
+}
+
+/**
+ * Estrutura de dados eficiente para rastrear o estado de peças (pieces).
+ * Suporta crescimento dinâmico opcional para casos onde o tamanho final não é conhecido.
+ */
+export class Bitfield {
+  private buffer: Uint8Array;
+  private _length: number;
+  private grow: boolean | number;
+
+  constructor(length: number | BitfieldOptions, opts?: { grow?: boolean | number }) {
+    if (typeof length === "object") {
+      this._length = length.length;
+      this.grow = length.grow ?? false;
+    } else {
+      this._length = length;
+      this.grow = opts?.grow ?? false;
+    }
+
+    const byteLength = Math.ceil(this._length / 8);
+    this.buffer = new Uint8Array(byteLength);
+  }
+
+  get length(): number {
+    return this._length;
+  }
+
+  /**
+   * Verifica se o bit no índice especificado está marcado.
+   */
+  get(index: number): boolean {
+    if (index < 0) return false;
+    
+    // Se grow está habilitado e o índice está fora do range, retorna false
+    if (index >= this._length) {
+      if (this.grow === false) return false;
+      return false; // Bit fora do range não está marcado
+    }
+
+    const byteIndex = Math.floor(index / 8);
+    const bitIndex = index % 8;
+    return (this.buffer[byteIndex]! & (128 >> bitIndex)) !== 0;
+  }
+
+  /**
+   * Marca o bit no índice especificado.
+   */
+  set(index: number): void {
+    if (index < 0) {
+      throw new BitfieldError("Cannot set negative index", "NEGATIVE_INDEX");
+    }
+
+    // Crescimento dinâmico se necessário
+    if (index >= this._length) {
+      if (this.grow === false) {
+        throw new BitfieldError(
+          `Index ${index} is out of range (length: ${this._length})`,
+          "INDEX_OUT_OF_RANGE"
+        );
+      }
+
+      const newLength = typeof this.grow === "number"
+        ? Math.max(this._length + this.grow, index + 1)
+        : index + 1;
+
+      this._resize(newLength);
+    }
+
+    const byteIndex = Math.floor(index / 8);
+    const bitIndex = index % 8;
+    this.buffer[byteIndex]! |= (128 >> bitIndex);
+  }
+
+  /**
+   * Desmarca o bit no índice especificado.
+   */
+  unset(index: number): void {
+    if (index < 0 || index >= this._length) return;
+
+    const byteIndex = Math.floor(index / 8);
+    const bitIndex = index % 8;
+    this.buffer[byteIndex]! &= ~(128 >> bitIndex);
+  }
+
+  /**
+   * Conta quantos bits estão marcados.
+   */
+  count(): number {
+    let count = 0;
+    for (let i = 0; i < this._length; i++) {
+      if (this.get(i)) count++;
+    }
+    return count;
+  }
+
+  /**
+   * Retorna uma cópia do buffer interno.
+   */
+  toBuffer(): Uint8Array {
+    return new Uint8Array(this.buffer);
+  }
+
+  /**
+   * Redimensiona o bitfield para um novo tamanho.
+   */
+  private _resize(newLength: number): void {
+    const newByteLength = Math.ceil(newLength / 8);
+    const newBuffer = new Uint8Array(newByteLength);
+    newBuffer.set(this.buffer);
+    this.buffer = newBuffer;
+    this._length = newLength;
+  }
+}
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/src/crypto/random.ts`
 
 ```ts
@@ -1409,72 +1650,6 @@ export class OPFSChunkStore implements ChunkStore {
     
     this.closed = true;
     this.rootDir = null;
-  }
-}
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/src/core/bitfield.ts`
-
-```ts
-// /loco/monorepo/webtorrent/src/core/bitfield.ts
-
-/**
- * Estrutura de dados ultra-eficiente para rastrear o estado de peças (pieces).
- * Usa Uint8Array e operações bitwise para minimizar o uso de memória.
- */
-export class Bitfield {
-  private buffer: Uint8Array;
-  public readonly length: number;
-
-  constructor(length: number) {
-    this.length = length;
-    // Cada byte armazena 8 bits (peças). Math.ceil garante que cobrimos todas as peças.
-    this.buffer = new Uint8Array(Math.ceil(length / 8));
-  }
-
-  /**
-   * Verifica se a peça no índice fornecido já foi baixada/verificada.
-   */
-  get(index: number): boolean {
-    if (index < 0 || index >= this.length) return false;
-    const byteIndex = index >> 3; // Equivalente a Math.floor(index / 8)
-    const bitIndex = 7 - (index & 7); // Equivalente a 7 - (index % 8)
-    return (this.buffer[byteIndex]! & (1 << bitIndex)) !== 0;
-  }
-
-  /**
-   * Marca a peça no índice fornecido como baixada/verificada.
-   */
-  set(index: number): void {
-    if (index < 0 || index >= this.length) return;
-    const byteIndex = index >> 3;
-    const bitIndex = 7 - (index & 7);
-    this.buffer[byteIndex]! |= (1 << bitIndex);
-  }
-
-  /**
-   * Conta quantas peças já foram marcadas como completas.
-   */
-  count(): number {
-    let count = 0;
-    for (let i = 0; i < this.buffer.length; i++) {
-      // Conta os bits 1 em cada byte (Brian Kernighan's algorithm simplificado para 8 bits)
-      let byte = this.buffer[i]!;
-      while (byte) {
-        byte &= byte - 1;
-        count++;
-      }
-    }
-    return count;
-  }
-
-  /**
-   * Retorna uma cópia do buffer bruto (útil para serialização ou envio via Wire Protocol).
-   */
-  toBuffer(): Uint8Array {
-    return this.buffer.slice();
   }
 }
 ```
@@ -2063,6 +2238,141 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
 
   private _onError(err: Error): void {
     this.emit("error", new CustomEvent("error", { detail: { error: err } }));
+  }
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/core/extension.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/core/extension.ts
+
+import { TypedEventTarget } from "../utils/event-target.ts";
+
+export interface ExtensionEvents {
+  warning: CustomEvent<{ error: Error }>;
+  metadata: CustomEvent<{ metadata: Uint8Array }>;
+}
+
+/**
+ * Classe base para extensões do protocolo BitTorrent (BEP 10).
+ * Extensões como ut_metadata e ut_pex devem herdar desta classe.
+ */
+export abstract class Extension extends TypedEventTarget<ExtensionEvents> {
+  public abstract readonly name: string;
+  protected wire: any;
+
+  constructor(wire: any) {
+    super();
+    this.wire = wire;
+  }
+
+  /**
+   * Chamado quando o handshake estendido é recebido do peer.
+   */
+  abstract onExtendedHandshake(handshake: any): void;
+
+  /**
+   * Chamado quando uma mensagem estendida para esta extensão é recebida.
+   */
+  abstract onMessage(payload: Uint8Array): void;
+}
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/core/bitfield.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/core/bitfield.ts
+
+import { BitfieldError } from "../utils/errors.ts";
+
+export interface BitfieldOptions {
+  length: number;
+  grow?: boolean | number;
+}
+
+export class Bitfield {
+  private buffer: Uint8Array;
+  private _length: number;
+  private grow: boolean | number;
+
+  constructor(length: number | BitfieldOptions, opts?: { grow?: boolean | number }) {
+    if (typeof length === "object") {
+      this._length = length.length;
+      this.grow = length.grow ?? false;
+    } else {
+      this._length = length;
+      this.grow = opts?.grow ?? false;
+    }
+
+    const byteLength = Math.ceil(this._length / 8);
+    this.buffer = new Uint8Array(byteLength);
+  }
+
+  get length(): number {
+    return this._length;
+  }
+
+  get(index: number): boolean {
+    if (index < 0) return false;
+    if (index >= this._length) {
+      if (this.grow === false) return false;
+      return false;
+    }
+    const byteIndex = Math.floor(index / 8);
+    const bitIndex = index % 8;
+    return (this.buffer[byteIndex]! & (128 >> bitIndex)) !== 0;
+  }
+
+  set(index: number): void {
+    if (index < 0) {
+      throw new BitfieldError("Cannot set negative index", "NEGATIVE_INDEX");
+    }
+
+    if (index >= this._length) {
+      if (this.grow === false) {
+        throw new BitfieldError(`Index ${index} is out of range (length: ${this._length})`, "INDEX_OUT_OF_RANGE");
+      }
+      const newLength = typeof this.grow === "number"
+        ? Math.max(this._length + this.grow, index + 1)
+        : index + 1;
+      this._resize(newLength);
+    }
+
+    const byteIndex = Math.floor(index / 8);
+    const bitIndex = index % 8;
+    this.buffer[byteIndex]! |= (128 >> bitIndex);
+  }
+
+  unset(index: number): void {
+    if (index < 0 || index >= this._length) return;
+    const byteIndex = Math.floor(index / 8);
+    const bitIndex = index % 8;
+    this.buffer[byteIndex]! &= ~(128 >> bitIndex);
+  }
+
+  count(): number {
+    let count = 0;
+    for (let i = 0; i < this._length; i++) {
+      if (this.get(i)) count++;
+    }
+    return count;
+  }
+
+  toBuffer(): Uint8Array {
+    return new Uint8Array(this.buffer);
+  }
+
+  private _resize(newLength: number): void {
+    const newByteLength = Math.ceil(newLength / 8);
+    const newBuffer = new Uint8Array(newByteLength);
+    newBuffer.set(this.buffer);
+    this.buffer = newBuffer;
+    this._length = newLength;
   }
 }
 ```
@@ -2956,7 +3266,7 @@ export class Peer extends TypedEventTarget<PeerEvents> {
 ```ts
 // /loco/monorepo/webtorrent/src/extensions/ut-metadata.ts
 
-import { EventEmitter } from "node:events";
+import { Extension } from "../core/extension.ts";
 import { encode, decode, BencodeDict } from "../utils/bencode.ts";
 import { Bitfield } from "../core/bitfield.ts";
 
@@ -2967,10 +3277,9 @@ export interface UtMetadataOptions {
   metadata?: Uint8Array;
 }
 
-export class UtMetadata extends EventEmitter {
-  public name = "ut_metadata";
+export class UtMetadata extends Extension {
+  public readonly name = "ut_metadata";
   
-  private _wire: any;
   private _fetching = false;
   private _metadataComplete = false;
   private _metadataSize: number | null = null;
@@ -2980,9 +3289,8 @@ export class UtMetadata extends EventEmitter {
   public metadata: Uint8Array | null = null;
 
   constructor(wire: any, opts?: UtMetadataOptions) {
-    super();
-    this._wire = wire;
-    this._bitfield = new Bitfield(0);
+    super(wire);
+    this._bitfield = new Bitfield({ length: 0, grow: 1000 });
     if (opts?.metadata) {
       this.setMetadata(opts.metadata);
     }
@@ -2995,19 +3303,20 @@ export class UtMetadata extends EventEmitter {
   public onExtendedHandshake(handshake: any) {
     if (handshake.m && typeof handshake.m.ut_metadata === "number") {
       if (typeof handshake.metadata_size !== "number" || handshake.metadata_size > MAX_METADATA_SIZE || handshake.metadata_size <= 0) {
-        this.emit("warning", new Error("Peer gave invalid metadata size"));
+        this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer gave invalid metadata size") } }));
       } else {
         const size = handshake.metadata_size;
         this._metadataSize = size;
         this._numPieces = Math.ceil(size / PIECE_LENGTH);
         this._remainingRejects = 2 * this._numPieces;
-        this._bitfield = new Bitfield(this._numPieces);
+        this._bitfield = new Bitfield({ length: this._numPieces, grow: 1000 });
+        
         // 🔥 CORREÇÃO: Definir _fetching como true antes de solicitar peças
         this._fetching = true;
         this._requestPieces();
       }
     } else {
-      this.emit("warning", new Error("Peer does not support ut_metadata"));
+      this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer does not support ut_metadata") } }));
     }
   }
 
@@ -3054,9 +3363,9 @@ export class UtMetadata extends EventEmitter {
     
     let validMetadata = newMetadata;
     try {
-      const decoded = decode(newMetadata) as BencodeDict;
-      if (decoded && (decoded as any).info) {
-        validMetadata = encode((decoded as any).info);
+      const info = decode(newMetadata) as BencodeDict;
+      if (info.info) {
+        validMetadata = encode(info.info);
       }
     } catch (err) {
       // Ignora erros de decode, usa o buffer cru
@@ -3067,11 +3376,11 @@ export class UtMetadata extends EventEmitter {
     this._metadataComplete = true;
     this._metadataSize = this.metadata.length;
     
-    if (this._wire.extendedHandshake) {
-      this._wire.extendedHandshake.metadata_size = this._metadataSize;
+    if (this.wire.extendedHandshake) {
+      this.wire.extendedHandshake.metadata_size = this._metadataSize;
     }
     
-    this.emit("metadata", this.metadata);
+    this.emit("metadata", new CustomEvent("metadata", { detail: { metadata: this.metadata } }));
     return true;
   }
 
@@ -3083,7 +3392,7 @@ export class UtMetadata extends EventEmitter {
       combined.set(trailer, buf.length);
       buf = combined;
     }
-    this._wire.extended("ut_metadata", buf);
+    this.wire.extended("ut_metadata", buf);
   }
 
   private _request(piece: number) {
@@ -3131,7 +3440,7 @@ export class UtMetadata extends EventEmitter {
       this._request(piece);
       this._remainingRejects -= 1;
     } else {
-      this.emit("warning", new Error("Peer sent \"reject\" too much"));
+      this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer sent \"reject\" too much") } }));
     }
   }
 
@@ -3162,12 +3471,12 @@ export class UtMetadata extends EventEmitter {
 
   private _failedMetadata() {
     if (!this._metadataSize) return;
-    this._bitfield = new Bitfield(this._numPieces);
+    this._bitfield = new Bitfield({ length: this._numPieces, grow: 1000 });
     this._remainingRejects -= this._numPieces;
     if (this._remainingRejects > 0) {
       this._requestPieces();
     } else {
-      this.emit("warning", new Error("Peer sent invalid metadata"));
+      this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer sent invalid metadata") } }));
     }
   }
 }

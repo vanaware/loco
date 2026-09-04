@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/src/extensions/ut-metadata.ts
 
-import { EventEmitter } from "node:events";
+import { Extension } from "../core/extension.ts";
 import { encode, decode, BencodeDict } from "../utils/bencode.ts";
 import { Bitfield } from "../core/bitfield.ts";
 
@@ -11,10 +11,9 @@ export interface UtMetadataOptions {
   metadata?: Uint8Array;
 }
 
-export class UtMetadata extends EventEmitter {
-  public name = "ut_metadata";
+export class UtMetadata extends Extension {
+  public readonly name = "ut_metadata";
   
-  private _wire: any;
   private _fetching = false;
   private _metadataComplete = false;
   private _metadataSize: number | null = null;
@@ -24,9 +23,8 @@ export class UtMetadata extends EventEmitter {
   public metadata: Uint8Array | null = null;
 
   constructor(wire: any, opts?: UtMetadataOptions) {
-    super();
-    this._wire = wire;
-    this._bitfield = new Bitfield(0);
+    super(wire);
+    this._bitfield = new Bitfield({ length: 0, grow: 1000 });
     if (opts?.metadata) {
       this.setMetadata(opts.metadata);
     }
@@ -39,19 +37,20 @@ export class UtMetadata extends EventEmitter {
   public onExtendedHandshake(handshake: any) {
     if (handshake.m && typeof handshake.m.ut_metadata === "number") {
       if (typeof handshake.metadata_size !== "number" || handshake.metadata_size > MAX_METADATA_SIZE || handshake.metadata_size <= 0) {
-        this.emit("warning", new Error("Peer gave invalid metadata size"));
+        this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer gave invalid metadata size") } }));
       } else {
         const size = handshake.metadata_size;
         this._metadataSize = size;
         this._numPieces = Math.ceil(size / PIECE_LENGTH);
         this._remainingRejects = 2 * this._numPieces;
-        this._bitfield = new Bitfield(this._numPieces);
+        this._bitfield = new Bitfield({ length: this._numPieces, grow: 1000 });
+        
         // 🔥 CORREÇÃO: Definir _fetching como true antes de solicitar peças
         this._fetching = true;
         this._requestPieces();
       }
     } else {
-      this.emit("warning", new Error("Peer does not support ut_metadata"));
+      this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer does not support ut_metadata") } }));
     }
   }
 
@@ -98,9 +97,9 @@ export class UtMetadata extends EventEmitter {
     
     let validMetadata = newMetadata;
     try {
-      const decoded = decode(newMetadata) as BencodeDict;
-      if (decoded && (decoded as any).info) {
-        validMetadata = encode((decoded as any).info);
+      const info = decode(newMetadata) as BencodeDict;
+      if (info.info) {
+        validMetadata = encode(info.info);
       }
     } catch (err) {
       // Ignora erros de decode, usa o buffer cru
@@ -111,11 +110,11 @@ export class UtMetadata extends EventEmitter {
     this._metadataComplete = true;
     this._metadataSize = this.metadata.length;
     
-    if (this._wire.extendedHandshake) {
-      this._wire.extendedHandshake.metadata_size = this._metadataSize;
+    if (this.wire.extendedHandshake) {
+      this.wire.extendedHandshake.metadata_size = this._metadataSize;
     }
     
-    this.emit("metadata", this.metadata);
+    this.emit("metadata", new CustomEvent("metadata", { detail: { metadata: this.metadata } }));
     return true;
   }
 
@@ -127,7 +126,7 @@ export class UtMetadata extends EventEmitter {
       combined.set(trailer, buf.length);
       buf = combined;
     }
-    this._wire.extended("ut_metadata", buf);
+    this.wire.extended("ut_metadata", buf);
   }
 
   private _request(piece: number) {
@@ -175,7 +174,7 @@ export class UtMetadata extends EventEmitter {
       this._request(piece);
       this._remainingRejects -= 1;
     } else {
-      this.emit("warning", new Error("Peer sent \"reject\" too much"));
+      this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer sent \"reject\" too much") } }));
     }
   }
 
@@ -206,12 +205,12 @@ export class UtMetadata extends EventEmitter {
 
   private _failedMetadata() {
     if (!this._metadataSize) return;
-    this._bitfield = new Bitfield(this._numPieces);
+    this._bitfield = new Bitfield({ length: this._numPieces, grow: 1000 });
     this._remainingRejects -= this._numPieces;
     if (this._remainingRejects > 0) {
       this._requestPieces();
     } else {
-      this.emit("warning", new Error("Peer sent invalid metadata"));
+      this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer sent invalid metadata") } }));
     }
   }
 }
