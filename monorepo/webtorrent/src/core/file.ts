@@ -2,12 +2,21 @@
 
 import { TypedEventTarget } from "../utils/event-target.ts";
 import { Piece } from "./piece.ts";
+import { buildStreamURL } from "../server/stream-manager.ts";
 
 export interface FileOptions {
   store: any; // ChunkStore interface
   length: number;
   offset: number;
   pieceLength: number;
+  /** Nome do arquivo (ex: "movie.mp4"). Usado em {@link streamURL}. */
+  name?: string;
+  /** Identificador do torrent ao qual este arquivo pertence. */
+  infoHash?: string;
+  /** Índice do arquivo dentro do torrent (0-based). */
+  fileIndex?: number;
+  /** Escopo do Service Worker (ex: "/"). Usado por {@link streamURL}. */
+  scope?: string;
 }
 
 export class File extends TypedEventTarget<{
@@ -19,6 +28,10 @@ export class File extends TypedEventTarget<{
   private _length: number;
   private _offset: number;
   private _pieceLength: number;
+  private _name: string;
+  private _infoHash?: string;
+  private _fileIndex?: number;
+  private _scope: string;
 
   constructor(options: FileOptions) {
     super();
@@ -26,10 +39,22 @@ export class File extends TypedEventTarget<{
     this._length = options.length;
     this._offset = options.offset;
     this._pieceLength = options.pieceLength;
+    this._name = options.name ?? "file";
+    this._infoHash = options.infoHash;
+    this._fileIndex = options.fileIndex;
+    this._scope = options.scope ?? "/";
   }
 
   get length(): number {
     return this._length;
+  }
+
+  get name(): string {
+    return this._name;
+  }
+
+  get path(): string {
+    return this._name;
   }
 
   createReadStream(): ReadableStream<Uint8Array> {
@@ -76,9 +101,29 @@ export class File extends TypedEventTarget<{
     });
   }
 
+  /**
+   * Retorna a URL virtual servida pelo Service Worker para fazer
+   * streaming deste arquivo.
+   *
+   * O formato é: `<scope>webtorrent/<infoHash>/<fileIndex>/<encodedName>`.
+   *
+   * Requer que o {@link WebTorrent.server} tenha sido criado via
+   * `client.createServer({ controller })` e que o arquivo tenha sido
+   * registrado no {@link streamManager} (o que acontece automaticamente
+   * quando se usa `client.createServer`).
+   *
+   * @throws Error se `infoHash` ou `fileIndex` não foram fornecidos ao
+   *   construtor (o que acontece automaticamente quando se cria os
+   *   arquivos via `WebTorrent`).
+   */
   streamURL(): string {
-    // Will be implemented with Service Worker integration in Phase 4.2
-    throw new Error("Not implemented");
+    if (!this._infoHash || this._fileIndex === undefined) {
+      throw new Error(
+        "infoHash and fileIndex are required to generate streamURL. " +
+        "Create files via WebTorrent client (client.createServer + add).",
+      );
+    }
+    return buildStreamURL(this._scope, this._infoHash, this._fileIndex, this.name);
   }
 
   select(): void {

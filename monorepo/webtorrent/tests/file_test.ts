@@ -54,7 +54,7 @@ Deno.test("file: createReadStream throws not implemented", () => {
   }, Error, "Not implemented");
 });
 
-Deno.test("file: streamURL throws not implemented", () => {
+Deno.test("file: streamURL throws when infoHash is missing", () => {
   const file = new File({
     store: new MockChunkStore(),
     length: 100,
@@ -64,7 +64,26 @@ Deno.test("file: streamURL throws not implemented", () => {
 
   assertThrows(() => {
     file.streamURL();
-  }, Error, "Not implemented");
+  }, Error, "infoHash and fileIndex are required");
+});
+
+Deno.test("file: streamURL returns valid SW URL when registered", () => {
+  const file = new File({
+    store: new MockChunkStore(),
+    length: 100,
+    offset: 50,
+    pieceLength: 16,
+    name: "movie.mp4",
+    infoHash: "a".repeat(40),
+    fileIndex: 2,
+    scope: "/loco/",
+  });
+
+  const url = file.streamURL();
+  if (!url.includes("a".repeat(40))) throw new Error("URL missing infoHash");
+  if (!url.includes("/2/")) throw new Error("URL missing fileIndex");
+  if (!url.includes("movie.mp4")) throw new Error("URL missing name");
+  if (!url.startsWith("/loco/webtorrent/")) throw new Error("URL missing scope prefix");
 });
 
 Deno.test("file: streamTo handles media element", () => {
@@ -82,8 +101,8 @@ Deno.test("file: streamTo handles media element", () => {
     addEventListener: (_: string, cb: Function) => cb()
   } as unknown as HTMLVideoElement;
 
-  // Should throw because streamURL is not implemented
+  // Should throw because infoHash/fileIndex are not set on this file
   assertThrows(() => {
     file.streamTo(video);
-  }, Error, "Not implemented");
+  }, Error, "infoHash and fileIndex are required");
 });
