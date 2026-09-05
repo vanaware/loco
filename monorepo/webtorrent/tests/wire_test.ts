@@ -753,3 +753,105 @@ Deno.test("wire: use() rejects extension without BEP 10", () => {
     PeerWireError,
   );
 });
+
+// ── BEP 52 v2 hash messages ──────────────────────────────────────────────
+
+Deno.test("wire: dispatches new BEP 52 events when negotiated", async () => {
+  // Helper: Cria um par de Wires conectados em memória com extensão V2
+  function createV2WirePair(): { wireA: Wire; wireB: Wire } {
+    let handlerA: ((data: Uint8Array) => void) | null = null;
+    let handlerB: ((data: Uint8Array) => void) | null = null;
+
+    const transportA: Transport = {
+      send: (data: Uint8Array) => {
+        queueMicrotask(() => handlerB?.(data));
+      },
+      onMessage: (handler: (data: Uint8Array) => void) => { handlerA = handler; },
+      close: () => {},
+    };
+
+    const transportB: Transport = {
+      send: (data: Uint8Array) => {
+        queueMicrotask(() => handlerA?.(data));
+      },
+      onMessage: (handler: (data: Uint8Array) => void) => { handlerB = handler; },
+      close: () => {},
+    };
+
+    return {
+      wireA: new Wire(transportA, { extensions: [HandshakeExtension.V2] }),
+      wireB: new Wire(transportB, { extensions: [HandshakeExtension.V2] }),
+    };
+  }
+
+  const { wireA, wireB } = createV2WirePair();
+
+  const infoHash = new Uint8Array(20);
+  const peerIdA = new Uint8Array(20).fill(0xAA);
+  const peerIdB = new Uint8Array(20).fill(0xBB);
+
+  // Complete handshake with V2 extension
+  wireA.sendHandshake(infoHash, peerIdA);
+  wireB.sendHandshake(infoHash, peerIdB);
+
+  // Aguarda as microtasks processarem os eventos de handshake
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Verifica se o handshake foi concluído
+  assertEquals(wireA.state, WireState.Connected);
+  assertEquals(wireB.state, WireState.Connected);
+
+  // Test hashRequest event
+  let hashRequestReceived = false;
+  wireB.on("hashRequest", (e: CustomEvent<any>) => {
+    const detail = e.detail;
+    assertEquals(detail.piecesRoot.length, 32);
+    assertEquals(detail.baseLayer, 0);
+    assertEquals(detail.index, 8); // Must be multiple of length (2)
+    assertEquals(detail.length, 2);
+    assertEquals(detail.proofLayers, 5);
+    hashRequestReceived = true;
+  });
+
+  const piecesRoot = new Uint8Array(32).fill(0xCC);
+  wireA.sendHashRequest(piecesRoot, 0, 8, 2, 5); // index=8 is multiple of length=2
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(hashRequestReceived, true);
+
+  // Test hashes event
+  let hashesReceived = false;
+  wireA.on("hashes", (e: CustomEvent<any>) => {
+    const detail = e.detail;
+    assertEquals(detail.piecesRoot.length, 32);
+    assertEquals(detail.baseLayer, 1);
+    assertEquals(detail.index, 16); // Must be multiple of length (4)
+    assertEquals(detail.length, 4);
+    assertEquals(detail.proofLayers, 3);
+    assertEquals(detail.hashes.length, 64); // 2 hashes of 32 bytes each
+    hashesReceived = true;
+  });
+
+  const hashes = new Uint8Array(64).fill(0xDD);
+  wireB.sendHashes(new Uint8Array(32).fill(0xEE), 1, 16, 4, 3, hashes); // index=16 is multiple of length=4
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(hashesReceived, true);
+
+  // Test hashReject event
+  let hashRejectReceived = false;
+  wireB.on("hashReject", (e: CustomEvent<any>) => {
+    const detail = e.detail;
+    assertEquals(detail.piecesRoot.length, 32);
+    assertEquals(detail.baseLayer, 2);
+    assertEquals(detail.index, 24); // Must be multiple of length (8)
+    assertEquals(detail.length, 8);
+    assertEquals(detail.proofLayers, 2);
+    hashRejectReceived = true;
+  });
+
+  wireA.sendHashReject(new Uint8Array(32).fill(0xFF), 2, 24, 8, 2); // index=24 is multiple of length=8
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(hashRejectReceived, true);
+});

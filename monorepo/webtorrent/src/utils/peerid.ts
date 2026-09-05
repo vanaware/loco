@@ -118,6 +118,24 @@ const SHADOW_CLIENTS: Record<string, string> = {
   "U": "UPnP NAT Bit Torrent",
 };
 
+// Funções utilitárias para validação
+export function isBase32Char(char: string): boolean {
+  return /^[A-Z2-7]$/.test(char);
+}
+
+export function isBase32(str: string): boolean {
+  return /^[A-Z2-7]+$/.test(str);
+}
+
+export function isHex(str: string): boolean {
+  return /^[0-9a-fA-F]+$/.test(str);
+}
+
+export function isSha1(str: string): boolean {
+  return str.length === 40 && isHex(str);
+}
+
+// Funções de validação de Peer ID
 export function isAzStyle(peerid: string): boolean {
   return (
     peerid.length >= 8 &&
@@ -136,6 +154,7 @@ export function isShadowStyle(peerid: string): boolean {
   );
 }
 
+// Funções de conversão de versão
 function parseAzVersion(versionStr: string): string {
   if (versionStr.length !== 4) return versionStr;
   const major = versionStr[0];
@@ -148,21 +167,81 @@ function parseAzVersion(versionStr: string): string {
 function parseShadowVersion(versionStr: string): string {
   const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-";
   const parts: number[] = [];
-  
+
   for (const char of versionStr) {
     if (char === "-") break;
     const idx = chars.indexOf(char);
     if (idx !== -1) parts.push(idx);
   }
-  
+
   return parts.length > 0 ? parts.join(".") : "0";
 }
 
-export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
-  const peeridStr = typeof peerId === "string" 
-    ? peerId 
-    : new TextDecoder("utf-8", { fatal: false }).decode(peerId);
+// Funções de encode para diferentes estilos
+export function encodeAzStyle(clientCode: string, version: string): string {
+  if (clientCode.length !== 2) {
+    throw new Error("Client code must be exactly 2 characters");
+  }
   
+  // Converter versão para formato de 4 dígitos (ex: "1.2.3" -> "1203")
+  const parts = version.split(".");
+  let major = "0", minor = "0", patch = "0";
+  
+  if (parts.length >= 1) major = parts[0]?.substring(0, 1) || "0";
+  if (parts.length >= 2) minor = parts[1]?.substring(0, 1) || "0";
+  if (parts.length >= 3) patch = parts[2]?.substring(0, 2).padStart(2, "0") || "00";
+  
+  // Garantir que patch tenha 2 dígitos
+  if (patch.length === 1) patch = "0" + patch;
+  
+  const versionStr = `${major}${minor}${patch}`;
+  if (versionStr.length !== 4) {
+    throw new Error("Version must be in format X.Y.Z where X,Y,Z are single digits or XX for patch");
+  }
+  
+  return `-${clientCode}${versionStr}-`;
+}
+
+export function encodeShadowStyle(clientCode: string, version: string): string {
+  if (clientCode.length !== 1) {
+    throw new Error("Client code must be exactly 1 character");
+  }
+  
+  // Converter versão para formato shadow (ex: "1.2.3" -> "abc")
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-";
+  const parts = version.split(".").slice(0, 3);
+  let versionStr = "";
+  
+  for (const part of parts) {
+    const num = parseInt(part, 10);
+    if (isNaN(num) || num >= chars.length) {
+      versionStr += "0"; // fallback para "0" se o número for inválido
+    } else {
+      versionStr += chars[num];
+    }
+  }
+  
+  // Preencher com "0" se necessário
+  while (versionStr.length < 5) {
+    versionStr += "0";
+  }
+  
+  return `${clientCode}${versionStr}---`;
+}
+
+export function encodeGeneric(clientCode: string, version: string, style: "azureus" | "shadow"): string {
+  if (style === "azureus") {
+    return encodeAzStyle(clientCode, version);
+  } else {
+    return encodeShadowStyle(clientCode, version);
+  }
+}
+
+export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
+  const peeridStr = typeof peerId === "string"
+    ? peerId
+    : new TextDecoder("utf-8", { fatal: false }).decode(peerId);
+
   if (peeridStr.length < 20) return null;
   const id = peeridStr.slice(0, 20);
 
@@ -171,7 +250,7 @@ export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
     const versionRaw = id.slice(3, 7);
     const name = AZUREUS_CLIENTS[code] || `Unknown (${code})`;
     const version = parseAzVersion(versionRaw);
-    
+
     return { code, name, version, style: "azureus" };
   }
 
@@ -180,7 +259,7 @@ export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
     const versionRaw = id.slice(1, 6);
     const name = SHADOW_CLIENTS[code] || `Unknown (${code})`;
     const version = parseShadowVersion(versionRaw);
-    
+
     return { code, name, version, style: "shadow" };
   }
 
@@ -197,7 +276,7 @@ export function generateLocoPeerId(): Uint8Array {
   const prefix = LOCO_PEER_ID_PREFIX;
   const randomPart = generateRandomString(20 - prefix.length);
   const peerIdStr = prefix + randomPart;
-  
+
   return new TextEncoder().encode(peerIdStr);
 }
 

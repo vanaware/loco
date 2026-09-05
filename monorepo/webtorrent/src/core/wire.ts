@@ -88,6 +88,12 @@ export interface WireEvents {
   rejectRequest: CustomEvent<{ index: number; offset: number; length: number }>;
   /** BEP 6 — Fast: allowed fast */
   allowedFast: CustomEvent<{ index: number }>;
+  /** BEP 52 v2: hash request */
+  hashRequest: CustomEvent<{ piecesRoot: Uint8Array; baseLayer: number; index: number; length: number; proofLayers: number }>;
+  /** BEP 52 v2: hashes response */
+  hashes: CustomEvent<{ piecesRoot: Uint8Array; baseLayer: number; index: number; length: number; proofLayers: number; hashes: Uint8Array }>;
+  /** BEP 52 v2: hash reject */
+  hashReject: CustomEvent<{ piecesRoot: Uint8Array; baseLayer: number; index: number; length: number; proofLayers: number }>;
   keepAlive: Event;
   unknown: CustomEvent<{ id: number; payload: Uint8Array }>;
   error: CustomEvent<{ error: Error }>;
@@ -362,6 +368,66 @@ export class Wire extends TypedEventTarget<WireEvents> {
 
   public sendExtended(extId: number, payload: Uint8Array): void {
     this._sendMessage({ type: "extended", extensionId: extId, payload });
+  }
+
+  // ====================================================================
+  // BEP 52 v2 messages
+  // ====================================================================
+
+  /** Send a hash request for a range of SHA-256 hashes from the piece layers. */
+  public sendHashRequest(
+    piecesRoot: Uint8Array,
+    baseLayer: number,
+    index: number,
+    length: number,
+    proofLayers: number,
+  ): void {
+    this._sendMessage({
+      type: "hashRequest",
+      piecesRoot,
+      baseLayer,
+      index,
+      length,
+      proofLayers,
+    });
+  }
+
+  /** Send a batch of SHA-256 hashes in response to a hash request. */
+  public sendHashes(
+    piecesRoot: Uint8Array,
+    baseLayer: number,
+    index: number,
+    length: number,
+    proofLayers: number,
+    hashes: Uint8Array,
+  ): void {
+    this._sendMessage({
+      type: "hashes",
+      piecesRoot,
+      baseLayer,
+      index,
+      length,
+      proofLayers,
+      hashes,
+    });
+  }
+
+  /** Reject a hash request. */
+  public sendHashReject(
+    piecesRoot: Uint8Array,
+    baseLayer: number,
+    index: number,
+    length: number,
+    proofLayers: number,
+  ): void {
+    this._sendMessage({
+      type: "hashReject",
+      piecesRoot,
+      baseLayer,
+      index,
+      length,
+      proofLayers,
+    });
   }
 
   // ====================================================================
@@ -670,11 +736,39 @@ export class Wire extends TypedEventTarget<WireEvents> {
           detail: { id: message.id, payload: message.payload },
         }));
         break;
-      // BEP 52 messages — emit as extended-like for now
       case "hashRequest":
+        this.emit("hashRequest", new CustomEvent("hashRequest", {
+          detail: {
+            piecesRoot: message.piecesRoot,
+            baseLayer: message.baseLayer,
+            index: message.index,
+            length: message.length,
+            proofLayers: message.proofLayers,
+          },
+        }));
+        break;
       case "hashes":
+        this.emit("hashes", new CustomEvent("hashes", {
+          detail: {
+            piecesRoot: message.piecesRoot,
+            baseLayer: message.baseLayer,
+            index: message.index,
+            length: message.length,
+            proofLayers: message.proofLayers,
+            hashes: message.hashes,
+          },
+        }));
+        break;
       case "hashReject":
-        // v2 hash messages: dispatched via extension host if registered
+        this.emit("hashReject", new CustomEvent("hashReject", {
+          detail: {
+            piecesRoot: message.piecesRoot,
+            baseLayer: message.baseLayer,
+            index: message.index,
+            length: message.length,
+            proofLayers: message.proofLayers,
+          },
+        }));
         break;
     }
   }
