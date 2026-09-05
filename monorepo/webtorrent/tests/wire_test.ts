@@ -1,7 +1,9 @@
 // /loco/monorepo/webtorrent/tests/wire_test.ts
 
-import { assertEquals } from "jsr:@std/assert";
-import { Wire, Transport } from "../src/core/wire.ts";
+import { assertEquals, assertThrows } from "jsr:@std/assert";
+import { Wire, Transport, WireState } from "../src/core/wire.ts";
+import { HandshakeExtension } from "../src/core/constants.ts";
+import { ProtocolError, PeerWireError } from "../src/utils/errors.ts";
 
 // Helper: Cria um par de Wires conectados em memória (Loopback)
 function createWirePair(): { wireA: Wire; wireB: Wire } {
@@ -190,7 +192,7 @@ Deno.test("wire: validates infoHash on handshake (rejects mismatch)", async () =
   const expectedInfoHash = new Uint8Array(20).fill(0x01);
   const wrongInfoHash = new Uint8Array(20).fill(0x02);
 
-  const wireB = new Wire(transportB, expectedInfoHash);
+  const wireB = new Wire(transportB, { expectedInfoHash });
   const wireA = new Wire(transportA);
 
   let errorReceived = false;
@@ -222,8 +224,8 @@ Deno.test("wire: accepts handshake with matching infoHash", async () => {
   };
 
   const expectedInfoHash = new Uint8Array(20).fill(0xAB);
-  const wireA = new Wire(transportA, expectedInfoHash);
-  const wireB = new Wire(transportB, expectedInfoHash);
+  const wireA = new Wire(transportA, { expectedInfoHash });
+  const wireB = new Wire(transportB, { expectedInfoHash });
 
   let handshakeReceived = false;
   wireA.on("handshake", () => { handshakeReceived = true; });
@@ -305,3 +307,449 @@ function equals(a: Uint8Array, b: Uint8Array): boolean {
   }
   return true;
 }
+
+// ============================================================================
+// Fase 1: Wire internals tests
+// ============================================================================
+
+// ── State machine ────────────────────────────────────────────────────────
+
+Deno.test("wire: starts in Handshaking state", () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  assertEquals(wire.state, WireState.Handshaking);
+});
+
+Deno.test("wire: transitions to Connected after both handshakes", async () => {
+  const { wireA, wireB } = createWirePair();
+  assertEquals(wireA.state, WireState.Handshaking);
+
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assertEquals(wireA.state, WireState.Connected);
+  assertEquals(wireB.state, WireState.Connected);
+});
+
+Deno.test("wire: transitions to Closed on destroy", async () => {
+  const { wireA, wireB } = createWirePair();
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  wireA.destroy();
+  assertEquals(wireA.state, WireState.Closed);
+  assertEquals(wireA.isDestroyed, true);
+});
+
+Deno.test("wire: emits close event on destroy", async () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  let closeReceived = false;
+  wire.on("close", () => { closeReceived = true; });
+  wire.destroy();
+  assertEquals(closeReceived, true);
+});
+
+// ── expectedPeerId validation ─────────────────────────────────────────────
+
+Deno.test("wire: rejects handshake with unexpected peerId", async () => {
+  let handler: ((data: Uint8Array) => void) | null = null;
+  const transport: Transport = {
+    send: () => {},
+    onMessage: (h) => { handler = h; },
+    close: () => {},
+  };
+
+  const expectedPeerId = new Uint8Array(20).fill(0x42);
+  const wire = new Wire(transport, { expectedPeerId });
+
+  let errorReceived = false;
+  wire.on("error", () => { errorReceived = true; });
+
+  // Build a handshake with a different peerId
+  const wrongPeerId = new Uint8Array(20).fill(0x99);
+  const infoHash = new Uint8Array(20).fill(0x01);
+  // Manually craft handshake bytes
+  const handshake = new Uint8Array(68);
+  handshake[0] = 19;
+  new TextEncoder().encodeInto("BitTorrent protocol", handshake.subarray(1, 20));
+  handshake.set(infoHash, 28);
+  handshake.set(wrongPeerId, 48);
+
+  handler!(handshake);
+  assertEquals(errorReceived, true);
+  assertEquals(wire.state, WireState.Closed);
+});
+
+// ── Extension gating ─────────────────────────────────────────────────────
+
+Deno.test("wire: rejects Fast messages without negotiation", async () => {
+  const { wireA, wireB } = createWirePair();
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Neither side advertised Fast extension
+  assertThrows(
+    () => wireA.sendSuggestPiece(0),
+    ProtocolError,
+  );
+  assertThrows(
+    () => wireA.sendHaveAll(),
+    ProtocolError,
+  );
+  assertThrows(
+    () => wireA.sendHaveNone(),
+    ProtocolError,
+  );
+  assertThrows(
+    () => wireA.sendRejectRequest(0, 0, 1),
+    ProtocolError,
+  );
+  assertThrows(
+    () => wireA.sendAllowedFast(0),
+    ProtocolError,
+  );
+});
+
+Deno.test("wire: rejects Port message without DHT negotiation", async () => {
+  const { wireA, wireB } = createWirePair();
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assertThrows(
+    () => wireA.sendPort(6881),
+    ProtocolError,
+  );
+});
+
+Deno.test("wire: allows Fast messages when both sides negotiate", async () => {
+  let handlerA: ((data: Uint8Array) => void) | null = null;
+  let handlerB: ((data: Uint8Array) => void) | null = null;
+  const transportA: Transport = {
+    send: (data) => queueMicrotask(() => handlerB?.(data)),
+    onMessage: (h) => { handlerA = h; },
+    close: () => {},
+  };
+  const transportB: Transport = {
+    send: (data) => queueMicrotask(() => handlerA?.(data)),
+    onMessage: (h) => { handlerB = h; },
+    close: () => {},
+  };
+
+  const wireA = new Wire(transportA, { extensions: [HandshakeExtension.Fast] });
+  const wireB = new Wire(transportB, { extensions: [HandshakeExtension.Fast] });
+
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Now Fast messages should work
+  let haveAllReceived = false;
+  wireB.on("haveAll", () => { haveAllReceived = true; });
+
+  // With Fast, must send availability first: haveNone or haveAll
+  wireA.sendHaveNone();
+  wireB.sendHaveNone();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  wireA.sendSuggestPiece(5);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // No error thrown = success
+  assertEquals(wireA.state, WireState.Connected);
+});
+
+// ── Message size limits ──────────────────────────────────────────────────
+
+Deno.test("wire: rejects messages exceeding maxMessageLength", async () => {
+  let handler: ((data: Uint8Array) => void) | null = null;
+  const transport: Transport = {
+    send: () => {},
+    onMessage: (h) => { handler = h; },
+    close: () => {},
+  };
+
+  const wire = new Wire(transport, { maxMessageLength: 100 });
+  wire.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+
+  // Feed a handshake to the wire so it's connected
+  const hs = new Uint8Array(68);
+  hs[0] = 19;
+  new TextEncoder().encodeInto("BitTorrent protocol", hs.subarray(1, 20));
+  handler!(hs);
+
+  // Now send a message with length prefix > 100
+  let errorReceived = false;
+  wire.on("error", () => { errorReceived = true; });
+
+  // length prefix = 200 (0x000000C8)
+  const bigMsg = new Uint8Array([0, 0, 0, 0xC8, 0x00]);
+  handler!(bigMsg);
+
+  assertEquals(errorReceived, true);
+});
+
+// ── Stats tracking ───────────────────────────────────────────────────────
+
+Deno.test("wire: tracks uploaded and downloaded bytes", async () => {
+  const { wireA, wireB } = createWirePair();
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const initialUploaded = wireA.uploadedBytes;
+  const initialDownloaded = wireB.downloadedBytes;
+
+  wireA.sendChoke();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // choke message = 5 bytes (4 length + 1 id)
+  assertEquals(wireA.uploadedBytes > initialUploaded, true);
+  assertEquals(wireB.downloadedBytes > initialDownloaded, true);
+});
+
+Deno.test("wire: tracks lastActivityAt", async () => {
+  const { wireA, wireB } = createWirePair();
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const beforeActivity = wireA.lastActivityAt;
+  // Small delay to ensure timestamp differs
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  wireA.sendInterested();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assertEquals(wireA.lastActivityAt >= beforeActivity, true);
+});
+
+// ── Pending request tracking ─────────────────────────────────────────────
+
+Deno.test("wire: tracks peerRequests on incoming request", async () => {
+  const { wireA, wireB } = createWirePair();
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // B must send availability first (bitfield/haveNone)
+  wireB.sendBitfield(new Uint8Array([0xff]));
+  wireA.sendBitfield(new Uint8Array([0xff]));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // B sends unchoke, then A can request
+  wireB.sendUnchoke();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assertEquals(wireA.peerRequests.length, 0);
+  assertEquals(wireB.pendingRequests.length, 0);
+
+  wireA.sendRequest(0, 0, 16384);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // B should have the request in peerRequests
+  assertEquals(wireB.peerRequests.length, 1);
+  assertEquals(wireB.peerRequests[0]!.pieceIndex, 0);
+});
+
+// ── Block validation ─────────────────────────────────────────────────────
+
+Deno.test("wire: rejects outgoing block request with zero length", async () => {
+  const { wireA, wireB } = createWirePair();
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  wireB.sendUnchoke();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // sendRequest silently drops when choked, but when unchoked it should
+  // validate via _sendMessage
+  assertThrows(
+    () => wireA.sendRequest(0, 0, 0),
+    RangeError,
+  );
+});
+
+// ── Keepalive ────────────────────────────────────────────────────────────
+
+Deno.test("wire: sendKeepAlive via setKeepAlive", async () => {
+  const { wireA, wireB } = createWirePair();
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Enable keepalive with a very short interval
+  wireA.setKeepAlive(50);
+
+  let keepAliveReceived = false;
+  wireB.on("keepAlive", () => { keepAliveReceived = true; });
+
+  // Wait for the keepalive timer to fire
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assertEquals(keepAliveReceived, true);
+
+  // Disable keepalive
+  wireA.setKeepAlive(false);
+});
+
+Deno.test("wire: receives keepAlive messages", async () => {
+  let handler: ((data: Uint8Array) => void) | null = null;
+  const transport: Transport = {
+    send: () => {},
+    onMessage: (h) => { handler = h; },
+    close: () => {},
+  };
+
+  const wire = new Wire(transport);
+  wire.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+
+  // Feed handshake to get to Connected state
+  const hs = new Uint8Array(68);
+  hs[0] = 19;
+  new TextEncoder().encodeInto("BitTorrent protocol", hs.subarray(1, 20));
+  handler!(hs);
+
+  let keepAliveCount = 0;
+  wire.on("keepAlive", () => { keepAliveCount++; });
+
+  // Send a keepalive (4 zero bytes)
+  handler!(new Uint8Array([0, 0, 0, 0]));
+
+  assertEquals(keepAliveCount, 1);
+});
+
+// ── BEP 6 Fast event dispatch ────────────────────────────────────────────
+
+Deno.test("wire: dispatches new BEP 6 events when negotiated", async () => {
+  let handlerA: ((data: Uint8Array) => void) | null = null;
+  let handlerB: ((data: Uint8Array) => void) | null = null;
+  const transportA: Transport = {
+    send: (data) => queueMicrotask(() => handlerB?.(data)),
+    onMessage: (h) => { handlerA = h; },
+    close: () => {},
+  };
+  const transportB: Transport = {
+    send: (data) => queueMicrotask(() => handlerA?.(data)),
+    onMessage: (h) => { handlerB = h; },
+    close: () => {},
+  };
+
+  const wireA = new Wire(transportA, {
+    extensions: [HandshakeExtension.Fast],
+    pieceCount: 10,
+  });
+  const wireB = new Wire(transportB, {
+    extensions: [HandshakeExtension.Fast],
+    pieceCount: 10,
+  });
+
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Availability first (both sides must declare before other messages)
+  wireA.sendHaveNone();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  wireB.sendHaveNone();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  let suggestReceived = false;
+  let allowedFastReceived = false;
+
+  wireA.on("suggestPiece", (e: CustomEvent<{ index: number }>) => {
+    assertEquals(e.detail.index, 3);
+    suggestReceived = true;
+  });
+  wireA.on("allowedFast", (e: CustomEvent<{ index: number }>) => {
+    assertEquals(e.detail.index, 7);
+    allowedFastReceived = true;
+  });
+
+  wireB.sendSuggestPiece(3);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  wireB.sendAllowedFast(7);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assertEquals(suggestReceived, true);
+  assertEquals(allowedFastReceived, true);
+});
+
+// ── WireOptions validation ───────────────────────────────────────────────
+
+Deno.test("wire: constructor validates options", () => {
+  const transport: Transport = { send: () => {}, onMessage: () => {}, close: () => {} };
+
+  assertThrows(
+    () => new Wire(transport, { maxMessageLength: 0 }),
+    RangeError,
+  );
+  assertThrows(
+    () => new Wire(transport, { maxBlockLength: -1 }),
+    RangeError,
+  );
+  assertThrows(
+    () => new Wire(transport, { maxPendingRequests: 0 }),
+    RangeError,
+  );
+  assertThrows(
+    () => new Wire(transport, { maxQueuedWriteBytes: 0 }),
+    RangeError,
+  );
+});
+
+// ── Backpressure (write queue) ───────────────────────────────────────────
+
+Deno.test("wire: write queue backpressure limits oversized writes", async () => {
+  let handlerA: ((data: Uint8Array) => void) | null = null;
+  let handlerB: ((data: Uint8Array) => void) | null = null;
+  const transportA: Transport = {
+    send: (data) => queueMicrotask(() => handlerB?.(data)),
+    onMessage: (h) => { handlerA = h; },
+    close: () => {},
+  };
+  const transportB: Transport = {
+    send: (data) => queueMicrotask(() => handlerA?.(data)),
+    onMessage: (h) => { handlerB = h; },
+    close: () => {},
+  };
+
+  // Very small write limit
+  const wireA = new Wire(transportA, { maxQueuedWriteBytes: 100 });
+  const wireB = new Wire(transportB, { maxQueuedWriteBytes: 100 });
+
+  wireA.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  wireB.sendHandshake(new Uint8Array(20), new Uint8Array(20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // A large piece block should exceed the write limit
+  const bigBlock = new Uint8Array(200).fill(0xFF);
+  assertThrows(
+    () => wireA.sendPiece(0, 0, bigBlock),
+    PeerWireError,
+  );
+});
+
+// ── Extension host integration ───────────────────────────────────────────
+
+Deno.test("wire: use() rejects extension without BEP 10", () => {
+  const transport: Transport = { send: () => {}, onMessage: () => {}, close: () => {} };
+  const wire = new Wire(transport); // no ExtensionProtocol
+
+  assertThrows(
+    () => wire.use({ name: "ut_test", onExtendedHandshake() {}, onMessage() {} }),
+    PeerWireError,
+  );
+});

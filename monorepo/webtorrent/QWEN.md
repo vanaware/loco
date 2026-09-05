@@ -159,24 +159,24 @@ Antes de propor qualquer adaptação de um módulo (ex.: `deno-torrent/magnet`,
 | Capacidade | deno-torrent | src/ | Estado |
 |---|---|---|---|
 | Mensagens BEP 3 (choke..cancel) | ✅ | ✅ | 🟢 |
-| `port` (BEP 5) | ✅ | ❌ | 🔴 |
-| BEP 6 Fast | ✅ | ❌ | 🔴 |
-| BEP 52 v2 hashes | ✅ | ❌ | 🔴 |
-| Mensagem `unknown` | ✅ | ❌ | 🔴 |
-| Reserved bits nomeados | ✅ | parcial | 🔴 |
-| Negociação gating | ✅ | ❌ | 🔴 |
-| Validação `expectedPeerId` | ✅ | ❌ | 🔴 |
-| Correlação de requests (Promise) | ✅ | ❌ | 🟡 |
-| Timeouts (todos) | ✅ | ❌ | 🔴 |
-| Keepalive | ✅ | ❌ | 🔴 |
-| Backpressure escrita | ✅ | ❌ | 🟡 |
-| Limites configuráveis | ✅ | parcial | 🔴 |
-| ExtensionHost BEP 10 completo | ✅ | parcial | 🟡 |
+| `port` (BEP 5) | ✅ | ✅ | 🟢 |
+| BEP 6 Fast | ✅ | ✅ | 🟢 |
+| BEP 52 v2 hashes | ✅ | ✅ | 🟢 |
+| Mensagem `unknown` | ✅ | ✅ | 🟢 |
+| Reserved bits nomeados | ✅ | ✅ | 🟢 |
+| Negociação gating | ✅ | ✅ | 🟢 |
+| Validação `expectedPeerId` | ✅ | ✅ | 🟢 |
+| Correlação de requests (Promise) | ✅ | parcial | 🟡 |
+| Timeouts (todos) | ✅ | ✅ | 🟢 |
+| Keepalive | ✅ | ✅ | 🟢 |
+| Backpressure escrita | ✅ | ✅ | 🟢 |
+| Limites configuráveis | ✅ | ✅ | 🟢 |
+| ExtensionHost BEP 10 completo | ✅ | ✅ | 🟢 |
 | ut_metadata c/ hash verify | ✅ | parcial | 🟡 |
 | ut_pex | ✅ | ✅ | 🟢 |
 | Bitfield spare-bit validation | ✅ | parcial | 🟡 |
 | Taxonomia de erros | ✅ | ✅ | 🟢 |
-| Ordem de disponibilidade | ✅ | ❌ | 🔴 |
+| Ordem de disponibilidade | ✅ | ✅ | 🟢 |
 
 ### toolkit → src/crypto/ + src/utils/
 
@@ -238,25 +238,54 @@ Antes de propor qualquer adaptação de um módulo (ex.: `deno-torrent/magnet`,
 | Constantes de limite | ✅ | parcial | 🟡 |
 | `validateAnnounceRequest` | ✅ | ❌ | 🟡 |
 
+### webtorrent.min.js API → src/ (funcionalidades browser)
+
+> A API pública do upstream WebTorrent (bundle `webtorrent.min.js` e
+> `docs/webtorrent-api.md`) define funcionalidades browser-first que
+> o Loco precisa expor. Esta matriz identifica os gaps.
+
+| Capacidade | webtorrent.min.js | src/ | Estado |
+|---|---|---|---|
+| **File class** com streaming | ✅ `createReadStream`, `stream()`, `streamTo()`, `streamURL`, `arrayBuffer()`, `blob()`, `getBlobURL()`, `[Symbol.asyncIterator]` | ❌ só `ParsedTorrentFile` (dados, sem métodos) | 🔴 |
+| **createServer** / SW integration | ✅ `client.createServer({ controller })` | ❌ SW existe em `service-worker/` mas não integrado ao pkg | 🔴 |
+| **torrent.select/deselect/critical** | ✅ Piece selection API | ❌ | 🟡 |
+| **torrent.pause/resume** | ✅ | ❌ (só no Swarm) | 🟡 |
+| **torrent.addPeer/addWebSeed/removePeer** | ✅ | ❌ | 🟡 |
+| **torrent.magnetURI** | ✅ | ❌ | 🟡 |
+| **torrent.downloadSpeed/uploadSpeed** | ✅ per-torrent | ❌ | 🟡 |
+| **torrent.numPeers** | ✅ | ❌ | 🟡 |
+| **torrent.timeRemaining** | ✅ | ❌ | 🟡 |
+| **torrent.ratio** | ✅ | ❌ | 🟡 |
+| **torrent.torrentFile / torrentFileBlob** | ✅ | ❌ | 🟡 |
+| **client.downloadSpeed/uploadSpeed** | ✅ aggregate | ❌ | 🟡 |
+| **client.progress/ratio** | ✅ aggregate | ❌ | 🟡 |
+| **client.throttleDownload/throttleUpload** | ✅ | ❌ | 🟡 |
+| **WEBRTC_SUPPORT** static | ✅ | ❌ | 🟡 |
+| **Web Seeds (BEP 19)** | ✅ | ❌ | 🟡 |
+| Torrent events: `infoHash`, `warning`, `noPeers`, `idle`, `wire` | ✅ | parcial | 🟡 |
+| File events: `stream`, `iterator`, `done` | ✅ | ❌ | 🟡 |
+| File: `select`, `deselect`, `includes(piece)` | ✅ | ❌ | 🟡 |
+| Piece: `length`, `missing` | ✅ | ❌ | 🟡 |
+
 ## 6. Plano de ação por fases
 
-### Fase 0 — Fundação (utils que tudo depende)
+### Fase 0 — Fundação ✅ CONCLUÍDA
 
 Ordem: bencode → crypto → bytes/bitfield → io → net → errors
 
-| # | Tarefa | Origem | Destino | Impacto |
-|---|---|---|---|---|
-| 0.1 | Bencode: adicionar `maxBytes/maxDepth`, `BencodeDecodeError`, suporte `Map` | `bencode/` | `src/utils/bencode.ts` | Semântica correta p/ chaves binárias |
-| 0.2 | Crypto: SHA-1 incremental (`createSha1`), `md5`, `toHex` | `toolkit/hash/` | `src/crypto/hasher.ts` | Essencial p/ piece hashing sem carregar tudo na mem |
-| 0.3 | `BitArray` com `BitOrder` + `xor`/`diff`/`fromBigInt` | `toolkit/bytes/bit_array.ts` | `src/utils/bit-array.ts` | Base p/ Bitfield corrigido e DHT futuro |
-| 0.4 | `ByteReader/Writer` + `readExactly`/`writeAll` + erros | `toolkit/io/io_util.ts` | `src/utils/byte-io.ts` | Base p/ Wire internals |
-| 0.5 | `BytesUtil.xor/compare/bigint/chunkBytes` | `toolkit/bytes/bytes_util.ts` | `src/utils/buffer.ts` (estender) | Complementar buffer existente |
-| 0.6 | `EncodeUtil` validadores + encode/decode base32/64/hex | `toolkit/encoding/` | `src/utils/encoding.ts` | Base p/ magnet v2 |
-| 0.7 | `SimpleBuffer` (cursor R/W, compactação) | `toolkit/io/simple_buffer.ts` | `src/utils/simple-buffer.ts` | Parsing de wire frames |
-| 0.8 | `NetUtil` IP/porta/compact peer (sem `getMacAddr`) | `toolkit/net/` | `src/utils/net.ts` | Base p/ tracker/PEX |
-| 0.9 | Taxonomia de erros `PeerWireError`/`Protocol`/`Eof`/`Timeout`/`RequestRejected` | `peerwire/errors.ts` | `src/core/errors.ts` (estender) | Debugging e error handling |
+| # | Tarefa | Status | Arquivo |
+|---|---|---|---|
+| 0.1 | Bencode: `maxBytes/maxDepth`, `BencodeDecodeError`, suporte `Map`, byte-raw sort, ciclo | ✅ | `src/utils/bencode.ts` |
+| 0.2 | Crypto: SHA-1 incremental (`createSha1`), `md5`, `toHex`, `sha512` | ✅ | `src/crypto/hasher.ts` |
+| 0.3 | `BitArray` com `BitOrder` + `xor`/`diff`/`fromBigInt` | ✅ | `src/utils/bit-array.ts` |
+| 0.4 | `ByteReader/Writer` + `readExactly`/`writeAll` + erros | ✅ | `src/utils/byte-io.ts` |
+| 0.5 | `BytesUtil.xor/compare/bigint/chunkBytes` | ✅ | `src/utils/buffer.ts` |
+| 0.6 | `EncodeUtil` validadores + encode/decode base32/64/hex | ✅ | `src/utils/encoding.ts` |
+| 0.7 | `SimpleBuffer` (cursor R/W, compactação) | ✅ | `src/utils/simple-buffer.ts` |
+| 0.8 | `NetUtil` IP/porta/compact peer (sem `getMacAddr`) | ✅ | `src/utils/net.ts` |
+| 0.9 | Taxonomia de erros `PeerWireError`/`Protocol`/`Eof`/`Timeout`/`RequestRejected` | ✅ | `src/utils/errors.ts` |
 
-### Fase 1 — Core Protocol (peerwire)
+### Fase 1 — Core Protocol (peerwire) ✅ CONCLUÍDA
 
 Depende de: Fase 0 (bencode, ByteReader/Writer, BitArray, errors)
 
@@ -294,13 +323,38 @@ Depende de: Fase 1 + Fase 2
 | 3.4 | `peerid` melhorado: `encode()` genérico, validators, version converters | `peerid/peerid.ts` + `util.ts` | `src/utils/peerid.ts` | Flexibilidade (manter `"LO": "Loco"`) |
 | 3.5 | `Bitfield` com spare-bit validation (manter `grow`) | `peerwire/bitfield.ts` + `BitArray` | `src/core/bitfield.ts` | Conformidade |
 
-### Fase 4 — Futuro (bloqueados, requer decisão arquitetural)
+### Fase 4 — Browser API (funcionalidades da webtorrent.min.js)
+
+> Funcionalidades da API pública do upstream WebTorrent que faltam no Loco.
+> Referência: `docs/webtorrent-api.md` + análise do bundle `webtorrent.min.js`.
+
+Depende de: Fase 1 + Fase 2
+
+| # | Tarefa | Descrição | Destino | Impacto |
+|---|---|---|---|---|
+| 4.1 | **File class** com `createReadStream`, `stream()` (W3C ReadableStream), `arrayBuffer()`, `blob()`, `[Symbol.asyncIterator]` | Substituir `ParsedTorrentFile` por classe viva que acessa o store | `src/core/file.ts` | 🔴 Crítico — streaming de mídia no browser |
+| 4.2 | **File.streamTo(elem)** + **File.streamURL** | Expor URL de stream para `<video>`/`<audio>` via SW; depende de createServer | `src/core/file.ts` | 🔴 Crítico — playback no browser |
+| 4.3 | **File.select/deselect/includes(piece)** | Piece selection por arquivo | `src/core/file.ts` | 🟡 Importante |
+| 4.4 | **File events**: `stream`, `iterator`, `done` | Eventos no ciclo de vida do stream | `src/core/file.ts` | 🟡 Importante |
+| 4.5 | **createServer / SW integration** | Integrar `service-worker/src/sw/webtorrent.ts` ao pkg; `client.createServer({ controller })` | `src/core/server.ts` | 🔴 Crítico — serve URLs para o browser |
+| 4.6 | **Torrent.select/deselect/critical** | Priorização de pieces no Torrent | `src/core/torrent.ts` | 🟡 Importante |
+| 4.7 | **Torrent.pause/resume** | Pausar retomar download | `src/core/torrent.ts` | 🟡 Importante |
+| 4.8 | **Torrent.addPeer/addWebSeed/removePeer** | Gerenciamento manual de peers | `src/core/torrent.ts` + `src/network/` | 🟡 Importante |
+| 4.9 | **Torrent properties**: `magnetURI`, `downloadSpeed`, `uploadSpeed`, `numPeers`, `timeRemaining`, `ratio`, `torrentFile`, `torrentFileBlob` | Getters computados + exposed state | `src/core/torrent.ts` | 🟡 Importante |
+| 4.10 | **Torrent events**: `infoHash`, `warning`, `noPeers`, `idle`, `wire` | Eventos faltantes | `src/core/torrent.ts` | 🟡 Importante |
+| 4.11 | **Client properties**: `downloadSpeed`, `uploadSpeed`, `progress`, `ratio` (agregados) | Soma de todos os torrents ativos | `src/mod.ts` | 🟡 Importante |
+| 4.12 | **Client.throttleDownload/throttleUpload** | Limitar velocidade global | `src/mod.ts` | 🟢 Baixo |
+| 4.13 | **WEBRTC_SUPPORT** static | Detectar suporte a WebRTC no browser | `src/mod.ts` | 🟢 Baixo |
+| 4.14 | **Web Seeds (BEP 19)** | Fetch de dados via HTTP como peer alternativo | `src/network/web-seed.ts` (novo) | 🟡 Importante |
+| 4.15 | **Piece class** com `length`, `missing` | Objeto Piece exposto na API | `src/core/piece.ts` (novo) | 🟢 Baixo |
+
+### Fase 5 — Futuro (bloqueados, requer decisão arquitetural)
 
 | # | Tarefa | Bloqueante | Alternativa browser |
 |---|---|---|---|
-| 4.1 | DHT (Kademlia) | UDP sockets (`Deno.listenDatagram`) | WebRTC DataChannel ou WebTransport p/ relay |
-| 4.2 | uTP | Raw UDP (`Deno.NetAddr`) | WebTransport datagrams (Chrome 120+) |
-| 4.3 | Torrent generator | Filesystem (`Deno.stat`, `Deno.open`) | File API / OPFS + streaming hasher |
+| 5.1 | DHT (Kademlia) | UDP sockets (`Deno.listenDatagram`) | WebRTC DataChannel ou WebTransport p/ relay |
+| 5.2 | uTP | Raw UDP (`Deno.NetAddr`) | WebTransport datagrams (Chrome 120+) |
+| 5.3 | Torrent generator | Filesystem (`Deno.stat`, `Deno.open`) | File API / OPFS + streaming hasher |
 
 ## 7. Decisões arquiteturais vigentes
 
@@ -315,6 +369,16 @@ Depende de: Fase 1 + Fase 2
 - **torrent-dht + utp**: bloqueados por UDP. A lógica Kademlia (Bucket,
   RoutingTable, etc.) é browser-pura, mas o transporte não. Requer decisão
   sobre relay via WebRTC/WebTransport para viabilizar no browser.
+- **File class é a prioridade browser.** O upstream WebTorrent expõe uma
+  classe `File` viva com streaming (ReadableStream, streamTo, streamURL,
+  arrayBuffer, blob, async iterator). `ParsedTorrentFile` é apenas dados —
+  a transição para `src/core/file.ts` com acesso ao ChunkStore é essencial
+  para media playback no browser.
+- **createServer via Service Worker.** O Loco já possui
+  `service-worker/src/sw/webtorrent.ts` com a ponte MessageChannel para
+  streaming sob demanda. A integração com o pkg webtorrent será via
+  `client.createServer({ controller: ServiceWorkerRegistration })`, que
+  inicializa a ponte e habilita `file.streamURL` e `file.streamTo()`.
 - Comentários de documentação seguem o idioma já presente no arquivo (o
   pacote mistura PT-BR e EN; não reescrever comentários existentes só por
   idioma).

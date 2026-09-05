@@ -59,7 +59,7 @@ export async function parseTorrent(
 function magnetToParsed(magnet: ParsedMagnet): ParsedTorrent {
   return {
     infoHash: magnet.infoHash,
-    infoHashBuffer: magnet.infoHashBuffer,
+    infoHashBuffer: magnet.handshakeHash,
     name: magnet.name || "Unknown",
     announce: magnet.announce,
     urlList: magnet.webSeeds,

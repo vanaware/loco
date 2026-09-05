@@ -44,40 +44,40 @@ export class TorrentError extends Error {
 
 /** Base error for invalid or failed peer wire operations. */
 export class PeerWireError extends Error {
-  constructor(message: string, public code: string = "PEERWIRE_ERROR") {
-    super(message);
+  constructor(message: string, public code: string = "PEERWIRE_ERROR", options?: ErrorOptions) {
+    super(message, options);
     this.name = "PeerWireError";
   }
 }
 
 /** Protocol violation — unexpected message, bad state, malformed handshake. */
 export class ProtocolError extends PeerWireError {
-  constructor(message: string, code: string = "PROTOCOL_ERROR") {
-    super(message, code);
+  constructor(message: string, code: string = "PROTOCOL_ERROR", options?: ErrorOptions) {
+    super(message, code, options);
     this.name = "ProtocolError";
   }
 }
 
 /** Peer disconnected or transport stream ended prematurely. */
 export class EofError extends PeerWireError {
-  constructor(message: string, code: string = "EOF_ERROR") {
-    super(message, code);
+  constructor(message: string, code: string = "EOF_ERROR", options?: ErrorOptions) {
+    super(message, code, options);
     this.name = "EofError";
   }
 }
 
 /** A peer wire operation exceeded its configured deadline. */
 export class TimeoutError extends PeerWireError {
-  constructor(message: string, code: string = "TIMEOUT_ERROR") {
-    super(message, code);
+  constructor(message: string, code: string = "TIMEOUT_ERROR", options?: ErrorOptions) {
+    super(message, code, options);
     this.name = "TimeoutError";
   }
 }
 
 /** Peer explicitly rejected a piece request (BEP 6 Fast Extension). */
 export class RequestRejectedError extends PeerWireError {
-  constructor(message: string, code: string = "REQUEST_REJECTED") {
-    super(message, code);
+  constructor(message: string, code: string = "REQUEST_REJECTED", options?: ErrorOptions) {
+    super(message, code, options);
     this.name = "RequestRejectedError";
   }
 }
