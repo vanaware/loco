@@ -110,3 +110,111 @@ export function writeUInt32BE(buf: Uint8Array, value: number, offset = 0): void 
   buf[offset + 2] = (value >>> 8) & 0xff;
   buf[offset + 3] = value & 0xff;
 }
+
+/**
+ * XOR byte-a-byte entre dois Uint8Arrays.
+ * Lança erro se os comprimentos forem diferentes.
+ */
+export function xor(a: Uint8Array, b: Uint8Array): Uint8Array {
+  if (a.length !== b.length) {
+    throw new RangeError("Uint8Array lengths must be equal for xor");
+  }
+  const result = new Uint8Array(a.length);
+  for (let i = 0; i < a.length; i++) {
+    result[i] = a[i]! ^ b[i]!;
+  }
+  return result;
+}
+
+/**
+ * Comparação lexicográfica entre dois Uint8Arrays.
+ * Retorna -1 se a < b, 0 se iguais, 1 se a > b.
+ */
+export function compare(a: Uint8Array, b: Uint8Array): number {
+  const shared = Math.min(a.length, b.length);
+  for (let i = 0; i < shared; i++) {
+    if (a[i]! < b[i]!) return -1;
+    if (a[i]! > b[i]!) return 1;
+  }
+  if (a.length < b.length) return -1;
+  if (a.length > b.length) return 1;
+  return 0;
+}
+
+/**
+ * Converte Uint8Array big-endian para bigint.
+ * Um array vazio representa zero.
+ */
+export function bytesToBigInt(bytes: Uint8Array): bigint {
+  let result = 0n;
+  for (const byte of bytes) {
+    result = (result << 8n) | BigInt(byte);
+  }
+  return result;
+}
+
+/**
+ * Converte bigint não-negativo para Uint8Array big-endian.
+ * Se `length` for fornecido, o resultado é preenchido à esquerda com zeros
+ * até atingir exatamente esse comprimento.
+ *
+ * @throws {RangeError} Se `value` for negativo, `length` for inválido,
+ *         ou o valor não couber no comprimento solicitado.
+ */
+export function bigIntToBytes(value: bigint, length?: number): Uint8Array {
+  if (value < 0n) {
+    throw new RangeError("value must be a non-negative bigint");
+  }
+  if (length !== undefined && (!Number.isSafeInteger(length) || length < 0)) {
+    throw new RangeError("length must be a non-negative safe integer");
+  }
+
+  let byteLength = value === 0n ? 1 : 0;
+  for (let remaining = value; remaining > 0n; remaining >>= 8n) {
+    byteLength++;
+  }
+
+  if (length !== undefined) {
+    if (value !== 0n && byteLength > length) {
+      throw new RangeError("value does not fit in the requested byte length");
+    }
+    byteLength = length;
+  }
+
+  const result = new Uint8Array(byteLength);
+  for (
+    let index = byteLength - 1, remaining = value;
+    index >= 0;
+    index--, remaining >>= 8n
+  ) {
+    result[index] = Number(remaining & 0xffn);
+  }
+  return result;
+}
+
+/**
+ * Divide um Uint8Array em chunks de tamanho `chunkSize`.
+ * O último chunk pode ser menor se o comprimento não for múltiplo de `chunkSize`.
+ *
+ * @throws {RangeError} Se `chunkSize` não for um inteiro positivo seguro.
+ */
+export function chunkBytes(data: Uint8Array, chunkSize: number): Uint8Array[] {
+  if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0) {
+    throw new RangeError("chunkSize must be a positive safe integer");
+  }
+
+  if (data.length <= chunkSize) {
+    return [data];
+  }
+
+  const result: Uint8Array[] = [];
+  const chunkCount = Math.ceil(data.length / chunkSize);
+  for (let i = 0; i < chunkCount; i++) {
+    const start = i * chunkSize;
+    const end = (i + 1) * chunkSize;
+    const chunk = data.slice(start, end);
+    result.push(chunk);
+  }
+
+  return result;
+}

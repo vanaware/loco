@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Agent",
+      "Bash(do *)",
+      "Bash(done)",
+      "send_message",
+      "Bash(python3 *)",
+      "Bash(echo *)"
+    ]
+  },
+  "$version": 4
+}
