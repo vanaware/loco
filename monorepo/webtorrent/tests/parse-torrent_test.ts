@@ -9,7 +9,15 @@ const TEXT_ENCODER = new TextEncoder();
 
 // Helper para criar um .torrent falso em memória
 function createFakeTorrentBuffer(isMultiFile = false): Uint8Array {
-  const pieces = new Uint8Array(40); // 2 peças de 20 bytes cada
+  const PIECE_LENGTH = 16384;
+  let total: number;
+  if (isMultiFile) {
+    total = 3000;
+  } else {
+    total = 5000;
+  }
+  const pieceCount = Math.ceil(total / PIECE_LENGTH);
+  const pieces = new Uint8Array(pieceCount * 20);
   
   const info: Record<string, BencodeValue> = {
     "piece length": 16384,
@@ -51,7 +59,7 @@ Deno.test("parse-torrent: parse single-file .torrent buffer", async () => {
   assertEquals(parsed.files[0]!.length, 5000);
   assertEquals(parsed.length, 5000);
   assertEquals(parsed.pieceLength, 16384);
-  assertEquals(parsed.pieces.length, 2); // 40 bytes / 20 bytes por peça
+  assertEquals(parsed.pieces.length, 1); // 1 piece for 5000 bytes with 16384 piece length
   assertEquals(parsed.announce.length, 2); // deduplicado
   assertEquals(parsed.urlList.length, 1);
   assertEquals(parsed.comment, "Test torrent");

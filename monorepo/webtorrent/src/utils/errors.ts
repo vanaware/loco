@@ -20,8 +20,8 @@ export class WireError extends Error {
 }
 
 export class TrackerError extends Error {
-  constructor(message: string, public code: string = "TRACKER_ERROR") {
-    super(message);
+  constructor(message: string, public code: string = "TRACKER_ERROR", options?: ErrorOptions) {
+    super(message, options);
     this.name = "TrackerError";
   }
 }
@@ -37,6 +37,20 @@ export class TorrentError extends Error {
   constructor(message: string, public code: string = "TORRENT_ERROR") {
     super(message);
     this.name = "TorrentError";
+  }
+}
+
+/**
+ * Thrown when input cannot be parsed as a valid `.torrent` file.
+ * Adaptado de deno-torrent/metainfo/parser.ts.
+ */
+export class TorrentParseError extends TorrentError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, "TORRENT_PARSE_ERROR");
+    if (options) {
+      this.cause = options.cause;
+    }
+    this.name = "TorrentParseError";
   }
 }
 
