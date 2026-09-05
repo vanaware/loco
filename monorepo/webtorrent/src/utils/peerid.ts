@@ -157,11 +157,25 @@ export function isShadowStyle(peerid: string): boolean {
 // Funções de conversão de versão
 function parseAzVersion(versionStr: string): string {
   if (versionStr.length !== 4) return versionStr;
-  const major = versionStr[0];
-  const minor = versionStr[1];
-  // 🔥 CORREÇÃO: Usar parseInt para remover zeros à esquerda (ex: "00" vira "0")
-  const patch = parseInt(versionStr.slice(2), 10).toString();
-  return `${major}.${minor}.${patch}`;
+
+  const majorChar = versionStr[0]!;
+  const minorChar = versionStr[1]!;
+
+  // Validar que major/minor são dígitos
+  if (!/\d/.test(majorChar) || !/\d/.test(minorChar)) {
+    throw new Error('Invalid Azureus version format: major/minor must be digits');
+  }
+
+  const major = majorChar;
+  const minor = minorChar;
+  const patchNum = parseInt(versionStr.slice(2), 10);
+
+  // Validar range do patch (0-99)
+  if (patchNum < 0 || patchNum > 99) {
+    throw new Error('Invalid Azureus version format: patch must be between 0-99');
+  }
+
+  return `${major}.${minor}.${patchNum}`;
 }
 
 function parseShadowVersion(versionStr: string): string {

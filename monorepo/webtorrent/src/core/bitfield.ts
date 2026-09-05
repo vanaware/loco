@@ -25,6 +25,27 @@ export class Bitfield {
     this.buffer = new Uint8Array(byteLength);
   }
 
+  static fromBytes(buffer: Uint8Array, length: number, opts?: { grow?: boolean | number }): Bitfield {
+    const requiredBytes = Math.ceil(length / 8);
+    if (buffer.length !== requiredBytes) {
+      throw new BitfieldError(`Invalid buffer length. Expected ${requiredBytes}, got ${buffer.length}`, "INVALID_BUFFER_LENGTH");
+    }
+
+    // Check spare bits in the last byte
+    const spareBits = (8 - (length % 8)) % 8;
+    if (spareBits > 0) {
+      const lastByte = buffer[buffer.length - 1]!;
+      const mask = (1 << spareBits) - 1;
+      if (lastByte & mask) {
+        throw new BitfieldError("Spare bits must be zero", "SPARE_BITS_NON_ZERO");
+      }
+    }
+
+    const bitfield = new Bitfield(length, opts);
+    bitfield.buffer = new Uint8Array(buffer);
+    return bitfield;
+  }
+
   get length(): number {
     return this._length;
   }
