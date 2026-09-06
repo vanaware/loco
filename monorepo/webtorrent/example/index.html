@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loco WebTorrent Demo</title>
+
+  <!-- BeerCSS v5 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@5.0.3/dist/cdn/beer.min.js"></script>
+
+  <!-- Material Dynamic Colors -->
+  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.4/dist/cdn/material-dynamic-colors.min.js"></script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --sw-theme: #1565c0;
+    }
+    body { margin: 0; padding: 0; }
+    video { max-width: 100%; border-radius: 8px; }
+    .panel { padding: 1rem; margin: 0.5rem; border-radius: 12px; }
+    .status-chip { font-size: 0.75rem; border-radius: 99px; padding: 2px 8px; }
+    .speed { font-variant-numeric: tabular-nums; font-family: monospace; }
+  </style>
+</head>
+<body class="light">
+  <div id="app"></div>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

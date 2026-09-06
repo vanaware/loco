@@ -465,3 +465,101 @@ Depende de: Fase 1 + Fase 2
 - ❌ "Simplificar" removendo validações de protocolo sem justificativa.
 - ❌ Portar `MultiFileReader`, `getMacAddr()`, `torrent-generator/`.
 - ❌ Portar `torrent-dht/` ou `utp/` sem resolver o bloqueio de transporte UDP.
+
+## 9. Demonstração WebTorrent (v1.0)
+
+### 9.1 Objetivo
+
+Demonstrar o Loco WebTorrent funcionando em navegador com streaming de vídeo P2P real:
+- **Seeder (A):** compartilha um arquivo de vídeo
+- **Viewer (B):** assiste ao vídeo via streaming P2P
+- **Peer (C):** baixa o mesmo arquivo e participa do swarm (resiliência)
+
+### 9.2 Stack
+
+| Componente | Tecnologia |
+|---|---|
+| Runtime servidor | Deno (`deno serve` + `@std/http/file-server`) |
+| UI | Preact 10.x + Signals + BeerCSS 5.x (CDN) |
+| Bundler | `esbuild.ts` existente (raiz do repo) — **apenas adicionar target** |
+| Output | `@loco/webtorrent/build/dist/` |
+| Imports UI | `https://esm.sh/preact@10.29.7`, `@preact/signals@1.3.1` |
+
+### 9.3 Estrutura de diretórios
+
+```
+monorepo/webtorrent/
+├── build/
+│   └── dist/                   ← saída do esbuild (vazia, pronta)
+├── example/
+│   ├── public/
+│   │   └── index.html          ← SPA com BeerCSS + Preact
+│   ├── sw/
+│   │   └── sw.ts              ← service worker (stream bridge)
+│   ├── app.tsx                ← componente raiz Preact
+│   ├── main.tsx              ← entry point (registra SW)
+│   ├── torrent-context.tsx     ← contexto (signals: client, torrent, peers, stats)
+│   ├── components/
+│   │   ├── seeder-panel.tsx  ← escolha arquivo + seed
+│   │   ├── viewer-panel.tsx  ← video player + magnet input
+│   │   └── peer-panel.tsx    ← peers + speeds
+│   └── server.ts             ← deno serve (arquivos estáticos)
+```
+
+### 9.4 Trackers públicos
+
+```typescript
+const PUBLIC_TRACKERS = [
+  "wss://tracker.btorrent.xyz",
+  "wss://tracker.webtorrent.io",
+];
+```
+
+### 9.5 Plano de implementação
+
+| # | Passo | Status |
+|---|---|---|
+| 1 | `esbuild.ts` — targets `example` + `example-sw` | ✅ |
+| 2 | `example/index.html` — BeerCSS CDN + Preact mount | ✅ |
+| 3 | `example/main.tsx` — bootstrap, registra SW | ✅ |
+| 4 | `example/torrent-context.tsx` — signals globais | ✅ |
+| 5 | `example/sw/sw.ts` — SW com MessageChannel bridge | ✅ |
+| 6 | `example/app.tsx` — layout 3 painéis | ✅ |
+| 7 | `example/components/seeder-panel.tsx` | ✅ |
+| 8 | `example/components/viewer-panel.tsx` | ✅ |
+| 9 | `example/components/peer-panel.tsx` | ✅ |
+| 10 | `example/server.ts` + `deno.jsonc` tasks | ✅ |
+| 11 | **Teste manual em 3 navegadores** | 🔜 |
+
+### 9.6 Fluxo de demonstração
+
+```
+Seeder (A)          Viewer (B)           Peer (C)
+    │                   │                   │
+    │── Choose File ───►│                   │
+    │                   │                   │
+    │── Seed (seed) ───►│                   │
+    │                   │                   │
+    │  (magnetURI)◄────│  copy magnetURI   │
+    │                   │                   │
+    │                   │── Paste magnet ──►│
+    │                   │                   │
+    │◄──── Tracker ─────►│◄── Tracker ──────►│
+    │                   │                   │
+    │──── pieces ──────►│──── pieces ──────►│
+    │                   │                   │
+    │   <video stream>   │                   │
+    │                   │  (video plays)   │
+    │── closes ──────────│                   │
+    │                   │                   │
+    │   (viewer still   │                   │
+    │    plays via C)   │                   │
+```
+
+### 9.7 Restrições de implementação
+
+- **`esbuild.ts` é intocado** — apenas adicionar o target `example` ao CONFIG.
+- **Browser-first** — todo código em `example/` roda no navegador.
+- **Sem `Deno.*` em arquivos browser** — `server.ts` é servidor, pode usar Deno.
+- **Zero quebra de API existente** — não modificar `src/`, `tests/`, nem `deno.jsonc` existente.
+
