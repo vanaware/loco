@@ -119,7 +119,7 @@ export interface ServiceWorkerControllerLike {
    * `navigator.serviceWorker.addEventListener('message', ...)` handler
    * that filters by the `MessageEvent.source.id`.
    */
-  waitForMessage(sourceId: string): Promise<ExtendableMessageEvent>;
+  waitForMessage(sourceId: string): Promise<any>;
 }
 
 /**
@@ -134,7 +134,7 @@ export function createServiceWorkerTransport(
   const PORT_TIMEOUT_MS = 5000;
   const pending = new Map<string, (data: StreamResponseMetadata) => void>();
 
-  const onMessage = (event: ExtendableMessageEvent) => {
+  const onMessage = (event: any) => {
     if (!event.data || typeof event.data !== "object") return;
     if (event.data.type === "webtorrent-response" && typeof event.data.sourceId === "string") {
       const resolver = pending.get(event.data.sourceId);
@@ -193,7 +193,8 @@ export function createServiceWorkerTransport(
 export class InProcessTransport implements Transport {
   readonly sent: unknown[] = [];
   private responseResolver?: (data: StreamResponseMetadata) => void;
-  private activePort?: MessagePort;
+  /** @internal — exposed for tests. */
+  public activePort?: MessagePort;
 
   postMessage(message: unknown): void {
     this.sent.push(message);
@@ -478,7 +479,7 @@ export async function readNextChunk(
   // scan until we hit the requested offset.  Once the real
   // implementation lands (Phase 4.1) this function will be replaced
   // by a direct chunk-store read.
-  const it = file[Symbol.asyncIterator]();
+  const it = (file as any)[Symbol.asyncIterator]() as AsyncIterableIterator<Uint8Array>;
   let skipped = 0;
   let remainingToRead = Math.min(length, file.length - offset);
 
@@ -489,8 +490,9 @@ export async function readNextChunk(
   }
 
   while (skipped < offset) {
-    const { value, done } = await it.next();
-    if (done || !value) return new Uint8Array(0);
+    const result = await it.next();
+    if (result.done || !result.value) return new Uint8Array(0);
+    const value = result.value;
     skipped += value.length;
     if (skipped > offset) {
       const overflow = skipped - offset;
@@ -504,10 +506,10 @@ export async function readNextChunk(
       out.set(first, 0);
       let written = first.length;
       while (written < remainingToRead) {
-        const { value: next, done: nd } = await it.next();
-        if (nd || !next) break;
-        const take = Math.min(next.length, remainingToRead - written);
-        out.set(next.subarray(0, take), written);
+        const r = await it.next();
+        if (r.done || !r.value) break;
+        const take = Math.min(r.value.length, remainingToRead - written);
+        out.set(r.value.subarray(0, take), written);
         written += take;
       }
       return out.subarray(0, written);

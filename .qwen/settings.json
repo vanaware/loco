@@ -6,7 +6,10 @@
       "Bash(done)",
       "send_message",
       "Bash(python3 *)",
-      "Bash(echo *)"
+      "Bash(echo *)",
+      "Bash(deno *)",
+      "Bash(*)",
+      "Bash(cd /home/aarvati/github/loco/monorepo/webtorrent *)"
     ]
   },
   "$version": 4

@@ -4,6 +4,7 @@ import { TypedEventTarget } from "../utils/event-target.ts";
 import { Peer } from "./peer.ts";
 import { createTracker, Tracker, TrackerOptions, TrackerResponse } from "./tracker.ts";
 import { UtMetadata } from "../extensions/ut-metadata.ts";
+import type { Wire } from "../core/wire.ts";
 
 export interface SwarmEvents {
   peer: CustomEvent<{ peer: Peer; source: string }>;
@@ -37,14 +38,17 @@ const MAX_QUEUED_PEERS = 200;
 export class Swarm extends TypedEventTarget<SwarmEvents> {
   public readonly infoHash: Uint8Array;
   public readonly peerId: Uint8Array;
-  
+
   public readonly peers: Map<string, Peer> = new Map();
   private queue: QueuedPeer[] = [];
   private trackers: Tracker[] = [];
   private maxConns: number;
   private wrtc?: typeof RTCPeerConnection;
   private metadata?: Uint8Array;
-  
+
+  /** Torrent dono deste swarm. Definido externamente (ver WebTorrent.add). */
+  public torrent: any | null = null;
+
   public destroyed = false;
   private paused = false;
 
@@ -119,6 +123,37 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
     this._drain();
   }
 
+  // ==========================================================================
+  // DELEGAÇÃO DO TORRENT
+  // ==========================================================================
+
+  /** Envia `interested` para todos os wires conectados. */
+  public _sendInterested(): void {
+    for (const [, peer] of this.peers) {
+      if (peer.wire && !peer.wire.isDestroyed) {
+        peer.wire.sendInterested();
+      }
+    }
+  }
+
+  /** Envia `not-interested` para todos os wires conectados. */
+  public _sendNotInterested(): void {
+    for (const [, peer] of this.peers) {
+      if (peer.wire && !peer.wire.isDestroyed) {
+        peer.wire.sendNotInterested();
+      }
+    }
+  }
+
+  /** Envia `suggest-piece` (BEP 6) para todos os wires. */
+  public _sendSuggestPiece(index: number): void {
+    for (const [, peer] of this.peers) {
+      if (peer.wire && !peer.wire.isDestroyed) {
+        peer.wire.sendSuggestPiece(index);
+      }
+    }
+  }
+
   public destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -137,6 +172,8 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
       tracker.destroy();
     }
     this.trackers = [];
+
+    this.torrent = null;
   }
 
   private _onTrackerResponse(response: TrackerResponse, _tracker: Tracker): void {
@@ -144,6 +181,7 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
 
     if (response.peers.length === 0) {
       this.emit("noPeers", new CustomEvent("noPeers", { detail: { source: "tracker" } }));
+      this.torrent?.emit?.("noPeers", new CustomEvent("noPeers", { detail: { source: "tracker" } }));
       return;
     }
 
@@ -175,37 +213,43 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
     // 🔥 INTEGRAÇÃO: Quando o Wire é criado, registrar extensão ut_metadata
     peer.on("handshake", (e) => {
       if (peer.wire) {
-        const wire = peer.wire;
-        
+        const wire: Wire = peer.wire;
+
         // Cria e registra a extensão ut_metadata
         const utMetadata = new UtMetadata(wire, { metadata: this.metadata });
-        
+
         // Se temos o metadata, define no ut_metadata para servir a outros peers
         if (this.metadata) {
           utMetadata.setMetadata(this.metadata);
         }
-        
+
         // Registra listener para quando o metadata for recebido
         utMetadata.on("metadata", (metadataEvent: any) => {
           const metadata = metadataEvent.detail?.metadata || metadataEvent;
-          this.emit("metadata", new CustomEvent("metadata", { 
-            detail: { metadata, peer } 
+          this.emit("metadata", new CustomEvent("metadata", {
+            detail: { metadata, peer }
           }));
         });
-        
+
         utMetadata.on("warning", (warningEvent: any) => {
           const error = warningEvent.detail?.error || warningEvent;
           this.emit("warning", new CustomEvent("warning", { detail: { error } }));
+          this.torrent?.emit?.("warning", new CustomEvent("warning", { detail: { error } }));
         });
-        
+
         // Inicia o fetch do metadata se não temos
         if (!this.metadata) {
           utMetadata.fetch();
         }
-        
+
         this.emit("wire", new CustomEvent("wire", {
           detail: { wire, addr }
         }));
+
+        // Repassa o wire ao Torrent (que cria interval de velocidade, idle timer etc.)
+        if (this.torrent && typeof this.torrent._registerWire === "function") {
+          this.torrent._registerWire(wire, addr);
+        }
       }
     });
 
@@ -220,6 +264,7 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
 
   private _onPeerError(addr: string, error: Error): void {
     this.emit("warning", new CustomEvent("warning", { detail: { error } }));
+    this.torrent?.emit?.("warning", new CustomEvent("warning", { detail: { error } }));
     this.peers.delete(addr);
     this._drain();
   }

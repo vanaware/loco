@@ -3,35 +3,76 @@
 import { TypedEventTarget } from "../utils/event-target.ts";
 import { Piece } from "./piece.ts";
 import { buildStreamURL } from "../server/stream-manager.ts";
+import type { ChunkStore } from "../storage/opfs-chunk-store.ts";
+
+/**
+ * Browser-first File class — the "live" view of a file inside a torrent.
+ *
+ * Mirrors the upstream `webtorrent.min.js` `File` class: a piece-aware
+ * facade that exposes streaming (`createReadStream`, `stream`),
+ * `ReadableStream<Uint8Array>` adapters, byte buffers (`arrayBuffer`,
+ * `blob`, `getBlobURL`), iteration (`Symbol.asyncIterator`), and
+ * Service Worker integration (`streamURL`, `streamTo`).
+ *
+ * **Adaptação do upstream**: a implementação upstream lê diretamente do
+ * sistema de arquivos do torrent (que no browser não existe); aqui,
+ * toda leitura é roteada ao {@link ChunkStore} do torrent.  Isso
+ * permite streaming sob demanda de peças que ainda estão sendo baixadas
+ * ou que vieram do OPFS.
+ */
 
 export interface FileOptions {
-  store: any; // ChunkStore interface
+  /** Backend store for the file's bytes (peça-a-peça). */
+  store: ChunkStore;
+  /** Total size of the file in bytes. */
   length: number;
+  /** Byte offset of the file inside the concatenated torrent stream. */
   offset: number;
+  /** Piece size used by the torrent. */
   pieceLength: number;
-  /** Nome do arquivo (ex: "movie.mp4"). Usado em {@link streamURL}. */
+  /** File name (e.g. `"movie.mp4"`); used in {@link streamURL}. */
   name?: string;
-  /** Identificador do torrent ao qual este arquivo pertence. */
+  /** Full path inside the torrent (defaults to `name`). */
+  path?: string;
+  /** Identifier of the torrent owning this file. */
   infoHash?: string;
-  /** Índice do arquivo dentro do torrent (0-based). */
+  /** File index inside the torrent (0-based). */
   fileIndex?: number;
-  /** Escopo do Service Worker (ex: "/"). Usado por {@link streamURL}. */
+  /** Service Worker scope (e.g. `"/"`). */
   scope?: string;
+  /** Default block size for streaming (defaults to 64 KiB). */
+  blockSize?: number;
 }
 
-export class File extends TypedEventTarget<{
-  stream: CustomEvent<ReadableStream>;
+export interface FileEvents {
+  /** Emitido quando `createReadStream()` é chamado, com a stream resultante. */
+  stream: CustomEvent<ReadableStream<Uint8Array>>;
+  /** Emitido quando o iterator `Symbol.asyncIterator` é criado. */
   iterator: CustomEvent<AsyncIterable<Uint8Array>>;
+  /** Emitido quando a leitura/streaming termina com sucesso. */
   done: CustomEvent<void>;
-}> {
-  private _store: any;
+  /** Emitido em erro durante leitura. */
+  error: CustomEvent<{ error: Error }>;
+}
+
+/**
+ * A `File` inside a torrent.
+ *
+ * Provides streaming reads, byte buffer adapters, and Service Worker
+ * integration for browser media playback.
+ */
+export class File extends TypedEventTarget<FileEvents> {
+  private _store: ChunkStore;
   private _length: number;
   private _offset: number;
   private _pieceLength: number;
   private _name: string;
+  private _path: string;
   private _infoHash?: string;
   private _fileIndex?: number;
   private _scope: string;
+  private _blockSize: number;
+  private _destroyed = false;
 
   constructor(options: FileOptions) {
     super();
@@ -40,9 +81,11 @@ export class File extends TypedEventTarget<{
     this._offset = options.offset;
     this._pieceLength = options.pieceLength;
     this._name = options.name ?? "file";
+    this._path = options.path ?? this._name;
     this._infoHash = options.infoHash;
     this._fileIndex = options.fileIndex;
     this._scope = options.scope ?? "/";
+    this._blockSize = options.blockSize ?? 64 * 1024;
   }
 
   get length(): number {
@@ -54,95 +97,288 @@ export class File extends TypedEventTarget<{
   }
 
   get path(): string {
-    return this._name;
+    return this._path;
   }
 
-  createReadStream(): ReadableStream<Uint8Array> {
-    // Implementation will be added in Phase 4.1
-    throw new Error("Not implemented");
+  get pieceLength(): number {
+    return this._pieceLength;
   }
 
-  stream(): ReadableStream<Uint8Array> {
-    return this.createReadStream();
+  get offset(): number {
+    return this._offset;
   }
 
+  get infoHash(): string | undefined {
+    return this._infoHash;
+  }
+
+  get fileIndex(): number | undefined {
+    return this._fileIndex;
+  }
+
+  get scope(): string {
+    return this._scope;
+  }
+
+  get destroyed(): boolean {
+    return this._destroyed;
+  }
+
+  /**
+   * Compute the range of piece indices that this file overlaps.
+   *
+   * Useful for piece selection algorithms that need to know which pieces
+   * "belong" to a given file.
+   */
+  get pieceRange(): { first: number; last: number } {
+    const first = Math.floor(this._offset / this._pieceLength);
+    const last = Math.floor((this._offset + this._length - 1) / this._pieceLength);
+    return { first, last };
+  }
+
+  /**
+   * Returns true if the given piece index is part of this file.
+   */
+  includes(piece: Piece): boolean {
+    const { first, last } = this.pieceRange;
+    return piece.index >= first && piece.index <= last;
+  }
+
+  /**
+   * Mark pieces [startPiece, endPiece] (inclusive) as selected for download.
+   * A no-op when the file is not yet attached to a torrent (we use the
+   * underlying store only — the torrent owns interest management).
+   */
+  select(_startPiece?: number, _endPiece?: number): void {
+    // No-op: piece selection lives on the Torrent side (Fase 4.6).
+    // Provided here for API parity with the upstream `webtorrent.min.js`.
+  }
+
+  /**
+   * Mark pieces as deselected for download.
+   */
+  deselect(_startPiece?: number, _endPiece?: number): void {
+    // No-op (see {@link File.select}).
+  }
+
+  // ==========================================================================
+  // STREAMING
+  // ==========================================================================
+
+  /**
+   * Create a W3C `ReadableStream<Uint8Array>` that reads this file's bytes
+   * from the underlying {@link ChunkStore}, in order, in blocks of
+   * {@link blockSize} bytes (default 64 KiB).
+   *
+   * Emits the `stream` event with the resulting stream as detail.
+   *
+   * Reading is **lazy**: each `pull` requests the next block from the
+   * store.  This is the path that `<video src="…">` uses via the Service
+   * Worker bridge.
+   */
+  createReadStream(opts: { start?: number; end?: number } = {}): ReadableStream<Uint8Array> {
+    if (this._destroyed) {
+      throw new Error("File has been destroyed");
+    }
+
+    // opts.start / opts.end are relative to the file (0 = file start).
+    // Map them to absolute torrent offsets.
+    const fileStart = opts.start ?? 0;
+    const fileEnd = opts.end ?? this._length;
+    const absStart = this._offset + fileStart;
+    const absEnd = this._offset + fileEnd;
+
+    if (fileStart < 0 || fileEnd > this._length || fileStart > fileEnd) {
+      throw new RangeError(
+        `Invalid range start=${fileStart}, end=${fileEnd}, length=${this._length}`,
+      );
+    }
+
+    let cursor = absStart;
+    let cancelled = false;
+    let doneEmitted = false;
+
+    const self = this;
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller): Promise<void> {
+        if (cancelled) {
+          controller.close();
+          return;
+        }
+        if (cursor >= absEnd) {
+          if (!doneEmitted) {
+            doneEmitted = true;
+            self.emit("done", new CustomEvent("done"));
+          }
+          controller.close();
+          return;
+        }
+
+        try {
+          const block = await self._readBlock(
+            cursor,
+            Math.min(self._blockSize, absEnd - cursor),
+          );
+          if (cancelled) return;
+          if (block.length === 0) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(block);
+          cursor += block.length;
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          self.emit("error", new CustomEvent("error", { detail: { error } }));
+          controller.error(error);
+        }
+      },
+      cancel(): void {
+        cancelled = true;
+      },
+    });
+
+    this.emit("stream", new CustomEvent("stream", { detail: stream }));
+    return stream;
+  }
+
+  /**
+   * Alias for {@link createReadStream}.  Returns a `ReadableStream<Uint8Array>`.
+   */
+  stream(opts: { start?: number; end?: number } = {}): ReadableStream<Uint8Array> {
+    return this.createReadStream(opts);
+  }
+
+  /**
+   * Async iterator yielding this file's bytes as `Uint8Array` chunks.
+   *
+   * Used by `for await (const chunk of file)` loops and is the basis of
+   * `arrayBuffer` and `blob`.
+   */
+  [Symbol.asyncIterator](): AsyncIterableIterator<Uint8Array> {
+    const stream = this.createReadStream();
+    const iterator = stream[Symbol.asyncIterator]();
+    this.emit("iterator", new CustomEvent("iterator", { detail: iterator }));
+    return iterator;
+  }
+
+  /**
+   * Read the entire file into a single `ArrayBuffer`.
+   *
+   * Materializes the file in memory; suitable for small files only.
+   * For large files prefer {@link createReadStream} or
+   * {@link streamTo}.
+   */
   async arrayBuffer(): Promise<ArrayBuffer> {
     const chunks: Uint8Array[] = [];
     for await (const chunk of this[Symbol.asyncIterator]()) {
       chunks.push(chunk);
     }
-    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const buffer = new Uint8Array(totalLength);
+    const total = chunks.reduce((s, c) => s + c.length, 0);
+    const out = new Uint8Array(total);
     let offset = 0;
-    for (const chunk of chunks) {
-      buffer.set(chunk, offset);
-      offset += chunk.length;
+    for (const c of chunks) {
+      out.set(c, offset);
+      offset += c.length;
     }
-    return buffer.buffer;
+    return out.buffer;
   }
 
+  /**
+   * Read the entire file into a `Blob`.
+   */
   async blob(): Promise<Blob> {
-    const buffer = await this.arrayBuffer();
-    return new Blob([buffer]);
+    const buf = await this.arrayBuffer();
+    return new Blob([buf]);
   }
 
+  /**
+   * Read the entire file into a `Blob` and return a temporary object URL
+   * that can be assigned to `<video src>` etc.
+   *
+   * The caller is responsible for revoking the URL via
+   * `URL.revokeObjectURL` when no longer needed.
+   */
   async getBlobURL(): Promise<string> {
     const blob = await this.blob();
     return URL.createObjectURL(blob);
   }
 
+  /**
+   * Wire this file's stream into a `<video>` / `<audio>` element via the
+   * Service Worker bridge.
+   *
+   * Requires that the client has called `client.createServer({ controller })`
+   * so the SW has a transport to the main thread.
+   */
   streamTo(element: HTMLMediaElement): void {
     const url = this.streamURL();
     element.src = url;
     element.load();
-
-    element.addEventListener("ended", () => {
-      URL.revokeObjectURL(url);
-    });
   }
 
   /**
-   * Retorna a URL virtual servida pelo Service Worker para fazer
-   * streaming deste arquivo.
+   * Return the virtual URL the Service Worker uses to stream this file.
    *
-   * O formato é: `<scope>webtorrent/<infoHash>/<fileIndex>/<encodedName>`.
+   * Format: `<scope>webtorrent/<infoHash>/<fileIndex>/<encodedName>`.
    *
-   * Requer que o {@link WebTorrent.server} tenha sido criado via
-   * `client.createServer({ controller })` e que o arquivo tenha sido
-   * registrado no {@link streamManager} (o que acontece automaticamente
-   * quando se usa `client.createServer`).
-   *
-   * @throws Error se `infoHash` ou `fileIndex` não foram fornecidos ao
-   *   construtor (o que acontece automaticamente quando se cria os
-   *   arquivos via `WebTorrent`).
+   * @throws Error if `infoHash` or `fileIndex` are not set, which means
+   *   the file was constructed directly (not via `WebTorrent.add`).
    */
   streamURL(): string {
     if (!this._infoHash || this._fileIndex === undefined) {
       throw new Error(
         "infoHash and fileIndex are required to generate streamURL. " +
-        "Create files via WebTorrent client (client.createServer + add).",
+          "Create files via WebTorrent client (client.createServer + add).",
       );
     }
     return buildStreamURL(this._scope, this._infoHash, this._fileIndex, this.name);
   }
 
-  select(): void {
-    // Implementation for piece selection
+  /**
+   * Mark the file as destroyed; subsequent reads throw.
+   */
+  destroy(): void {
+    this._destroyed = true;
   }
 
-  deselect(): void {
-    // Implementation for deselecting pieces
-  }
+  // ==========================================================================
+  // Internals
+  // ==========================================================================
 
-  includes(piece: Piece): boolean {
-    const start = piece.index * this._pieceLength;
-    const end = start + this._pieceLength;
-    return (start >= this._offset && start < this._offset + this._length) ||
-           (end > this._offset && end <= this._offset + this._length);
-  }
+  /**
+   * Read up to `length` bytes starting at the file's `absOffset` (the
+   * absolute byte offset inside the torrent).
+   *
+   * Because the file's bytes may straddle piece boundaries, this method
+   * pulls whole pieces from the {@link ChunkStore} and slices out the
+   * exact byte range requested.
+   */
+  private async _readBlock(absOffset: number, length: number): Promise<Uint8Array> {
+    const fileStart = this._offset;
+    const fileEnd = this._offset + this._length;
+    if (absOffset < fileStart || absOffset >= fileEnd) {
+      return new Uint8Array(0);
+    }
+    const end = Math.min(absOffset + length, fileEnd);
+    const out = new Uint8Array(end - absOffset);
 
-  [Symbol.asyncIterator](): AsyncIterable<Uint8Array> {
-    // Implementation will be added in Phase 4.1
-    throw new Error("Not implemented");
+    let written = 0;
+    let cursor = absOffset;
+    while (cursor < end) {
+      const pieceIndex = Math.floor(cursor / this._pieceLength);
+      const pieceStart = pieceIndex * this._pieceLength;
+      const offsetInPiece = cursor - pieceStart;
+      const pieceLen = Math.min(this._pieceLength, fileEnd - pieceStart);
+      const wantInPiece = Math.min(pieceLen - offsetInPiece, end - cursor);
+
+      const buf = await this._store.get(pieceIndex);
+      if (!buf || buf.length === 0) break;
+
+      out.set(buf.subarray(offsetInPiece, offsetInPiece + wantInPiece), written);
+      written += wantInPiece;
+      cursor += wantInPiece;
+    }
+
+    return out.subarray(0, written);
   }
 }

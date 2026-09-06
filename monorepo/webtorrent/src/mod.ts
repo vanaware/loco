@@ -13,7 +13,7 @@ import {
   unregisterTorrentFiles,
   type WebTorrentServer,
 } from "./server/server.ts";
-import type { File } from "./core/file.ts";
+import { File } from "./core/file.ts";
 
 export interface WebTorrentEvents {
   torrent: CustomEvent<{ torrent: Torrent }>;
@@ -184,11 +184,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
 
     const store = await this._createChunkStore(parsed);
 
-    const torrent = new Torrent(parsed, {
-      store,
-      skipVerify: opts.skipVerify,
-    });
-
+    // Swarm é criado primeiro para que Torrent possa receber a referência
     const swarm = new Swarm({
       infoHash: parsed.infoHashBuffer,
       peerId: this.peerIdBuffer,
@@ -198,6 +194,17 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
       metadata: parsed.pieces.length > 0 ? encode(parsed.info) : undefined,
     });
 
+    // Torrent recebe o swarm para delegar pause/resume/select/deselect e
+    // para que o swarm possa repassar _registerWire() e eventos.
+    const torrent = new Torrent(parsed, {
+      store,
+      skipVerify: opts.skipVerify,
+      swarm,
+    });
+
+    // Estabelece a referência bidirecional
+    swarm.torrent = torrent;
+
     swarm.on("metadata", async (e: any) => {
       const metadataBuffer = e.detail.metadata;
       await torrent.setMetadata(metadataBuffer);
@@ -205,6 +212,16 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
 
     swarm.on("error", (e: any) => {
       this.emit("error", new CustomEvent("error", { detail: { error: e.detail.error } }));
+    });
+
+    // Forward: noPeers do tracker → Torrent (para idle detection)
+    swarm.on("noPeers", (e: any) => {
+      torrent.emit("noPeers", new CustomEvent("noPeers", { detail: e.detail }));
+    });
+
+    // Forward: infoHash do Torrent (já emitido no construtor) para o cliente
+    torrent.on("infoHash", (e: any) => {
+      // O cliente WebTorrent não precisa deste evento, mas está disponível
     });
 
     swarm.start();
@@ -306,6 +323,7 @@ export { Swarm } from "./network/swarm.ts";
 export { Peer } from "./network/peer.ts";
 export { Wire } from "./core/wire.ts";
 export { File } from "./core/file.ts";
+export { Piece } from "./core/piece.ts";
 export { parseTorrent } from "./utils/parse-torrent.ts";
 export { decodePeerId, generateLocoPeerId, LOCO_PEER_ID_PREFIX } from "./utils/peerid.ts";
 export { UtMetadata } from "./extensions/ut-metadata.ts";
@@ -315,3 +333,24 @@ export type { ClientInfo } from "./utils/peerid.ts";
 export type { PexPeer, PexUpdate, UtPexOptions } from "./extensions/ut-pex.ts";
 export { createServer, type WebTorrentServer } from "./server/server.ts";
 export { streamManager, buildStreamURL, parseStreamURL } from "./server/stream-manager.ts";
+// Phase 5.3: OPFS-based torrent generator
+export {
+  generateTorrent,
+  walkOPFSDir,
+  getOPFSFileSize,
+  OPFSMultiFileReader,
+  buildPieceFiles,
+  calcPieceSize,
+  fileSizeSum,
+  getDefaultCreatedBy,
+  isHiddenFile,
+  sha1sum,
+  PieceSizeEnum,
+} from "./torrent-generator/mod.ts";
+export type {
+  GeneratorOptions,
+  OPFSFileEntry,
+  PieceFile,
+  Torrent as GeneratedTorrent,
+  Writer as TorrentWriter,
+} from "./torrent-generator/mod.ts";
