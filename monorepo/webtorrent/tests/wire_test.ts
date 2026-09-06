@@ -938,3 +938,29 @@ Deno.test("wire: remoteAddress and remotePort can be updated after construction"
   assertEquals(wire.remoteAddress, "10.0.0.2");
   assertEquals(wire.remotePort, 6882);
 });
+
+// ── Wire.type / extensions / extendedMapping — upstream parity ────────────────
+
+Deno.test("wire: type is 'webrtc' (upstream parity)", () => {
+  const wire = new Wire({ send: () => {}, onMessage: () => {}, close: () => {} });
+  assertEquals(wire.type, "webrtc");
+});
+
+Deno.test("wire: extensions returns empty Record before handshake", () => {
+  const wire = new Wire({ send: () => {}, onMessage: () => {}, close: () => {} });
+  // Before any extended handshake, peerExtensions is empty
+  assertEquals(typeof wire.extensions, "object");
+  assertEquals(Object.keys(wire.extensions).length, 0);
+});
+
+Deno.test("wire: extendedMapping returns empty Record before handshake", () => {
+  const wire = new Wire({ send: () => {}, onMessage: () => {}, close: () => {} });
+  assertEquals(typeof wire.extendedMapping, "object");
+  assertEquals(Object.keys(wire.extendedMapping).length, 0);
+});
+
+Deno.test("wire: type is readonly getter — always returns 'webrtc'", () => {
+  const wire = new Wire({ send: () => {}, onMessage: () => {}, close: () => {} });
+  assertEquals(wire.type, "webrtc");
+  assertEquals(wire.type, "webrtc");
+});

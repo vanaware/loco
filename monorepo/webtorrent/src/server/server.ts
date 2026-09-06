@@ -313,23 +313,32 @@ export class WebTorrentServer {
       return new Response("File not registered", { status: 404 });
     }
 
-    const metadata: StreamResponseMetadata = {
-      body: "STREAM",
-      status: 200,
-      statusText: "OK",
-      headers: {
-        "Content-Type": guessContentType(entry.file.name),
-        "Content-Length": String(entry.file.length),
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "no-store",
-      },
+    const range = parseRangeHeader(message.headers["range"], entry.file.length);
+    let status = 200;
+    let statusText = "OK";
+    const headers: Record<string, string> = {
+      "Content-Type": guessContentType(entry.file.name),
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "no-store",
     };
 
-    const stream = buildFileStream(entry, port, this.transport);
+    if (range) {
+      status = 206;
+      statusText = "Partial Content";
+      headers["Content-Range"] = `bytes ${range.start}-${range.end}/${entry.file.length}`;
+      headers["Content-Length"] = String(range.end - range.start + 1);
+    } else {
+      headers["Content-Length"] = String(entry.file.length);
+    }
+
+    const stream = buildFileStream(entry, port, this.transport, {
+      rangeStart: range?.start,
+      rangeEnd: range ? range.end + 1 : undefined,
+    });
     return new Response(stream, {
-      status: metadata.status,
-      statusText: metadata.statusText,
-      headers: metadata.headers,
+      status,
+      statusText,
+      headers,
     });
   }
 
@@ -364,15 +373,18 @@ export class WebTorrentServer {
  * @param port - The pull-signal port transferred from the SW.
  * @param transport - The transport implementation; used to forward the
  *   initial metadata reply before the pull loop starts.
+ * @param opts - Streaming options.
  */
 export function buildFileStream(
   entry: StreamEntry,
   port: MessagePort,
   _transport: Transport,
+  opts: { rangeStart?: number; rangeEnd?: number } = {},
 ): ReadableStream<Uint8Array> {
   const file: File = entry.file;
 
-  let fileOffset = 0;
+  let fileOffset = opts.rangeStart ?? 0;
+  const endOffset = opts.rangeEnd ?? file.length;
   let closed = false;
   let pendingResolve: (() => void) | null = null;
 
@@ -408,7 +420,7 @@ export function buildFileStream(
           return;
         }
 
-        if (fileOffset >= file.length) {
+        if (fileOffset >= endOffset) {
           controller.close();
           port.postMessage(null);
           port.removeEventListener("message", onMessage as EventListener);
@@ -453,6 +465,46 @@ export function buildFileStream(
       port.removeEventListener("message", onMessage as EventListener);
     },
   });
+}
+
+/** Parsed byte-range result. */
+export interface ParsedRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * Parse a HTTP `Range` header value (e.g. `"bytes=12345-"`).
+ * Returns `null` if the header is absent, invalid, or unsatisfiable.
+ *
+ * Supports the `bytes` unit only.
+ */
+export function parseRangeHeader(
+  header: string | undefined,
+  fileLength: number,
+): ParsedRange | null {
+  if (!header) return null;
+
+  // "bytes=start-end" or "bytes=start-"
+  const match = header.match(/^bytes=(\d+)-(\d*)$/);
+  if (!match) return null;
+
+  const start = Number(match[1]);
+  const endStr = match[2];
+
+  if (!Number.isFinite(start) || start < 0 || start >= fileLength) {
+    return null;
+  }
+
+  const end = endStr !== ""
+    ? Math.min(Number(endStr), fileLength - 1)
+    : fileLength - 1;
+
+  if (!Number.isFinite(end) || end < start || end >= fileLength) {
+    return null;
+  }
+
+  return { start, end };
 }
 
 /**

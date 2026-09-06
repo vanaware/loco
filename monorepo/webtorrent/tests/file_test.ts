@@ -3,6 +3,7 @@
 import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert";
 import { File } from "../src/core/file.ts";
 import { Piece } from "../src/core/piece.ts";
+import { Bitfield } from "../src/core/bitfield.ts";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -318,13 +319,13 @@ Deno.test("file: arrayBuffer for middle file reads correct bytes", async () => {
 
 // ── blob ─────────────────────────────────────────────────────────────────────
 
-Deno.test("file: blob returns a Blob", async () => {
+Deno.test("file: blob returns a Blob with correct MIME type", async () => {
   const store = new FakeChunkStore(512, 2048);
-  const file = new File({ store, length: 300, offset: 0, pieceLength: 512 });
+  const file = new File({ store, length: 300, offset: 0, pieceLength: 512, name: "video.mp4" });
 
   const blob = await file.blob();
   assertEquals(blob.size, 300);
-  assertEquals(blob.type, "");
+  assertEquals(blob.type, "video/mp4");
 });
 
 // ── getBlobURL ───────────────────────────────────────────────────────────────
@@ -589,4 +590,131 @@ Deno.test("file: emits upload event when torrent forwards upload for matching pi
   file.emit("upload", new CustomEvent("upload", { detail: { bytes: 256 } }));
 
   assertEquals(uploadBytes, 256);
+});
+
+// ── File.includes(number) — upstream parity ─────────────────────────────────
+
+Deno.test("file: includes accepts a piece index number (upstream parity)", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 512 });
+  // pieceRange: first=0, last=1
+  assertEquals(file.includes(0), true);
+  assertEquals(file.includes(1), true);
+  assertEquals(file.includes(2), false);
+  assertEquals(file.includes(-1), false);
+});
+
+Deno.test("file: includes accepts a Piece object (legacy)", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 512 });
+  const piece = { index: 0 } as any;
+  assertEquals(file.includes(piece), true);
+});
+
+Deno.test("file: includes handles file with single piece", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 512, offset: 0, pieceLength: 512 });
+  // pieceRange: first=0, last=0
+  assertEquals(file.includes(0), true);
+  assertEquals(file.includes(1), false);
+});
+
+// ── File.select / deselect delegation ─────────────────────────────────────
+
+Deno.test("file: select delegates to owning torrent", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 512 });
+  let calledWith: [number, number] | null = null;
+  const mockTorrent = {
+    pieces: new Bitfield(2),
+    select(start: number, end: number) {
+      calledWith = [start, end];
+    },
+  } as any;
+  (file as any)._torrent = mockTorrent;
+
+  file.select();
+  assertEquals(calledWith, [0, 1]);
+
+  file.select(0, 0);
+  assertEquals(calledWith, [0, 0]);
+});
+
+Deno.test("file: deselect delegates to owning torrent", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 512 });
+  let calledWith: [number, number] | null = null;
+  const mockTorrent = {
+    pieces: new Bitfield(2),
+    deselect(start: number, end: number) {
+      calledWith = [start, end];
+    },
+  } as any;
+  (file as any)._torrent = mockTorrent;
+
+  file.deselect();
+  assertEquals(calledWith, [0, 1]);
+
+  file.deselect(1, 1);
+  assertEquals(calledWith, [1, 1]);
+});
+
+Deno.test("file: select/deselect no-op when no torrent attached", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 512 });
+  // Should not throw
+  file.select();
+  file.deselect();
+  file.select(0, 0);
+  file.deselect(1, 1);
+});
+
+// ── File.arrayBuffer / blob range support ──────────────────────────────────
+
+Deno.test("file: arrayBuffer reads entire file by default", async () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 512, offset: 0, pieceLength: 512 });
+  const ab = await file.arrayBuffer();
+  assertEquals(ab.byteLength, 512);
+});
+
+Deno.test("file: arrayBuffer reads byte range via {start,end}", async () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 512 });
+  const ab = await file.arrayBuffer({ start: 100, end: 200 });
+  assertEquals(ab.byteLength, 100);
+  const view = new Uint8Array(ab);
+  // FakeChunkStore fills with i % 256, so byte at position 0 of the range is byte 100
+  assertEquals(view[0], 100 % 256);
+});
+
+Deno.test("file: arrayBuffer reads range from middle to end", async () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 512 });
+  const ab = await file.arrayBuffer({ start: 512 });
+  assertEquals(ab.byteLength, 512);
+});
+
+Deno.test("file: blob returns Blob with correct size and type", async () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 512, offset: 0, pieceLength: 512 });
+  const blob = await file.blob();
+  assertEquals(blob.size, 512);
+  assertEquals(blob.type, "application/octet-stream");
+});
+
+Deno.test("file: blob reads byte range via {start,end}", async () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 512 });
+  const blob = await file.blob({ start: 0, end: 128 });
+  assertEquals(blob.size, 128);
+});
+
+Deno.test("file: arrayBuffer throws RangeError for invalid range", async () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 512, offset: 0, pieceLength: 512 });
+  await assertRejects(
+    () => file.arrayBuffer({ start: 600, end: 700 }),
+    RangeError,
+  );
 });

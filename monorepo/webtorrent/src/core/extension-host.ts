@@ -92,6 +92,29 @@ export class ExtensionHost {
   /** IDs selected by the peer, which we use when sending to it. */
   readonly peerExtensions: Map<string, number> = new Map();
 
+  /**
+   * Extension name → value Record for `wire.extensions` parity.
+   * A value of `true` means the peer supports this extension.
+   */
+  get remoteExtensions(): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const name of this.peerExtensions.keys()) {
+      out[name] = true;
+    }
+    return out;
+  }
+
+  /**
+   * Reverse map: ID → extension name for `wire.extendedMapping` parity.
+   */
+  get remoteIdToName(): Record<number, string> {
+    const out: Record<number, string> = {};
+    for (const [name, id] of this.peerExtensions) {
+      out[id] = name;
+    }
+    return out;
+  }
+
   /** Most recent valid extended handshake received from the peer. */
   peerHandshake?: ExtendedHandshake;
 

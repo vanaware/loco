@@ -18,7 +18,7 @@
  * `HttpTracker`, `WsTracker`, `createTracker`) é preservada.
  */
 
-import { decode, BencodeDict } from "../utils/bencode.ts";
+import { decode, BencodeDict, BencodeMap, BencodeValue } from "../utils/bencode.ts";
 import { TrackerError } from "../utils/errors.ts";
 import {
   deduplicatePeers,
@@ -445,6 +445,115 @@ export class HttpTracker implements Tracker {
       this.abortController.abort();
       this.abortController = null;
     }
+  }
+}
+
+// ── Scrape support (BEP 48) ────────────────────────────────────────────────
+
+export interface ScrapeResponse {
+  files: Record<string, {
+    complete: number;
+    incomplete: number;
+    downloaded: number;
+    name?: string;
+  }>;
+}
+
+/**
+ * Fetches scrape data for one or more info hashes from a tracker's scrape endpoint.
+ * Falls back to `announce` if `scrape` is not in the URL (BEP 48 §3).
+ *
+ * @param trackerUrl - Base announce URL (e.g. `https://tracker.example/announce`).
+ *   The scrape endpoint is derived by replacing `/announce` with `/scrape`.
+ * @param infoHashes - Array of 20-byte info hashes.
+ * @param opts - Optional timeout.
+ */
+export async function scrapeTracker(
+  trackerUrl: string,
+  infoHashes: Uint8Array[],
+  opts: { timeoutMs?: number } = {},
+): Promise<ScrapeResponse> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const scrapeUrl = trackerUrl.replace(/\/announce(\?.*)?$/, "/scrape$1");
+
+  const sep = scrapeUrl.includes("?") ? "&" : "?";
+  const queryParts: string[] = [];
+  for (const ih of infoHashes) {
+    queryParts.push(`info_hash=${percentEncodeBytes(ih)}`);
+  }
+  const url = new URL(`${scrapeUrl}${sep}${queryParts.join("&")}`);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url.toString(), {
+      signal: controller.signal,
+      headers: { "User-Agent": "Loco-WebTorrent/0.1.0" },
+    });
+
+    if (!response.ok) {
+      throw new TrackerError(`Tracker scrape HTTP error: ${response.status}`);
+    }
+
+    const bytes = await readBoundedBody(response, MAX_RESPONSE_BYTES);
+    let dict: BencodeMap;
+    try {
+      const value = decode(bytes, {
+        maxBytes: MAX_RESPONSE_BYTES,
+        maxDepth: 16,
+        allowUnsortedKeys: true,
+        useMap: true,
+      });
+      if (!(value instanceof Map)) {
+        throw new TrackerError("scrape response must be a dictionary");
+      }
+      dict = value;
+    } catch (error) {
+      if (error instanceof TrackerError) throw error;
+      throw new TrackerError("scrape returned invalid bencode", "TRACKER_ERROR", { cause: error });
+    }
+
+    const files: ScrapeResponse["files"] = {};
+
+    // Map<string,unknown> -> BencodeDict so dict helpers work
+    function mapToDict(m: BencodeMap): BencodeDict {
+      const out: BencodeDict = {};
+      for (const [k, v] of m) {
+        if (typeof k === "string") out[k] = v;
+      }
+      return out;
+    }
+
+    for (const [key, value] of dict) {
+      if (typeof key !== "string") continue;
+      if (key === "flags") continue;
+
+      let fileStats: BencodeMap | undefined;
+      if (key === "files") {
+        // BEP 48 "files" variant: "files" -> { infoHash -> stats }
+        if (value instanceof Map) fileStats = value;
+      } else {
+        // Direct infoHash -> stats (some trackers use this form)
+        if (value instanceof Map) fileStats = new Map([[key, value]]);
+      }
+
+      if (fileStats) {
+        for (const [subKey, subVal] of fileStats) {
+          if (typeof subKey !== "string" || !(subVal instanceof Map)) continue;
+          const sub = mapToDict(subVal);
+          const complete = dictNonNegativeInteger(sub, "complete") ?? 0;
+          const incomplete = dictNonNegativeInteger(sub, "incomplete") ?? 0;
+          const downloaded = dictNonNegativeInteger(sub, "downloaded") ?? 0;
+          const name = dictString(sub, "name");
+          files[subKey] = { complete, incomplete, downloaded, ...(name ? { name } : {}) };
+        }
+      }
+    }
+
+    return { files };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

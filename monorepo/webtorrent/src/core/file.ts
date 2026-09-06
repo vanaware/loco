@@ -224,27 +224,45 @@ export class File extends TypedEventTarget<FileEvents> {
 
   /**
    * Returns true if the given piece index is part of this file.
+   *
+   * Supports both upstream signatures:
+   * - `includes(pieceIndex: number)` — piece index
+   * - `includes(piece: Piece)` — Piece object (legacy)
    */
-  includes(piece: Piece): boolean {
+  includes(pieceOrIndex: Piece | number): boolean {
     const { first, last } = this.pieceRange;
-    return piece.index >= first && piece.index <= last;
+    const index = typeof pieceOrIndex === "number"
+      ? pieceOrIndex
+      : (pieceOrIndex as Piece).index;
+    return index >= first && index <= last;
   }
 
   /**
    * Mark pieces [startPiece, endPiece] (inclusive) as selected for download.
-   * A no-op when the file is not yet attached to a torrent (we use the
-   * underlying store only — the torrent owns interest management).
+   * Delegates to the owning torrent's `select`.
+   *
+   * If the file is not attached to a torrent, this is a no-op.
    */
-  select(_startPiece?: number, _endPiece?: number): void {
-    // No-op: piece selection lives on the Torrent side (Fase 4.6).
-    // Provided here for API parity with the upstream `webtorrent.min.js`.
+  select(startPiece?: number, endPiece?: number): void {
+    if (!this._torrent || !this._torrent.pieces) return;
+    const { first, last } = this.pieceRange;
+    const start = startPiece ?? first;
+    const end = endPiece ?? last;
+    this._torrent.select(start, end);
   }
 
   /**
-   * Mark pieces as deselected for download.
+   * Mark pieces [startPiece, endPiece] as deselected.
+   * Delegates to the owning torrent's `deselect`.
+   *
+   * If the file is not attached to a torrent, this is a no-op.
    */
-  deselect(_startPiece?: number, _endPiece?: number): void {
-    // No-op (see {@link File.select}).
+  deselect(startPiece?: number, endPiece?: number): void {
+    if (!this._torrent || !this._torrent.pieces) return;
+    const { first, last } = this.pieceRange;
+    const start = startPiece ?? first;
+    const end = endPiece ?? last;
+    this._torrent.deselect(start, end);
   }
 
   // ==========================================================================
@@ -348,16 +366,27 @@ export class File extends TypedEventTarget<FileEvents> {
   }
 
   /**
-   * Read the entire file into a single `ArrayBuffer`.
+   * Read the entire file (or a byte range) into a single `ArrayBuffer`.
    *
    * Materializes the file in memory; suitable for small files only.
    * For large files prefer {@link createReadStream} or
    * {@link streamTo}.
+   *
+   * Supports `{ start, end }` to read a byte range — mirrors upstream
+   * `file.arrayBuffer({ start, end })`.
    */
-  async arrayBuffer(): Promise<ArrayBuffer> {
+  async arrayBuffer(opts: { start?: number; end?: number } = {}): Promise<ArrayBuffer> {
+    const stream = this.createReadStream(opts);
     const chunks: Uint8Array[] = [];
-    for await (const chunk of this[Symbol.asyncIterator]()) {
-      chunks.push(chunk);
+    const reader = stream.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
     }
     const total = chunks.reduce((s, c) => s + c.length, 0);
     const out = new Uint8Array(total);
@@ -370,11 +399,32 @@ export class File extends TypedEventTarget<FileEvents> {
   }
 
   /**
-   * Read the entire file into a `Blob`.
+   * Read the entire file (or a byte range) into a `Blob`.
+   *
+   * Supports `{ start, end }` to read a byte range — mirrors upstream
+   * `file.blob({ start, end })`.
    */
-  async blob(): Promise<Blob> {
-    const buf = await this.arrayBuffer();
-    return new Blob([buf]);
+  async blob(opts: { start?: number; end?: number } = {}): Promise<Blob> {
+    const stream = this.createReadStream(opts);
+    const chunks: Uint8Array[] = [];
+    const reader = stream.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const total = chunks.reduce((s, c) => s + c.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+      out.set(c, offset);
+      offset += c.length;
+    }
+    return new Blob([out.buffer], { type: this.type });
   }
 
   /**

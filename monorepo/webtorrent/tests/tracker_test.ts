@@ -14,6 +14,7 @@ import {
   MAX_NUM_WANT,
   parseHttpTrackerResponse,
   percentEncodeBytes,
+  scrapeTracker,
   validateTrackerOptions,
   WsTracker,
 } from "../src/network/tracker.ts";
@@ -439,4 +440,144 @@ Deno.test("tracker: HttpTracker.announce validates options before fetching", asy
 Deno.test("tracker: DEFAULT_TIMEOUT_MS and MAX_NUM_WANT constants", () => {
   assertEquals(DEFAULT_TIMEOUT_MS, 15_000);
   assertEquals(MAX_NUM_WANT, 2_000);
+});
+
+// ── scrapeTracker (BEP 48) ────────────────────────────────────────────────
+
+function makeInfoHash(seed: number): Uint8Array {
+  const arr = new Uint8Array(20);
+  for (let i = 0; i < 20; i++) arr[i] = (seed * 17 + i * 7) & 0xff;
+  return arr;
+}
+
+Deno.test("scrapeTracker: parses successful scrape response", async () => {
+  const ih1 = makeInfoHash(1);
+  const ih2 = makeInfoHash(2);
+  const ih3 = makeInfoHash(3);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        encode({
+          files: {
+            [percentEncodeBytes(ih1)]: { complete: 10, incomplete: 5, downloaded: 123 },
+            [percentEncodeBytes(ih2)]: { complete: 1, incomplete: 0, downloaded: 42 },
+            [percentEncodeBytes(ih3)]: { complete: 0, incomplete: 2, downloaded: 0 },
+          },
+        }) as unknown as BodyInit,
+        { status: 200 },
+      ),
+    )) as typeof fetch;
+
+  try {
+    const result = await scrapeTracker("http://tracker.example.com/announce", [ih1, ih2, ih3]);
+    assertEquals(result.files[percentEncodeBytes(ih1)]!.complete, 10);
+    assertEquals(result.files[percentEncodeBytes(ih1)]!.incomplete, 5);
+    assertEquals(result.files[percentEncodeBytes(ih1)]!.downloaded, 123);
+    assertEquals(result.files[percentEncodeBytes(ih2)]!.complete, 1);
+    assertEquals(result.files[percentEncodeBytes(ih2)]!.incomplete, 0);
+    assertEquals(result.files[percentEncodeBytes(ih3)]!.complete, 0);
+    assertEquals(result.files[percentEncodeBytes(ih3)]!.incomplete, 2);
+    assertEquals(result.files[percentEncodeBytes(ih3)]!.downloaded, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("scrapeTracker: includes optional name field", async () => {
+  const ih = makeInfoHash(10);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        encode({
+          files: {
+            [percentEncodeBytes(ih)]: { complete: 5, incomplete: 2, downloaded: 100, name: "my-video.mp4" },
+          },
+        }) as unknown as BodyInit,
+        { status: 200 },
+      ),
+    )) as typeof fetch;
+
+  try {
+    const result = await scrapeTracker("http://tracker.example.com/announce", [ih]);
+    assertEquals(result.files[percentEncodeBytes(ih)]!.name, "my-video.mp4");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("scrapeTracker: throws on HTTP error status", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(new Response("", { status: 503 }))) as typeof fetch;
+
+  try {
+    await assertRejects(
+      () => scrapeTracker("http://tracker.example.com/announce", [makeInfoHash(1)]),
+      TrackerError,
+      "503",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("scrapeTracker: throws on non-dictionary response", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(encode([1, 2, 3]) as unknown as BodyInit, { status: 200 }),
+    )) as typeof fetch;
+
+  try {
+    await assertRejects(
+      () => scrapeTracker("http://tracker.example.com/announce", [makeInfoHash(1)]),
+      TrackerError,
+      "must be a dictionary",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("scrapeTracker: replaces /announce with /scrape in URL", async () => {
+  let capturedUrl: string | null = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((input: URL | RequestInfo | URL) => {
+    capturedUrl = input instanceof URL ? input.href : String(input);
+    return Promise.resolve(
+      new Response(encode({ files: {} }) as unknown as BodyInit, { status: 200 }),
+    );
+  }) as typeof fetch;
+
+  try {
+    await scrapeTracker("http://tracker.example.com/announce?passkey=abc", [makeInfoHash(1)]);
+    assertEquals(capturedUrl !== null, true);
+    assertEquals(capturedUrl!.includes("/scrape"), true);
+    assertEquals(capturedUrl!.includes("/announce"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("scrapeTracker: encodes info_hash params as percent-encoded bytes", async () => {
+  let capturedUrl: string | null = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((input: URL | RequestInfo | URL) => {
+    capturedUrl = input instanceof URL ? input.href : String(input);
+    return Promise.resolve(
+      new Response(encode({ files: {} }) as unknown as BodyInit, { status: 200 }),
+    );
+  }) as typeof fetch;
+
+  try {
+    const ih = new Uint8Array([0x00, 0x7f, 0x80, 0xff, ...new Array(16).fill(0)]);
+    await scrapeTracker("http://tracker.example.com/announce", [ih]);
+    assertEquals(capturedUrl!.includes("%00%7F%80%FF"), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

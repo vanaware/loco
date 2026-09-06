@@ -183,6 +183,35 @@ export class Wire extends TypedEventTarget<WireEvents> {
   public remoteAddress: string = "";
   public remotePort: number = 0;
 
+  // ── BEP 3 / upstream parity ───────────────────────────────────────
+
+  /**
+   * Connection type. Always `'webrtc'` in this browser-first implementation.
+   *
+   * Mirrors `webtorrent.min.js` `wire.type`.
+   */
+  public get type(): string {
+    return "webrtc";
+  }
+
+  /**
+   * Extension capabilities advertised by the remote peer.
+   *
+   * Mirrors `webtorrent.min.js` `wire.extensions` — a Record of extension
+   * name to any value. Populated from the BEP-10 extended handshake `m` dict.
+   */
+  public get extensions(): Record<string, unknown> {
+    return this.extensionHost.remoteExtensions;
+  }
+
+  /**
+   * ID-to-name mapping from the remote peer's BEP-10 extended handshake.
+   * Mirrors `webtorrent.min.js` `wire.extendedMapping`.
+   */
+  public get extendedMapping(): Record<number, string> {
+    return this.extensionHost.remoteIdToName;
+  }
+
   // ── BEP 6 Fast sets ────────────────────────────────────────────────
   public readonly localAllowedFast: Set<number> = new Set();
   public readonly remoteAllowedFast: Set<number> = new Set();

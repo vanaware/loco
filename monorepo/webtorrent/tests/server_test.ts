@@ -4,6 +4,7 @@ import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert";
 import {
   createServer,
   guessContentType,
+  parseRangeHeader,
   WebTorrentServer,
 } from "../src/server/server.ts";
 import { InProcessTransport } from "../src/server/server.ts";
@@ -196,6 +197,112 @@ Deno.test("WebTorrentServer.handleRequest: parses file index from URL", async ()
   server.destroy();
 });
 
+// ── Range request support ─────────────────────────────────────────────────────────
+
+Deno.test("WebTorrentServer.handleRequest: returns 206 for Range request", async () => {
+  streamManager.clear();
+  const server = createServer({ scope: "/" });
+  await server.sendReadyAck();
+
+  const mock = new MockFile("video.mp4", 1024) as any;
+  const infoHash = "a".repeat(40); // 40 hex chars (valid infoHash)
+  streamManager.register(infoHash, 0, mock);
+
+  const fakePort = {
+    addEventListener() {},
+    start() {},
+    close() {},
+    postMessage() {},
+  } as unknown as MessagePort;
+
+  const resp = await server.handleRequest({
+    type: "webtorrent-request",
+    url: `/webtorrent/${infoHash}/0/video.mp4`,
+    method: "GET",
+    headers: { "range": "bytes=0-99" },
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  assertEquals(resp.status, 206);
+  const headers = new Headers(resp.headers);
+  assertEquals(headers.get("Content-Type"), "video/mp4");
+  assertEquals(headers.get("Content-Length"), "100");
+  assertEquals(headers.get("Accept-Ranges"), "bytes");
+  assertEquals(headers.get("Content-Range"), "bytes 0-99/1024");
+
+  streamManager.clear();
+  server.destroy();
+});
+
+Deno.test("WebTorrentServer.handleRequest: returns 200 when no Range header", async () => {
+  streamManager.clear();
+  const server = createServer({ scope: "/" });
+  await server.sendReadyAck();
+
+  const mock = new MockFile("video.mp4", 1024) as any;
+  const infoHash = "b".repeat(40); // valid hex
+  streamManager.register(infoHash, 0, mock);
+
+  const fakePort = {
+    addEventListener() {},
+    start() {},
+    close() {},
+    postMessage() {},
+  } as unknown as MessagePort;
+
+  const resp = await server.handleRequest({
+    type: "webtorrent-request",
+    url: `/webtorrent/${infoHash}/0/video.mp4`,
+    method: "GET",
+    headers: {},
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  assertEquals(resp.status, 200);
+  const headers = new Headers(resp.headers);
+  assertEquals(headers.get("Content-Length"), "1024");
+  assertEquals(headers.get("Content-Range"), null);
+
+  streamManager.clear();
+  server.destroy();
+});
+
+Deno.test("WebTorrentServer.handleRequest: suffix range returns 206 with correct length", async () => {
+  streamManager.clear();
+  const server = createServer({ scope: "/" });
+  await server.sendReadyAck();
+
+  const mock = new MockFile("video.mp4", 1024) as any;
+  const infoHash = "c".repeat(40); // valid hex
+  streamManager.register(infoHash, 0, mock);
+
+  const fakePort = {
+    addEventListener() {},
+    start() {},
+    close() {},
+    postMessage() {},
+  } as unknown as MessagePort;
+
+  const resp = await server.handleRequest({
+    type: "webtorrent-request",
+    url: `/webtorrent/${infoHash}/0/video.mp4`,
+    method: "GET",
+    headers: { "range": "bytes=500-" },
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  assertEquals(resp.status, 206);
+  const headers = new Headers(resp.headers);
+  assertEquals(headers.get("Content-Range"), "bytes 500-1023/1024");
+  assertEquals(headers.get("Content-Length"), "524");
+
+  streamManager.clear();
+  server.destroy();
+});
+
 Deno.test("InProcessTransport: records postMessage", () => {
   const transport = new InProcessTransport();
 
@@ -321,3 +428,50 @@ Deno.test("parseStreamURL: used via server integration", () => {
   assertEquals(parsed?.fileIndex, 3);
   assertEquals(parsed?.name, "my video.mp4");
 });
+
+// ── parseRangeHeader ─────────────────────────────────────────────────────────
+
+Deno.test("parseRangeHeader: parses valid range with both bounds", () => {
+  const result = parseRangeHeader("bytes=0-99", 1000);
+  assertEquals(result, { start: 0, end: 99 });
+});
+
+Deno.test("parseRangeHeader: parses suffix range (start-)", () => {
+  const result = parseRangeHeader("bytes=500-", 1000);
+  assertEquals(result, { start: 500, end: 999 });
+});
+
+Deno.test("parseRangeHeader: returns null when header is undefined", () => {
+  assertEquals(parseRangeHeader(undefined, 1000), null);
+});
+
+Deno.test("parseRangeHeader: returns null for invalid units", () => {
+  assertEquals(parseRangeHeader("frames=0-99", 1000), null);
+});
+
+Deno.test("parseRangeHeader: returns null when start exceeds file length", () => {
+  assertEquals(parseRangeHeader("bytes=1001-", 1000), null);
+});
+
+Deno.test("parseRangeHeader: returns null when start equals file length", () => {
+  assertEquals(parseRangeHeader("bytes=1000-", 1000), null);
+});
+
+Deno.test("parseRangeHeader: returns null for malformed format", () => {
+  assertEquals(parseRangeHeader("bytes=0..99", 1000), null);
+  assertEquals(parseRangeHeader("bytes=-99", 1000), null);
+});
+
+Deno.test("parseRangeHeader: clamps end to file length - 1", () => {
+  const result = parseRangeHeader("bytes=0-1999", 1000);
+  assertEquals(result, { start: 0, end: 999 });
+});
+
+Deno.test("parseRangeHeader: returns null when end < start", () => {
+  assertEquals(parseRangeHeader("bytes=100-50", 1000), null);
+});
+
+Deno.test("parseRangeHeader: returns null for negative start", () => {
+  assertEquals(parseRangeHeader("bytes=-10-99", 1000), null);
+});
+

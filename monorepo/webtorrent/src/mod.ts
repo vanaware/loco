@@ -29,7 +29,18 @@ const _WEBRTC_SUPPORT: boolean = (() => {
 })();
 
 export interface WebTorrentEvents {
+  /** Emitted when a torrent is added to the client (after add/seed). */
   torrent: CustomEvent<{ torrent: Torrent }>;
+  /**
+   * Emitted when a torrent is added to `client.torrents`.
+   * Mirrors upstream `client.on('add', torrent)`.
+   */
+  add: CustomEvent<{ torrent: Torrent }>;
+  /**
+   * Emitted when a torrent is removed from `client.torrents`.
+   * Mirrors upstream `client.on('remove', torrent)`.
+   */
+  remove: CustomEvent<{ torrent: Torrent; infoHash: string }>;
   error: CustomEvent<{ error: Error }>;
   ready: Event;
 }
@@ -356,6 +367,8 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     this.swarms.set(parsed.infoHash, swarm);
     this.torrentList.push(torrent);
 
+    this.emit("add", new CustomEvent("add", { detail: { torrent } }));
+
     if (this.server) {
       const files = this._makeFileObjects(torrent, this.server.scope);
       registerTorrentFiles(torrent, files);
@@ -567,6 +580,8 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     if (index !== -1) {
       this.torrentList.splice(index, 1);
     }
+
+    this.emit("remove", new CustomEvent("remove", { detail: { torrent, infoHash } }));
 
     if (this.server) {
       unregisterTorrentFiles(infoHash);

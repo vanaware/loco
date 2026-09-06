@@ -2,6 +2,35 @@
 
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { WebTorrent } from "../src/mod.ts";
+import { encode } from "../src/utils/bencode.ts";
+import type { ParsedTorrent } from "../src/utils/parse-torrent.ts";
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Build a minimal valid bencoded .torrent that parseTorrent accepts. */
+function minimalTorrentBytes(infoHash: string): Uint8Array {
+  const info = { name: "test", "piece length": 16, pieces: new Uint8Array(20), length: 16 };
+  const torrent = { info, "announce": "udp://tracker.example:80" };
+  return new Uint8Array(encode(torrent));
+}
+
+/** Build a fake ParsedTorrent matching what parseTorrent returns from minimalTorrentBytes. */
+function minimalParsedTorrent(infoHash: string): ParsedTorrent {
+  return {
+    infoHash,
+    infoHashBuffer: new Uint8Array(20),
+    name: "test",
+    announce: ["udp://tracker.example:80"],
+    urlList: [],
+    peerAddresses: [],
+    files: [{ path: "test", name: "test", length: 16, offset: 0 }],
+    length: 16,
+    pieceLength: 16,
+    pieces: [new Uint8Array(20)],
+    info: {} as any,
+    magnetURI: "",
+  };
+}
 
 Deno.test("webtorrent: initializes with default options", () => {
   const client = new WebTorrent();
@@ -234,5 +263,70 @@ Deno.test("webtorrent: seed() throws on unsupported input type", async () => {
     TypeError,
     "Unsupported seed input",
   );
+  client.destroy();
+});
+
+// ── client.add / client.remove events — upstream parity ─────────────────────────
+
+Deno.test("webtorrent: emits 'add' event when torrent is added", async () => {
+  const client = new WebTorrent();
+  const bytes = minimalTorrentBytes("0000000000000000000000000000000000000000");
+
+  let addEvent: CustomEvent | null = null;
+  client.on("add", (e) => { addEvent = e; });
+
+  const torrent = await client.add(bytes);
+  // The 'add' event detail contains the real torrent
+  assertEquals(addEvent !== null, true);
+  assertEquals(typeof (addEvent as any).detail.torrent.infoHash, "string");
+  assertEquals((addEvent as any).detail.torrent.infoHash, torrent.infoHash);
+  client.destroy();
+});
+
+Deno.test("webtorrent: emits 'remove' event when torrent is removed", async () => {
+  const client = new WebTorrent();
+  const bytes = minimalTorrentBytes("1111111111111111111111111111111111111111");
+  const torrent = await client.add(bytes);
+  const realInfoHash = torrent.infoHash;
+
+  let removeEvent: CustomEvent | null = null;
+  client.on("remove", (e) => { removeEvent = e; });
+
+  await client.remove(realInfoHash);
+
+  assertEquals(removeEvent !== null, true);
+  assertEquals((removeEvent as any).detail.infoHash, realInfoHash);
+  client.destroy();
+});
+
+Deno.test("webtorrent: 'add' fires before 'torrent' event", async () => {
+  const client = new WebTorrent();
+  const bytes = minimalTorrentBytes("2222222222222222222222222222222222222222");
+  const events: string[] = [];
+
+  client.on("add", () => events.push("add"));
+  client.on("torrent", () => events.push("torrent"));
+
+  await client.add(bytes);
+  assertEquals(events[0], "add");
+  assertEquals(events[1], "torrent");
+  client.destroy();
+});
+
+Deno.test("webtorrent: 'add' and 'remove' fire on torrent lifecycle", async () => {
+  const client = new WebTorrent();
+  const bytes = minimalTorrentBytes("3333333333333333333333333333333333333333");
+  let addIH: string | null = null;
+  let removeIH: string | null = null;
+
+  client.on("add", (e: any) => { addIH = e.detail.torrent.infoHash; });
+  client.on("remove", (e: any) => { removeIH = e.detail.infoHash; });
+
+  const torrent = await client.add(bytes);
+  await client.remove(torrent.infoHash);
+
+  assertEquals(addIH, torrent.infoHash);
+  assertEquals(removeIH, torrent.infoHash);
+  assertEquals(client.torrents.size, 0);
   client.destroy();
 });

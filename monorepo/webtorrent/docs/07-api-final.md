@@ -66,7 +66,7 @@ const client = new WebTorrent({
 | `remove` | `remove(infoHash, destroyStore?): Promise<void>` | 🟢 | Remove torrent |
 | `destroy` | `destroy(cb?): Promise<void>` | 🟢 | Destrói tudo |
 | `get` | `get(torrentId): Torrent` | 🟢 (Map) | conveniência |
-| `createServer` | `createServer({controller, scope?}): WebTorrentServer` | 🟢 | SW server |
+| `createServer` | `createServer({controller, scope?}): WebTorrentServer` | 🟢 | SW server + Range requests (206 Partial Content) |
 | `initServiceWorker` | `initServiceWorker(): Promise<ServiceWorker \| null>` | 🟢 (extensão) | Registra SW |
 | `throttleDownload` | `throttleDownload(rate: number)` | 🟢 Fase 6 | 0 = sem limite |
 | `throttleUpload` | `throttleUpload(rate: number)` | 🟢 Fase 6 | 0 = sem limite |
@@ -76,6 +76,8 @@ const client = new WebTorrent({
 | Evento | Detail | Status |
 |---|---|---|
 | `'torrent'` | `{ torrent: Torrent }` | 🟢 |
+| `'add'` | `{ torrent: Torrent }` | 🟢 v1.0 | dispara após torrent ser adicionado |
+| `'remove'` | `{ torrent: Torrent }` | 🟢 v1.0 | dispara após torrent ser removido |
 | `'error'` | `{ error: Error }` | 🟢 |
 | `'ready'` | `Event` | 🟢 |
 
@@ -181,13 +183,13 @@ const client = new WebTorrent({
 | `createReadStream(opts?)` | `ReadableStream<Uint8Array>` | 🟢 | W3C stream |
 | `stream(opts?)` | `ReadableStream<Uint8Array>` | 🟢 | alias |
 | `Symbol.asyncIterator` | `AsyncIterableIterator<Uint8Array>` | 🟢 | |
-| `arrayBuffer()` | `Promise<ArrayBuffer>` | 🟢 | |
-| `blob()` | `Promise<Blob>` | 🟢 | |
+| `arrayBuffer(opts?)` | `Promise<ArrayBuffer>` | 🟢 v1.0 | aceita `{start, end}` (byte range) |
+| `blob(opts?)` | `Promise<Blob>` | 🟢 v1.0 | aceita `{start, end}`, define MIME type |
 | `getBlobURL()` | `Promise<string>` | 🟢 | `URL.createObjectURL` |
 | `streamTo(elem)` | `void` | 🟢 | `<video>` / `<audio>` |
 | `streamURL()` | `string` | 🟢 | URL do SW |
-| `select()` / `deselect()` | `void` | 🟢 | no-op (via torrent) |
-| `includes(piece)` | `boolean` | 🟢 | piece pertence ao file? |
+| `select()` / `deselect()` | `void` | 🟢 v1.0 | delega para owning torrent |
+| `includes(piece)` | `boolean` | 🟢 | aceita `Piece` ou `number` (upstream parity) |
 | `destroy()` | `void` | 🟢 | |
 
 ### 4.3 Events
@@ -220,15 +222,15 @@ const client = new WebTorrent({
 |---|---|---|---|
 | `peerId` | `string \| null` | 🟢 | 40-char hex |
 | `peerIdBuffer` | `Uint8Array \| null` | 🟢 | 20 bytes |
-| `type` | `string` | 🟢 | `'webrtc'` |
+| `type` | `string` | 🟢 v1.0 | `'webrtc'` (readonly, upstream parity) |
 | `uploaded` | `number` | 🟢 | bytes enviados |
 | `downloaded` | `number` | 🟢 | bytes recebidos |
 | `uploadSpeed` | `number` | 🟢 Fase 6 | bytes/s |
 | `downloadSpeed` | `number` | 🟢 Fase 6 | bytes/s |
 | `remoteAddress` | `string` | 🟢 Fase 6 | IP |
 | `remotePort` | `number` | 🟢 Fase 6 | port |
-| `extensions` | `Record<string, any>` | 🟢 | |
-| `extendedMapping` | `Record<string, number>` | 🟢 | |
+| `extensions` | `Record<string, unknown>` | 🟢 v1.0 | extensões remotas (upstream parity) |
+| `extendedMapping` | `Record<number, string>` | 🟢 v1.0 | id→nome das ext. remotas |
 
 **Methods:** `sendHandshake`, `sendChoke`, `sendUnchoke`, `sendInterested`, `sendNotInterested`, `sendHave`, `sendBitfield`, `sendRequest`, `sendPiece`, `sendCancel`, `sendKeepAlive`, `sendExtended`, `destroy`.
 
@@ -343,6 +345,8 @@ new OPFSChunkStore({ chunkLength, length, rootDir: dir })
 | `randomBytes(n)` | `crypto/random.ts` | Uint8Array |
 | `generateId()` | `crypto/random.ts` | 40-char hex |
 | `generateLocoPeerId()` | `utils/peerid.ts` | `-LO0100-XXXXXXXXXX` |
+| `scrapeTracker(url, infoHashes, opts?)` | `network/tracker.ts` | BEP 48 scrape (completo) |
+| `parseRangeHeader(header, fileLength)` | `server/server.ts` | parse `bytes=N-M` → `{start,end}` |
 
 ---
 
@@ -356,18 +360,9 @@ new OPFSChunkStore({ chunkLength, length, rootDir: dir })
 | Wire | 12/12 props | 0 | 12 |
 | Generator | ✅ Completo (Fase 5.3) | — | — |
 | Magnet | ✅ Completo (v1+v2) | — | — |
-| Tracker | 🟡 Encoding parcial | 4 melhorias | — |
-| Metainfo | 🟡 Parse básico | 5 melhorias | — |
+| Tracker | ✅ Completo | percent-encoding, BEP 48 scrape, buildAnnounceUrl |
+| Metainfo | ✅ Completo (BEP 3/12/19/47/52) | infoBytes preservados, v1/v2/hybrid |
+| Server | ✅ Completo | Range requests (206 Partial Content + Content-Range) |
 
-**Status:** ✅ Fase 6 completa — todas as funcionalidades implementadas e testadas.
-**Total de tests:** 620 passing.
-
----
-
-## 13. Roadmap
-
-| Versão | Status | Mudanças |
-|---|---|---|
-| v0.5 (Fases 1-5) | ✅ Implementado | Core completo, OPFS generator |
-| v0.6 (Fase 6) | ✅ Implementado | seed(), aggregate getters, throttle, WEBRTC_SUPPORT, torrent metadata, file stats, wire stats |
-| v1.0 (roadmap) | 🔮 | metainfo rigoroso (BEP 3/12/19/47/52), tracker HTTP improvements |
+**Status:** ✅ **v1.0 Completa** — todas as funcionalidades do roadmap implementadas e testadas.
+**Total de tests:** 659 passing.
