@@ -1,6 +1,6 @@
 {
     "name": "@loco/webtorrent",
-  "version": "0.1.0",
+  "version": "0.1.3-mtq0ufmu",
   "exports": "./src/mod.ts",
   "compilerOptions": {
     "jsx": "react-jsx",
@@ -22,8 +22,7 @@
     "test": "deno test -A tests/",
     "check": "deno check src/**/*.ts example/**/*.ts example/**/*.tsx tests/**/*.ts",
     "tests": "deno task check && deno task test",
-    "build": "deno run -A ../../esbuild.ts example example-sw",
     "serve": "deno run -A ./example/server.ts",
-    "dev": "deno run -A --watch ./example/server.ts"
+    "server": "deno run -A --watch ./example/server.ts"
   }
 }

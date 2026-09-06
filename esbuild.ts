@@ -189,20 +189,19 @@ const CONFIG: GlobalTargetConfig = {
   // ─────────────────────────────────────────────────────────────────────────
   // 🌐 WebTorrent Demo (App + SW em alvos separados)
   // ─────────────────────────────────────────────────────────────────────────
-  example: {
+  webtorrent: {
     mode: 'build',
     default: false,
     srcdir: "monorepo/webtorrent/example",
     distdir: "monorepo/webtorrent/build/dist",
     indexHtml: true,
     clean: ["."],
-    entryPoints: ["main.tsx"],
+    entryPoints: ["main.tsx", "sw.ts"],
     platform: "browser",
     format: "esm",
     bundle: true,
     minify: false,
     sourcemap: "linked",
-    conditions: ["browser"],
     jsx: "automatic",
     jsxImportSource: "preact",
     metafile: true,
@@ -210,34 +209,10 @@ const CONFIG: GlobalTargetConfig = {
     legalComments: "none",
     keepNames: true,
     splitting: false,
-    outfile: "main.js",
     banner: {
       js: `/* Loco WebTorrent Demo v__APP_VERSION__ */\n`,
     },
-  },
-  "example-sw": {
-    mode: 'build',
-    default: false,
-    srcdir: "monorepo/webtorrent/example/sw",
-    distdir: "monorepo/webtorrent/build/dist",
-    clean: ["sw.js", "sw.js.map"],
-    entryPoints: ["sw.ts"],
-    platform: "browser",
-    format: "esm",
-    bundle: true,
-    minify: false,
-    sourcemap: "linked",
-    conditions: ["worker"],
-    metafile: true,
-    write: true,
-    legalComments: "none",
-    keepNames: true,
-    splitting: false,
-    outfile: "sw.js",
-    banner: {
-      js: `/* Loco WebTorrent Demo SW v__APP_VERSION__ */\n`,
-    },
-  },
+  }
 };
 
 // ============================================================================

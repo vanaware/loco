@@ -21,9 +21,20 @@
     }
     body { margin: 0; padding: 0; }
     video { max-width: 100%; border-radius: 8px; }
-    .panel { padding: 1rem; margin: 0.5rem; border-radius: 12px; }
-    .status-chip { font-size: 0.75rem; border-radius: 99px; padding: 2px 8px; }
+    .panel {
+      padding: 1.25rem;
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .panel .middle {
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid #eee;
+      margin-bottom: 0.75rem;
+    }
+    .status-chip { font-size: 0.8rem; border-radius: 99px; padding: 4px 12px; }
     .speed { font-variant-numeric: tabular-nums; font-family: monospace; }
+    footer { padding: 0.5rem; }
   </style>
 </head>
 <body class="light">

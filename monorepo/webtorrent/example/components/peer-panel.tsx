@@ -41,7 +41,7 @@ export function PeerPanel() {
   const leecherCount = peers.length - seedCount;
 
   return (
-    <div class="panel left-5 medium-10 large-4 no-padding">
+    <div class="panel no-padding">
       <div class="middle">
         <span class="material-symbols">group</span>
         <h4>Swarm</h4>

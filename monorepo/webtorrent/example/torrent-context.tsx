@@ -12,8 +12,9 @@ import type { WebTorrentServer } from "@loco/webtorrent";
 // ─── Trackers públicos ─────────────────────────────────────────────────────────
 
 export const PUBLIC_TRACKERS = [
-  "wss://tracker.btorrent.xyz",
-  "wss://tracker.webtorrent.io",
+  "wss://tracker.webtorrent.dev:443",
+  "wss://tracker.openwebtorrent.com:443",
+  "wss://open.ftorrent.com:443",
 ];
 
 // ─── Estado global (signals) ─────────────────────────────────────────────────

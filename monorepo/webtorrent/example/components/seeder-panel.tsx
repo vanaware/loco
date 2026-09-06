@@ -51,7 +51,7 @@ export function SeederPanel() {
   const isSeeding = modeSignal.value === "seeding";
 
   return (
-    <div class="panel left-5 medium-10 large-4 no-padding">
+    <div class="panel no-padding">
       <div class="middle">
         <span class="material-symbols">upload</span>
         <h4>Seeder</h4>
