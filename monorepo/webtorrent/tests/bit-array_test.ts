@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/bit-array_test.ts
 
-import { assertEquals, assertThrows } from "jsr:@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { BitArray, type BitOrder } from "../src/utils/bit-array.ts";
 
 // ============================================================================

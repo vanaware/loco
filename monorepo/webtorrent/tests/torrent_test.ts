@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/torrent_test.ts
 
-import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { Torrent } from "../src/core/torrent.ts";
 import { MemoryChunkStore } from "../src/storage/memory-chunk-store.ts";
 import { sha1 } from "../src/crypto/hasher.ts";

@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/file_test.ts
 
-import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { File } from "../src/core/file.ts";
 import { Piece } from "../src/core/piece.ts";
 import { Bitfield } from "../src/core/bitfield.ts";

@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/magnet_test.ts
 
-import { assertEquals, assertThrows } from "jsr:@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import {
   parseMagnet,
   encodeMagnet,

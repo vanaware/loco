@@ -1,7 +1,7 @@
 import {
   assertEquals,
   assertRejects,
-} from "jsr:@std/assert";
+} from "@std/assert";
 import {
   ByteReader,
   ByteWriter,

@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/bitfield_test.ts
 
-import { assertEquals, assertThrows } from "jsr:@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { Bitfield } from "../src/core/bitfield.ts";
 import { BitfieldError } from "../src/utils/errors.ts";
 

@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/metainfo-parser_test.ts
 
-import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { encode, type BencodeValue } from "../src/utils/bencode.ts";
 import {
   parseMetainfo,

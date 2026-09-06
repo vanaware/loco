@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/ut-metadata_test.ts
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import { UtMetadata } from "../src/extensions/ut-metadata.ts";
 import { encode } from "../src/utils/bencode.ts";
 

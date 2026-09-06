@@ -1566,6 +1566,7 @@
       },
       "monorepo/webtorrent": {
         "dependencies": [
+          "jsr:@std/assert@*",
           "jsr:@std/fs@*",
           "jsr:@std/http@*",
           "jsr:@std/path@*"

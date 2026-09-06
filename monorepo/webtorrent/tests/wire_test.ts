@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/wire_test.ts
 
-import { assertEquals, assertThrows } from "jsr:@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { Wire, Transport, WireState } from "../src/core/wire.ts";
 import { HandshakeExtension } from "../src/core/constants.ts";
 import { ProtocolError, PeerWireError } from "../src/utils/errors.ts";

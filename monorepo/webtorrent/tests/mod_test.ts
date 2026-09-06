@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/mod_test.ts
 
-import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { WebTorrent } from "../src/mod.ts";
 import { encode } from "../src/utils/bencode.ts";
 import type { ParsedTorrent } from "../src/utils/parse-torrent.ts";

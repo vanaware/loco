@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/hasher_test.ts
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import {
   sha1,
   sha1Bytes,

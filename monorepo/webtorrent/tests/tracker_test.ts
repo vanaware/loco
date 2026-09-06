@@ -4,7 +4,7 @@ import {
   assertEquals,
   assertRejects,
   assertThrows,
-} from "jsr:@std/assert";
+} from "@std/assert";
 import {
   buildAnnounceUrl,
   createTracker,

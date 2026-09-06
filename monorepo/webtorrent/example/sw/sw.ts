@@ -17,6 +17,7 @@
  *         ↓
  *   SW consumidor ReadableStream → Browser
  */
+/// <reference lib="dom" />
 const SW_SCOPE = "/";
 
 declare const self: ServiceWorkerGlobalScope;
@@ -55,25 +56,24 @@ self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
-self.addEventListener("activate", (e) => {
+self.addEventListener("activate", (e: ExtendableEvent) => {
   e.waitUntil(self.clients.claim());
 });
 
 // ─── Conexão com a página ────────────────────────────────────────────────────
 
-self.addEventListener("message", (e) => {
+self.addEventListener("message", (e: ExtendableMessageEvent) => {
   const { data } = e;
   if (data?.type === "PORT") {
     // Página enviou a porta de comunicação
     pagePort = e.ports[0]!;
-    pagePort.onmessage = (ev) => {
+    pagePort!.onmessage = (ev: MessageEvent) => {
       const res: StreamResponse = ev.data;
       const pending = pendingRequests.get(res.requestId);
       if (pending) {
         pendingRequests.delete(res.requestId);
         pending.resolve(res);
-        // Encaminha o stream de body para o cliente original
-        pending.port.postMessage({ type: "stream-response", ...res });
+        pending.port.postMessage(res);
       }
     };
     console.log("[SW] Página conectada via MessageChannel");
@@ -91,7 +91,7 @@ self.addEventListener("message", (e) => {
 
 // ─── Fetch handler ───────────────────────────────────────────────────────────
 
-self.addEventListener("fetch", (e) => {
+self.addEventListener("fetch", (e: FetchEvent) => {
   const url = new URL(e.request.url);
 
   // Só intercepta requisições de streaming

@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/swarm_test.ts
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import { Swarm } from "../src/network/swarm.ts";
 
 class MockRTCPeerConnection {

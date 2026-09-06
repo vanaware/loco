@@ -8,7 +8,7 @@
  * mock OPFS handles that behave like real browser handles.
  */
 
-import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
+import { assertEquals, assertExists, assertRejects } from "@std/assert";
 import {
   buildPieceFiles,
   calcPieceSize,

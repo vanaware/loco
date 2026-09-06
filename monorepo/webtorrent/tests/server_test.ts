@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/server_test.ts
 
-import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   createServer,
   guessContentType,

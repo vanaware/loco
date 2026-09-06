@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/peer_test.ts
 
-import { assertEquals, assertExists } from "jsr:@std/assert";
+import { assertEquals, assertExists } from "@std/assert";
 import { Peer } from "../src/network/peer.ts";
 
 // ============================================================================

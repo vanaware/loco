@@ -5,6 +5,8 @@ import { useSignal } from "@preact/signals";
 import {
   addTorrent,
   torrentSignal,
+  clientSignal,
+  serverSignal,
   modeSignal,
   errorSignal,
 } from "../torrent-context.tsx";
@@ -22,18 +24,20 @@ export function ViewerPanel() {
 
   // Reconstrói stream URL quando o torrent fica ready
   useEffect(() => {
-    if (!torrent || !torrent.server) return;
+    if (!torrent || !serverSignal.value) return;
 
     const file = torrent.files[0];
     if (!file) return;
 
     streamUrl.value = buildStreamURL("/", torrent.infoHash, 0, file.name);
 
-    // streamTo assim que o torrent tiver metadata
-    if (videoRef.current && !torrent.destroyed) {
-      torrent.files[0]?.streamTo(videoRef.current);
+    // Conecta stream ao <video> via client._makeFileObjects() (File wrapper com streamTo)
+    const client = clientSignal.value;
+    if (client && videoRef.current) {
+      const files = (client as any)._makeFileObjects(torrent, "/");
+      files[0]?.streamTo(videoRef.current);
     }
-  }, [torrent?.infoHash, torrent?.server]);
+  }, [torrent?.infoHash, serverSignal.value]);
 
   const handleWatch = async () => {
     const id = input.value.trim();

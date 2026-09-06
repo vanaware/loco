@@ -1,7 +1,7 @@
 // /loco/monorepo/webtorrent/tests/parse-torrent_test.ts
 
 // ... (mantenha todo o resto do arquivo igual)
-import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { parseTorrent, ParsedTorrent } from "../src/utils/parse-torrent.ts";
 import { encode, BencodeValue } from "../src/utils/bencode.ts";
 

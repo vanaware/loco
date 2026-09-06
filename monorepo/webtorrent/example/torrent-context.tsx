@@ -39,7 +39,6 @@ export async function initClient(): Promise<WebTorrent> {
     maxConns: 55,
     useOPFS: navigator.storage?.getDirectory != null,
     rtcConfig: {},
-    trackers: PUBLIC_TRACKERS,
   });
 
   wt.on("error", (e: Event) => {
@@ -67,17 +66,24 @@ export async function seedFile(file: File): Promise<void> {
   try {
     const torrent = await wt.seed(file, {
       name: file.name,
-      announce: PUBLIC_TRACKERS,
+      trackers: PUBLIC_TRACKERS,
     });
 
     torrentSignal.value = torrent;
     modeSignal.value = "seeding";
 
     // Escuta eventos de peer
-    torrent.on("wire", (wire: Wire) => {
-      peersSignal.value = [...torrent.wires];
-      wire.on("close", () => {
-        peersSignal.value = torrent.wires;
+    torrent.on("wire", (e: CustomEvent<{ wire: Wire; addr: string }>) => {
+      const swarm = (torrent as any).swarm;
+      const wires = [...(swarm?.peers.values() ?? [])]
+        .map((p: any) => p.wire)
+        .filter((w: Wire | null): w is Wire => w !== null);
+      peersSignal.value = wires;
+      e.detail.wire.on("close", () => {
+        const updated = [...(swarm?.peers.values() ?? [])]
+          .map((p: any) => p.wire)
+          .filter((w: Wire | null): w is Wire => w !== null);
+        peersSignal.value = updated;
       });
     });
 
@@ -102,18 +108,23 @@ export async function addTorrent(torrentId: string): Promise<void> {
   }
 
   try {
-    const torrent = await wt.add(torrentId, {
-      announce: PUBLIC_TRACKERS,
-    });
+    const torrent = await wt.add(torrentId);
 
     torrentSignal.value = torrent;
     modeSignal.value = "leeching";
 
     // Escuta eventos
-    torrent.on("wire", (wire: Wire) => {
-      peersSignal.value = [...torrent.wires];
-      wire.on("close", () => {
-        peersSignal.value = torrent.wires;
+    torrent.on("wire", (e: CustomEvent<{ wire: Wire; addr: string }>) => {
+      const swarm = (torrent as any).swarm;
+      const wires = [...(swarm?.peers.values() ?? [])]
+        .map((p: any) => p.wire)
+        .filter((w: Wire | null): w is Wire => w !== null);
+      peersSignal.value = wires;
+      e.detail.wire.on("close", () => {
+        const updated = [...(swarm?.peers.values() ?? [])]
+          .map((p: any) => p.wire)
+          .filter((w: Wire | null): w is Wire => w !== null);
+        peersSignal.value = updated;
       });
     });
 

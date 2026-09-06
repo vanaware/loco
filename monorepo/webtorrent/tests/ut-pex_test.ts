@@ -2,7 +2,7 @@
 //
 // Testes para a extensão ut_pex (BEP 11 - Peer Exchange)
 
-import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@1.0.19";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   UtPexExtension,
   encodePexUpdate,

@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/net_test.ts
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import {
   deduplicatePeers,
   isIPv4Bytes,

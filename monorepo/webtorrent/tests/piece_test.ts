@@ -1,6 +1,6 @@
 // /loco/monorepo/webtorrent/tests/piece_test.ts
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import { Piece } from "../src/core/piece.ts";
 
 Deno.test("piece: constructor stores index, length, offset", () => {
