@@ -1,81 +1,97 @@
 /**
  * app.tsx — Componente raiz da demo WebTorrent.
+ * Layout: 3 cards (Seeder | Leecher | Player) responsivos.
  */
 import { useSignal } from "@preact/signals";
-import { cleanup, modeSignal, errorSignal } from "./torrent-context.tsx";
 import { SeederPanel } from "./components/seeder-panel.tsx";
-import { ViewerPanel } from "./components/viewer-panel.tsx";
-import { PeerPanel } from "./components/peer-panel.tsx";
+import { LeecherPanel } from "./components/leecher-panel.tsx";
+import { PlayerPanel } from "./components/player-panel.tsx";
+import { modeSignal, errorSignal, cleanup, peersSignal } from "./torrent-context.tsx";
 
 export function App() {
+  const wtEnabled = useSignal(false);
   const mode = modeSignal.value;
   const error = errorSignal.value;
 
-  return (
-    <div style="min-height: 100vh; display: flex; flex-direction: column;">
-      {/* Header */}
-      <nav class="primary">
-        <div class="max">
-          <h5 class="white-text">
-            <span class="material-symbols">hub</span>
-            {" "}Loco WebTorrent Demo
-          </h5>
-        </div>
-        <div>
-          <button
-            class="transparent border round"
-            onClick={cleanup}
-            title="Limpar torrent e client"
-          >
-            <span class="material-symbols white-text">refresh</span>
-          </button>
-        </div>
-      </nav>
+  const handleToggle = () => {
+    if (wtEnabled.value) {
+      cleanup();
+      wtEnabled.value = false;
+    } else {
+      wtEnabled.value = true;
+    }
+  };
 
-      {/* Status bar */}
-      <div class="padding small">
-        <div class="row">
-          <div class="chip">
-            <span class="material-symbols small">info</span>
-            Modo:{" "}
-            <b>
-              {mode === "idle" ? "Inativo" : mode === "seeding" ? "Seedando" : "Baixando"}
-            </b>
-          </div>
-        </div>
-      </div>
+  return (
+    <>
+      {/* Header com status */}
+      <nav class="top primary">
+        {/* Status no header */}
+        <label class="chip transparent white-text">
+          <i class="material-symbols small white-text">
+            {mode === "idle" ? "power_off" : mode === "seeding" ? "upload" : "download"}
+          </i>
+          {mode === "idle" ? "Off" : mode === "seeding" ? "Seeding" : "Leeching"}
+        </label>
+        <label class="chip transparent white-text">
+          <i class="material-symbols small white-text">group</i>
+          {peersSignal.value.length}
+        </label>
+
+        <label class="max center-align">
+          <h5 class="white-text">Loco WebTorrent</h5>
+        </label>
+
+        {/* Toggle WebTorrent */}
+        <label class="switch">
+          <input
+            type="checkbox"
+            checked={wtEnabled.value}
+            onChange={handleToggle}
+          />
+          <span class="white-text">
+            <i class="material-symbols small">power_settings_new</i>
+          </span>
+        </label>
+      </nav>
 
       {/* Erro */}
       {error && (
-        <div class="padding small">
-          <div class="red white-text border round">
-            <span class="material-symbols small">error</span>
-            {" "}{error}
-          </div>
-        </div>
+        <article class="error-container border left-margin right-margin top-margin">
+          <i class="red-text">error</i>
+          <span class="red-text">{error}</span>
+        </article>
       )}
 
-      {/* Painéis — layout flex com gap */}
-      <div class="row" style="flex: 1; padding: 0.5rem 1rem 1rem; gap: 0.75rem; flex-wrap: wrap; align-items: flex-start;">
-        <div class="large-4 medium-12">
-          <SeederPanel />
-        </div>
-        <div class="large-4 medium-12">
-          <ViewerPanel />
-        </div>
-        <div class="large-4 medium-12">
-          <PeerPanel />
-        </div>
-      </div>
+      {/* 3 cards full-width verticais em mobile, lado a lado em large */}
+      <main class="responsive">
+        {/* Card 1: Seeder */}
+        <article class="border round">
+          <nav class="middle">
+            <i class="material-symbols">upload</i>
+            <h5>Seeder</h5>
+          </nav>
+          <SeederPanel disabled={!wtEnabled.value} />
+        </article>
 
-      {/* Footer */}
-      <footer class="secondary">
-        <div class="center-align">
-          <span class="small-text">
-            Loco WebTorrent v0.1.0 — P2P Streaming Demo
-          </span>
-        </div>
-      </footer>
-    </div>
+        {/* Card 2: Leecher */}
+        <article class="border round">
+          <nav class="middle">
+            <i class="material-symbols">download</i>
+            <h5>Leecher</h5>
+          </nav>
+          <LeecherPanel disabled={!wtEnabled.value} />
+        </article>
+
+        {/* Card 3: Player */}
+        <article class="border round">
+          <nav class="middle">
+            <i class="material-symbols">play_circle</i>
+            <h5>Player</h5>
+          </nav>
+          <PlayerPanel />
+        </article>
+      </main>
+    </>
   );
 }

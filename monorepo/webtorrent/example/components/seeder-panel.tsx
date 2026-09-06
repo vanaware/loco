@@ -1,13 +1,9 @@
 /**
- * seeder-panel.tsx — Seleciona arquivo de vídeo e faz seed.
+ * seeder-panel.tsx — Upload de vídeo e seeding P2P.
  */
 import { useSignal } from "@preact/signals";
-import {
-  seedFile,
-  torrentSignal,
-  modeSignal,
-  PUBLIC_TRACKERS,
-} from "../torrent-context.tsx";
+import { seedFile, torrentSignal, modeSignal, PUBLIC_TRACKERS } from "../torrent-context.tsx";
+import type { Torrent } from "@loco/webtorrent";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -16,18 +12,24 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
-export function SeederPanel() {
+function buildMagnetURI(torrent: Torrent): string {
+  const ih = torrent.infoHash;
+  const name = encodeURIComponent(torrent.name ?? "download");
+  const trackers = torrent.announce?.length
+    ? torrent.announce
+    : PUBLIC_TRACKERS;
+  const trs = trackers.map((t) => `&tr=${encodeURIComponent(t)}`).join("");
+  return `magnet:?xt=urn:btih:${ih}&dn=${name}${trs}`;
+}
+
+interface Props {
+  disabled?: boolean;
+}
+
+export function SeederPanel({ disabled }: Props) {
   const selectedFile = useSignal<File | null>(null);
   const loading = useSignal(false);
-  const pieceCount = useSignal(0);
-  const pieceLength = useSignal(0);
-
-  const handleFile = (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    if (input.files?.[0]) {
-      selectedFile.value = input.files[0]!;
-    }
-  };
+  const magnetCopied = useSignal(false);
 
   const handleSeed = async () => {
     const file = selectedFile.value;
@@ -36,111 +38,114 @@ export function SeederPanel() {
     loading.value = true;
     try {
       await seedFile(file);
-      // Atualiza piece info após seed
-      const t = torrentSignal.value;
-      if (t) {
-        pieceCount.value = t.pieces.length;
-        pieceLength.value = t.pieceLength;
-      }
+    } catch {
+      // erro no signal
     } finally {
       loading.value = false;
     }
+  };
+
+  const handleCopyMagnet = () => {
+    const t = torrentSignal.value;
+    if (!t) return;
+    // Constrói magnet URI manualmente (parsedTorrent.magnetURI é "" para torrents gerados)
+    const magnet = buildMagnetURI(t);
+    navigator.clipboard.writeText(magnet);
+    magnetCopied.value = true;
+    setTimeout(() => { magnetCopied.value = false; }, 2000);
+  };
+
+  const getMagnetURI = (): string => {
+    const t = torrentSignal.value;
+    if (!t) return "";
+    return buildMagnetURI(t);
   };
 
   const torrent = torrentSignal.value;
   const isSeeding = modeSignal.value === "seeding";
 
   return (
-    <div class="panel no-padding">
-      <div class="middle">
-        <span class="material-symbols">upload</span>
-        <h4>Seeder</h4>
-      </div>
+    <div class="field">
+      {/* Botão selecionar mídia */}
+      {!isSeeding && (
+        <button
+          class={selectedFile.value ? "tertiary" : ""}
+          disabled={disabled}
+          onClick={() => {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "video/*,audio/*";
+            input.onchange = () => {
+              if (input.files?.[0]) {
+                selectedFile.value = input.files[0]!;
+              }
+            };
+            input.click();
+          }}
+        >
+          <i class="material-symbols">{selectedFile.value ? "file_present" : "add"}</i>
+          {selectedFile.value ? selectedFile.value.name : "Selecionar mídia"}
+        </button>
+      )}
 
-      {!isSeeding
-        ? (
-          <div class="field label border">
-            <input
-              type="file"
-              accept="video/*"
-              id="seeder-file"
-              onChange={handleFile}
-            />
-            <label for="seeder-file">Selecionar vídeo</label>
-          </div>
-        )
-        : (
-          <div class="green small-text">
-            <span class="material-symbols small">check_circle</span>
-            {torrent?.name ?? "seeding..."}
-          </div>
-        )}
-
+      {/* Info do arquivo */}
       {selectedFile.value && !isSeeding && (
-        <div class="field label border">
-          <input type="text" value={selectedFile.value.name} readonly />
-          <label>Arquivo</label>
-          <span class="helper">{formatSize(selectedFile.value.size)}</span>
+        <div class="secondary-text small-text">
+          <i class="material-symbols small">file_present</i>
+          {" "}{formatSize(selectedFile.value.size)}
         </div>
       )}
 
-      <div class="field label border suffix">
-        <input type="text" value={PUBLIC_TRACKERS[0] ?? ""} readonly />
-        <label>Tracker</label>
-        <i class="front">🌐</i>
-      </div>
+      {/* Status seeding */}
+      {isSeeding && (
+        <div class="green-text small-text">
+          <i class="material-symbols small">check_circle</i>
+          {" "}{torrent?.name}
+        </div>
+      )}
 
-      <button
-        class={loading.value ? "loading" : ""}
-        disabled={!selectedFile.value || loading.value}
-        onClick={handleSeed}
-      >
-        <span class="material-symbols">play_arrow</span>
-        Seed
-      </button>
+      {/* Botão Seed */}
+      {!isSeeding && (
+        <button
+          class={loading.value ? "loading" : ""}
+          disabled={disabled || !selectedFile.value || loading.value}
+          onClick={handleSeed}
+        >
+          <i class="material-symbols">upload</i>
+          Seed
+        </button>
+      )}
 
+      {/* Magnet URI */}
       {isSeeding && torrent && (
         <div class="field label suffix border">
           <input
             type="text"
-            value={torrent.magnetURI}
+            value={getMagnetURI()}
             id="magnet-output"
             readonly
             onClick={(e) => {
               (e.target as HTMLInputElement).select();
-              navigator.clipboard.writeText(torrent.magnetURI);
+              handleCopyMagnet();
             }}
           />
           <label>Magnet URI</label>
-          <i
-            class="front"
-            style="cursor:pointer"
-            onClick={() => {
-              navigator.clipboard.writeText(torrent.magnetURI);
-            }}
+          <button
+            class="transparent front"
+            onClick={handleCopyMagnet}
+            title="Copiar magnet"
           >
-            📋
-          </i>
+            <i class="material-symbols small">{magnetCopied.value ? "check" : "content_copy"}</i>
+          </button>
         </div>
       )}
 
-      {isSeeding && (
-        <>
-          <div class="field label suffix border">
-            <input type="text" value={torrent?.infoHash ?? ""} readonly />
-            <label>InfoHash</label>
-          </div>
-          <div class="row">
-            <div class="field label suffix border">
-              <input type="text" value={pieceCount.value} readonly />
-              <label>Peças</label>
-            </div>
-            <div class="field label suffix border">
-              <input type="text" value={`${formatSize(pieceLength.value)}`} readonly />
-              <label>Tam. peça</label>
-            </div>
-          </div>
-        </>
+      {/* InfoHash */}
+      {isSeeding && torrent && (
+        <div class="field label border">
+          <input type="text" value={torrent.infoHash} readonly />
+          <label>InfoHash</label>
+        </div>
       )}
     </div>
   );

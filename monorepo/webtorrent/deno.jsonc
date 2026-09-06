@@ -23,6 +23,7 @@
     "check": "deno check src/**/*.ts example/**/*.ts example/**/*.tsx tests/**/*.ts",
     "tests": "deno task check && deno task test",
     "serve": "deno run -A ./example/server.ts",
-    "server": "deno run -A --watch ./example/server.ts"
+    "server": "deno run -A --watch ./example/server.ts",
+    "trackers": "deno run -A ./example/test_trackers.ts",
   }
 }

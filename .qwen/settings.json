@@ -2,14 +2,8 @@
   "permissions": {
     "allow": [
       "Agent",
-      "Bash(do *)",
-      "Bash(done)",
       "send_message",
-      "Bash(python3 *)",
-      "Bash(echo *)",
-      "Bash(deno *)",
-      "Bash(*)",
-      "Bash(cd /home/aarvati/github/loco/monorepo/webtorrent *)"
+      "Bash(*)"
     ]
   },
   "$version": 4
