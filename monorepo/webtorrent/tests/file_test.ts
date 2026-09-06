@@ -9,21 +9,37 @@ import { Piece } from "../src/core/piece.ts";
 /** Fake store that returns predictable bytes for every piece. */
 class FakeChunkStore {
   chunkLength: number;
-  private data: Uint8Array;
+  private data: Map<number, Uint8Array> = new Map();
 
   constructor(chunkLength = 1024, totalSize = 2048) {
     this.chunkLength = chunkLength;
-    this.data = new Uint8Array(totalSize);
-    for (let i = 0; i < this.data.length; i++) {
-      this.data[i] = i % 256;
+    const buf = new Uint8Array(totalSize);
+    for (let i = 0; i < buf.length; i++) {
+      buf[i] = i % 256;
     }
+    this.data.set(0, buf);
   }
 
   async get(index: number): Promise<Uint8Array> {
+    const stored = this.data.get(index);
+    if (stored) return stored;
     const start = index * this.chunkLength;
-    const end = Math.min(start + this.chunkLength, this.data.length);
-    if (start >= this.data.length) return new Uint8Array(0);
-    return this.data.subarray(start, end);
+    const size = Math.min(this.chunkLength, 2048 - start);
+    if (start >= 2048 || size <= 0) return new Uint8Array(0);
+    const buf = new Uint8Array(size);
+    for (let i = 0; i < size; i++) {
+      buf[i] = (start + i) % 256;
+    }
+    return buf;
+  }
+
+  async put(index: number, buf: Uint8Array): Promise<void> {
+    this.data.set(index, buf);
+  }
+
+  async close(): Promise<void> {}
+  async destroy(): Promise<void> {
+    this.data.clear();
   }
 }
 
@@ -103,10 +119,10 @@ Deno.test("file: includes() returns true for pieces inside file", () => {
   // offset=0, length=1500, pieces 0 and 1 are inside
   const file = new File({ store, length: 1500, offset: 0, pieceLength: 1024 });
 
-  assertEquals(file.includes({ index: 0 }), true);
-  assertEquals(file.includes({ index: 1 }), true);
-  assertEquals(file.includes({ index: 2 }), false);
-  assertEquals(file.includes({ index: 3 }), false);
+  assertEquals(file.includes(new Piece(0, 1024, 0)), true);
+  assertEquals(file.includes(new Piece(1, 1024, 1024)), true);
+  assertEquals(file.includes(new Piece(2, 1024, 2048)), false);
+  assertEquals(file.includes(new Piece(3, 1024, 3072)), false);
 });
 
 Deno.test("file: includes() with Piece class instance", () => {
@@ -439,4 +455,138 @@ Deno.test("file: select() and deselect() are no-ops (API parity)", () => {
   file.select(0, 5);
   file.deselect();
   file.deselect(0, 5);
+});
+
+// ============================================================================
+// PHASE 6: MIME type detection (type getter)
+// ============================================================================
+
+Deno.test("file: type returns correct MIME type for known extensions", () => {
+  const store = new FakeChunkStore();
+
+  const cases: [string, string][] = [
+    ["video.mp4", "video/mp4"],
+    ["movie.mkv", "video/x-matroska"],
+    ["clip.webm", "video/webm"],
+    ["clip.avi", "video/x-msvideo"],
+    ["clip.mov", "video/quicktime"],
+    ["audio.mp3", "audio/mpeg"],
+    ["sound.flac", "audio/flac"],
+    ["track.wav", "audio/wav"],
+    ["music.ogg", "audio/ogg"],
+    ["photo.jpg", "image/jpeg"],
+    ["photo.jpeg", "image/jpeg"],
+    ["image.png", "image/png"],
+    ["graphic.gif", "image/gif"],
+    ["pic.webp", "image/webp"],
+    ["icon.svg", "image/svg+xml"],
+    ["doc.pdf", "application/pdf"],
+    ["archive.zip", "application/zip"],
+    ["data.rar", "application/vnd.rar"],
+    ["files.7z", "application/x-7z-compressed"],
+    ["backup.tar", "application/x-tar"],
+    ["backup.gz", "application/gzip"],
+    ["readme.txt", "text/plain"],
+    ["index.html", "text/html"],
+    ["style.css", "text/css"],
+    ["main.js", "application/javascript"],
+    ["config.json", "application/json"],
+    ["data.xml", "application/xml"],
+    ["changelog.md", "text/markdown"],
+    ["disk.iso", "application/x-iso9660-image"],
+  ];
+
+  for (const [name, expected] of cases) {
+    const file = new File({ store, length: 100, offset: 0, pieceLength: 16, name });
+    assertEquals(file.type, expected, `name=${name}`);
+  }
+});
+
+Deno.test("file: type returns octet-stream for unknown extensions", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 0, pieceLength: 16, name: "file.xyz123" });
+  assertEquals(file.type, "application/octet-stream");
+});
+
+Deno.test("file: type is case-insensitive for extension", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 0, pieceLength: 16, name: "video.MP4" });
+  assertEquals(file.type, "video/mp4");
+});
+
+Deno.test("file: type handles filename with no extension", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 0, pieceLength: 16, name: "noextension" });
+  assertEquals(file.type, "application/octet-stream");
+});
+
+// ============================================================================
+// PHASE 6: downloaded / progress (per-file, via bitfield)
+// ============================================================================
+
+Deno.test("file: downloaded returns 0 when no torrent attached", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 0, pieceLength: 16 });
+  assertEquals(file.downloaded, 0);
+});
+
+Deno.test("file: progress returns 0 when no torrent attached", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 0, pieceLength: 16 });
+  assertEquals(file.progress, 0);
+});
+
+Deno.test("file: progress returns 0 for zero-length file", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 0, offset: 0, pieceLength: 16 });
+  assertEquals(file.progress, 0);
+});
+
+// ============================================================================
+// PHASE 6: download / upload events forwarded from torrent
+// ============================================================================
+
+Deno.test("file: emits download event when torrent receives matching piece", async () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 512, offset: 0, pieceLength: 512 });
+
+  // Simulate a mock torrent that forwards the download event
+  const mockBitfield = {
+    _data: new Uint8Array(1),
+    get(i: number) { return this._data[i] === 1; },
+  };
+  const mockTorrent = {
+    pieces: mockBitfield,
+    emit: () => {},
+  } as any;
+
+  // Attach torrent reference via private property
+  (file as any)._torrent = mockTorrent;
+
+  let downloadBytes = 0;
+  file.addEventListener("download", (e: any) => {
+    downloadBytes += e.detail.bytes;
+  });
+
+  // Simulate the torrent forwarding a download event for piece 0 (owned by this file)
+  file.emit("download", new CustomEvent("download", { detail: { bytes: 512 } }));
+
+  assertEquals(downloadBytes, 512);
+});
+
+Deno.test("file: emits upload event when torrent forwards upload for matching piece", async () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 512, offset: 0, pieceLength: 512 });
+
+  const mockTorrent = {} as any;
+  (file as any)._torrent = mockTorrent;
+
+  let uploadBytes = 0;
+  file.addEventListener("upload", (e: any) => {
+    uploadBytes += e.detail.bytes;
+  });
+
+  file.emit("upload", new CustomEvent("upload", { detail: { bytes: 256 } }));
+
+  assertEquals(uploadBytes, 256);
 });

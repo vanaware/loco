@@ -240,32 +240,63 @@ Antes de propor qualquer adaptação de um módulo (ex.: `deno-torrent/magnet`,
 
 ### webtorrent.min.js API → src/ (funcionalidades browser)
 
-> A API pública do upstream WebTorrent (bundle `webtorrent.min.js` e
-> `docs/webtorrent-api.md`) define funcionalidades browser-first que
-> o Loco precisa expor. Esta matriz identifica os gaps.
+> Atualizado após Fase 6 (API Final). Matriz completa após incorporação
+> de todas as capacidades browser-aplicáveis do upstream WebTorrent.
 
 | Capacidade | webtorrent.min.js | src/ | Estado |
 |---|---|---|---|
-| **File class** com streaming | ✅ `createReadStream`, `stream()`, `streamTo()`, `streamURL`, `arrayBuffer()`, `blob()`, `getBlobURL()`, `[Symbol.asyncIterator]` | ❌ só `ParsedTorrentFile` (dados, sem métodos) | 🔴 |
-| **createServer** / SW integration | ✅ `client.createServer({ controller })` | ❌ SW existe em `service-worker/` mas não integrado ao pkg | 🔴 |
-| **torrent.select/deselect/critical** | ✅ Piece selection API | ❌ | 🟡 |
-| **torrent.pause/resume** | ✅ | ❌ (só no Swarm) | 🟡 |
-| **torrent.addPeer/addWebSeed/removePeer** | ✅ | ❌ | 🟡 |
-| **torrent.magnetURI** | ✅ | ❌ | 🟡 |
-| **torrent.downloadSpeed/uploadSpeed** | ✅ per-torrent | ❌ | 🟡 |
-| **torrent.numPeers** | ✅ | ❌ | 🟡 |
-| **torrent.timeRemaining** | ✅ | ❌ | 🟡 |
-| **torrent.ratio** | ✅ | ❌ | 🟡 |
-| **torrent.torrentFile / torrentFileBlob** | ✅ | ❌ | 🟡 |
-| **client.downloadSpeed/uploadSpeed** | ✅ aggregate | ❌ | 🟡 |
-| **client.progress/ratio** | ✅ aggregate | ❌ | 🟡 |
-| **client.throttleDownload/throttleUpload** | ✅ | ❌ | 🟡 |
-| **WEBRTC_SUPPORT** static | ✅ | ❌ | 🟡 |
-| **Web Seeds (BEP 19)** | ✅ | ❌ | 🟡 |
-| Torrent events: `infoHash`, `warning`, `noPeers`, `idle`, `wire` | ✅ | parcial | 🟡 |
-| File events: `stream`, `iterator`, `done` | ✅ | ❌ | 🟡 |
-| File: `select`, `deselect`, `includes(piece)` | ✅ | ❌ | 🟡 |
-| Piece: `length`, `missing` | ✅ | ❌ | 🟡 |
+| **WebRTC_SUPPORT** static | ✅ | ✅ | 🟢 |
+| **client.add(torrentId, opts, cb)** | ✅ | ✅ | 🟢 |
+| **client.seed(input, opts, cb)** | ✅ | ✅ (Fase 6) | 🟢 |
+| **client.remove(infoHash)** | ✅ | ✅ | 🟢 |
+| **client.destroy(cb)** | ✅ | ✅ | 🟢 |
+| **client.get(torrentId)** | ✅ | ✅ (via Map) | 🟢 |
+| **client.torrents / torrentList** | ✅ array | ✅ Map + array | 🟢 |
+| **client.downloadSpeed/uploadSpeed** | ✅ aggregate | ✅ (Fase 6) | 🟢 |
+| **client.progress/ratio** | ✅ aggregate | ✅ (Fase 6) | 🟢 |
+| **client.throttleDownload/throttleUpload** | ✅ | ✅ (Fase 6) | 🟢 |
+| **client.createServer** | ✅ | ✅ | 🟢 |
+| **client.initServiceWorker** | — (extensão) | ✅ | 🟢 |
+| **torrent.name/infoHash/magnetURI** | ✅ | ✅ | 🟢 |
+| **torrent.files[]** (ParsedTorrentFile) | ✅ | ✅ | 🟢 |
+| **torrent.pieceLength/lastPieceLength/length** | ✅ | ✅ | 🟢 |
+| **torrent.ready/destroyed/paused** | ✅ | ✅ | 🟢 |
+| **torrent.downloaded/uploaded/received** | ✅ | ✅ (Fase 6) | 🟢 |
+| **torrent.downloadSpeed/uploadSpeed** | ✅ | ✅ | 🟢 |
+| **torrent.progress/ratio/timeRemaining** | ✅ | ✅ | 🟢 |
+| **torrent.numPeers** | ✅ | ✅ | 🟢 |
+| **torrent.torrentFile / torrentFileBlob** | ✅ | ✅ (Fase 6) | 🟢 |
+| **torrent.created/createdBy/comment** | ✅ | ✅ (Fase 6) | 🟢 |
+| **torrent.done** | ✅ | ✅ (Fase 6) | 🟢 |
+| **torrent.announce[]** | ✅ | ✅ (Fase 6) | 🟢 |
+| **torrent.maxWebConns** | ✅ | ✅ (Fase 6) | 🟢 |
+| **torrent.select/deselect/critical** | ✅ | ✅ (priority/notify via Fase 6) | 🟢 |
+| **torrent.pause/resume** | ✅ | ✅ | 🟢 |
+| **torrent.addPeer/removePeer** | ✅ | ✅ | 🟢 |
+| **torrent.addWebSeed/removeWebSeed** | ✅ | ✅ | 🟢 |
+| **torrent.rescanFiles(cb)** | ✅ | ✅ (Fase 6) | 🟢 |
+| **torrent.getPiece(index)** | ✅ | ✅ | 🟢 |
+| **torrent.destroy** | ✅ | ✅ | 🟢 |
+| **torrent.pieces** (Bitfield) | ✅ | ✅ | 🟢 |
+| Torrent events: `infoHash`, `ready`, `warning`, `noPeers`, `idle`, `wire` | ✅ | ✅ | 🟢 |
+| Torrent events: `download`, `upload`, `done`, `verified`, `metadata` | ✅ | ✅ | 🟢 |
+| **File class** com streaming | ✅ `createReadStream`, `stream()`, `streamTo()`, `streamURL`, `arrayBuffer()`, `blob()`, `getBlobURL()`, `[Symbol.asyncIterator]` | ✅ (Fase 4.1, Fase 6) | 🟢 |
+| **file.type** (MIME) | ✅ | ✅ (Fase 6) | 🟢 |
+| **file.downloaded/progress** (per-file) | ✅ | ✅ (Fase 6) | 🟢 |
+| **file.select/deselect/includes(piece)** | ✅ | ✅ | 🟢 |
+| **file.streamURL** | ✅ | ✅ | 🟢 |
+| **file.streamTo(elem)** | ✅ | ✅ | 🟢 |
+| File events: `stream`, `iterator`, `done`, `error` | ✅ | ✅ | 🟢 |
+| File events: `download`, `upload` | ✅ | ✅ (Fase 6) | 🟢 |
+| **Piece.length/missing** | ✅ | ✅ | 🟢 |
+| **wire.uploadSpeed/downloadSpeed** | ✅ | ✅ (Fase 6) | 🟢 |
+| **wire.remoteAddress/remotePort** | ✅ | ✅ (Fase 6) | 🟢 |
+| **wire.uploadedBytes/downloadedBytes** | ✅ | ✅ | 🟢 |
+| **wire.peerId/type/extensions** | ✅ | ✅ | 🟢 |
+| **Web Seeds (BEP 19)** | ✅ | ✅ | 🟢 |
+| **SW integration** (`client.createServer`) | ✅ | ✅ | 🟢 |
+| **OPFS storage** | — (extensão) | ✅ | 🟢 |
+| **OPFS torrent generator** | — (extensão) | ✅ (Fase 5.3) | 🟢 |
 
 ## 6. Plano de ação por fases
 
@@ -348,13 +379,55 @@ Depende de: Fase 1 + Fase 2
 | 4.14 | **Web Seeds (BEP 19)** | Fetch de dados via HTTP como peer alternativo | `src/network/web-seed.ts` (novo) | 🟡 Importante |
 | 4.15 | **Piece class** com `length`, `missing` | Objeto Piece exposto na API | `src/core/piece.ts` (novo) | 🟢 Baixo |
 
-### Fase 5 — Futuro (bloqueados, requer decisão arquitetural)
+### Fase 5 — OPFS Torrent Generator ✅ CONCLUÍDA
+
+> Implementação browser-first do generator de `.torrent` usando OPFS.
+> Referência: `docs/02-fase-5-opfs-generator.md`.
+
+| # | Tarefa | Destino | Status |
+|---|---|---|---|
+| 5.1 | OPFS walker (`walkOPFSDir`) | `src/torrent-generator/opfs-walker.ts` | ✅ |
+| 5.2 | OPFS reader (`OPFSMultiFileReader`) | `src/torrent-generator/opfs-reader.ts` | ✅ |
+| 5.3 | Generator util (`calcPieceSize`, `sha1sum`, `isHiddenFile`) | `src/torrent-generator/util.ts` | ✅ |
+| 5.4 | Generator orchestrator (`generateTorrent`) | `src/torrent-generator/generator.ts` | ✅ |
+| 5.5 | Tipos (`GeneratorOptions`, `PieceSizeEnum`, `PieceFile`) | `src/torrent-generator/types.ts` | ✅ |
+| 5.6 | Barrel `mod.ts` + re-export em `src/mod.ts` | `src/torrent-generator/mod.ts` | ✅ |
+| 5.7 | Testes (37 testes, mock OPFS) | `tests/torrent-generator_test.ts` | ✅ |
+
+### Fase 6 — API Final @loco/webtorrent ✅ CONCLUÍDA
+
+> Completa a API pública do `webtorrent.min.js` no browser-first Loco.
+
+| # | Tarefa | Destino | Status |
+|---|---|---|---|
+| 6.1 | Fix `FakeChunkStore` (put/close/destroy) | `tests/file_test.ts` | ✅ |
+| 6.2 | `client.seed(input, opts?, cb?)` + `SeedInput`/`SeedOptions` | `src/mod.ts` | ✅ |
+| 6.3 | `WebTorrent.WEBRTC_SUPPORT` static + agregados | `src/mod.ts` | ✅ |
+| 6.4 | `client.throttleDownload/throttleUpload` + `client.get()` | `src/mod.ts` + `src/network/swarm.ts` | ✅ |
+| 6.5 | `torrent.torrentFile`/`torrentFileBlob`/`created`/`createdBy`/`comment`/`done`/`received`/`announce`/`maxWebConns` | `src/core/torrent.ts` | ✅ |
+| 6.6 | `torrent.rescanFiles(cb?)` + `torrent.select(start,end,priority,notify)` | `src/core/torrent.ts` | ✅ |
+| 6.7 | `file.type` (MIME) + `file.downloaded`/`progress` (per-file) + `download`/`upload` events + `_registerFiles` | `src/core/file.ts` + `src/core/torrent.ts` | ✅ |
+| 6.8 | `wire.uploadSpeed`/`downloadSpeed`/`remoteAddress`/`remotePort` + speed tracking | `src/core/wire.ts` + `src/network/peer.ts` | ✅ |
+| 6.9 | Atualizar matriz de paridade QWEN.md + rodar todos os testes | `QWEN.md` + `tests/` | ✅ |
+
+**Resultado Fase 6:** 568 testes passando, 0 type errors em todo o `src/`.
+
+### Fase 7 — Melhorias Restantes (opcionais)
+
+| # | Tarefa | Origem | Dificuldade |
+|---|---|---|---|
+| 7.1 | Fix tracker HTTP (encoding byte-a-byte, IPv6, dedupe) | `deno-torrent/torrent-tracker/http.ts` | Média |
+| 7.2 | Metainfo parser rigoroso (preserva info bytes, validação BEP 3/12/19/47/52) | `deno-torrent/metainfo/` | Média |
+| 7.3 | Magnet v2 + metainfo v2 types + piece layers | `deno-torrent/magnet/` + `metainfo/v2.ts` | Alta |
+| 7.4 | ut_metadata pipelining + per-block timeout | `deno-torrent/peerwire/ut_metadata.ts` | Média |
+| 7.5 | `peerid` genérico (`encodeAzStyle`, `encodeShadowStyle`) | `deno-torrent/peerid/` | Trivial |
+
+### Fase 8 — Futuro (bloqueados, requer decisão arquitetural)
 
 | # | Tarefa | Bloqueante | Alternativa browser |
 |---|---|---|---|
-| 5.1 | DHT (Kademlia) | UDP sockets (`Deno.listenDatagram`) | WebRTC DataChannel ou WebTransport p/ relay |
-| 5.2 | uTP | Raw UDP (`Deno.NetAddr`) | WebTransport datagrams (Chrome 120+) |
-| 5.3 | Torrent generator | Filesystem (`Deno.stat`, `Deno.open`) | File API / OPFS + streaming hasher |
+| 8.1 | DHT (Kademlia) | UDP sockets (`Deno.listenDatagram`) | WebRTC DataChannel ou WebTransport p/ relay |
+| 8.2 | uTP | Raw UDP (`Deno.NetAddr`) | WebTransport datagrams (Chrome 120+) |
 
 ## 7. Decisões arquiteturais vigentes
 

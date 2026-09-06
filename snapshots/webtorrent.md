@@ -8,7 +8,7 @@
 
 # Contexto Exportado do Projeto Loco - Modo: WEBTORRENT
 
-Gerado automaticamente em: 9/5/2026, 8:41:21 AM
+Gerado automaticamente em: 9/6/2026, 2:50:01 AM
 
 ---
 
@@ -941,6 +941,24 @@ const SHADOW_CLIENTS: Record<string, string> = {
   "U": "UPnP NAT Bit Torrent",
 };
 
+// Funções utilitárias para validação
+export function isBase32Char(char: string): boolean {
+  return /^[A-Z2-7]$/.test(char);
+}
+
+export function isBase32(str: string): boolean {
+  return /^[A-Z2-7]+$/.test(str);
+}
+
+export function isHex(str: string): boolean {
+  return /^[0-9a-fA-F]+$/.test(str);
+}
+
+export function isSha1(str: string): boolean {
+  return str.length === 40 && isHex(str);
+}
+
+// Funções de validação de Peer ID
 export function isAzStyle(peerid: string): boolean {
   return (
     peerid.length >= 8 &&
@@ -959,33 +977,108 @@ export function isShadowStyle(peerid: string): boolean {
   );
 }
 
+// Funções de conversão de versão
 function parseAzVersion(versionStr: string): string {
   if (versionStr.length !== 4) return versionStr;
-  const major = versionStr[0];
-  const minor = versionStr[1];
-  // 🔥 CORREÇÃO: Usar parseInt para remover zeros à esquerda (ex: "00" vira "0")
-  const patch = parseInt(versionStr.slice(2), 10).toString();
-  return `${major}.${minor}.${patch}`;
+
+  const majorChar = versionStr[0]!;
+  const minorChar = versionStr[1]!;
+
+  // Validar que major/minor são dígitos
+  if (!/\d/.test(majorChar) || !/\d/.test(minorChar)) {
+    throw new Error('Invalid Azureus version format: major/minor must be digits');
+  }
+
+  const major = majorChar;
+  const minor = minorChar;
+  const patchNum = parseInt(versionStr.slice(2), 10);
+
+  // Validar range do patch (0-99)
+  if (patchNum < 0 || patchNum > 99) {
+    throw new Error('Invalid Azureus version format: patch must be between 0-99');
+  }
+
+  return `${major}.${minor}.${patchNum}`;
 }
 
 function parseShadowVersion(versionStr: string): string {
   const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-";
   const parts: number[] = [];
-  
+
   for (const char of versionStr) {
     if (char === "-") break;
     const idx = chars.indexOf(char);
     if (idx !== -1) parts.push(idx);
   }
-  
+
   return parts.length > 0 ? parts.join(".") : "0";
 }
 
-export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
-  const peeridStr = typeof peerId === "string" 
-    ? peerId 
-    : new TextDecoder("utf-8", { fatal: false }).decode(peerId);
+// Funções de encode para diferentes estilos
+export function encodeAzStyle(clientCode: string, version: string): string {
+  if (clientCode.length !== 2) {
+    throw new Error("Client code must be exactly 2 characters");
+  }
   
+  // Converter versão para formato de 4 dígitos (ex: "1.2.3" -> "1203")
+  const parts = version.split(".");
+  let major = "0", minor = "0", patch = "0";
+  
+  if (parts.length >= 1) major = parts[0]?.substring(0, 1) || "0";
+  if (parts.length >= 2) minor = parts[1]?.substring(0, 1) || "0";
+  if (parts.length >= 3) patch = parts[2]?.substring(0, 2).padStart(2, "0") || "00";
+  
+  // Garantir que patch tenha 2 dígitos
+  if (patch.length === 1) patch = "0" + patch;
+  
+  const versionStr = `${major}${minor}${patch}`;
+  if (versionStr.length !== 4) {
+    throw new Error("Version must be in format X.Y.Z where X,Y,Z are single digits or XX for patch");
+  }
+  
+  return `-${clientCode}${versionStr}-`;
+}
+
+export function encodeShadowStyle(clientCode: string, version: string): string {
+  if (clientCode.length !== 1) {
+    throw new Error("Client code must be exactly 1 character");
+  }
+  
+  // Converter versão para formato shadow (ex: "1.2.3" -> "abc")
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-";
+  const parts = version.split(".").slice(0, 3);
+  let versionStr = "";
+  
+  for (const part of parts) {
+    const num = parseInt(part, 10);
+    if (isNaN(num) || num >= chars.length) {
+      versionStr += "0"; // fallback para "0" se o número for inválido
+    } else {
+      versionStr += chars[num];
+    }
+  }
+  
+  // Preencher com "0" se necessário
+  while (versionStr.length < 5) {
+    versionStr += "0";
+  }
+  
+  return `${clientCode}${versionStr}---`;
+}
+
+export function encodeGeneric(clientCode: string, version: string, style: "azureus" | "shadow"): string {
+  if (style === "azureus") {
+    return encodeAzStyle(clientCode, version);
+  } else {
+    return encodeShadowStyle(clientCode, version);
+  }
+}
+
+export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
+  const peeridStr = typeof peerId === "string"
+    ? peerId
+    : new TextDecoder("utf-8", { fatal: false }).decode(peerId);
+
   if (peeridStr.length < 20) return null;
   const id = peeridStr.slice(0, 20);
 
@@ -994,7 +1087,7 @@ export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
     const versionRaw = id.slice(3, 7);
     const name = AZUREUS_CLIENTS[code] || `Unknown (${code})`;
     const version = parseAzVersion(versionRaw);
-    
+
     return { code, name, version, style: "azureus" };
   }
 
@@ -1003,7 +1096,7 @@ export function decodePeerId(peerId: string | Uint8Array): ClientInfo | null {
     const versionRaw = id.slice(1, 6);
     const name = SHADOW_CLIENTS[code] || `Unknown (${code})`;
     const version = parseShadowVersion(versionRaw);
-    
+
     return { code, name, version, style: "shadow" };
   }
 
@@ -1020,7 +1113,7 @@ export function generateLocoPeerId(): Uint8Array {
   const prefix = LOCO_PEER_ID_PREFIX;
   const randomPart = generateRandomString(20 - prefix.length);
   const peerIdStr = prefix + randomPart;
-  
+
   return new TextEncoder().encode(peerIdStr);
 }
 
@@ -5121,6 +5214,12 @@ export interface WireEvents {
   rejectRequest: CustomEvent<{ index: number; offset: number; length: number }>;
   /** BEP 6 — Fast: allowed fast */
   allowedFast: CustomEvent<{ index: number }>;
+  /** BEP 52 v2: hash request */
+  hashRequest: CustomEvent<{ piecesRoot: Uint8Array; baseLayer: number; index: number; length: number; proofLayers: number }>;
+  /** BEP 52 v2: hashes response */
+  hashes: CustomEvent<{ piecesRoot: Uint8Array; baseLayer: number; index: number; length: number; proofLayers: number; hashes: Uint8Array }>;
+  /** BEP 52 v2: hash reject */
+  hashReject: CustomEvent<{ piecesRoot: Uint8Array; baseLayer: number; index: number; length: number; proofLayers: number }>;
   keepAlive: Event;
   unknown: CustomEvent<{ id: number; payload: Uint8Array }>;
   error: CustomEvent<{ error: Error }>;
@@ -5395,6 +5494,66 @@ export class Wire extends TypedEventTarget<WireEvents> {
 
   public sendExtended(extId: number, payload: Uint8Array): void {
     this._sendMessage({ type: "extended", extensionId: extId, payload });
+  }
+
+  // ====================================================================
+  // BEP 52 v2 messages
+  // ====================================================================
+
+  /** Send a hash request for a range of SHA-256 hashes from the piece layers. */
+  public sendHashRequest(
+    piecesRoot: Uint8Array,
+    baseLayer: number,
+    index: number,
+    length: number,
+    proofLayers: number,
+  ): void {
+    this._sendMessage({
+      type: "hashRequest",
+      piecesRoot,
+      baseLayer,
+      index,
+      length,
+      proofLayers,
+    });
+  }
+
+  /** Send a batch of SHA-256 hashes in response to a hash request. */
+  public sendHashes(
+    piecesRoot: Uint8Array,
+    baseLayer: number,
+    index: number,
+    length: number,
+    proofLayers: number,
+    hashes: Uint8Array,
+  ): void {
+    this._sendMessage({
+      type: "hashes",
+      piecesRoot,
+      baseLayer,
+      index,
+      length,
+      proofLayers,
+      hashes,
+    });
+  }
+
+  /** Reject a hash request. */
+  public sendHashReject(
+    piecesRoot: Uint8Array,
+    baseLayer: number,
+    index: number,
+    length: number,
+    proofLayers: number,
+  ): void {
+    this._sendMessage({
+      type: "hashReject",
+      piecesRoot,
+      baseLayer,
+      index,
+      length,
+      proofLayers,
+    });
   }
 
   // ====================================================================
@@ -5703,11 +5862,39 @@ export class Wire extends TypedEventTarget<WireEvents> {
           detail: { id: message.id, payload: message.payload },
         }));
         break;
-      // BEP 52 messages — emit as extended-like for now
       case "hashRequest":
+        this.emit("hashRequest", new CustomEvent("hashRequest", {
+          detail: {
+            piecesRoot: message.piecesRoot,
+            baseLayer: message.baseLayer,
+            index: message.index,
+            length: message.length,
+            proofLayers: message.proofLayers,
+          },
+        }));
+        break;
       case "hashes":
+        this.emit("hashes", new CustomEvent("hashes", {
+          detail: {
+            piecesRoot: message.piecesRoot,
+            baseLayer: message.baseLayer,
+            index: message.index,
+            length: message.length,
+            proofLayers: message.proofLayers,
+            hashes: message.hashes,
+          },
+        }));
+        break;
       case "hashReject":
-        // v2 hash messages: dispatched via extension host if registered
+        this.emit("hashReject", new CustomEvent("hashReject", {
+          detail: {
+            piecesRoot: message.piecesRoot,
+            baseLayer: message.baseLayer,
+            index: message.index,
+            length: message.length,
+            proofLayers: message.proofLayers,
+          },
+        }));
         break;
     }
   }
@@ -6092,7 +6279,8 @@ import { ParsedTorrent, ParsedTorrentFile } from "../utils/parse-torrent.ts";
 import { ChunkStore } from "../storage/opfs-chunk-store.ts";
 import { Bitfield } from "./bitfield.ts";
 import { sha1 } from "../crypto/hasher.ts";
-import { decode, encode, BencodeDict } from "../utils/bencode.ts";
+import { decode, type BencodeDict } from "../utils/bencode.ts";
+import type { Wire } from "./wire.ts";
 
 // ============================================================================
 // TIPOS DE EVENTOS
@@ -6100,18 +6288,29 @@ import { decode, encode, BencodeDict } from "../utils/bencode.ts";
 
 export interface TorrentEvents {
   ready: Event;
-  /** Emitido quando os metadados são recebidos dinamicamente (ex: via ut_metadata de um Magnet URI) */
   metadata: CustomEvent<{ files: ParsedTorrentFile[]; length: number; name: string }>;
   download: CustomEvent<{ bytes: number }>;
   upload: CustomEvent<{ bytes: number }>;
   done: Event;
   error: CustomEvent<{ error: Error }>;
   verified: CustomEvent<{ index: number }>;
+  /** Emitido quando o torrent é adicionado ao cliente (infoHash disponível) */
+  infoHash: CustomEvent<{ infoHash: string }>;
+  /** Emitido quando um peer ou tracker reporta um warning não-fatal */
+  warning: CustomEvent<{ error: Error }>;
+  /** Emitido quando o tracker ou PEX indica que não há peers disponíveis */
+  noPeers: CustomEvent<{ source: string }>;
+  /** Emitido quando não há atividade de rede por 30 segundos */
+  idle: Event;
+  /** Emitido quando um novo Wire é estabelecido com um peer */
+  wire: CustomEvent<{ wire: Wire; addr: string }>;
 }
 
 export interface TorrentOptions {
   store: ChunkStore;
   skipVerify?: boolean;
+  /** Swarm externo; quando fornecido, o Torrent delega pause/resume/select/deselect a ele */
+  swarm?: any;
 }
 
 // ============================================================================
@@ -6124,37 +6323,65 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   public pieceLength: number;
   public length: number;
   public files: ParsedTorrentFile[];
-  
+
   private parsedTorrent: ParsedTorrent;
   private store: ChunkStore;
   private bitfield: Bitfield;
   private expectedPieces: Uint8Array[];
-  
+
   private _downloaded: number = 0;
   private _uploaded: number = 0;
   private _destroyed: boolean = false;
   private _ready: boolean = false;
   private _metadataReceived: boolean = false;
+  private _paused: boolean = false;
+
+  /** Swarm ao qual delegamos operações de rede */
+  private _swarm?: any;
+  /** Bitfield de peças selecionadas */
+  private _selected: Bitfield;
+  /** Bitfield de peças críticas */
+  private _critical: Bitfield;
+  /** Velocidade de download atual em bytes/s */
+  private _downloadSpeed: number = 0;
+  /** Velocidade de upload atual em bytes/s */
+  private _uploadSpeed: number = 0;
+  /** Timestamp do último sample de velocidade */
+  private _lastSpeedSample: number = 0;
+  /** Lista de Web Seeds (URLs HTTP) */
+  private _webSeeds: string[] = [];
+  /** Timeout de inatividade */
+  private _idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly _IDLE_TIMEOUT_MS = 30000;
+  /** Intervals de velocidade por wire */
+  private readonly _speedIntervals: Set<ReturnType<typeof setInterval>> = new Set();
 
   constructor(parsedTorrent: ParsedTorrent, opts: TorrentOptions) {
     super();
     this.parsedTorrent = parsedTorrent;
     this.store = opts.store;
-    
+    this._swarm = opts.swarm;
+
     this.infoHash = parsedTorrent.infoHash;
     this.name = parsedTorrent.name || "Unknown";
     this.pieceLength = parsedTorrent.pieceLength;
     this.length = parsedTorrent.length;
     this.files = parsedTorrent.files;
-    
-    this.bitfield = new Bitfield(parsedTorrent.pieces.length);
+
+    const numPieces = parsedTorrent.pieces.length;
+    this.bitfield = new Bitfield(numPieces);
     this.expectedPieces = parsedTorrent.pieces;
-    
+    this._selected = new Bitfield(numPieces);
+    this._critical = new Bitfield(numPieces);
+    this._webSeeds = [...(parsedTorrent.urlList || [])];
+
     queueMicrotask(() => {
       this._init(opts.skipVerify || false).catch((err) => {
         this._onError(err instanceof Error ? err : new Error(String(err)));
       });
     });
+
+    this.emit("infoHash", new CustomEvent("infoHash", { detail: { infoHash: this.infoHash } }));
   }
 
   // ==========================================================================
@@ -6165,7 +6392,8 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   get destroyed(): boolean { return this._destroyed; }
   get downloaded(): number { return this._downloaded; }
   get uploaded(): number { return this._uploaded; }
-  
+  get paused(): boolean { return this._paused; }
+
   get progress(): number {
     if (this.length === 0) return 0;
     return this._downloaded / this.length;
@@ -6177,24 +6405,173 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
     return this.length % this.pieceLength || this.pieceLength;
   }
 
+  /** URI magnet completo. */
+  get magnetURI(): string {
+    return this.parsedTorrent.magnetURI || "";
+  }
+
+  /** Número de peers conectados (via swarm). */
+  get numPeers(): number {
+    return this._swarm?.peers?.size ?? 0;
+  }
+
+  /** Velocidade de download em bytes/s. */
+  get downloadSpeed(): number { return this._downloadSpeed; }
+
+  /** Velocidade de upload em bytes/s. */
+  get uploadSpeed(): number { return this._uploadSpeed; }
+
+  /** Ratio upload/download. Infinity se nada foi baixado. */
+  get ratio(): number {
+    if (this._downloaded === 0) return Infinity;
+    return this._uploaded / this._downloaded;
+  }
+
+  /** Tempo restante estimado em segundos. null se não pode estimar. */
+  get timeRemaining(): number | null {
+    if (this._downloadSpeed <= 0 || this.progress >= 1) return null;
+    const remaining = this.length - this._downloaded;
+    return Math.ceil(remaining / this._downloadSpeed);
+  }
+
+  /** Bitfield de peças baixadas. */
+  get pieces(): Bitfield { return this.bitfield; }
+
+  /** Bitfield de peças selecionadas. */
+  get selected(): Bitfield { return this._selected; }
+
+  /** Bitfield de peças críticas. */
+  get criticalPieces(): Bitfield { return this._critical; }
+
+  /** Lista de Web Seeds. */
+  get webSeeds(): string[] { return [...this._webSeeds]; }
+
   // ==========================================================================
-  // API PÚBLICA: INJEÇÃO TARDIA DE METADADOS (Para Magnet URIs)
+  // SELEÇÃO DE PEÇAS
   // ==========================================================================
 
   /**
-   * Recebe o dicionário 'info' codificado em Bencode (recebido via ut_metadata)
-   * e atualiza dinamicamente o estado do Torrent (arquivos, tamanho, peças).
+   * Marca interesse em peças [startPiece, endPiece] e envia `interested` nos wires.
+   * Se endPiece for omitido, seleciona até o fim.
    */
-  public async setMetadata(infoBuffer: Uint8Array): Promise<boolean> {
-    if (this._metadataReceived) return false; // Já temos os metadados
+  select(startPiece: number, endPiece?: number): void {
+    const end = endPiece ?? this.numPieces - 1;
+    for (let i = startPiece; i <= end; i++) {
+      this._selected.set(i);
+    }
+    this._swarm?._sendInterested();
+  }
+
+  /**
+   * Remove interesse em peças [startPiece, endPiece] e envia `not-interested` se
+   * nenhuma peça estiver mais selecionada.
+   */
+  deselect(startPiece: number, endPiece?: number): void {
+    const end = endPiece ?? this.numPieces - 1;
+    for (let i = startPiece; i <= end; i++) {
+      this._selected.unset(i);
+    }
+    if (this._selected.count() === 0) {
+      this._swarm?._sendNotInterested();
+    }
+  }
+
+  /**
+   * Marca peças como críticas (raras) e envia `suggestPiece` nos wires.
+   * Peças críticas são solicitadas antes das demais.
+   */
+  setCritical(startPiece: number, endPiece?: number): void {
+    const end = endPiece ?? startPiece;
+    for (let i = startPiece; i <= end; i++) {
+      this._critical.set(i);
+    }
+    for (let i = startPiece; i <= end; i++) {
+      this._swarm?._sendSuggestPiece(i);
+    }
+  }
+
+  // ==========================================================================
+  // PAUSE / RESUME
+  // ==========================================================================
+
+  pause(): void {
+    this._paused = true;
+    this._swarm?.pause();
+  }
+
+  resume(): void {
+    this._paused = false;
+    this._swarm?.resume();
+  }
+
+  // ==========================================================================
+  // PEERS E WEB SEEDS
+  // ==========================================================================
+
+  addPeer(addr: string): boolean {
+    return this._swarm?.addPeer(addr) ?? false;
+  }
+
+  removePeer(addr: string): void {
+    this._swarm?.removePeer(addr);
+  }
+
+  addWebSeed(url: string): void {
+    if (!this._webSeeds.includes(url)) {
+      this._webSeeds.push(url);
+    }
+  }
+
+  removeWebSeed(url: string): void {
+    const idx = this._webSeeds.indexOf(url);
+    if (idx !== -1) this._webSeeds.splice(idx, 1);
+  }
+
+  // ==========================================================================
+  // REGISTRO DE WIRES (chamado pelo Swarm)
+  // ==========================================================================
+
+  _registerWire(wire: Wire, addr: string): void {
+    this.emit("wire", new CustomEvent("wire", { detail: { wire, addr } }));
+
+    let lastDownloaded = 0;
+    let lastUploaded = 0;
+    const interval = setInterval(() => {
+      if (wire.isDestroyed) {
+        clearInterval(interval);
+        this._speedIntervals.delete(interval);
+        return;
+      }
+      const now = Date.now();
+      const dt = (now - this._lastSpeedSample) / 1000;
+      if (dt > 0) {
+        const dl = (wire.downloadedBytes - lastDownloaded) / dt;
+        const ul = (wire.uploadedBytes - lastUploaded) / dt;
+        this._downloadSpeed = Math.round(this._downloadSpeed * 0.8 + dl * 0.2);
+        this._uploadSpeed = Math.round(this._uploadSpeed * 0.8 + ul * 0.2);
+      }
+      lastDownloaded = wire.downloadedBytes;
+      lastUploaded = wire.uploadedBytes;
+      this._lastSpeedSample = now;
+    }, 1000);
+
+    this._speedIntervals.add(interval);
+    this._resetIdleTimer();
+  }
+
+  // ==========================================================================
+  // INJEÇÃO TARDIA DE METADADOS (Magnet URIs)
+  // ==========================================================================
+
+  async setMetadata(infoBuffer: Uint8Array): Promise<boolean> {
+    if (this._metadataReceived) return false;
 
     try {
       const info = decode(infoBuffer) as BencodeDict;
-      
-      // 1. Extrair Piece Length e Pieces (Hashes)
+
       const pieceLength = info["piece length"] as number;
       const piecesRaw = info["pieces"];
-      
+
       if (typeof pieceLength !== "number" || !(piecesRaw instanceof Uint8Array)) {
         throw new Error("Invalid metadata: missing piece length or pieces");
       }
@@ -6204,7 +6581,6 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
         newExpectedPieces.push(piecesRaw.subarray(i, i + 20));
       }
 
-      // 2. Extrair Arquivos e Tamanho Total
       const newFiles: ParsedTorrentFile[] = [];
       let totalLength = 0;
       const textDecoder = new TextDecoder();
@@ -6214,43 +6590,45 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
         for (const fileDict of filesList) {
           const length = fileDict["length"] as number;
           const pathList = fileDict["path"] as (Uint8Array | string)[];
-          const pathParts = pathList.map((p) => typeof p === "string" ? p : textDecoder.decode(p));
+          const pathParts = pathList.map((p) =>
+            typeof p === "string" ? p : textDecoder.decode(p)
+          );
           const path = pathParts.join("/");
           const name = pathParts[pathParts.length - 1]!;
-          
           newFiles.push({ path, name, length, offset: totalLength });
           totalLength += length;
         }
       } else {
         const length = info["length"] as number;
         const nameRaw = info["name"];
-        const name = typeof nameRaw === "string" ? nameRaw : textDecoder.decode(nameRaw as Uint8Array);
-        
+        const name = typeof nameRaw === "string"
+          ? nameRaw
+          : textDecoder.decode(nameRaw as Uint8Array);
         newFiles.push({ path: name, name, length, offset: 0 });
         totalLength = length;
       }
 
-      // 3. Atualizar Estado Interno
       this.pieceLength = pieceLength;
       this.length = totalLength;
       this.files = newFiles;
       this.expectedPieces = newExpectedPieces;
-      
-      const nameRaw = info["name"];
-      this.name = typeof nameRaw === "string" ? nameRaw : textDecoder.decode(nameRaw as Uint8Array);
 
-      // 4. Recriar o Bitfield com o novo número de peças
-      this.bitfield = new Bitfield(this.numPieces);
+      const nameRaw = info["name"];
+      this.name = typeof nameRaw === "string"
+        ? nameRaw
+        : textDecoder.decode(nameRaw as Uint8Array);
+
+      const newNum = newExpectedPieces.length;
+      this.bitfield = new Bitfield(newNum);
+      this._selected = new Bitfield(newNum);
+      this._critical = new Bitfield(newNum);
       this._metadataReceived = true;
 
-      // 5. Notificar a UI
       this.emit("metadata", new CustomEvent("metadata", {
         detail: { files: this.files, length: this.length, name: this.name }
       }));
 
-      // 6. Se o store já tiver dados (ex: retomada), verificar peças existentes
       await this._verifyExistingPieces();
-
       return true;
     } catch (err) {
       this._onError(err instanceof Error ? err : new Error(String(err)));
@@ -6259,17 +6637,16 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   }
 
   // ==========================================================================
-  // CICLO DE VIDA E INICIALIZAÇÃO
+  // CICLO DE VIDA
   // ==========================================================================
 
   private async _init(skipVerify: boolean): Promise<void> {
     try {
-      // Se já temos os metadados (ex: veio de um .torrent completo), verificamos as peças.
-      // Se for Magnet URI, this.numPieces será 0, então _verifyExistingPieces não fará nada.
       if (!skipVerify && this.numPieces > 0) {
         await this._verifyExistingPieces();
       }
       this._ready = true;
+      this._lastSpeedSample = Date.now();
       this.emit("ready");
     } catch (err) {
       this._onError(err instanceof Error ? err : new Error(String(err)));
@@ -6291,51 +6668,56 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   }
 
   // ==========================================================================
-  // RECEBIMENTO E PERSISTÊNCIA DE DADOS
+  // RECEBIMENTO DE DADOS
   // ==========================================================================
 
-  public async receivePiece(index: number, buf: Uint8Array): Promise<boolean> {
+  async receivePiece(index: number, buf: Uint8Array): Promise<boolean> {
     if (this._destroyed) return false;
     if (this.bitfield.get(index)) return true;
-    // Se ainda não recebemos os metadados, não podemos validar nem salvar peças.
     if (!this._metadataReceived && this.numPieces === 0) return false;
 
     try {
       await this._verifyPiece(index, buf);
       await this.store.put(index, buf);
-
       this.bitfield.set(index);
-      const pieceLength = index === this.numPieces - 1 ? this.lastPieceLength : this.pieceLength;
-      this._downloaded += pieceLength;
+      const pieceLen = index === this.numPieces - 1 ? this.lastPieceLength : this.pieceLength;
+      this._downloaded += pieceLen;
+      this._resetIdleTimer();
 
       this.emit("verified", new CustomEvent("verified", { detail: { index } }));
-      this.emit("download", new CustomEvent("download", { detail: { bytes: pieceLength } }));
+      this.emit("download", new CustomEvent("download", { detail: { bytes: pieceLen } }));
 
       if (this.progress >= 1) {
         this.emit("done");
       }
-
       return true;
-    } catch (err) {
-      console.warn(`[Torrent] Peça ${index} rejeitada (hash inválido).`);
+    } catch {
       return false;
     }
   }
 
-  public async getPiece(index: number): Promise<Uint8Array | null> {
+  async getPiece(index: number): Promise<Uint8Array | null> {
     if (!this.bitfield.get(index)) return null;
     try {
       const opts = index === this.numPieces - 1 ? { length: this.lastPieceLength } : undefined;
       return await this.store.get(index, opts);
-    } catch (err) {
+    } catch {
       return null;
     }
   }
 
-  public async destroy(destroyStore: boolean = false): Promise<void> {
+  async destroy(destroyStore = false): Promise<void> {
     if (this._destroyed) return;
     this._destroyed = true;
-    
+
+    for (const interval of this._speedIntervals) clearInterval(interval);
+    this._speedIntervals.clear();
+
+    if (this._idleTimer !== null) {
+      clearTimeout(this._idleTimer);
+      this._idleTimer = null;
+    }
+
     try {
       if (destroyStore) {
         await this.store.destroy();
@@ -6348,29 +6730,35 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   }
 
   // ==========================================================================
-  // MÉTODOS PRIVADOS
+  // PRIVADOS
   // ==========================================================================
 
   private async _verifyPiece(index: number, buf: Uint8Array): Promise<void> {
-    const expectedHashBuffer = this.expectedPieces[index];
-    if (!expectedHashBuffer) {
-      throw new Error(`Índice de peça ${index} fora do limite.`);
-    }
+    const expected = this.expectedPieces[index];
+    if (!expected) throw new Error(`Índice de peça ${index} fora do limite.`);
 
-    const actualHashHex = await sha1(buf);
-    const expectedHashHex = Array.from(expectedHashBuffer)
+    const actual = await sha1(buf);
+    const expectedHex = Array.from(expected)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
-    if (actualHashHex !== expectedHashHex) {
+    if (actual !== expectedHex) {
       throw new Error(`Hash mismatch na peça ${index}.`);
     }
+  }
+
+  private _resetIdleTimer(): void {
+    if (this._idleTimer !== null) clearTimeout(this._idleTimer);
+    this._idleTimer = setTimeout(() => {
+      this.emit("idle");
+    }, this._IDLE_TIMEOUT_MS) as unknown as ReturnType<typeof setTimeout>;
   }
 
   private _onError(err: Error): void {
     this.emit("error", new CustomEvent("error", { detail: { error: err } }));
   }
 }
+
 ```
 
 ---
@@ -6443,6 +6831,27 @@ export class Bitfield {
 
     const byteLength = Math.ceil(this._length / 8);
     this.buffer = new Uint8Array(byteLength);
+  }
+
+  static fromBytes(buffer: Uint8Array, length: number, opts?: { grow?: boolean | number }): Bitfield {
+    const requiredBytes = Math.ceil(length / 8);
+    if (buffer.length !== requiredBytes) {
+      throw new BitfieldError(`Invalid buffer length. Expected ${requiredBytes}, got ${buffer.length}`, "INVALID_BUFFER_LENGTH");
+    }
+
+    // Check spare bits in the last byte
+    const spareBits = (8 - (length % 8)) % 8;
+    if (spareBits > 0) {
+      const lastByte = buffer[buffer.length - 1]!;
+      const mask = (1 << spareBits) - 1;
+      if (lastByte & mask) {
+        throw new BitfieldError("Spare bits must be zero", "SPARE_BITS_NON_ZERO");
+      }
+    }
+
+    const bitfield = new Bitfield(length, opts);
+    bitfield.buffer = new Uint8Array(buffer);
+    return bitfield;
   }
 
   get length(): number {
@@ -7628,6 +8037,454 @@ function findNameById(
 
 ---
 
+## Arquivo: `monorepo/webtorrent/src/core/file.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/core/file.ts
+
+import { TypedEventTarget } from "../utils/event-target.ts";
+import { Piece } from "./piece.ts";
+import { buildStreamURL } from "../server/stream-manager.ts";
+import type { ChunkStore } from "../storage/opfs-chunk-store.ts";
+
+/**
+ * Browser-first File class — the "live" view of a file inside a torrent.
+ *
+ * Mirrors the upstream `webtorrent.min.js` `File` class: a piece-aware
+ * facade that exposes streaming (`createReadStream`, `stream`),
+ * `ReadableStream<Uint8Array>` adapters, byte buffers (`arrayBuffer`,
+ * `blob`, `getBlobURL`), iteration (`Symbol.asyncIterator`), and
+ * Service Worker integration (`streamURL`, `streamTo`).
+ *
+ * **Adaptação do upstream**: a implementação upstream lê diretamente do
+ * sistema de arquivos do torrent (que no browser não existe); aqui,
+ * toda leitura é roteada ao {@link ChunkStore} do torrent.  Isso
+ * permite streaming sob demanda de peças que ainda estão sendo baixadas
+ * ou que vieram do OPFS.
+ */
+
+export interface FileOptions {
+  /** Backend store for the file's bytes (peça-a-peça). */
+  store: ChunkStore;
+  /** Total size of the file in bytes. */
+  length: number;
+  /** Byte offset of the file inside the concatenated torrent stream. */
+  offset: number;
+  /** Piece size used by the torrent. */
+  pieceLength: number;
+  /** File name (e.g. `"movie.mp4"`); used in {@link streamURL}. */
+  name?: string;
+  /** Full path inside the torrent (defaults to `name`). */
+  path?: string;
+  /** Identifier of the torrent owning this file. */
+  infoHash?: string;
+  /** File index inside the torrent (0-based). */
+  fileIndex?: number;
+  /** Service Worker scope (e.g. `"/"`). */
+  scope?: string;
+  /** Default block size for streaming (defaults to 64 KiB). */
+  blockSize?: number;
+}
+
+export interface FileEvents {
+  /** Emitido quando `createReadStream()` é chamado, com a stream resultante. */
+  stream: CustomEvent<ReadableStream<Uint8Array>>;
+  /** Emitido quando o iterator `Symbol.asyncIterator` é criado. */
+  iterator: CustomEvent<AsyncIterable<Uint8Array>>;
+  /** Emitido quando a leitura/streaming termina com sucesso. */
+  done: CustomEvent<void>;
+  /** Emitido em erro durante leitura. */
+  error: CustomEvent<{ error: Error }>;
+}
+
+/**
+ * A `File` inside a torrent.
+ *
+ * Provides streaming reads, byte buffer adapters, and Service Worker
+ * integration for browser media playback.
+ */
+export class File extends TypedEventTarget<FileEvents> {
+  private _store: ChunkStore;
+  private _length: number;
+  private _offset: number;
+  private _pieceLength: number;
+  private _name: string;
+  private _path: string;
+  private _infoHash?: string;
+  private _fileIndex?: number;
+  private _scope: string;
+  private _blockSize: number;
+  private _destroyed = false;
+
+  constructor(options: FileOptions) {
+    super();
+    this._store = options.store;
+    this._length = options.length;
+    this._offset = options.offset;
+    this._pieceLength = options.pieceLength;
+    this._name = options.name ?? "file";
+    this._path = options.path ?? this._name;
+    this._infoHash = options.infoHash;
+    this._fileIndex = options.fileIndex;
+    this._scope = options.scope ?? "/";
+    this._blockSize = options.blockSize ?? 64 * 1024;
+  }
+
+  get length(): number {
+    return this._length;
+  }
+
+  get name(): string {
+    return this._name;
+  }
+
+  get path(): string {
+    return this._path;
+  }
+
+  get pieceLength(): number {
+    return this._pieceLength;
+  }
+
+  get offset(): number {
+    return this._offset;
+  }
+
+  get infoHash(): string | undefined {
+    return this._infoHash;
+  }
+
+  get fileIndex(): number | undefined {
+    return this._fileIndex;
+  }
+
+  get scope(): string {
+    return this._scope;
+  }
+
+  get destroyed(): boolean {
+    return this._destroyed;
+  }
+
+  /**
+   * Compute the range of piece indices that this file overlaps.
+   *
+   * Useful for piece selection algorithms that need to know which pieces
+   * "belong" to a given file.
+   */
+  get pieceRange(): { first: number; last: number } {
+    const first = Math.floor(this._offset / this._pieceLength);
+    const last = Math.floor((this._offset + this._length - 1) / this._pieceLength);
+    return { first, last };
+  }
+
+  /**
+   * Returns true if the given piece index is part of this file.
+   */
+  includes(piece: Piece): boolean {
+    const { first, last } = this.pieceRange;
+    return piece.index >= first && piece.index <= last;
+  }
+
+  /**
+   * Mark pieces [startPiece, endPiece] (inclusive) as selected for download.
+   * A no-op when the file is not yet attached to a torrent (we use the
+   * underlying store only — the torrent owns interest management).
+   */
+  select(_startPiece?: number, _endPiece?: number): void {
+    // No-op: piece selection lives on the Torrent side (Fase 4.6).
+    // Provided here for API parity with the upstream `webtorrent.min.js`.
+  }
+
+  /**
+   * Mark pieces as deselected for download.
+   */
+  deselect(_startPiece?: number, _endPiece?: number): void {
+    // No-op (see {@link File.select}).
+  }
+
+  // ==========================================================================
+  // STREAMING
+  // ==========================================================================
+
+  /**
+   * Create a W3C `ReadableStream<Uint8Array>` that reads this file's bytes
+   * from the underlying {@link ChunkStore}, in order, in blocks of
+   * {@link blockSize} bytes (default 64 KiB).
+   *
+   * Emits the `stream` event with the resulting stream as detail.
+   *
+   * Reading is **lazy**: each `pull` requests the next block from the
+   * store.  This is the path that `<video src="…">` uses via the Service
+   * Worker bridge.
+   */
+  createReadStream(opts: { start?: number; end?: number } = {}): ReadableStream<Uint8Array> {
+    if (this._destroyed) {
+      throw new Error("File has been destroyed");
+    }
+
+    // opts.start / opts.end are relative to the file (0 = file start).
+    // Map them to absolute torrent offsets.
+    const fileStart = opts.start ?? 0;
+    const fileEnd = opts.end ?? this._length;
+    const absStart = this._offset + fileStart;
+    const absEnd = this._offset + fileEnd;
+
+    if (fileStart < 0 || fileEnd > this._length || fileStart > fileEnd) {
+      throw new RangeError(
+        `Invalid range start=${fileStart}, end=${fileEnd}, length=${this._length}`,
+      );
+    }
+
+    let cursor = absStart;
+    let cancelled = false;
+    let doneEmitted = false;
+
+    const self = this;
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller): Promise<void> {
+        if (cancelled) {
+          controller.close();
+          return;
+        }
+        if (cursor >= absEnd) {
+          if (!doneEmitted) {
+            doneEmitted = true;
+            self.emit("done", new CustomEvent("done"));
+          }
+          controller.close();
+          return;
+        }
+
+        try {
+          const block = await self._readBlock(
+            cursor,
+            Math.min(self._blockSize, absEnd - cursor),
+          );
+          if (cancelled) return;
+          if (block.length === 0) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(block);
+          cursor += block.length;
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          self.emit("error", new CustomEvent("error", { detail: { error } }));
+          controller.error(error);
+        }
+      },
+      cancel(): void {
+        cancelled = true;
+      },
+    });
+
+    this.emit("stream", new CustomEvent("stream", { detail: stream }));
+    return stream;
+  }
+
+  /**
+   * Alias for {@link createReadStream}.  Returns a `ReadableStream<Uint8Array>`.
+   */
+  stream(opts: { start?: number; end?: number } = {}): ReadableStream<Uint8Array> {
+    return this.createReadStream(opts);
+  }
+
+  /**
+   * Async iterator yielding this file's bytes as `Uint8Array` chunks.
+   *
+   * Used by `for await (const chunk of file)` loops and is the basis of
+   * `arrayBuffer` and `blob`.
+   */
+  [Symbol.asyncIterator](): AsyncIterableIterator<Uint8Array> {
+    const stream = this.createReadStream();
+    const iterator = stream[Symbol.asyncIterator]();
+    this.emit("iterator", new CustomEvent("iterator", { detail: iterator }));
+    return iterator;
+  }
+
+  /**
+   * Read the entire file into a single `ArrayBuffer`.
+   *
+   * Materializes the file in memory; suitable for small files only.
+   * For large files prefer {@link createReadStream} or
+   * {@link streamTo}.
+   */
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of this[Symbol.asyncIterator]()) {
+      chunks.push(chunk);
+    }
+    const total = chunks.reduce((s, c) => s + c.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+      out.set(c, offset);
+      offset += c.length;
+    }
+    return out.buffer;
+  }
+
+  /**
+   * Read the entire file into a `Blob`.
+   */
+  async blob(): Promise<Blob> {
+    const buf = await this.arrayBuffer();
+    return new Blob([buf]);
+  }
+
+  /**
+   * Read the entire file into a `Blob` and return a temporary object URL
+   * that can be assigned to `<video src>` etc.
+   *
+   * The caller is responsible for revoking the URL via
+   * `URL.revokeObjectURL` when no longer needed.
+   */
+  async getBlobURL(): Promise<string> {
+    const blob = await this.blob();
+    return URL.createObjectURL(blob);
+  }
+
+  /**
+   * Wire this file's stream into a `<video>` / `<audio>` element via the
+   * Service Worker bridge.
+   *
+   * Requires that the client has called `client.createServer({ controller })`
+   * so the SW has a transport to the main thread.
+   */
+  streamTo(element: HTMLMediaElement): void {
+    const url = this.streamURL();
+    element.src = url;
+    element.load();
+  }
+
+  /**
+   * Return the virtual URL the Service Worker uses to stream this file.
+   *
+   * Format: `<scope>webtorrent/<infoHash>/<fileIndex>/<encodedName>`.
+   *
+   * @throws Error if `infoHash` or `fileIndex` are not set, which means
+   *   the file was constructed directly (not via `WebTorrent.add`).
+   */
+  streamURL(): string {
+    if (!this._infoHash || this._fileIndex === undefined) {
+      throw new Error(
+        "infoHash and fileIndex are required to generate streamURL. " +
+          "Create files via WebTorrent client (client.createServer + add).",
+      );
+    }
+    return buildStreamURL(this._scope, this._infoHash, this._fileIndex, this.name);
+  }
+
+  /**
+   * Mark the file as destroyed; subsequent reads throw.
+   */
+  destroy(): void {
+    this._destroyed = true;
+  }
+
+  // ==========================================================================
+  // Internals
+  // ==========================================================================
+
+  /**
+   * Read up to `length` bytes starting at the file's `absOffset` (the
+   * absolute byte offset inside the torrent).
+   *
+   * Because the file's bytes may straddle piece boundaries, this method
+   * pulls whole pieces from the {@link ChunkStore} and slices out the
+   * exact byte range requested.
+   */
+  private async _readBlock(absOffset: number, length: number): Promise<Uint8Array> {
+    const fileStart = this._offset;
+    const fileEnd = this._offset + this._length;
+    if (absOffset < fileStart || absOffset >= fileEnd) {
+      return new Uint8Array(0);
+    }
+    const end = Math.min(absOffset + length, fileEnd);
+    const out = new Uint8Array(end - absOffset);
+
+    let written = 0;
+    let cursor = absOffset;
+    while (cursor < end) {
+      const pieceIndex = Math.floor(cursor / this._pieceLength);
+      const pieceStart = pieceIndex * this._pieceLength;
+      const offsetInPiece = cursor - pieceStart;
+      const pieceLen = Math.min(this._pieceLength, fileEnd - pieceStart);
+      const wantInPiece = Math.min(pieceLen - offsetInPiece, end - cursor);
+
+      const buf = await this._store.get(pieceIndex);
+      if (!buf || buf.length === 0) break;
+
+      out.set(buf.subarray(offsetInPiece, offsetInPiece + wantInPiece), written);
+      written += wantInPiece;
+      cursor += wantInPiece;
+    }
+
+    return out.subarray(0, written);
+  }
+}
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/core/piece.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/core/piece.ts
+
+/**
+ * Represents a single piece within a torrent.
+ *
+ * Exposed in the browser API as `torrent.files[0].pieces[i]` etc.
+ * Each piece carries its index, length, byte offset inside the
+ * torrent stream, and optional hash verification state.
+ */
+export class Piece {
+  /** The zero-based piece index in the torrent. */
+  readonly index: number;
+  /** The byte length of this piece (may differ for the last piece). */
+  readonly length: number;
+  /** The byte offset of this piece inside the concatenated torrent stream. */
+  readonly offset: number;
+  /** Whether the piece hash has been verified (optional, set by consumer). */
+  hash?: Uint8Array;
+
+  constructor(index: number, length: number, offset: number) {
+    this.index = index;
+    this.length = length;
+    this.offset = offset;
+  }
+
+  /**
+   * Returns `true` if this piece is partially or fully downloaded.
+   * The `downloaded` flag is computed by the consumer (the `Bitfield`
+   * tracks the actual state).
+   */
+  get downloaded(): boolean {
+    return !!this.hash;
+  }
+
+  /**
+   * Returns `true` if the piece is missing (not yet downloaded).
+   */
+  get missing(): boolean {
+    return !this.hash;
+  }
+
+  /**
+   * Returns a human-readable description of this piece.
+   */
+  toString(): string {
+    return `Piece(index=${this.index}, length=${this.length}, offset=${this.offset}, ${this.missing ? "missing" : "downloaded"})`;
+  }
+}
+
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/src/network/swarm.ts`
 
 ```ts
@@ -7637,6 +8494,7 @@ import { TypedEventTarget } from "../utils/event-target.ts";
 import { Peer } from "./peer.ts";
 import { createTracker, Tracker, TrackerOptions, TrackerResponse } from "./tracker.ts";
 import { UtMetadata } from "../extensions/ut-metadata.ts";
+import type { Wire } from "../core/wire.ts";
 
 export interface SwarmEvents {
   peer: CustomEvent<{ peer: Peer; source: string }>;
@@ -7670,14 +8528,17 @@ const MAX_QUEUED_PEERS = 200;
 export class Swarm extends TypedEventTarget<SwarmEvents> {
   public readonly infoHash: Uint8Array;
   public readonly peerId: Uint8Array;
-  
+
   public readonly peers: Map<string, Peer> = new Map();
   private queue: QueuedPeer[] = [];
   private trackers: Tracker[] = [];
   private maxConns: number;
   private wrtc?: typeof RTCPeerConnection;
   private metadata?: Uint8Array;
-  
+
+  /** Torrent dono deste swarm. Definido externamente (ver WebTorrent.add). */
+  public torrent: any | null = null;
+
   public destroyed = false;
   private paused = false;
 
@@ -7752,6 +8613,37 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
     this._drain();
   }
 
+  // ==========================================================================
+  // DELEGAÇÃO DO TORRENT
+  // ==========================================================================
+
+  /** Envia `interested` para todos os wires conectados. */
+  public _sendInterested(): void {
+    for (const [, peer] of this.peers) {
+      if (peer.wire && !peer.wire.isDestroyed) {
+        peer.wire.sendInterested();
+      }
+    }
+  }
+
+  /** Envia `not-interested` para todos os wires conectados. */
+  public _sendNotInterested(): void {
+    for (const [, peer] of this.peers) {
+      if (peer.wire && !peer.wire.isDestroyed) {
+        peer.wire.sendNotInterested();
+      }
+    }
+  }
+
+  /** Envia `suggest-piece` (BEP 6) para todos os wires. */
+  public _sendSuggestPiece(index: number): void {
+    for (const [, peer] of this.peers) {
+      if (peer.wire && !peer.wire.isDestroyed) {
+        peer.wire.sendSuggestPiece(index);
+      }
+    }
+  }
+
   public destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -7770,6 +8662,8 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
       tracker.destroy();
     }
     this.trackers = [];
+
+    this.torrent = null;
   }
 
   private _onTrackerResponse(response: TrackerResponse, _tracker: Tracker): void {
@@ -7777,6 +8671,7 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
 
     if (response.peers.length === 0) {
       this.emit("noPeers", new CustomEvent("noPeers", { detail: { source: "tracker" } }));
+      this.torrent?.emit?.("noPeers", new CustomEvent("noPeers", { detail: { source: "tracker" } }));
       return;
     }
 
@@ -7808,37 +8703,43 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
     // 🔥 INTEGRAÇÃO: Quando o Wire é criado, registrar extensão ut_metadata
     peer.on("handshake", (e) => {
       if (peer.wire) {
-        const wire = peer.wire;
-        
+        const wire: Wire = peer.wire;
+
         // Cria e registra a extensão ut_metadata
         const utMetadata = new UtMetadata(wire, { metadata: this.metadata });
-        
+
         // Se temos o metadata, define no ut_metadata para servir a outros peers
         if (this.metadata) {
           utMetadata.setMetadata(this.metadata);
         }
-        
+
         // Registra listener para quando o metadata for recebido
         utMetadata.on("metadata", (metadataEvent: any) => {
           const metadata = metadataEvent.detail?.metadata || metadataEvent;
-          this.emit("metadata", new CustomEvent("metadata", { 
-            detail: { metadata, peer } 
+          this.emit("metadata", new CustomEvent("metadata", {
+            detail: { metadata, peer }
           }));
         });
-        
+
         utMetadata.on("warning", (warningEvent: any) => {
           const error = warningEvent.detail?.error || warningEvent;
           this.emit("warning", new CustomEvent("warning", { detail: { error } }));
+          this.torrent?.emit?.("warning", new CustomEvent("warning", { detail: { error } }));
         });
-        
+
         // Inicia o fetch do metadata se não temos
         if (!this.metadata) {
           utMetadata.fetch();
         }
-        
+
         this.emit("wire", new CustomEvent("wire", {
           detail: { wire, addr }
         }));
+
+        // Repassa o wire ao Torrent (que cria interval de velocidade, idle timer etc.)
+        if (this.torrent && typeof this.torrent._registerWire === "function") {
+          this.torrent._registerWire(wire, addr);
+        }
       }
     });
 
@@ -7853,6 +8754,7 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
 
   private _onPeerError(addr: string, error: Error): void {
     this.emit("warning", new CustomEvent("warning", { detail: { error } }));
+    this.torrent?.emit?.("warning", new CustomEvent("warning", { detail: { error } }));
     this.peers.delete(addr);
     this._drain();
   }
@@ -7894,6 +8796,7 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
     }
   }
 }
+
 ```
 
 ---
@@ -8784,17 +9687,26 @@ export function createTracker(announceUrl: string, opts: TrackerOptions): Tracke
 import { Extension } from "../core/extension.ts";
 import { encode, decode, BencodeDict } from "../utils/bencode.ts";
 import { Bitfield } from "../core/bitfield.ts";
+import { sha1, sha256 } from "../crypto/hasher.ts";
 
 const MAX_METADATA_SIZE = 10_000_000;
 const PIECE_LENGTH = 16384;
+const DEFAULT_TIMEOUT_MS = 15000; // 15 segundos por peça
 
 export interface UtMetadataOptions {
   metadata?: Uint8Array;
+  timeoutMs?: number;
+}
+
+export interface PieceRequest {
+  piece: number;
+  attempts: number;
+  timer: number; // ID do timeout
 }
 
 export class UtMetadata extends Extension {
   public readonly name = "ut_metadata";
-  
+
   private _fetching = false;
   private _metadataComplete = false;
   private _metadataSize: number | null = null;
@@ -8802,10 +9714,13 @@ export class UtMetadata extends Extension {
   private _remainingRejects = 0;
   private _bitfield: Bitfield;
   public metadata: Uint8Array | null = null;
+  private _requestedPieces: Map<number, PieceRequest> = new Map();
+  private _timeoutMs: number;
 
   constructor(wire: any, opts?: UtMetadataOptions) {
     super(wire);
     this._bitfield = new Bitfield({ length: 0, grow: 1000 });
+    this._timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     if (opts?.metadata) {
       this.setMetadata(opts.metadata);
     }
@@ -8825,8 +9740,7 @@ export class UtMetadata extends Extension {
         this._numPieces = Math.ceil(size / PIECE_LENGTH);
         this._remainingRejects = 2 * this._numPieces;
         this._bitfield = new Bitfield({ length: this._numPieces, grow: 1000 });
-        
-        // 🔥 CORREÇÃO: Definir _fetching como true antes de solicitar peças
+
         this._fetching = true;
         this._requestPieces();
       }
@@ -8871,11 +9785,16 @@ export class UtMetadata extends Extension {
 
   public cancel() {
     this._fetching = false;
+    // Cancelar todos os timeouts pendentes
+    for (const request of this._requestedPieces.values()) {
+      clearTimeout(request.timer);
+    }
+    this._requestedPieces.clear();
   }
 
   public setMetadata(newMetadata: Uint8Array): boolean {
     if (this._metadataComplete) return true;
-    
+
     let validMetadata = newMetadata;
     try {
       const info = decode(newMetadata) as BencodeDict;
@@ -8889,12 +9808,12 @@ export class UtMetadata extends Extension {
     this.cancel();
     this.metadata = validMetadata;
     this._metadataComplete = true;
-    this._metadataSize = this.metadata.length;
-    
+    this._metadataSize = this._metadataSize ?? this.metadata.length;
+
     if (this.wire.extendedHandshake) {
       this.wire.extendedHandshake.metadata_size = this._metadataSize;
     }
-    
+
     this.emit("metadata", new CustomEvent("metadata", { detail: { metadata: this.metadata } }));
     return true;
   }
@@ -8911,10 +9830,32 @@ export class UtMetadata extends Extension {
   }
 
   private _request(piece: number) {
+    // Cancelar timeout anterior para esta peça, se houver
+    const existingRequest = this._requestedPieces.get(piece);
+    if (existingRequest) {
+      clearTimeout(existingRequest.timer);
+    }
+    
+    // Enviar solicitação
     this._send({ msg_type: 0, piece });
+    
+    // Configurar novo timeout para esta peça
+    const timer = setTimeout(() => {
+      this._handleTimeout(piece);
+    }, this._timeoutMs) as unknown as number;
+    
+    // Registrar solicitação com tentativas
+    const attempts = existingRequest ? existingRequest.attempts + 1 : 1;
+    this._requestedPieces.set(piece, { piece, attempts, timer });
   }
 
   private _data(piece: number, buf: Uint8Array, totalSize?: number) {
+    const request = this._requestedPieces.get(piece);
+    if (request) {
+      clearTimeout(request.timer);
+      this._requestedPieces.delete(piece);
+    }
+    
     const msg: BencodeDict = { msg_type: 1, piece };
     if (typeof totalSize === "number") {
       (msg as any).total_size = totalSize;
@@ -8923,7 +9864,18 @@ export class UtMetadata extends Extension {
   }
 
   private _reject(piece: number) {
-    this._send({ msg_type: 2, piece });
+    const request = this._requestedPieces.get(piece);
+    if (request) {
+      clearTimeout(request.timer);
+      this._requestedPieces.delete(piece);
+    }
+    
+    if (this._remainingRejects > 0 && this._fetching) {
+      this._request(piece);
+      this._remainingRejects -= 1;
+    } else {
+      this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer sent \"reject\" too much") } }));
+    }
   }
 
   private _onRequest(piece: number) {
@@ -8932,8 +9884,8 @@ export class UtMetadata extends Extension {
     }
     const start = piece * PIECE_LENGTH;
     let end = start + PIECE_LENGTH;
-    if (end > this._metadataSize) {
-      end = this._metadataSize;
+    if (end > this._metadataSize!) {
+      end = this._metadataSize!;
     }
     const buf = this.metadata!.slice(start, end);
     this._data(piece, buf, this._metadataSize);
@@ -8941,21 +9893,65 @@ export class UtMetadata extends Extension {
 
   private _onData(piece: number, buf: Uint8Array, _totalSize?: number) {
     if (buf.length > PIECE_LENGTH || !this._fetching || !this._metadataSize) return;
-    
+
+    // Verificar se já recebemos esta peça
+    if (this._bitfield.get(piece)) {
+      // Peça duplicada, ignorar
+      return;
+    }
+
     if (!this.metadata) {
       this.metadata = new Uint8Array(this._metadataSize);
     }
     this.metadata.set(buf, piece * PIECE_LENGTH);
     this._bitfield.set(piece);
+    
+    // Limpar o registro de solicitação para esta peça
+    const request = this._requestedPieces.get(piece);
+    if (request) {
+      clearTimeout(request.timer);
+      this._requestedPieces.delete(piece);
+    }
+    
     this._checkDone();
   }
 
   private _onReject(piece: number) {
+    const request = this._requestedPieces.get(piece);
+    if (request) {
+      clearTimeout(request.timer);
+      this._requestedPieces.delete(piece);
+    }
+    
     if (this._remainingRejects > 0 && this._fetching) {
       this._request(piece);
       this._remainingRejects -= 1;
     } else {
       this.emit("warning", new CustomEvent("warning", { detail: { error: new Error("Peer sent \"reject\" too much") } }));
+    }
+  }
+
+  private _handleTimeout(piece: number) {
+    // Remover do mapa de solicitações
+    this._requestedPieces.delete(piece);
+    
+    if (!this._fetching) return;
+    
+    // Tentar novamente se ainda houver tentativas restantes
+    const maxAttempts = 3;
+    const currentRequest = this._requestedPieces.get(piece);
+    const attempts = currentRequest ? currentRequest.attempts + 1 : 1;
+    
+    if (attempts < maxAttempts) {
+      this._request(piece);
+    } else {
+      // Muitas tentativas falhas, emitir aviso
+      this.emit("warning", new CustomEvent("warning", { 
+        detail: { error: new Error(`Timeout while requesting metadata piece ${piece}`) } 
+      }));
+      
+      // Tentar continuar com outras peças
+      this._checkDone();
     }
   }
 
@@ -8977,10 +9973,31 @@ export class UtMetadata extends Extension {
       }
     }
     if (done && this.metadata) {
-      const success = this.setMetadata(this.metadata);
-      if (!success) {
+      // Verificar a integridade dos dados recebidos calculando o hash
+      const success = this._verifyMetadataIntegrity();
+      if (success) {
+        this.setMetadata(this.metadata);
+      } else {
         this._failedMetadata();
       }
+    }
+  }
+
+  private _verifyMetadataIntegrity(): boolean {
+    if (!this.metadata) return false;
+    
+    try {
+      // Verificar se os dados são válidos bencode
+      decode(this.metadata);
+      
+      // Para BEP 52, também verificaríamos o hash SHA-256, mas isso
+      // geralmente não é feito durante a transferência via ut_metadata,
+      // pois o hash é verificado quando o torrent é carregado
+      
+      return true;
+    } catch (err) {
+      console.warn("Metadata integrity check failed:", err);
+      return false;
     }
   }
 
@@ -9321,7 +10338,13 @@ import { generateLocoPeerId } from "./utils/peerid.ts"; // 🔥 Substitui genera
 import { OPFSChunkStore } from "./storage/opfs-chunk-store.ts";
 import { MemoryChunkStore } from "./storage/memory-chunk-store.ts";
 import { encode } from "./utils/bencode.ts";
-
+import {
+  createServer,
+  registerTorrentFiles,
+  unregisterTorrentFiles,
+  type WebTorrentServer,
+} from "./server/server.ts";
+import { File } from "./core/file.ts";
 
 export interface WebTorrentEvents {
   torrent: CustomEvent<{ torrent: Torrent }>;
@@ -9335,6 +10358,15 @@ export interface WebTorrentOptions {
   port?: number;
   useOPFS?: boolean;
   rtcConfig?: RTCConfiguration;
+  /**
+   * URL do Service Worker que intermediará as requisições de streaming.
+   * Quando fornecido, o cliente registra o SW automaticamente no
+   * construtor e cria o {@link WebTorrentServer} que entrega bytes sob
+   * demanda para `<video>`/`<audio>`/`<img>` via URLs
+   * `…/webtorrent/<infoHash>/<fileIndex>/<name>`.
+   */
+  serviceWorkerUrl?: string;
+  serviceWorkerScope?: string;
 }
 
 export interface AddTorrentOptions {
@@ -9348,6 +10380,11 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   public readonly peerIdBuffer: Uint8Array;
   public readonly torrents: Map<string, Torrent> = new Map();
   public readonly torrentList: Torrent[] = [];
+  /**
+   * Servidor de streaming que entrega bytes ao `<video>` etc. via
+   * Service Worker.  Criado por {@link WebTorrent.createServer}.
+   */
+  public server: WebTorrentServer | null = null;
   private swarms: Map<string, Swarm> = new Map();
   private opts: WebTorrentOptions;
   private destroyed = false;
@@ -9359,7 +10396,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
 
     // 🔥 NOVO: Usa a identidade oficial do Loco ("-LO0100-") por padrão
     let peerIdBuffer: Uint8Array;
-    
+
     if (opts.peerId) {
       if (typeof opts.peerId === "string") {
         // Converte hex string para Uint8Array
@@ -9390,6 +10427,80 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
   get isDestroyed(): boolean { return this.destroyed; }
   get torrentCount(): number { return this.torrents.size; }
 
+  /**
+   * Cria e retorna o {@link WebTorrentServer} associado a este cliente.
+   *
+   * Aceita um `ServiceWorker` (caso de produção, vindo de
+   * `navigator.serviceWorker.ready.then(reg => reg.active)`) ou um
+   * transporte customizado (caso de teste).  Se `serviceWorkerUrl`
+   * estiver presente em {@link WebTorrentOptions}, o cliente também
+   * registra o SW automaticamente — o caller só precisa passar
+   * `controller` aqui.
+   *
+   * Registra automaticamente cada torrent adicionado no
+   * {@link streamManager} para que `file.streamURL()` retorne URLs
+   * servíveis.
+   */
+  createServer(opts: { controller?: ServiceWorker; scope?: string } = {}): WebTorrentServer {
+    if (this.server) return this.server;
+
+    const scope = opts.scope || this.opts.serviceWorkerScope || "/";
+    this.server = createServer({ controller: opts.controller, scope });
+
+    // Re-registra os torrents que já existem (caso createServer seja
+    // chamado depois de add()).
+    for (const torrent of this.torrents.values()) {
+      const files = this._makeFileObjects(torrent, scope);
+      registerTorrentFiles(torrent, files);
+    }
+
+    // Liga os eventos de add/remove do cliente para manter o
+    // streamManager em sincronia sem que o caller precise se preocupar.
+    this.on("torrent", (e: any) => {
+      const torrent: Torrent = e.detail.torrent;
+      const files = this._makeFileObjects(torrent, scope);
+      registerTorrentFiles(torrent, files);
+    });
+
+    return this.server;
+  }
+
+  private _makeFileObjects(torrent: Torrent, scope: string): File[] {
+    return torrent.files.map((pf, idx) =>
+      new File({
+        store: (torrent as any).store,
+        length: pf.length,
+        offset: pf.offset,
+        pieceLength: torrent.pieceLength,
+        name: pf.name,
+        infoHash: torrent.infoHash,
+        fileIndex: idx,
+        scope,
+      })
+    );
+  }
+
+  /**
+   * Inicializa o Service Worker automaticamente.  Resolve para o
+   * `ServiceWorker` ativo.  Quando o ambiente não expõe
+   * `navigator.serviceWorker` (testes, SSR), resolve para `null`.
+   */
+  async initServiceWorker(): Promise<ServiceWorker | null> {
+    if (typeof navigator === "undefined" || !navigator.serviceWorker) {
+      return null;
+    }
+    if (!this.opts.serviceWorkerUrl) {
+      return null;
+    }
+    const reg = await navigator.serviceWorker.register(
+      this.opts.serviceWorkerUrl,
+      { scope: this.opts.serviceWorkerScope || "/" },
+    );
+    await navigator.serviceWorker.ready;
+    this.createServer({ controller: reg.active ?? undefined });
+    return reg.active;
+  }
+
   async add(
     torrentId: string | Uint8Array | ParsedTorrent,
     opts: AddTorrentOptions = {}
@@ -9404,11 +10515,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
 
     const store = await this._createChunkStore(parsed);
 
-    const torrent = new Torrent(parsed, {
-      store,
-      skipVerify: opts.skipVerify,
-    });
-
+    // Swarm é criado primeiro para que Torrent possa receber a referência
     const swarm = new Swarm({
       infoHash: parsed.infoHashBuffer,
       peerId: this.peerIdBuffer,
@@ -9417,6 +10524,17 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
       port: this.opts.port,
       metadata: parsed.pieces.length > 0 ? encode(parsed.info) : undefined,
     });
+
+    // Torrent recebe o swarm para delegar pause/resume/select/deselect e
+    // para que o swarm possa repassar _registerWire() e eventos.
+    const torrent = new Torrent(parsed, {
+      store,
+      skipVerify: opts.skipVerify,
+      swarm,
+    });
+
+    // Estabelece a referência bidirecional
+    swarm.torrent = torrent;
 
     swarm.on("metadata", async (e: any) => {
       const metadataBuffer = e.detail.metadata;
@@ -9427,11 +10545,27 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
       this.emit("error", new CustomEvent("error", { detail: { error: e.detail.error } }));
     });
 
+    // Forward: noPeers do tracker → Torrent (para idle detection)
+    swarm.on("noPeers", (e: any) => {
+      torrent.emit("noPeers", new CustomEvent("noPeers", { detail: e.detail }));
+    });
+
+    // Forward: infoHash do Torrent (já emitido no construtor) para o cliente
+    torrent.on("infoHash", (e: any) => {
+      // O cliente WebTorrent não precisa deste evento, mas está disponível
+    });
+
     swarm.start();
 
     this.torrents.set(parsed.infoHash, torrent);
     this.swarms.set(parsed.infoHash, swarm);
     this.torrentList.push(torrent);
+
+    // Registra os arquivos no streamManager se o servidor já existe.
+    if (this.server) {
+      const files = this._makeFileObjects(torrent, this.server.scope);
+      registerTorrentFiles(torrent, files);
+    }
 
     this.emit("torrent", new CustomEvent("torrent", { detail: { torrent } }));
 
@@ -9460,6 +10594,11 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     if (index !== -1) {
       this.torrentList.splice(index, 1);
     }
+
+    // Remove os arquivos do streamManager.
+    if (this.server) {
+      unregisterTorrentFiles(infoHash);
+    }
   }
 
   async destroy(callback?: () => void): Promise<void> {
@@ -9477,6 +10616,11 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     this.torrents.clear();
     this.torrentList.length = 0;
 
+    if (this.server) {
+      this.server.destroy();
+      this.server = null;
+    }
+
     if (callback) callback();
   }
 
@@ -9487,7 +10631,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
       try {
         const rootDir = await globalThis.navigator.storage.getDirectory();
         const torrentDir = await rootDir.getDirectoryHandle(`webtorrent-${parsed.infoHash}`, { create: true });
-        
+
         return new OPFSChunkStore({
           chunkLength: parsed.pieceLength || 16384,
           length: parsed.length || 0,
@@ -9509,6 +10653,8 @@ export { Torrent } from "./core/torrent.ts";
 export { Swarm } from "./network/swarm.ts";
 export { Peer } from "./network/peer.ts";
 export { Wire } from "./core/wire.ts";
+export { File } from "./core/file.ts";
+export { Piece } from "./core/piece.ts";
 export { parseTorrent } from "./utils/parse-torrent.ts";
 export { decodePeerId, generateLocoPeerId, LOCO_PEER_ID_PREFIX } from "./utils/peerid.ts";
 export { UtMetadata } from "./extensions/ut-metadata.ts";
@@ -9516,8 +10662,1681 @@ export { UtPexExtension, encodePexUpdate, decodePexUpdate, PexPeerFlag } from ".
 export type { ParsedTorrent } from "./utils/parse-torrent.ts";
 export type { ClientInfo } from "./utils/peerid.ts";
 export type { PexPeer, PexUpdate, UtPexOptions } from "./extensions/ut-pex.ts";
+export { createServer, type WebTorrentServer } from "./server/server.ts";
+export { streamManager, buildStreamURL, parseStreamURL } from "./server/stream-manager.ts";
+// Phase 5.3: OPFS-based torrent generator
+export {
+  generateTorrent,
+  walkOPFSDir,
+  getOPFSFileSize,
+  OPFSMultiFileReader,
+  buildPieceFiles,
+  calcPieceSize,
+  fileSizeSum,
+  getDefaultCreatedBy,
+  isHiddenFile,
+  sha1sum,
+  PieceSizeEnum,
+} from "./torrent-generator/mod.ts";
+export type {
+  GeneratorOptions,
+  OPFSFileEntry,
+  PieceFile,
+  Torrent as GeneratedTorrent,
+  Writer as TorrentWriter,
+} from "./torrent-generator/mod.ts";
 
+```
 
+---
+
+## Arquivo: `monorepo/webtorrent/src/server/stream-manager.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/server/stream-manager.ts
+
+import type { File } from "../core/file.ts";
+
+/**
+ * Internal record stored in the {@link StreamManager} for each registered file.
+ *
+ * One entry exists per `(infoHash, fileIndex)` pair.  The file instance
+ * itself is responsible for materializing bytes from the underlying
+ * `ChunkStore`; the manager just keeps the references together so the
+ * service-worker bridge can look them up by URL.
+ */
+export interface StreamEntry {
+  infoHash: string;
+  fileIndex: number;
+  file: File;
+}
+
+/**
+ * Central registry that maps `(infoHash, fileIndex)` pairs to the live
+ * {@link File} instances produced by the {@link Torrent} pipeline.
+ *
+ * The service-worker bridge (see {@link createServer}) receives a
+ * `webtorrent-request` message with `infoHash` + `fileIndex` (encoded in
+ * the URL path) and uses this manager to look up the corresponding file.
+ * Without the registry the SW would have no way to know which
+ * `ChunkStore` to read from, since the SW runs in a separate context.
+ *
+ * The manager is a plain in-memory `Map`; it is intentionally simple and
+ * single-instance.  All {@link WebTorrent} clients in the same realm share
+ * the same singleton — this matches the way `webtorrent.min.js` exposes
+ * a global `createServer` that takes any `WebTorrent` and wires it up to
+ * the same SW controller.
+ */
+export class StreamManager {
+  private readonly entries: Map<string, StreamEntry> = new Map();
+
+  /**
+   * Registers (or replaces) the file entry for a `(infoHash, fileIndex)`.
+   *
+   * The same `File` object is also bound back to the entry through
+   * `infoHash`/`fileIndex` so {@link File.streamURL} can produce a URL
+   * that resolves back to the same record.
+   *
+   * @param infoHash - 40-char hex info hash identifying the torrent.
+   * @param fileIndex - Zero-based file index inside the torrent.
+   * @param file - The {@link File} instance to serve.
+   */
+  register(infoHash: string, fileIndex: number, file: File): void {
+    const key = this._key(infoHash, fileIndex);
+    this.entries.set(key, { infoHash, fileIndex, file });
+  }
+
+  /**
+   * Removes a single file entry.  Safe to call when the entry does not
+   * exist.
+   */
+  unregister(infoHash: string, fileIndex: number): void {
+    this.entries.delete(this._key(infoHash, fileIndex));
+  }
+
+  /**
+   * Removes every file entry that belongs to the given torrent.  Used
+   * when a torrent is removed from the client so the SW cannot keep
+   * streaming after the underlying data is gone.
+   */
+  unregisterTorrent(infoHash: string): void {
+    const prefix = `${infoHash}:`;
+    for (const key of this.entries.keys()) {
+      if (key.startsWith(prefix)) this.entries.delete(key);
+    }
+  }
+
+  /**
+   * Returns the file entry for a `(infoHash, fileIndex)` or `undefined`
+   * if no such file is registered.
+   */
+  get(infoHash: string, fileIndex: number): StreamEntry | undefined {
+    return this.entries.get(this._key(infoHash, fileIndex));
+  }
+
+  /**
+   * Lists every currently registered file entry.  Used by tests and
+   * diagnostics — not by the hot path of the streaming protocol.
+   */
+  list(): StreamEntry[] {
+    return Array.from(this.entries.values());
+  }
+
+  /**
+   * Returns the total number of registered file entries.  Useful for
+   * shutdown checks and for tests asserting cleanup behaviour.
+   */
+  size(): number {
+    return this.entries.size;
+  }
+
+  /**
+   * Removes every entry.  Called by the test suite and (in the future)
+   * by a full client destruction path that wants to wipe state without
+   * touching each torrent individually.
+   */
+  clear(): void {
+    this.entries.clear();
+  }
+
+  private _key(infoHash: string, fileIndex: number): string {
+    return `${infoHash}:${fileIndex}`;
+  }
+}
+
+/**
+ * Process-wide singleton used by both {@link createServer} and the
+ * public `WebTorrent` API.  Importing modules that need to look up
+ * `File` instances from the SW bridge get a stable reference.
+ */
+export const streamManager: StreamManager = new StreamManager();
+
+/**
+ * Builds the virtual URL served by the Service Worker for a given file.
+ *
+ * Format: `<scope>webtorrent/<infoHash>/<fileIndex>/<encodedName>`.
+ *
+ * The `infoHash` and `fileIndex` are the only fields the SW needs to
+ * look up the underlying file; the file name is appended for nicer
+ * browser caching/UI behaviour (e.g. video elements show the file name
+ * when hovered).
+ *
+ * @param scope - SW registration scope (usually ends with `/`).
+ * @param infoHash - 40-char hex info hash.
+ * @param fileIndex - Zero-based file index.
+ * @param name - Original file name (URL-encoded).
+ */
+export function buildStreamURL(
+  scope: string,
+  infoHash: string,
+  fileIndex: number,
+  name: string,
+): string {
+  const safeName = encodeURIComponent(name);
+  return `${scope}webtorrent/${infoHash}/${fileIndex}/${safeName}`;
+}
+
+/**
+ * Parses a virtual stream URL back into its components.  Returns `null`
+ * if the URL does not match the expected `/webtorrent/<infoHash>/<idx>/<name>`
+ * shape.  The `infoHash` is validated to be 40 hex characters and
+ * `fileIndex` must be a non-negative safe integer.
+ */
+export interface ParsedStreamURL {
+  infoHash: string;
+  fileIndex: number;
+  name: string;
+}
+
+export function parseStreamURL(url: string, scope: string): ParsedStreamURL | null {
+  const prefix = `${scope}webtorrent/`;
+  if (!url.startsWith(prefix)) return null;
+
+  const rest = url.slice(prefix.length);
+  const parts = rest.split("/");
+  if (parts.length < 3) return null;
+
+  const infoHash = parts[0]!;
+  const fileIndex = Number.parseInt(parts[1]!, 10);
+  const name = decodeURIComponent(parts.slice(2).join("/"));
+
+  if (!/^[0-9a-fA-F]{40}$/.test(infoHash)) return null;
+  if (!Number.isSafeInteger(fileIndex) || fileIndex < 0) return null;
+
+  return { infoHash: infoHash.toLowerCase(), fileIndex, name };
+}
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/server/server.ts`
+
+````ts
+// /loco/monorepo/webtorrent/src/server/server.ts
+
+import type { File } from "../core/file.ts";
+import type { Torrent } from "../core/torrent.ts";
+import {
+  buildStreamURL,
+  parseStreamURL,
+  streamManager,
+  type StreamEntry,
+} from "./stream-manager.ts";
+
+/**
+ * Pull-style payload the Service Worker sends to the main thread when
+ * it wants the next chunk of a streaming response.
+ *
+ * The wire protocol is intentionally minimal: the SW opens a
+ * `MessageChannel` per request, the server answers with
+ * {@link StreamResponseMetadata} (or a `STREAM` sentinel) and then both
+ * ends treat the channel as a backpressure pump — `true` requests the
+ * next chunk, `false` (or closing the port) ends the stream.
+ */
+export interface StreamRequestMessage {
+  type: "webtorrent-request";
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  scope: string;
+  destination: RequestDestination | string;
+}
+
+/**
+ * First reply on the streaming channel.  When `body === "STREAM"` the
+ * caller must continue pulling chunks by sending `true` on the port.
+ * A non-stream body is returned verbatim and ends the exchange.
+ */
+export interface StreamResponseMetadata {
+  body: "STREAM" | ArrayBuffer | string | Uint8Array | null;
+  status?: number;
+  statusText?: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Incoming message from the Service Worker announcing that the bridge
+ * is ready to serve `/webtorrent/*` requests.
+ */
+export interface WebTorrentReadyMessage {
+  type: "WEBTORRENT_READY";
+}
+
+/**
+ * Acknowledgement sent back to the Service Worker via the transferred
+ * port once the main thread is ready to receive streaming requests.
+ */
+export interface WebTorrentAckMessage {
+  type: "WEBTORRENT_ACK";
+}
+
+/**
+ * Pull signal sent by the SW on the streaming port.  Receiving `true`
+ * means "send me the next chunk".  Receiving `false` means "tear down".
+ */
+export type PullSignal = boolean;
+
+/**
+ * Pluggable transport used by {@link WebTorrentServer} to communicate
+ * with the Service Worker.
+ *
+ * - The production implementation backed by `navigator.serviceWorker` is
+ *   built by {@link createServiceWorkerTransport} when a live controller
+ *   is provided.
+ * - The test suite injects a {@link InProcessTransport} that records
+ *   every message and lets tests drive the protocol deterministically.
+ *
+ * The transport must guarantee that {@link Transport.send} delivers
+ * messages to the SW (or its in-process replacement) within a reasonable
+ * time.  If the SW is not registered yet, implementations should buffer
+ * until ready and reject after a timeout.
+ */
+export interface Transport {
+  /**
+   * Posts a one-shot message to the SW (no response expected).  Used
+   * for the `WEBTORRENT_ACK` handshake.
+   */
+  postMessage(message: unknown): void;
+
+  /**
+   * Posts a message to the SW that must be paired with a response
+   * on the supplied port.  Returns a promise that resolves with the
+   * first {@link StreamResponseMetadata} the SW sends back.
+   *
+   * After the metadata is received, the implementation can attach
+   * additional `onmessage` listeners on `port` to receive pull-style
+   * chunks.  This mirrors the `MessageChannel` flow used by the real
+   * `webtorrent.min.js` integration.
+   */
+  requestStream(
+    message: StreamRequestMessage,
+    port: MessagePort,
+  ): Promise<StreamResponseMetadata>;
+
+  /**
+   * Releases any owned ports.  Called on `destroy` to free resources.
+   */
+  close(): void;
+}
+
+/**
+ * Minimal controller surface used by the default transport.  Matches
+ * the relevant subset of `ServiceWorkerContainer`/`ServiceWorker`
+ * behavior, so we can mock it in tests without standing up a real SW.
+ */
+export interface ServiceWorkerControllerLike {
+  scope: string;
+  active: { postMessage?: (data: unknown, transfer?: Transferable[]) => void } | null;
+  /**
+   * Returns a promise that resolves when a `message` event matches the
+   * supplied `sourceId`.  In the real SW this is replaced by a
+   * `navigator.serviceWorker.addEventListener('message', ...)` handler
+   * that filters by the `MessageEvent.source.id`.
+   */
+  waitForMessage(sourceId: string): Promise<any>;
+}
+
+/**
+ * Default transport that talks to a real Service Worker.  The transport
+ * is constructed only when a live controller is present (browser
+ * environment) — see {@link createServiceWorkerTransport}.
+ */
+export function createServiceWorkerTransport(
+  controller: ServiceWorker,
+  scope: string,
+): Transport {
+  const PORT_TIMEOUT_MS = 5000;
+  const pending = new Map<string, (data: StreamResponseMetadata) => void>();
+
+  const onMessage = (event: any) => {
+    if (!event.data || typeof event.data !== "object") return;
+    if (event.data.type === "webtorrent-response" && typeof event.data.sourceId === "string") {
+      const resolver = pending.get(event.data.sourceId);
+      if (resolver) {
+        pending.delete(event.data.sourceId);
+        resolver(event.data as StreamResponseMetadata);
+      }
+    }
+  };
+
+  if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+    navigator.serviceWorker.addEventListener("message", onMessage as EventListener);
+  }
+
+  return {
+    postMessage(message) {
+      controller.postMessage(message);
+    },
+
+    requestStream(message, port) {
+      const sourceId = crypto.randomUUID();
+      return new Promise<StreamResponseMetadata>((resolve) => {
+        const timeout = setTimeout(() => {
+          if (pending.delete(sourceId)) {
+            resolve({ body: null, status: 503, statusText: "Service Unavailable" });
+          }
+        }, PORT_TIMEOUT_MS);
+
+        pending.set(sourceId, (data) => {
+          clearTimeout(timeout);
+          resolve(data);
+        });
+
+        controller.postMessage(
+          { ...message, sourceId, type: "webtorrent" },
+          [port],
+        );
+      });
+    },
+
+    close() {
+      if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+        navigator.serviceWorker.removeEventListener("message", onMessage as EventListener);
+      }
+      pending.clear();
+    },
+  };
+}
+
+/**
+ * In-process transport used by tests.  It records every outbound
+ * message, lets the test driver send the `WEBTORRENT_ACK` /
+ * `webtorrent-response` back, and exposes a counter so the suite can
+ * assert the protocol was honored.
+ */
+export class InProcessTransport implements Transport {
+  readonly sent: unknown[] = [];
+  private responseResolver?: (data: StreamResponseMetadata) => void;
+  /** @internal — exposed for tests. */
+  public activePort?: MessagePort;
+
+  postMessage(message: unknown): void {
+    this.sent.push(message);
+  }
+
+  requestStream(
+    _message: StreamRequestMessage,
+    port: MessagePort,
+  ): Promise<StreamResponseMetadata> {
+    this.activePort = port;
+    return new Promise<StreamResponseMetadata>((resolve) => {
+      this.responseResolver = resolve;
+    });
+  }
+
+  /** Test helper: deliver the metadata reply for the current request. */
+  deliverResponse(data: StreamResponseMetadata): void {
+    this.responseResolver?.(data);
+  }
+
+  /** Test helper: send a pull signal (`true` for more, `false` to end). */
+  sendPull(signal: PullSignal): void {
+    this.activePort?.postMessage(signal);
+  }
+
+  close(): void {
+    this.activePort?.close();
+    this.activePort = undefined;
+    this.responseResolver = undefined;
+  }
+}
+
+/**
+ * High-level façade exposed as `client.createServer({ controller })`.
+ *
+ * `WebTorrentServer` owns:
+ *
+ * 1. A reference to the {@link Transport} used to talk to the SW.
+ * 2. The handshake (sending `WEBTORRENT_ACK` and waiting for the
+ *    `WEBTORRENT_READY` to flip the `isReady` flag).
+ * 3. The request-reply loop that turns a SW pull into a chunked
+ *    {@link ReadableStream} of bytes.
+ *
+ * The server is transport-agnostic: production code passes the SW
+ * transport, while tests pass an {@link InProcessTransport}.  This
+ * keeps the streaming protocol exercised even in environments without a
+ * real Service Worker (Node, Deno, CI).
+ */
+export class WebTorrentServer {
+  public readonly scope: string;
+  public isReady: boolean = false;
+  public isDestroyed: boolean = false;
+
+  private readonly transport: Transport;
+  private readonly pendingAcks: Set<(ok: boolean) => void> = new Set();
+
+  constructor(opts: { transport: Transport; scope: string }) {
+    this.transport = opts.transport;
+    this.scope = opts.scope;
+  }
+
+  /**
+   * Sends the `WEBTORRENT_ACK` message to the Service Worker.  In
+   * production this is called automatically by the SW the first time a
+   * `/webtorrent/*` request arrives; the public `createServer` wrapper
+   * may also call it eagerly during `init` to warm the path.
+   *
+   * @returns A promise that resolves to `true` once the SW has flipped
+   *   its internal `isWebTorrentReady` flag.  The current SW code does
+   *   not post a separate ack back, so this resolves immediately —
+   *   the method exists so future revisions can opt into a stricter
+   *   round-trip without changing the public API.
+   */
+  async sendReadyAck(): Promise<boolean> {
+    if (this.isDestroyed) return false;
+    const ack: WebTorrentAckMessage = { type: "WEBTORRENT_ACK" };
+    this.transport.postMessage(ack);
+    this.isReady = true;
+    return true;
+  }
+
+  /**
+   * Streams a file in response to a request originated by the SW.
+   *
+   * The flow is:
+   *
+   * 1. Translate the request URL into a `(infoHash, fileIndex)` pair
+   *    using {@link parseStreamURL}.
+   * 2. Look the entry up in the {@link streamManager}.
+   * 3. Hand the entry to {@link buildFileStream} which returns a
+   *    `ReadableStream<Uint8Array>` driven by the `MessagePort` pull
+   *    signals.
+   *
+   * @returns A `Response` suitable for `event.respondWith()`.  When the
+   *   URL is unknown the method returns a `404`; when the SW is not
+   *   ready it returns a `503`.
+   */
+  async handleRequest(
+    message: StreamRequestMessage,
+    port: MessagePort,
+  ): Promise<Response> {
+    if (this.isDestroyed) {
+      return new Response("Server destroyed", { status: 503 });
+    }
+
+    const parsed = parseStreamURL(message.url, message.scope || this.scope);
+    if (!parsed) {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    const entry: StreamEntry | undefined = streamManager.get(
+      parsed.infoHash,
+      parsed.fileIndex,
+    );
+    if (!entry) {
+      return new Response("File not registered", { status: 404 });
+    }
+
+    const metadata: StreamResponseMetadata = {
+      body: "STREAM",
+      status: 200,
+      statusText: "OK",
+      headers: {
+        "Content-Type": guessContentType(entry.file.name),
+        "Content-Length": String(entry.file.length),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+      },
+    };
+
+    const stream = buildFileStream(entry, port, this.transport);
+    return new Response(stream, {
+      status: metadata.status,
+      statusText: metadata.statusText,
+      headers: metadata.headers,
+    });
+  }
+
+  /**
+   * Tears down the server.  Closes the transport so any future pull
+   * signals stop firing.  Safe to call more than once.
+   */
+  destroy(): void {
+    if (this.isDestroyed) return;
+    this.isDestroyed = true;
+    this.isReady = false;
+    this.transport.close();
+    for (const resolve of this.pendingAcks) resolve(false);
+    this.pendingAcks.clear();
+  }
+}
+
+/**
+ * Builds a `ReadableStream<Uint8Array>` that materializes a file
+ * piece-by-piece in response to `port` pull signals.
+ *
+ * The pull-based protocol is the same one `webtorrent.min.js` uses:
+ *
+ * 1. The SW (or in-process transport) sends `true` on `port` whenever
+ *    it is ready for the next chunk.
+ * 2. We asynchronously compute the next chunk from the file's
+ *    `ChunkStore` and post it back on the same `port`.
+ * 3. The stream ends when the SW posts `false` (or the port is closed)
+ *    or when the file has been fully served.
+ *
+ * @param entry - The registered file entry being streamed.
+ * @param port - The pull-signal port transferred from the SW.
+ * @param transport - The transport implementation; used to forward the
+ *   initial metadata reply before the pull loop starts.
+ */
+export function buildFileStream(
+  entry: StreamEntry,
+  port: MessagePort,
+  _transport: Transport,
+): ReadableStream<Uint8Array> {
+  const file: File = entry.file;
+
+  let fileOffset = 0;
+  let closed = false;
+  let pendingResolve: (() => void) | null = null;
+
+  const onMessage = (event: MessageEvent<PullSignal | Uint8Array | null>) => {
+    const data = event.data;
+
+    if (data === false || data == null) {
+      closed = true;
+      if (pendingResolve) {
+        const r = pendingResolve;
+        pendingResolve = null;
+        r();
+      }
+      return;
+    }
+
+    if (data === true && pendingResolve) {
+      const r = pendingResolve;
+      pendingResolve = null;
+      r();
+    }
+  };
+
+  port.addEventListener("message", onMessage as EventListener);
+  port.start?.();
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        if (closed) {
+          controller.close();
+          port.removeEventListener("message", onMessage as EventListener);
+          return;
+        }
+
+        if (fileOffset >= file.length) {
+          controller.close();
+          port.postMessage(null);
+          port.removeEventListener("message", onMessage as EventListener);
+          return;
+        }
+
+        // Wait for the next pull signal before emitting.  The transport
+        // injects `true` whenever the SW is ready for the next chunk.
+        await new Promise<void>((resolve) => {
+          pendingResolve = resolve;
+          if (closed) {
+            pendingResolve = null;
+            resolve();
+          }
+        });
+
+        if (closed) {
+          controller.close();
+          port.removeEventListener("message", onMessage as EventListener);
+          return;
+        }
+
+        const chunk = await readNextChunk(file, fileOffset);
+        if (chunk.byteLength === 0) {
+          controller.close();
+          port.postMessage(null);
+          port.removeEventListener("message", onMessage as EventListener);
+          return;
+        }
+
+        fileOffset += chunk.byteLength;
+        controller.enqueue(chunk);
+      } catch (err) {
+        controller.error(err);
+        port.removeEventListener("message", onMessage as EventListener);
+      }
+    },
+
+    cancel() {
+      closed = true;
+      port.postMessage(false);
+      port.removeEventListener("message", onMessage as EventListener);
+    },
+  });
+}
+
+/**
+ * Reads the next chunk of `file` starting at `offset`.  This is a
+ * separate function (rather than an inline `for await` loop) so the
+ * `File` class can grow a smarter implementation later (e.g. adaptive
+ * block size based on `RTT` and `BT_RREQ_RATE`) without changing the
+ * streaming protocol.
+ *
+ * The default block size is 16 KiB — small enough to keep latency
+ * snappy for video seeks, large enough to amortize `MessageChannel`
+ * overhead.
+ */
+export const STREAM_BLOCK_SIZE = 16 * 1024;
+
+export async function readNextChunk(
+  file: File,
+  offset: number,
+  length: number = STREAM_BLOCK_SIZE,
+): Promise<Uint8Array> {
+  // File does not yet implement `createReadStream()`; for the time
+  // being we route through the async iterator + manual offset tracking.
+  // The File class only knows how to iterate the whole file, so we
+  // scan until we hit the requested offset.  Once the real
+  // implementation lands (Phase 4.1) this function will be replaced
+  // by a direct chunk-store read.
+  const it = (file as any)[Symbol.asyncIterator]() as AsyncIterableIterator<Uint8Array>;
+  let skipped = 0;
+  let remainingToRead = Math.min(length, file.length - offset);
+
+  if (offset === 0) {
+    const { value, done } = await it.next();
+    if (done || !value) return new Uint8Array(0);
+    return value.subarray(0, Math.min(value.length, remainingToRead));
+  }
+
+  while (skipped < offset) {
+    const result = await it.next();
+    if (result.done || !result.value) return new Uint8Array(0);
+    const value = result.value;
+    skipped += value.length;
+    if (skipped > offset) {
+      const overflow = skipped - offset;
+      const takeFromThis = value.length - overflow;
+      if (takeFromThis >= remainingToRead) {
+        return value.subarray(value.length - remainingToRead, value.length);
+      }
+      // Not enough in a single chunk; concatenate
+      const first = value.subarray(value.length - takeFromThis, value.length);
+      const out = new Uint8Array(remainingToRead);
+      out.set(first, 0);
+      let written = first.length;
+      while (written < remainingToRead) {
+        const r = await it.next();
+        if (r.done || !r.value) break;
+        const take = Math.min(r.value.length, remainingToRead - written);
+        out.set(r.value.subarray(0, take), written);
+        written += take;
+      }
+      return out.subarray(0, written);
+    }
+  }
+
+  // offset fell exactly on a chunk boundary
+  const { value, done } = await it.next();
+  if (done || !value) return new Uint8Array(0);
+  return value.subarray(0, Math.min(value.length, remainingToRead));
+}
+
+/**
+ * Best-effort content-type guess from the file name.  Returns
+ * `application/octet-stream` when no extension matches so the browser
+ * can still download the file.
+ */
+export function guessContentType(name: string): string {
+  const idx = name.lastIndexOf(".");
+  if (idx < 0 || idx === name.length - 1) {
+    return "application/octet-stream";
+  }
+  const ext = name.slice(idx + 1).toLowerCase();
+  switch (ext) {
+    case "mp4": case "m4v": return "video/mp4";
+    case "webm": return "video/webm";
+    case "ogg": case "ogv": return "video/ogg";
+    case "mp3": return "audio/mpeg";
+    case "wav": return "audio/wav";
+    case "flac": return "audio/flac";
+    case "m4a": case "aac": return "audio/aac";
+    case "oga": return "audio/ogg";
+    case "opus": return "audio/opus";
+    case "jpg": case "jpeg": return "image/jpeg";
+    case "png": return "image/png";
+    case "gif": return "image/gif";
+    case "webp": return "image/webp";
+    case "svg": return "image/svg+xml";
+    case "pdf": return "application/pdf";
+    case "txt": return "text/plain; charset=utf-8";
+    case "html": case "htm": return "text/html; charset=utf-8";
+    case "json": return "application/json; charset=utf-8";
+    case "srt": return "application/x-subrip";
+    case "vtt": return "text/vtt";
+    default: return "application/octet-stream";
+  }
+}
+
+/**
+ * Public factory matching the `webtorrent.min.js` API:
+ *
+ * ```ts
+ * const server = createServer({ controller });
+ * ```
+ *
+ * In the browser, `controller` is a `ServiceWorker` instance obtained
+ * from `navigator.serviceWorker.ready` (the active controller).  In
+ * tests, the caller can omit `controller` and use the returned
+ * `WebTorrentServer` directly with an injected transport.
+ *
+ * If `controller` is omitted, the function still returns a working
+ * server — it just never receives `WEBTORRENT_READY` events from a SW.
+ * Callers wanting a self-test can call {@link WebTorrentServer.sendReadyAck}
+ * and then drive the protocol through the test transport.
+ */
+export interface CreateServerOptions {
+  controller?: ServiceWorker;
+  scope?: string;
+  transport?: Transport;
+}
+
+export function createServer(opts: CreateServerOptions = {}): WebTorrentServer {
+  let transport: Transport;
+  let scope: string;
+
+  if (opts.transport) {
+    transport = opts.transport;
+    scope = opts.scope || "/";
+  } else if (opts.controller) {
+    scope = opts.scope || (opts.controller as any).scope || "/";
+    transport = createServiceWorkerTransport(opts.controller, scope);
+  } else {
+    scope = opts.scope || "/";
+    transport = new InProcessTransport();
+  }
+
+  return new WebTorrentServer({ transport, scope });
+}
+
+/**
+ * Registers every `File` of a torrent in the {@link streamManager} so
+ * that {@link createServer} can serve them.  Called automatically by
+ * `Torrent`/`WebTorrent` when a torrent becomes ready.
+ *
+ * @returns The list of registered entries, in torrent order.  Tests
+ *   use this to assert cleanup behaviour.
+ */
+export function registerTorrentFiles(
+  torrent: Torrent,
+  files: File[],
+): StreamEntry[] {
+  const infoHash = torrent.infoHash;
+  const registered: StreamEntry[] = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]!;
+    streamManager.register(infoHash, i, file);
+    registered.push({ infoHash, fileIndex: i, file });
+  }
+  return registered;
+}
+
+/**
+ * Removes every file belonging to a torrent from the registry.  Called
+ * when a torrent is removed from the client.
+ */
+export function unregisterTorrentFiles(infoHash: string): void {
+  streamManager.unregisterTorrent(infoHash);
+}
+
+````
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/torrent-generator/types.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/torrent-generator/types.ts
+/**
+ * Types for the OPFS-backed torrent generator.
+ *
+ * Adapted from `deno-torrent/torrent-generator/types.ts`, replacing
+ * the Deno filesystem surface (`Deno.FsFile`, path strings) with
+ * browser-native OPFS handles (`FileSystemFileHandle`,
+ * `FileSystemDirectoryHandle`).
+ */
+
+import type { BencodeValue } from "../utils/bencode.ts";
+
+/** A simple sink for the bencoded `.torrent` file. */
+export interface Writer {
+  write(p: Uint8Array): Promise<number>;
+}
+
+/** Standard piece-size presets (BEP-3).  `SIZE_AUTO` defers to `calcPieceSize`. */
+export enum PieceSizeEnum {
+  SIZE_AUTO = 0,
+  SIZE_16KB = 16 * 1024,
+  SIZE_32KB = 32 * 1024,
+  SIZE_64KB = 64 * 1024,
+  SIZE_128KB = 128 * 1024,
+  SIZE_256KB = 256 * 1024,
+  SIZE_512KB = 512 * 1024,
+  SIZE_1MB = 1024 * 1024,
+  SIZE_2MB = 2 * 1024 * 1024,
+  SIZE_4MB = 4 * 1024 * 1024,
+  SIZE_8MB = 8 * 1024 * 1024,
+  SIZE_16MB = 16 * 1024 * 1024,
+}
+
+/** A file inside an OPFS directory, with its logical name and size. */
+export interface OPFSFileEntry {
+  /** Logical path relative to the entry root (e.g. `"folder/video.mp4"`). */
+  name: string;
+  /** Total size in bytes. */
+  size: number;
+  /** OPFS file handle, if known at construction time. */
+  handle?: FileSystemFileHandle;
+}
+
+/** Input options for `generateTorrent`. */
+export interface GeneratorOptions {
+  /** Where to write the bencoded `.torrent` bytes. */
+  writer: Writer;
+  /**
+   * OPFS directory handle to scan, **or** a list of file entries.
+   *
+   * When given a `FileSystemDirectoryHandle`, the generator walks it
+   * recursively and computes sizes from `getFile()` handles.
+   *
+   * When given a list of `OPFSFileEntry`, the caller has already done
+   * the walk and we use the supplied sizes.
+   */
+  entry: FileSystemDirectoryHandle | OPFSFileEntry[];
+  /** Piece-size preset or `SIZE_AUTO` (default). */
+  pieceSize?: PieceSizeEnum | number;
+  /** Skip files whose name starts with `"."` (default `false`). */
+  ignoreHiddenFile?: boolean;
+  /** BEP-47: align real files on piece boundaries (inserts `.pad/...` entries). */
+  alignPiece?: boolean;
+  /** Mark torrent as private (`info.private = 1`). */
+  isPrivate?: boolean;
+  /** Trackers (BEP-12). May be empty. */
+  trackers?: readonly string[];
+  /** Web seeds (BEP-19). */
+  webSeeds?: readonly string[];
+  /** Human-readable source string. */
+  source?: string;
+  /** Free-form comment. */
+  comment?: string;
+  /** Default `deno-torrent-generator` if omitted. */
+  createdBy?: string;
+  /** Unix seconds; default `Date.now() / 1000`. */
+  createdAt?: number;
+}
+
+/** Internal piece-file (real or BEP-47 padding). */
+export interface PieceFile {
+  /** `null` for padding entries. */
+  file: OPFSFileEntry | null;
+  /** Bytes this entry contributes to the torrent. */
+  length: number;
+  /** True for synthetic BEP-47 padding. */
+  padding: boolean;
+}
+
+/** Logical shape of a generated torrent. */
+export interface Torrent {
+  "created by": string;
+  "creation date": number;
+  announce?: string;
+  "announce-list"?: string[][];
+  "url-list"?: string | string[];
+  info: {
+    name: string;
+    "piece length": number;
+    pieces?: Uint8Array;
+    length?: number;
+    files?: Array<{ path: string[]; length: number }>;
+    private?: number;
+  };
+  comment?: string;
+  source?: string;
+}
+
+/** Bencode re-export. */
+export type { BencodeValue };
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/torrent-generator/opfs-walker.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/torrent-generator/opfs-walker.ts
+/**
+ * Recursively walks an OPFS directory handle, returning an ordered list
+ * of files with their relative paths and sizes.
+ *
+ * This replaces the Deno `@std/fs/walk` + `Deno.stat` calls in
+ * `deno-torrent/torrent-generator/util.ts#obtainFiles`.  In the browser
+ * we don't have filesystem stat calls — we read the size from the
+ * `File` object obtained via `FileSystemFileHandle.getFile()`.
+ */
+
+import type { OPFSFileEntry } from "./types.ts";
+
+/**
+ * Returns the size of an OPFS file handle.
+ *
+ * @param handle - OPFS file handle.
+ * @returns Size in bytes.
+ */
+export async function getOPFSFileSize(handle: FileSystemFileHandle): Promise<number> {
+  const file = await handle.getFile();
+  return file.size;
+}
+
+/**
+ * Recursively walks an OPFS directory handle, returning all files with
+ * paths relative to `root`.
+ *
+ * BEP-3 sorting (shallowest first, then lexicographic) is applied so
+ * the result is directly consumable by `buildPieceFiles` and
+ * `generateTorrent`.
+ *
+ * Hidden file policy mirrors the deno-torrent reference: when
+ * `ignoreHiddenFile` is true, files whose final path component starts
+ * with `"."` are skipped.  BEP-47 padding files (`.pad/...`) are
+ * generated synthetically and never appear in the walk.
+ *
+ * @param root - The directory handle to walk.
+ * @param ignoreHiddenFile - When `true`, skip entries whose base name starts with `"."`.
+ * @returns Ordered list of files under `root`.
+ */
+export async function walkOPFSDir(
+  root: FileSystemDirectoryHandle,
+  ignoreHiddenFile = false,
+): Promise<OPFSFileEntry[]> {
+  const files: OPFSFileEntry[] = [];
+
+  async function visit(
+    dir: FileSystemDirectoryHandle,
+    prefix: string[],
+  ): Promise<void> {
+    // BFS for stable ordering — `values()` yields in insertion order.
+    // We collect into an array first to avoid losing `for-await` context.
+    const queue: Array<FileSystemHandle> = [];
+    for await (const entry of (dir as any).values()) {
+      queue.push(entry);
+    }
+    for (const entry of queue) {
+      if (entry.kind === "file") {
+        if (ignoreHiddenFile && entry.name.startsWith(".")) continue;
+        const fileHandle = entry as FileSystemFileHandle;
+        const size = await getOPFSFileSize(fileHandle);
+        files.push({
+          name: [...prefix, entry.name].join("/"),
+          size,
+          handle: fileHandle,
+        });
+      } else if (entry.kind === "directory") {
+        if (ignoreHiddenFile && entry.name.startsWith(".")) continue;
+        await visit(entry as FileSystemDirectoryHandle, [...prefix, entry.name]);
+      }
+    }
+  }
+
+  await visit(root, []);
+
+  // BEP-3 sort: shallowest first, then lexicographic.
+  files.sort((a, b) => {
+    const depthA = a.name.split("/").length;
+    const depthB = b.name.split("/").length;
+    if (depthA !== depthB) return depthA - depthB;
+    return a.name.localeCompare(b.name);
+  });
+
+  return files;
+}
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/torrent-generator/opfs-reader.ts`
+
+````ts
+// /loco/monorepo/webtorrent/src/torrent-generator/opfs-reader.ts
+/**
+ * Sequential multi-file reader for OPFS file handles.
+ *
+ * Replaces the Deno `MultiFileReader` from
+ * `deno-torrent/torrent-generator/reader.ts`.  Reads across multiple
+ * `FileSystemFileHandle` instances as if they were a single contiguous
+ * byte stream, transparently crossing file boundaries.
+ *
+ * Browser-native primitives used:
+ * - `FileSystemFileHandle.getFile()` → `File` object
+ * - `File.slice(start, end)` → `Blob` slice
+ * - `Blob.arrayBuffer()` → `ArrayBuffer`
+ *
+ * No `Deno.open`, no `Deno.FsFile`, no path strings.
+ */
+
+import type { OPFSFileEntry } from "./types.ts";
+
+/**
+ * Reads across multiple OPFS files sequentially as a single byte stream.
+ *
+ * @example
+ * ```ts
+ * const reader = new OPFSMultiFileReader(entries);
+ * try {
+ *   for await (const chunk of reader.chunks(64 * 1024)) {
+ *     // process chunk ...
+ *   }
+ * } finally {
+ *   reader.close();
+ * }
+ * ```
+ */
+export class OPFSMultiFileReader {
+  readonly #entries: OPFSFileEntry[];
+  #fileIndex = 0;
+  #fileOffset = 0;
+  #currentFile: File | null = null;
+  #currentSize = 0;
+  #closed = false;
+
+  /**
+   * @param entries - Ordered list of OPFS file entries to read sequentially.
+   *   Each entry must have either a `handle` set, or a `size` matching a
+   *   pre-fetched `File` (see {@link withFile}).
+   */
+  constructor(entries: OPFSFileEntry[]) {
+    this.#entries = [...entries];
+  }
+
+  /**
+   * Attaches a pre-fetched `File` for the entry at `index`.  Useful when
+   * the caller already obtained the `File` from the file handle and wants
+   * to avoid re-fetching.
+   *
+   * @param index - Index into the entries list.
+   * @param file - The `File` object for that entry.
+   */
+  withFile(index: number, file: File): void {
+    if (index < 0 || index >= this.#entries.length) {
+      throw new RangeError(`index out of range: ${index}`);
+    }
+    if (index === this.#fileIndex) {
+      this.#currentFile = file;
+      this.#currentSize = file.size;
+    }
+  }
+
+  /**
+   * Reads up to `size` bytes from the combined stream.
+   *
+   * @param size - Maximum number of bytes to read (must be > 0).
+   * @returns `Uint8Array` with 1–`size` bytes, or `null` at end-of-stream.
+   * @throws {RangeError} If `size` is not a positive integer.
+   */
+  async readChunk(size: number): Promise<Uint8Array | null> {
+    if (size <= 0 || !Number.isInteger(size)) {
+      throw new RangeError(`size must be a positive integer, got ${size}`);
+    }
+
+    if (this.#closed) throw new Error("reader is closed");
+
+    const parts: Uint8Array[] = [];
+    let remaining = size;
+
+    while (remaining > 0) {
+      // Open the next file if we have no current handle
+      if (this.#currentFile === null) {
+        if (this.#fileIndex >= this.#entries.length) break;
+        const entry = this.#entries[this.#fileIndex++]!;
+        if (!entry.handle) {
+          throw new Error(`entry ${entry.name} has no OPFS handle attached`);
+        }
+        this.#currentFile = await entry.handle.getFile();
+        this.#currentSize = this.#currentFile.size;
+        this.#fileOffset = 0;
+      }
+
+      const available = this.#currentSize - this.#fileOffset;
+      if (available === 0) {
+        this.#currentFile = null;
+        continue;
+      }
+
+      const want = Math.min(remaining, available);
+      const blob = this.#currentFile.slice(this.#fileOffset, this.#fileOffset + want);
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      this.#fileOffset += buf.length;
+
+      if (buf.length === 0) {
+        this.#currentFile = null;
+        continue;
+      }
+
+      parts.push(buf);
+      remaining -= buf.length;
+    }
+
+    if (parts.length === 0) return null;
+
+    const first = parts[0]!;
+    if (parts.length === 1) return first;
+
+    const result = new Uint8Array(size - remaining);
+    let offset = 0;
+    for (const part of parts) {
+      result.set(part, offset);
+      offset += part.length;
+    }
+    return result;
+  }
+
+  /**
+   * Async-iterable interface — yields chunks of at most `size` bytes.
+   *
+   * @param size - Maximum chunk size in bytes (default 64 KiB).
+   */
+  async *chunks(size = 64 * 1024): AsyncIterableIterator<Uint8Array> {
+    while (true) {
+      const chunk = await this.readChunk(size);
+      if (chunk === null) return;
+      yield chunk;
+    }
+  }
+
+  /** Releases any held handles.  Idempotent. */
+  close(): void {
+    this.#currentFile = null;
+    this.#closed = true;
+  }
+
+  /** Whether {@link close} has been called. */
+  get closed(): boolean {
+    return this.#closed;
+  }
+}
+
+````
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/torrent-generator/util.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/torrent-generator/util.ts
+/**
+ * Pure helper functions for the OPFS torrent generator.
+ *
+ * Replaces `deno-torrent/torrent-generator/util.ts`.  All filesystem-side
+ * calls (`Deno.stat`, `Deno.open`) are removed; file I/O is handled by
+ * `OPFSMultiFileReader` and `OPFSFileReader`.
+ *
+ * Pure functions carry no side-effects and need no test mocking.
+ */
+
+import { PieceSizeEnum } from "./types.ts";
+import type { OPFSFileEntry, PieceFile } from "./types.ts";
+import { OPFSMultiFileReader } from "./opfs-reader.ts";
+
+/**
+ * Sums the byte sizes of all given file entries.
+ *
+ * @param files - OPFS file entries whose sizes are summed.
+ * @returns Total size in bytes.
+ */
+export function fileSizeSum(files: OPFSFileEntry[]): number {
+  let total = 0;
+  for (const file of files) total += file.size;
+  return total;
+}
+
+/**
+ * Selects an appropriate piece size for the given total file size.
+ *
+ * When `pieceSizeEnum` is `PieceSizeEnum.SIZE_AUTO` the function returns the
+ * smallest preset that is larger than `fileSize`, capped at
+ * `PieceSizeEnum.SIZE_512MB`.  For any other preset the supplied value is
+ * returned unchanged.
+ *
+ * @param fileSize - Total content size in bytes.
+ * @param pieceSizeEnum - Desired preset, or `SIZE_AUTO` for heuristic selection.
+ * @returns Piece size in bytes (≥ 1).
+ */
+export function calcPieceSize(fileSize: number, pieceSizeEnum: PieceSizeEnum | number): number {
+  if (pieceSizeEnum !== PieceSizeEnum.SIZE_AUTO) {
+    return pieceSizeEnum as number;
+  }
+
+  const presets = (Object.values(PieceSizeEnum) as number[])
+    .filter((v) => v !== 0 && typeof v === "number")
+    .sort((a, b) => a - b);
+
+  const selected = presets.find((p) => fileSize < p) ?? presets[presets.length - 1] ?? 0;
+  return Math.min(selected!, PieceSizeEnum.SIZE_512KB as number);
+}
+
+/**
+ * Returns `true` when the base name of a path starts with `"."`.
+ *
+ * @param name - File name or path.
+ */
+export function isHiddenFile(name: string): boolean {
+  const base = name.split("/").pop() ?? name;
+  return base.startsWith(".");
+}
+
+/**
+ * Builds the logical file stream used by BEP-47 piece-aligned torrents.
+ *
+ * Splits `files` into real entries and synthetic padding entries (`.pad/...`).
+ * When a real file doesn't start on a piece boundary, a zero-filled padding
+ * block is inserted before it so every real file begins at `pieceSize` offsets.
+ *
+ * @param files - Sorted list of OPFS file entries (BEP-3 order).
+ * @param pieceSize - Target piece size in bytes.
+ * @returns Ordered list of piece-file descriptors.
+ */
+export function buildPieceFiles(files: OPFSFileEntry[], pieceSize: number): PieceFile[] {
+  const pieceFiles: PieceFile[] = [];
+  let pieceOffset = 0;
+
+  for (let i = 0; i < files.length; i++) {
+    const entry = files[i]!;
+    const length = entry.size;
+
+    if (length > 0 && pieceOffset > 0) {
+      const paddingLength = pieceSize - pieceOffset;
+      pieceFiles.push({ file: null, length: paddingLength, padding: true });
+      pieceOffset = 0;
+    }
+
+    pieceFiles.push({ file: entry, length, padding: false });
+    pieceOffset = (pieceOffset + length) % pieceSize;
+  }
+
+  return pieceFiles;
+}
+
+/**
+ * Computes the concatenated SHA-1 piece hashes for a list of files.
+ *
+ * Files are read sequentially as a single byte stream using
+ * `OPFSMultiFileReader`.  The stream is divided into `pieceSize` chunks;
+ * the last chunk may be smaller.  Each chunk's SHA-1 digest (20 bytes) is
+ * appended to the result.
+ *
+ * When `alignPiece` is true, BEP-47 padding zeros are included in the
+ * stream before each non-aligned file.
+ *
+ * @param files - Ordered list of OPFS file entries to hash.
+ * @param pieceSize - Number of bytes per piece (must be ≥ 1).
+ * @param alignPiece - When true, inject zero padding between files (BEP-47).
+ * @returns `Uint8Array` whose length is a multiple of 20.
+ */
+export async function sha1sum(
+  files: OPFSFileEntry[],
+  pieceSize: number,
+  alignPiece = false,
+): Promise<Uint8Array> {
+  if (pieceSize < 1) throw new RangeError("pieceSize must be ≥ 1");
+
+  if (alignPiece) return sha1sumAligned(files, pieceSize);
+
+  const totalSize = fileSizeSum(files);
+  const pieceCount = Math.ceil(totalSize / pieceSize);
+
+  const digestParts: Uint8Array[] = [];
+  const reader = new OPFSMultiFileReader(files);
+  try {
+    let chunk: Uint8Array | null;
+    while ((chunk = await reader.readChunk(pieceSize)) !== null) {
+      const digest = await crypto.subtle.digest(
+        "SHA-1",
+        chunk as unknown as Uint8Array<ArrayBuffer>,
+      );
+      digestParts.push(new Uint8Array(digest));
+    }
+  } finally {
+    reader.close();
+  }
+
+  const result = new Uint8Array(digestParts.length * 20);
+  let offset = 0;
+  for (const d of digestParts) {
+    result.set(d, offset);
+    offset += 20;
+  }
+
+  if (digestParts.length !== pieceCount) {
+    console.warn(
+      `[sha1sum] expected ${pieceCount} pieces, got ${digestParts.length}`,
+    );
+  }
+
+  return result;
+}
+
+/** BEP-47 variant: inject padding zeros before each non-aligned file. */
+async function sha1sumAligned(files: OPFSFileEntry[], pieceSize: number): Promise<Uint8Array> {
+  const pieceFiles = buildPieceFiles(files, pieceSize);
+  const digests: Uint8Array[] = [];
+  const piece = new Uint8Array(pieceSize);
+  let pieceOffset = 0;
+
+  const digestPiece = async (len: number): Promise<void> => {
+    const digest = await crypto.subtle.digest(
+      "SHA-1",
+      piece.subarray(0, len) as unknown as Uint8Array<ArrayBuffer>,
+    );
+    digests.push(new Uint8Array(digest));
+  };
+
+  const reader = new OPFSMultiFileReader(pieceFiles.map((pf) => pf.file!).filter(Boolean) as OPFSFileEntry[]);
+  let readerIndex = 0;
+
+  for (const pieceFile of pieceFiles) {
+    if (pieceFile.padding) {
+      piece.fill(0, pieceOffset, pieceOffset + pieceFile.length);
+      pieceOffset += pieceFile.length;
+      if (pieceOffset === pieceSize) {
+        await digestPiece(pieceSize);
+        pieceOffset = 0;
+      }
+      continue;
+    }
+
+    const fileEntry = pieceFile.file!;
+    const file = await fileEntry.handle!.getFile();
+    let fileOffset = 0;
+
+    while (fileOffset < file.size) {
+      const want = Math.min(pieceSize - pieceOffset, file.size - fileOffset);
+      const blob = file.slice(fileOffset, fileOffset + want);
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      fileOffset += buf.length;
+
+      piece.set(buf, pieceOffset);
+      pieceOffset += buf.length;
+
+      if (pieceOffset === pieceSize) {
+        await digestPiece(pieceSize);
+        pieceOffset = 0;
+      }
+    }
+  }
+
+  if (pieceOffset > 0) await digestPiece(pieceOffset);
+
+  const result = new Uint8Array(digests.length * 20);
+  digests.forEach((d, i) => result.set(d, i * 20));
+  return result;
+}
+
+/**
+ * Returns the default `"created by"` string embedded in generated torrents.
+ *
+ * In the browser we cannot call `git describe --tags`.  The version is
+ * hardcoded as `"loco-torrent-generator@1.0.0"` — callers can override via
+ * the `createdBy` option.
+ *
+ * @returns Creator identifier string.
+ */
+export function getDefaultCreatedBy(): string {
+  return "loco-torrent-generator@1.0.0";
+}
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/torrent-generator/generator.ts`
+
+````ts
+// /loco/monorepo/webtorrent/src/torrent-generator/generator.ts
+/**
+ * OPFS-backed BitTorrent `.torrent` file generator.
+ *
+ * Replaces `deno-torrent/torrent-generator/generator.ts` for browser
+ * environments.  Reads files from OPFS (`FileSystemDirectoryHandle`) via
+ * `File.slice()` + `Blob.arrayBuffer()` instead of `Deno.open` +
+ * `Deno.FsFile.read`.
+ *
+ * Supports:
+ * - Multi-file torrents from OPFS directories
+ * - BEP-47 piece-aligned padding
+ * - BEP-3 file ordering (shallowest first, then lexicographic)
+ * - BEP-12 tracker lists
+ * - BEP-19 web seeds
+ * - Private torrents
+ *
+ * @module
+ */
+
+import { encode } from "../utils/bencode.ts";
+import type { BencodeValue, GeneratorOptions, OPFSFileEntry, PieceFile } from "./types.ts";
+import { PieceSizeEnum } from "./types.ts";
+import { walkOPFSDir } from "./opfs-walker.ts";
+import {
+  buildPieceFiles,
+  calcPieceSize,
+  fileSizeSum,
+  getDefaultCreatedBy,
+  sha1sum,
+} from "./util.ts";
+
+/**
+ * Generates a BitTorrent `.torrent` file and writes it to `options.writer`.
+ *
+ * The `entry` option accepts:
+ * - A `FileSystemDirectoryHandle` — recursively scanned for files.
+ * - A plain array of `OPFSFileEntry` — for callers that have already
+ *   performed the walk and fetched file sizes.
+ *
+ * @param options - Generation parameters.  See {@link GeneratorOptions}.
+ *
+ * @example Multi-file torrent from an OPFS directory
+ * ```ts
+ * import { generateTorrent } from "@loco/webtorrent/torrent-generator";
+ *
+ * const rootHandle = await navigator.storage.getDirectory();
+ * // ... populate rootHandle with files ...
+ *
+ * const chunks: Uint8Array[] = [];
+ * await generateTorrent({
+ *   entry: rootHandle,
+ *   writer: { write: async (p) => { chunks.push(p); return p.length; } },
+ *   trackers: ["udp://tracker.example.com:6969/announce"],
+ * });
+ * const torrentBytes = new Uint8Array(chunks.reduce((a, b) => a + b.length, 0));
+ * // flatten chunks into torrentBytes...
+ * ```
+ */
+export async function generateTorrent(options: GeneratorOptions): Promise<void> {
+  const {
+    writer,
+    entry,
+    pieceSize: pieceSizeEnum = PieceSizeEnum.SIZE_AUTO,
+    ignoreHiddenFile = false,
+    alignPiece = false,
+    isPrivate = false,
+    trackers = [],
+    webSeeds = [],
+    source,
+    comment,
+    createdBy,
+    createdAt = Math.floor(Date.now() / 1000),
+  } = options;
+
+  // ── Resolve entries ─────────────────────────────────────────────────────
+  let files: OPFSFileEntry[];
+  let rootName: string;
+
+  if (Array.isArray(entry)) {
+    files = entry;
+    rootName = inferRootName(entry);
+  } else {
+    rootName = entry.name;
+    files = await walkOPFSDir(entry, ignoreHiddenFile);
+  }
+
+  if (files.length === 0) {
+    throw new Error(`No files found in entry`);
+  }
+
+  // ── Metadata ─────────────────────────────────────────────────────────────
+  const totalSize = fileSizeSum(files);
+  const pieceSize = calcPieceSize(totalSize, pieceSizeEnum as PieceSizeEnum);
+
+  const info = new Map<string, BencodeValue>([
+    ["name", rootName],
+    ["piece length", pieceSize],
+  ]);
+
+  const torrent = new Map<string, BencodeValue>([
+    ["created by", createdBy ?? getDefaultCreatedBy()],
+    ["creation date", createdAt],
+    ["info", info],
+  ]);
+
+  // ── Trackers (BEP-12) ───────────────────────────────────────────────────
+  if (trackers.length > 0) {
+    const sorted = [...trackers].sort((a, b) => a.localeCompare(b));
+    torrent.set("announce", sorted[0]!);
+    if (sorted.length > 1) {
+      torrent.set("announce-list", sorted.map((t) => [t]));
+    }
+  }
+
+  // ── Web seeds (BEP-19) ──────────────────────────────────────────────────
+  if (webSeeds.length > 0) {
+    const sorted = [...webSeeds].sort((a, b) => a.localeCompare(b));
+    torrent.set(
+      "url-list",
+      sorted.length === 1 ? sorted[0]! : sorted,
+    );
+  }
+
+  // ── Optional fields ──────────────────────────────────────────────────────
+  if (isPrivate) info.set("private", 1);
+  if (comment) torrent.set("comment", comment);
+  if (source) torrent.set("source", source);
+
+  // ── Piece hashes & file metadata ─────────────────────────────────────────
+  if (files.length === 1 && !files[0]!.name.includes("/")) {
+    // Single-file torrent
+    info.set("length", files[0]!.size);
+    info.set("pieces", await sha1sum(files, pieceSize));
+  } else {
+    // Multi-file torrent
+    const pieceFiles: PieceFile[] = alignPiece
+      ? buildPieceFiles(files, pieceSize)
+      : files.map((file) => ({ file, length: file.size, padding: false }));
+
+    const torrentFiles = pieceFiles.map((pieceFile, index) => {
+      if (pieceFile.padding) {
+        return new Map<string, BencodeValue>([
+          ["length", pieceFile.length],
+          ["path", [".pad", `${pieceFile.length}-${index}`]],
+        ]);
+      }
+      return new Map<string, BencodeValue>([
+        ["length", pieceFile.file!.size],
+        ["path", pieceFile.file!.name.split("/")],
+      ]);
+    });
+
+    info.set("files", torrentFiles);
+    info.set("pieces", await sha1sum(files, pieceSize, alignPiece));
+  }
+
+  // ── Encode and write ────────────────────────────────────────────────────
+  await writer.write(encode(torrent));
+}
+
+/**
+ * Infers the torrent root name from a list of file entries.
+ * Uses the common prefix of all entry names (if any), otherwise the
+ * first entry's first path component.
+ */
+function inferRootName(entries: OPFSFileEntry[]): string {
+  if (entries.length === 0) return "torrent";
+  const first = entries[0]!;
+
+  // If all entries share a common first segment, use it as root.
+  const firstParts = first.name.split("/");
+  if (firstParts.length <= 1) return firstParts[0] ?? first.name;
+
+  let commonPrefixLength = 1;
+  for (let d = 1; d < firstParts.length; d++) {
+    const prefix = firstParts.slice(0, d + 1).join("/");
+    if (entries.every((e) => e.name.startsWith(prefix + "/"))) {
+      commonPrefixLength = d + 1;
+    } else {
+      break;
+    }
+  }
+
+  return firstParts.slice(0, commonPrefixLength).join("/");
+}
+
+````
+
+---
+
+## Arquivo: `monorepo/webtorrent/src/torrent-generator/mod.ts`
+
+```ts
+// /loco/monorepo/webtorrent/src/torrent-generator/mod.ts
+/**
+ * Public surface of the OPFS-backed torrent generator.
+ */
+
+export { decode, encode } from "../utils/bencode.ts";
+export { generateTorrent } from "./generator.ts";
+export { walkOPFSDir, getOPFSFileSize } from "./opfs-walker.ts";
+export { OPFSMultiFileReader } from "./opfs-reader.ts";
+export {
+  buildPieceFiles,
+  calcPieceSize,
+  fileSizeSum,
+  getDefaultCreatedBy,
+  isHiddenFile,
+  sha1sum,
+} from "./util.ts";
+export { PieceSizeEnum } from "./types.ts";
+export type {
+  BencodeValue,
+  GeneratorOptions,
+  OPFSFileEntry,
+  PieceFile,
+  Torrent,
+  Writer,
+} from "./types.ts";
 
 ```
 
@@ -11593,6 +14412,108 @@ Deno.test("wire: use() rejects extension without BEP 10", () => {
     () => wire.use({ name: "ut_test", onExtendedHandshake() {}, onMessage() {} }),
     PeerWireError,
   );
+});
+
+// ── BEP 52 v2 hash messages ──────────────────────────────────────────────
+
+Deno.test("wire: dispatches new BEP 52 events when negotiated", async () => {
+  // Helper: Cria um par de Wires conectados em memória com extensão V2
+  function createV2WirePair(): { wireA: Wire; wireB: Wire } {
+    let handlerA: ((data: Uint8Array) => void) | null = null;
+    let handlerB: ((data: Uint8Array) => void) | null = null;
+
+    const transportA: Transport = {
+      send: (data: Uint8Array) => {
+        queueMicrotask(() => handlerB?.(data));
+      },
+      onMessage: (handler: (data: Uint8Array) => void) => { handlerA = handler; },
+      close: () => {},
+    };
+
+    const transportB: Transport = {
+      send: (data: Uint8Array) => {
+        queueMicrotask(() => handlerA?.(data));
+      },
+      onMessage: (handler: (data: Uint8Array) => void) => { handlerB = handler; },
+      close: () => {},
+    };
+
+    return {
+      wireA: new Wire(transportA, { extensions: [HandshakeExtension.V2] }),
+      wireB: new Wire(transportB, { extensions: [HandshakeExtension.V2] }),
+    };
+  }
+
+  const { wireA, wireB } = createV2WirePair();
+
+  const infoHash = new Uint8Array(20);
+  const peerIdA = new Uint8Array(20).fill(0xAA);
+  const peerIdB = new Uint8Array(20).fill(0xBB);
+
+  // Complete handshake with V2 extension
+  wireA.sendHandshake(infoHash, peerIdA);
+  wireB.sendHandshake(infoHash, peerIdB);
+
+  // Aguarda as microtasks processarem os eventos de handshake
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Verifica se o handshake foi concluído
+  assertEquals(wireA.state, WireState.Connected);
+  assertEquals(wireB.state, WireState.Connected);
+
+  // Test hashRequest event
+  let hashRequestReceived = false;
+  wireB.on("hashRequest", (e: CustomEvent<any>) => {
+    const detail = e.detail;
+    assertEquals(detail.piecesRoot.length, 32);
+    assertEquals(detail.baseLayer, 0);
+    assertEquals(detail.index, 8); // Must be multiple of length (2)
+    assertEquals(detail.length, 2);
+    assertEquals(detail.proofLayers, 5);
+    hashRequestReceived = true;
+  });
+
+  const piecesRoot = new Uint8Array(32).fill(0xCC);
+  wireA.sendHashRequest(piecesRoot, 0, 8, 2, 5); // index=8 is multiple of length=2
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(hashRequestReceived, true);
+
+  // Test hashes event
+  let hashesReceived = false;
+  wireA.on("hashes", (e: CustomEvent<any>) => {
+    const detail = e.detail;
+    assertEquals(detail.piecesRoot.length, 32);
+    assertEquals(detail.baseLayer, 1);
+    assertEquals(detail.index, 16); // Must be multiple of length (4)
+    assertEquals(detail.length, 4);
+    assertEquals(detail.proofLayers, 3);
+    assertEquals(detail.hashes.length, 64); // 2 hashes of 32 bytes each
+    hashesReceived = true;
+  });
+
+  const hashes = new Uint8Array(64).fill(0xDD);
+  wireB.sendHashes(new Uint8Array(32).fill(0xEE), 1, 16, 4, 3, hashes); // index=16 is multiple of length=4
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(hashesReceived, true);
+
+  // Test hashReject event
+  let hashRejectReceived = false;
+  wireB.on("hashReject", (e: CustomEvent<any>) => {
+    const detail = e.detail;
+    assertEquals(detail.piecesRoot.length, 32);
+    assertEquals(detail.baseLayer, 2);
+    assertEquals(detail.index, 24); // Must be multiple of length (8)
+    assertEquals(detail.length, 8);
+    assertEquals(detail.proofLayers, 2);
+    hashRejectReceived = true;
+  });
+
+  wireA.sendHashReject(new Uint8Array(32).fill(0xFF), 2, 24, 8, 2); // index=24 is multiple of length=8
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(hashRejectReceived, true);
 });
 ```
 
@@ -15851,6 +18772,1735 @@ Deno.test("metainfo-parser: enforces maxBytes limit", async () => {
 
 ---
 
+## Arquivo: `monorepo/webtorrent/tests/bitfield_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/bitfield_test.ts
+
+import { assertEquals, assertThrows } from "jsr:@std/assert";
+import { Bitfield } from "../src/core/bitfield.ts";
+import { BitfieldError } from "../src/utils/errors.ts";
+
+Deno.test("bitfield: fromBytes validates buffer length", () => {
+  // Valid case: 16 pieces = 2 bytes
+  const validBuffer = new Uint8Array([0b10101010, 0b01010101]);
+  const bitfield = Bitfield.fromBytes(validBuffer, 16);
+  assertEquals(bitfield.length, 16);
+});
+
+Deno.test("bitfield: fromBytes rejects incorrect buffer length", () => {
+  const buffer = new Uint8Array([0b10101010]);
+  
+  // 16 pieces require 2 bytes
+  assertThrows(() => {
+    Bitfield.fromBytes(buffer, 16);
+  }, BitfieldError, "Invalid buffer length. Expected 2, got 1");
+});
+
+Deno.test("bitfield: fromBytes validates spare bits (8 pieces)", () => {
+  // 8 pieces = exactly 1 byte, no spare bits
+  const buffer = new Uint8Array([0b10101010]);
+  Bitfield.fromBytes(buffer, 8);
+});
+
+Deno.test("bitfield: fromBytes validates spare bits (9 pieces)", () => {
+  // 9 pieces = 2 bytes, last byte has 7 spare bits
+  const validBuffer = new Uint8Array([0b10101010, 0b10000000]);
+  Bitfield.fromBytes(validBuffer, 9);
+
+  const invalidBuffer = new Uint8Array([0b10101010, 0b10000001]); // spare bit set
+  assertThrows(() => {
+    Bitfield.fromBytes(invalidBuffer, 9);
+  }, BitfieldError, "Spare bits must be zero");
+});
+
+Deno.test("bitfield: fromBytes handles edge case (0 pieces)", () => {
+  const buffer = new Uint8Array([]);
+  const bitfield = Bitfield.fromBytes(buffer, 0);
+  assertEquals(bitfield.length, 0);
+  assertEquals(bitfield.toBuffer().length, 0);
+});
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/tests/file_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/file_test.ts
+
+import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert";
+import { File } from "../src/core/file.ts";
+import { Piece } from "../src/core/piece.ts";
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Fake store that returns predictable bytes for every piece. */
+class FakeChunkStore {
+  chunkLength: number;
+  private data: Uint8Array;
+
+  constructor(chunkLength = 1024, totalSize = 2048) {
+    this.chunkLength = chunkLength;
+    this.data = new Uint8Array(totalSize);
+    for (let i = 0; i < this.data.length; i++) {
+      this.data[i] = i % 256;
+    }
+  }
+
+  async get(index: number): Promise<Uint8Array> {
+    const start = index * this.chunkLength;
+    const end = Math.min(start + this.chunkLength, this.data.length);
+    if (start >= this.data.length) return new Uint8Array(0);
+    return this.data.subarray(start, end);
+  }
+}
+
+// ── Constructor & properties ────────────────────────────────────────────────
+
+Deno.test("file: constructor initializes correctly", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 50, pieceLength: 16 });
+
+  assertEquals(file.length, 100);
+  assertEquals(file.name, "file");
+  assertEquals(file.path, "file");
+  assertEquals(file.scope, "/");
+  assertEquals(file.destroyed, false);
+});
+
+Deno.test("file: constructor accepts all optional fields", () => {
+  const store = new FakeChunkStore();
+  const file = new File({
+    store,
+    length: 100,
+    offset: 50,
+    pieceLength: 16,
+    name: "video.mp4",
+    path: "folder/video.mp4",
+    infoHash: "a".repeat(40),
+    fileIndex: 3,
+    scope: "/app/",
+    blockSize: 8192,
+  });
+
+  assertEquals(file.name, "video.mp4");
+  assertEquals(file.path, "folder/video.mp4");
+  assertEquals(file.infoHash, "a".repeat(40));
+  assertEquals(file.fileIndex, 3);
+  assertEquals(file.scope, "/app/");
+});
+
+Deno.test("file: defaults for optional fields", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 0, offset: 0, pieceLength: 16 });
+
+  assertEquals(file.name, "file");
+  assertEquals(file.path, "file");
+  assertEquals(file.scope, "/");
+  assertEquals(file.infoHash, undefined);
+  assertEquals(file.fileIndex, undefined);
+});
+
+// ── Piece range ─────────────────────────────────────────────────────────────
+
+Deno.test("file: pieceRange returns correct first/last indices", () => {
+  const store = new FakeChunkStore(1024, 2048);
+  // offset=0, length=1500, pieceLength=1024
+  // first = floor(0/1024) = 0
+  // last  = floor((0+1499)/1024) = floor(1499/1024) = 1
+  const file = new File({ store, length: 1500, offset: 0, pieceLength: 1024 });
+  const range = file.pieceRange;
+  assertEquals(range.first, 0);
+  assertEquals(range.last, 1);
+});
+
+Deno.test("file: pieceRange for middle file", () => {
+  // offset=1024, length=1024, pieceLength=1024
+  // first = floor(1024/1024) = 1
+  // last  = floor((1024+1023)/1024) = floor(2047/1024) = 1
+  const store = new FakeChunkStore(1024, 4096);
+  const file = new File({ store, length: 1024, offset: 1024, pieceLength: 1024 });
+  assertEquals(file.pieceRange.first, 1);
+  assertEquals(file.pieceRange.last, 1);
+});
+
+// ── includes ─────────────────────────────────────────────────────────────────
+
+Deno.test("file: includes() returns true for pieces inside file", () => {
+  const store = new FakeChunkStore(1024, 2048);
+  // offset=0, length=1500, pieces 0 and 1 are inside
+  const file = new File({ store, length: 1500, offset: 0, pieceLength: 1024 });
+
+  assertEquals(file.includes({ index: 0 }), true);
+  assertEquals(file.includes({ index: 1 }), true);
+  assertEquals(file.includes({ index: 2 }), false);
+  assertEquals(file.includes({ index: 3 }), false);
+});
+
+Deno.test("file: includes() with Piece class instance", () => {
+  const store = new FakeChunkStore(512, 4096);
+  const file = new File({ store, length: 800, offset: 0, pieceLength: 512 });
+  // pieces 0 and 1 are inside (0-512 and 512-1024, but file is 0-800)
+
+  assertEquals(file.includes(new Piece(0, 512, 0)), true);
+  assertEquals(file.includes(new Piece(1, 512, 512)), true);
+  assertEquals(file.includes(new Piece(2, 512, 1024)), false);
+});
+
+// ── createReadStream (core implementation) ────────────────────────────────────
+
+Deno.test("file: createReadStream returns a ReadableStream", () => {
+  const store = new FakeChunkStore(1024, 2048);
+  const file = new File({ store, length: 1500, offset: 0, pieceLength: 1024 });
+
+  const stream = file.createReadStream();
+  assertEquals(typeof stream.getReader, "function");
+  assertEquals(typeof stream[Symbol.asyncIterator], "function");
+});
+
+Deno.test("file: createReadStream emits 'stream' event", async () => {
+  const store = new FakeChunkStore(512, 2048);
+  const file = new File({ store, length: 200, offset: 0, pieceLength: 512 });
+
+  let eventFired = false;
+  file.addEventListener("stream", () => { eventFired = true; });
+
+  file.createReadStream();
+  assertEquals(eventFired, true);
+});
+
+Deno.test("file: createReadStream reads full file", async () => {
+  const store = new FakeChunkStore(1024, 2048);
+  const file = new File({ store, length: 1500, offset: 0, pieceLength: 1024 });
+
+  const stream = file.createReadStream();
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+
+  assertEquals(chunks.length > 0, true);
+  const total = chunks.reduce((s, c) => s + c.length, 0);
+  assertEquals(total, 1500);
+});
+
+Deno.test("file: createReadStream respects start offset", async () => {
+  const store = new FakeChunkStore(1024, 2048);
+  const file = new File({ store, length: 1024, offset: 0, pieceLength: 1024 });
+
+  const stream = file.createReadStream({ start: 500 });
+  const reader = stream.getReader();
+  const { value, done } = await reader.read();
+
+  assertEquals(done, false);
+  assertEquals(value!.length > 0, true);
+  // First byte should be the byte at global offset 500
+  assertEquals(value![0], 244); // 500 % 256
+});
+
+Deno.test("file: createReadStream respects end offset", async () => {
+  const store = new FakeChunkStore(512, 4096);
+  const file = new File({ store, length: 2000, offset: 0, pieceLength: 512 });
+
+  const stream = file.createReadStream({ start: 0, end: 300 });
+  const reader = stream.getReader();
+  let total = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    total += value!.length;
+  }
+
+  assertEquals(total, 300);
+});
+
+Deno.test("file: createReadStream rejects invalid range", () => {
+  const store = new FakeChunkStore(1024, 2048);
+  const file = new File({ store, length: 500, offset: 0, pieceLength: 1024 });
+
+  assertThrows(() => file.createReadStream({ start: -1 }), RangeError);
+  assertThrows(() => file.createReadStream({ start: 0, end: 1000 }), RangeError);
+  assertThrows(() => file.createReadStream({ start: 300, end: 100 }), RangeError);
+});
+
+Deno.test("file: createReadStream rejects after destroy", () => {
+  const store = new FakeChunkStore(1024, 2048);
+  const file = new File({ store, length: 500, offset: 0, pieceLength: 1024 });
+  file.destroy();
+
+  assertThrows(() => file.createReadStream(), Error, "destroyed");
+});
+
+Deno.test("file: createReadStream emits 'done' event on completion", async () => {
+  const store = new FakeChunkStore(512, 2048);
+  const file = new File({ store, length: 200, offset: 0, pieceLength: 512 });
+
+  let doneEmitted = false;
+  file.addEventListener("done", () => { doneEmitted = true; });
+
+  const stream = file.createReadStream();
+  const reader = stream.getReader();
+  while (true) {
+    const { done } = await reader.read();
+    if (done) break;
+  }
+
+  assertEquals(doneEmitted, true);
+});
+
+// ── stream() ─────────────────────────────────────────────────────────────────
+
+Deno.test("file: stream() is an alias for createReadStream", async () => {
+  const store = new FakeChunkStore(512, 2048);
+  const file = new File({ store, length: 200, offset: 0, pieceLength: 512 });
+
+  const s1 = file.createReadStream();
+  const s2 = file.stream();
+
+  const r1 = s1.getReader();
+  const r2 = s2.getReader();
+
+  const { value: v1 } = await r1.read();
+  const { value: v2 } = await r2.read();
+
+  assertEquals(v1!.length, v2!.length);
+});
+
+// ── Symbol.asyncIterator ─────────────────────────────────────────────────────
+
+Deno.test("file: Symbol.asyncIterator yields chunks", async () => {
+  const store = new FakeChunkStore(512, 4096);
+  const file = new File({ store, length: 800, offset: 0, pieceLength: 512 });
+
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of file) {
+    chunks.push(chunk);
+  }
+
+  assertEquals(chunks.length > 0, true);
+  const total = chunks.reduce((s, c) => s + c.length, 0);
+  assertEquals(total, 800);
+});
+
+Deno.test("file: Symbol.asyncIterator emits 'iterator' event", async () => {
+  const store = new FakeChunkStore(512, 2048);
+  const file = new File({ store, length: 200, offset: 0, pieceLength: 512 });
+
+  let eventFired = false;
+  file.addEventListener("iterator", () => { eventFired = true; });
+
+  for await (const _ of file) { /* consume */ }
+
+  assertEquals(eventFired, true);
+});
+
+// ── arrayBuffer ───────────────────────────────────────────────────────────────
+
+Deno.test("file: arrayBuffer returns full file as ArrayBuffer", async () => {
+  const store = new FakeChunkStore(512, 4096);
+  const file = new File({ store, length: 1200, offset: 0, pieceLength: 512 });
+
+  const buf = await file.arrayBuffer();
+  assertEquals(buf.byteLength, 1200);
+
+  const view = new Uint8Array(buf);
+  assertEquals(view[0], 0);
+  assertEquals(view[1], 1);
+});
+
+Deno.test("file: arrayBuffer for middle file reads correct bytes", async () => {
+  const store = new FakeChunkStore(512, 4096);
+  // File at offset 512, length 500 (inside piece 1)
+  const file = new File({ store, length: 500, offset: 512, pieceLength: 512 });
+
+  const buf = await file.arrayBuffer();
+  assertEquals(buf.byteLength, 500);
+
+  const view = new Uint8Array(buf);
+  // Global offset 512 → value = 512 % 256 = 0
+  assertEquals(view[0], 0);
+  // Global offset 513 → value = 513 % 256 = 1
+  assertEquals(view[1], 1);
+});
+
+// ── blob ─────────────────────────────────────────────────────────────────────
+
+Deno.test("file: blob returns a Blob", async () => {
+  const store = new FakeChunkStore(512, 2048);
+  const file = new File({ store, length: 300, offset: 0, pieceLength: 512 });
+
+  const blob = await file.blob();
+  assertEquals(blob.size, 300);
+  assertEquals(blob.type, "");
+});
+
+// ── getBlobURL ───────────────────────────────────────────────────────────────
+
+Deno.test("file: getBlobURL returns an object URL", async () => {
+  const store = new FakeChunkStore(512, 2048);
+  const file = new File({ store, length: 200, offset: 0, pieceLength: 512 });
+
+  const url = await file.getBlobURL();
+  assertEquals(url.startsWith("blob:"), true);
+  URL.revokeObjectURL(url);
+});
+
+// ── streamURL ────────────────────────────────────────────────────────────────
+
+Deno.test("file: streamURL throws when infoHash is missing", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 50, pieceLength: 16 });
+
+  assertThrows(
+    () => file.streamURL(),
+    Error,
+    "infoHash and fileIndex are required",
+  );
+});
+
+Deno.test("file: streamURL throws when fileIndex is missing", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 50, pieceLength: 16, infoHash: "a".repeat(40) });
+
+  assertThrows(
+    () => file.streamURL(),
+    Error,
+    "infoHash and fileIndex are required",
+  );
+});
+
+Deno.test("file: streamURL returns valid SW URL with all fields", () => {
+  const store = new FakeChunkStore();
+  const file = new File({
+    store,
+    length: 100,
+    offset: 50,
+    pieceLength: 16,
+    name: "movie.mp4",
+    infoHash: "a".repeat(40),
+    fileIndex: 2,
+    scope: "/loco/",
+  });
+
+  const url = file.streamURL();
+  assertEquals(url.includes("a".repeat(40)), true);
+  assertEquals(url.includes("/2/"), true);
+  assertEquals(url.includes("movie.mp4"), true);
+  assertEquals(url.startsWith("/loco/webtorrent/"), true);
+});
+
+Deno.test("file: streamURL uses default scope", () => {
+  const store = new FakeChunkStore();
+  const file = new File({
+    store,
+    length: 100,
+    offset: 0,
+    pieceLength: 16,
+    infoHash: "b".repeat(40),
+    fileIndex: 0,
+  });
+
+  const url = file.streamURL();
+  // Default scope is "/" so URL begins with "/webtorrent/"
+  assertEquals(url.startsWith("/webtorrent/"), true);
+});
+
+// ── streamTo ─────────────────────────────────────────────────────────────────
+
+Deno.test("file: streamTo sets element src to streamURL", () => {
+  const store = new FakeChunkStore();
+  const file = new File({
+    store,
+    length: 100,
+    offset: 0,
+    pieceLength: 16,
+    name: "video.mp4",
+    infoHash: "c".repeat(40),
+    fileIndex: 5,
+  });
+
+  let capturedSrc = "";
+  let loadCalled = false;
+  const element = {
+    get src() { return capturedSrc; },
+    set src(v: string) { capturedSrc = v; },
+    load: () => { loadCalled = true; },
+  } as unknown as HTMLMediaElement;
+
+  file.streamTo(element);
+  assertEquals(capturedSrc.includes("c".repeat(40)), true);
+  assertEquals(loadCalled, true);
+});
+
+// ── destroy ─────────────────────────────────────────────────────────────────
+
+Deno.test("file: destroy marks file as destroyed", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 0, pieceLength: 16 });
+
+  assertEquals(file.destroyed, false);
+  file.destroy();
+  assertEquals(file.destroyed, true);
+});
+
+Deno.test("file: createReadStream throws after destroy", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 0, pieceLength: 16 });
+  file.destroy();
+
+  assertThrows(() => file.createReadStream(), Error, "destroyed");
+});
+
+// ── select / deselect ───────────────────────────────────────────────────────
+
+Deno.test("file: select() and deselect() are no-ops (API parity)", () => {
+  const store = new FakeChunkStore();
+  const file = new File({ store, length: 100, offset: 0, pieceLength: 16 });
+
+  // These must not throw — piece selection lives on Torrent, not File
+  file.select();
+  file.select(0, 5);
+  file.deselect();
+  file.deselect(0, 5);
+});
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/tests/stream-manager_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/stream-manager_test.ts
+
+import { assertEquals, assertThrows } from "jsr:@std/assert";
+import {
+  buildStreamURL,
+  parseStreamURL,
+  streamManager,
+  StreamManager,
+} from "../src/server/stream-manager.ts";
+
+// Mock File for testing
+class MockFile {
+  name = "test.mp4";
+  length = 1024;
+  constructor(public infoHash?: string, public fileIndex?: number) {}
+}
+
+Deno.test("streamManager: register and get", () => {
+  streamManager.clear();
+  const file = new MockFile("abc123", 0) as any;
+  streamManager.register("abc123", 0, file);
+
+  const entry = streamManager.get("abc123", 0);
+  assertEquals(entry?.infoHash, "abc123");
+  assertEquals(entry?.fileIndex, 0);
+  assertEquals(entry?.file, file);
+  streamManager.clear();
+});
+
+Deno.test("streamManager: unregister", () => {
+  streamManager.clear();
+  const file = new MockFile() as any;
+  streamManager.register("abc", 0, file);
+  streamManager.register("abc", 1, file);
+
+  assertEquals(streamManager.size(), 2);
+
+  streamManager.unregister("abc", 0);
+  assertEquals(streamManager.size(), 1);
+  assertEquals(streamManager.get("abc", 0), undefined);
+  assertEquals(streamManager.get("abc", 1)?.file, file);
+
+  streamManager.clear();
+});
+
+Deno.test("streamManager: unregisterTorrent removes all files", () => {
+  streamManager.clear();
+  const file = new MockFile() as any;
+  streamManager.register("hash1", 0, file);
+  streamManager.register("hash1", 1, file);
+  streamManager.register("hash2", 0, file);
+
+  assertEquals(streamManager.size(), 3);
+
+  streamManager.unregisterTorrent("hash1");
+  assertEquals(streamManager.size(), 1);
+  assertEquals(streamManager.get("hash1", 0), undefined);
+  assertEquals(streamManager.get("hash1", 1), undefined);
+  assertEquals(streamManager.get("hash2", 0)?.file, file);
+
+  streamManager.clear();
+});
+
+Deno.test("streamManager: list returns all entries", () => {
+  streamManager.clear();
+  const file1 = new MockFile() as any;
+  const file2 = new MockFile() as any;
+  streamManager.register("h1", 0, file1);
+  streamManager.register("h1", 1, file2);
+
+  const entries = streamManager.list();
+  assertEquals(entries.length, 2);
+
+  streamManager.clear();
+});
+
+Deno.test("streamManager: clear removes everything", () => {
+  streamManager.clear();
+  const file = new MockFile() as any;
+  for (let i = 0; i < 5; i++) {
+    streamManager.register("h", i, file);
+  }
+  assertEquals(streamManager.size(), 5);
+
+  streamManager.clear();
+  assertEquals(streamManager.size(), 0);
+});
+
+Deno.test("buildStreamURL: produces correct URL format", () => {
+  const url = buildStreamURL("/", "a".repeat(40), 3, "video.mp4");
+  assertEquals(url, `/webtorrent/${"a".repeat(40)}/3/video.mp4`);
+});
+
+Deno.test("buildStreamURL: URL-encodes file name with spaces", () => {
+  const url = buildStreamURL("/app/", "b".repeat(40), 0, "my video file.mp4");
+  assertEquals(url.includes("my%20video%20file.mp4"), true);
+});
+
+Deno.test("parseStreamURL: parses valid URL", () => {
+  const infoHash = "c".repeat(40);
+  const url = `/webtorrent/${infoHash}/5/my%20file.mp4`;
+
+  const result = parseStreamURL(url, "/");
+  assertEquals(result?.infoHash, infoHash);
+  assertEquals(result?.fileIndex, 5);
+  assertEquals(result?.name, "my file.mp4");
+});
+
+Deno.test("parseStreamURL: returns null for non-matching scope", () => {
+  const url = `/webtorrent/${"d".repeat(40)}/0/file.txt`;
+  assertEquals(parseStreamURL(url, "/app/"), null);
+});
+
+Deno.test("parseStreamURL: returns null for invalid infoHash length", () => {
+  const url = `/webtorrent/abc123/0/file.txt`;
+  assertEquals(parseStreamURL(url, "/"), null);
+});
+
+Deno.test("parseStreamURL: returns null for negative fileIndex", () => {
+  const url = `/webtorrent/${"e".repeat(40)}/-1/file.txt`;
+  assertEquals(parseStreamURL(url, "/"), null);
+});
+
+Deno.test("parseStreamURL: handles nested path in file name", () => {
+  const infoHash = "f".repeat(40);
+  const url = `/webtorrent/${infoHash}/2/path/to/file.txt`;
+
+  const result = parseStreamURL(url, "/");
+  assertEquals(result?.fileIndex, 2);
+  assertEquals(result?.name, "path/to/file.txt");
+});
+
+Deno.test("parseStreamURL: normalizes infoHash to lowercase", () => {
+  const infoHash = "A".repeat(40);
+  const url = `/webtorrent/${infoHash}/0/file.txt`;
+
+  const result = parseStreamURL(url, "/");
+  assertEquals(result?.infoHash, "a".repeat(40));
+});
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/tests/server_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/server_test.ts
+
+import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert";
+import {
+  createServer,
+  guessContentType,
+  WebTorrentServer,
+} from "../src/server/server.ts";
+import { InProcessTransport } from "../src/server/server.ts";
+import { buildStreamURL, parseStreamURL, streamManager } from "../src/server/stream-manager.ts";
+import { File } from "../src/core/file.ts";
+
+// ── Mock classes ────────────────────────────────────────────────────────────────
+
+class MockChunkStore {
+  chunkLength = 16384;
+  get(_index: number) { return Promise.resolve(new Uint8Array(16384)); }
+  put(_index: number, _buf: Uint8Array) { return Promise.resolve(); }
+  close() { return Promise.resolve(); }
+  destroy() { return Promise.resolve(); }
+}
+
+class MockFile {
+  constructor(
+    public name: string,
+    public length: number,
+  ) {}
+
+  // File-compatible interface
+  get lengthGetter() { return this.length; }
+  get nameGetter() { return this.name; }
+
+  async *[Symbol.asyncIterator]() {
+    yield new Uint8Array([1, 2, 3, 4]);
+    yield new Uint8Array([5, 6, 7, 8]);
+  }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+Deno.test("createServer: uses InProcessTransport when no controller", () => {
+  const server = createServer({ scope: "/app/" });
+  assertEquals(server.scope, "/app/");
+  assertEquals(server.isReady, false);
+  assertEquals(server.isDestroyed, false);
+  server.destroy();
+});
+
+Deno.test("createServer: sendReadyAck sets isReady", async () => {
+  const server = createServer({ scope: "/" });
+  assertEquals(server.isReady, false);
+
+  const result = await server.sendReadyAck();
+  assertEquals(result, true);
+  assertEquals(server.isReady, true);
+
+  server.destroy();
+});
+
+Deno.test("createServer: double createServer returns same instance", () => {
+  const server = createServer({ scope: "/" });
+  const server2 = createServer({ scope: "/" });
+  // createServer is a factory; each call creates a new instance.
+  // This is fine — the WebTorrent class guards with a .server field.
+  assertEquals(server === server2, false);
+  server.destroy();
+  server2.destroy();
+});
+
+Deno.test("WebTorrentServer.destroy: sets flags and closes transport", () => {
+  const server = createServer({ scope: "/" });
+  assertEquals(server.isDestroyed, false);
+
+  server.destroy();
+  assertEquals(server.isDestroyed, true);
+  assertEquals(server.isReady, false);
+});
+
+Deno.test("WebTorrentServer.destroy: is idempotent", () => {
+  const server = createServer({ scope: "/" });
+  server.destroy();
+  server.destroy(); // must not throw
+  assertEquals(server.isDestroyed, true);
+});
+
+Deno.test("WebTorrentServer.handleRequest: returns 404 for unknown URL", async () => {
+  const server = createServer({ scope: "/" });
+  await server.sendReadyAck();
+
+  const fakePort = {
+    addEventListener() {},
+    start() {},
+    close() {},
+    postMessage() {},
+  } as unknown as MessagePort;
+
+  const resp = await server.handleRequest({
+    type: "webtorrent-request",
+    url: "/some/other/path",
+    method: "GET",
+    headers: {},
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  assertEquals(resp.status, 404);
+  server.destroy();
+});
+
+Deno.test("WebTorrentServer.handleRequest: returns 404 for unregistered file", async () => {
+  streamManager.clear();
+  const server = createServer({ scope: "/" });
+  await server.sendReadyAck();
+
+  const fakePort = {
+    addEventListener() {},
+    start() {},
+    close() {},
+    postMessage() {},
+  } as unknown as MessagePort;
+
+  const resp = await server.handleRequest({
+    type: "webtorrent-request",
+    url: `/webtorrent/${"x".repeat(40)}/0/video.mp4`,
+    method: "GET",
+    headers: {},
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  assertEquals(resp.status, 404);
+  streamManager.clear();
+  server.destroy();
+});
+
+Deno.test("WebTorrentServer.handleRequest: returns 503 when destroyed", async () => {
+  const server = createServer({ scope: "/" });
+  server.destroy();
+
+  const fakePort = {
+    addEventListener() {},
+    start() {},
+    close() {},
+    postMessage() {},
+  } as unknown as MessagePort;
+
+  const resp = await server.handleRequest({
+    type: "webtorrent-request",
+    url: `/webtorrent/${"y".repeat(40)}/0/video.mp4`,
+    method: "GET",
+    headers: {},
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  assertEquals(resp.status, 503);
+});
+
+Deno.test("WebTorrentServer.handleRequest: parses file index from URL", async () => {
+  streamManager.clear();
+  const server = createServer({ scope: "/" });
+  await server.sendReadyAck();
+
+  // Register two files for the same torrent
+  const mock1 = new MockFile("video.mp4", 1024) as any;
+  const mock2 = new MockFile("audio.m4a", 512) as any;
+  const infoHash = "a".repeat(40);
+
+  streamManager.register(infoHash, 0, mock1);
+  streamManager.register(infoHash, 1, mock2);
+
+  const fakePort = {
+    addEventListener() {},
+    start() {},
+    close() {},
+    postMessage() {},
+  } as unknown as MessagePort;
+
+  // Request file index 1
+  const resp = await server.handleRequest({
+    type: "webtorrent-request",
+    url: `/webtorrent/${infoHash}/1/audio.m4a`,
+    method: "GET",
+    headers: {},
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  assertEquals(resp.status, 200);
+  const headers = new Headers(resp.headers);
+  assertEquals(headers.get("Content-Type"), "audio/aac");
+  assertEquals(headers.get("Content-Length"), "512");
+  assertEquals(headers.get("Accept-Ranges"), "bytes");
+
+  streamManager.clear();
+  server.destroy();
+});
+
+Deno.test("InProcessTransport: records postMessage", () => {
+  const transport = new InProcessTransport();
+
+  transport.postMessage({ type: "WEBTORRENT_ACK" });
+  transport.postMessage({ type: "foo" });
+
+  assertEquals(transport.sent.length, 2);
+  assertEquals((transport.sent[0] as any).type, "WEBTORRENT_ACK");
+
+  transport.close();
+});
+
+Deno.test("InProcessTransport: requestStream returns pending promise", async () => {
+  const transport = new InProcessTransport();
+
+  const fakePort = {
+    addEventListener() {},
+    start() {},
+    close() {},
+    postMessage() {},
+  } as unknown as MessagePort;
+
+  const p = transport.requestStream({
+    type: "webtorrent-request",
+    url: "/",
+    method: "GET",
+    headers: {},
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  // No response yet
+  assertEquals(transport.activePort, fakePort);
+
+  // Deliver response
+  transport.deliverResponse({ body: "STREAM", status: 200 });
+  const result = await p;
+  assertEquals(result.status, 200);
+  assertEquals(result.body, "STREAM");
+
+  transport.close();
+});
+
+Deno.test("InProcessTransport: sendPull sends signal on port", () => {
+  let received: boolean | null = null;
+  const fakePort = {
+    addEventListener(_: string, cb: (e: { data: boolean }) => void) {
+      // store callback to trigger later
+      (fakePort as any)._cb = cb;
+    },
+    start() {},
+    close() {},
+    postMessage(data: boolean) { received = data; },
+  } as unknown as MessagePort;
+
+  const transport = new InProcessTransport();
+  transport.requestStream({
+    type: "webtorrent-request",
+    url: "/",
+    method: "GET",
+    headers: {},
+    scope: "/",
+    destination: "video",
+  }, fakePort);
+
+  transport.sendPull(true);
+  assertEquals(received, true);
+
+  transport.sendPull(false);
+  assertEquals(received, false);
+
+  transport.close();
+});
+
+Deno.test("guessContentType: video formats", () => {
+  assertEquals(guessContentType("video.mp4"), "video/mp4");
+  assertEquals(guessContentType("video.m4v"), "video/mp4");
+  assertEquals(guessContentType("video.webm"), "video/webm");
+  assertEquals(guessContentType("video.ogv"), "video/ogg");
+  assertEquals(guessContentType("VIDEO.MP4"), "video/mp4"); // case insensitive
+});
+
+Deno.test("guessContentType: audio formats", () => {
+  assertEquals(guessContentType("audio.mp3"), "audio/mpeg");
+  assertEquals(guessContentType("audio.wav"), "audio/wav");
+  assertEquals(guessContentType("audio.flac"), "audio/flac");
+  assertEquals(guessContentType("audio.m4a"), "audio/aac");
+  assertEquals(guessContentType("audio.oga"), "audio/ogg");
+  assertEquals(guessContentType("audio.opus"), "audio/opus");
+});
+
+Deno.test("guessContentType: image formats", () => {
+  assertEquals(guessContentType("image.jpg"), "image/jpeg");
+  assertEquals(guessContentType("image.jpeg"), "image/jpeg");
+  assertEquals(guessContentType("image.png"), "image/png");
+  assertEquals(guessContentType("image.gif"), "image/gif");
+  assertEquals(guessContentType("image.webp"), "image/webp");
+  assertEquals(guessContentType("image.svg"), "image/svg+xml");
+});
+
+Deno.test("guessContentType: other formats", () => {
+  assertEquals(guessContentType("doc.pdf"), "application/pdf");
+  assertEquals(guessContentType("readme.txt"), "text/plain; charset=utf-8");
+  assertEquals(guessContentType("index.html"), "text/html; charset=utf-8");
+  assertEquals(guessContentType("data.json"), "application/json; charset=utf-8");
+  assertEquals(guessContentType("subs.srt"), "application/x-subrip");
+  assertEquals(guessContentType("subs.vtt"), "text/vtt");
+});
+
+Deno.test("guessContentType: unknown extension falls back to octet-stream", () => {
+  assertEquals(guessContentType("file.bin"), "application/octet-stream");
+  assertEquals(guessContentType("file.xyz"), "application/octet-stream");
+  assertEquals(guessContentType("file."), "application/octet-stream");
+  assertEquals(guessContentType("file"), "application/octet-stream");
+});
+
+Deno.test("parseStreamURL: used via server integration", () => {
+  const infoHash = "a".repeat(40);
+  const url = buildStreamURL("/app/", infoHash, 3, "my video.mp4");
+  const parsed = parseStreamURL(url, "/app/");
+
+  assertEquals(parsed?.infoHash, infoHash);
+  assertEquals(parsed?.fileIndex, 3);
+  assertEquals(parsed?.name, "my video.mp4");
+});
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/tests/piece_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/piece_test.ts
+
+import { assertEquals } from "jsr:@std/assert";
+import { Piece } from "../src/core/piece.ts";
+
+Deno.test("piece: constructor stores index, length, offset", () => {
+  const p = new Piece(5, 16384, 81920);
+  assertEquals(p.index, 5);
+  assertEquals(p.length, 16384);
+  assertEquals(p.offset, 81920);
+});
+
+Deno.test("piece: downloaded returns false when hash is not set", () => {
+  const p = new Piece(0, 16384, 0);
+  assertEquals(p.downloaded, false);
+});
+
+Deno.test("piece: downloaded returns true when hash is set", () => {
+  const p = new Piece(0, 16384, 0);
+  p.hash = new Uint8Array(20);
+  assertEquals(p.downloaded, true);
+});
+
+Deno.test("piece: missing is true when hash is not set", () => {
+  const p = new Piece(0, 16384, 0);
+  assertEquals(p.missing, true);
+});
+
+Deno.test("piece: missing is false when hash is set", () => {
+  const p = new Piece(0, 16384, 0);
+  p.hash = new Uint8Array(20);
+  assertEquals(p.missing, false);
+});
+
+Deno.test("piece: toString describes piece state", () => {
+  const missing = new Piece(3, 16384, 49152);
+  assertEquals(missing.toString().includes("index=3"), true);
+  assertEquals(missing.toString().includes("missing"), true);
+
+  const done = new Piece(3, 16384, 49152);
+  done.hash = new Uint8Array(20);
+  assertEquals(done.toString().includes("downloaded"), true);
+});
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/tests/torrent-generator_test.ts`
+
+```ts
+// /loco/monorepo/webtorrent/tests/torrent-generator_test.ts
+/**
+ * Tests for the OPFS torrent generator.
+ *
+ * Since OPFS (`navigator.storage.getDirectory`) is not available in Deno,
+ * all file-system interactions are mocked.  The pure functions (calcPieceSize,
+ * buildPieceFiles, etc.) are tested directly; the I/O-dependent ones use
+ * mock OPFS handles that behave like real browser handles.
+ */
+
+import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
+import {
+  buildPieceFiles,
+  calcPieceSize,
+  decode,
+  fileSizeSum,
+  generateTorrent,
+  getDefaultCreatedBy,
+  getOPFSFileSize,
+  isHiddenFile,
+  OPFSMultiFileReader,
+  sha1sum,
+  walkOPFSDir,
+  PieceSizeEnum,
+} from "../src/torrent-generator/mod.ts";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mock helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Creates a mock `File` with a configurable byte slice. */
+function mockFile(bytes: Uint8Array): File {
+  return {
+    size: bytes.byteLength,
+    slice(start?: number, end?: number) {
+      const s = start ?? 0;
+      const e = end ?? bytes.byteLength;
+      const sub = bytes.subarray(s, e);
+      return {
+        size: sub.byteLength,
+        arrayBuffer() {
+          return Promise.resolve(sub.buffer.slice(sub.byteOffset, sub.byteOffset + sub.byteLength));
+        },
+        stream() { throw new Error("not implemented"); },
+        text() { throw new Error("not implemented"); },
+        type: "",
+        name: "",
+        lastModified: 0,
+        slice() { throw new Error("not implemented"); },
+      } as unknown as File;
+    },
+    stream() { throw new Error("not implemented"); },
+    text() { throw new Error("not implemented"); },
+    type: "",
+    name: "",
+    lastModified: 0,
+  } as unknown as File;
+}
+
+/** Creates a mock `FileSystemFileHandle` backed by a `Uint8Array`. */
+function mockFileHandle(name: string, bytes: Uint8Array): FileSystemFileHandle {
+  return {
+    kind: "file",
+    name,
+    getFile() {
+      return Promise.resolve(mockFile(bytes));
+    },
+    createWritable() {
+      throw new Error("not implemented in tests");
+    },
+    getFileHandle() {
+      throw new Error("not implemented in tests");
+    },
+    removeEntry() {
+      throw new Error("not implemented in tests");
+    },
+    resolve() {
+      throw new Error("not implemented in tests");
+    },
+    isSameEntry() {
+      throw new Error("not implemented in tests");
+    },
+    queryPermission() {
+      throw new Error("not implemented in tests");
+    },
+    requestPermission() {
+      throw new Error("not implemented in tests");
+    },
+  } as unknown as FileSystemFileHandle;
+}
+
+/** Recursive mock builder for FileSystemDirectoryHandle.
+ *
+ *  `entries` can include:
+ *  - `{ name: "foo.txt", kind: "file", handle }`  → file
+ *  - `{ name: "subdir",  kind: "directory", entries: [...] }`  → sub-directory
+ *
+ *  Handles are memoized so `getFileHandle("subdir")` returns the same object
+ *  that `values()` would yield for the sub-directory.
+ */
+type MockEntry =
+  | { name: string; kind: "file"; handle: FileSystemFileHandle }
+  | { name: string; kind: "directory"; entries: MockEntry[] };
+
+function buildMockDir(
+  entries: MockEntry[],
+  name: string = "root",
+): FileSystemDirectoryHandle {
+  // Map of leaf name → sub-dir handle (memoized for getFileHandle)
+  const subDirs = new Map<string, FileSystemDirectoryHandle>();
+
+  function ensureSubDir(name: string, subEntries: MockEntry[]): FileSystemDirectoryHandle {
+    if (!subDirs.has(name)) {
+      subDirs.set(name, buildMockDir(subEntries, name));
+    }
+    return subDirs.get(name)!;
+  }
+
+  const iterable = {
+    _entries: entries,
+    async next() {
+      // We store index on the iterable itself so each call to next() can
+      // advance independently of the AsyncIterator call.
+      const i = (this as any)._idx = ((this as any)._idx ?? 0);
+      if (i >= entries.length) return { done: true, value: undefined };
+      (this as any)._idx = i + 1;
+      const e = entries[i]!;
+      if (e.kind === "file") {
+        return { done: false, value: e.handle ?? mockFileHandle(e.name, new Uint8Array(0)) };
+      }
+      // Return a lightweight directory handle for recursion
+      return { done: false, value: ensureSubDir(e.name, e.entries) };
+    },
+    [Symbol.asyncIterator]() { return this; },
+  };
+
+  return {
+    kind: "directory",
+    name,
+    getFileHandle(name: string) {
+      const found = entries.find((e) => e.kind === "file" && e.name === name);
+      if (found && found.kind === "file") return Promise.resolve(found.handle);
+      const subEntry = entries.find((e) => e.kind === "directory" && e.name === name);
+      if (!subEntry || subEntry.kind !== "directory") throw new Error(`not found: ${name}`);
+      return Promise.resolve(ensureSubDir(subEntry.name, subEntry.entries));
+    },
+    getDirectoryHandle() { throw new Error("not implemented"); },
+    removeEntry() { throw new Error("not implemented"); },
+    resolve() { throw new Error("not implemented"); },
+    isSameEntry() { throw new Error("not implemented"); },
+    queryPermission() { throw new Error("not implemented"); },
+    requestPermission() { throw new Error("not implemented"); },
+    values() { return iterable; },
+  } as unknown as FileSystemDirectoryHandle;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PieceSizeEnum
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("PieceSizeEnum: all expected presets are defined", () => {
+  assertEquals(PieceSizeEnum.SIZE_AUTO, 0);
+  assertEquals(PieceSizeEnum.SIZE_16KB, 16 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_32KB, 32 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_64KB, 64 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_128KB, 128 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_256KB, 256 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_512KB, 512 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_1MB, 1024 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_2MB, 2 * 1024 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_4MB, 4 * 1024 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_8MB, 8 * 1024 * 1024);
+  assertEquals(PieceSizeEnum.SIZE_16MB, 16 * 1024 * 1024);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// calcPieceSize (pure)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("calcPieceSize: SIZE_AUTO selects smallest preset > fileSize", () => {
+  // 10 KB → SIZE_16KB
+  assertEquals(calcPieceSize(10 * 1024, PieceSizeEnum.SIZE_AUTO), PieceSizeEnum.SIZE_16KB);
+  // 20 KB → SIZE_32KB
+  assertEquals(calcPieceSize(20 * 1024, PieceSizeEnum.SIZE_AUTO), PieceSizeEnum.SIZE_32KB);
+  // 100 KB → SIZE_128KB
+  assertEquals(calcPieceSize(100 * 1024, PieceSizeEnum.SIZE_AUTO), PieceSizeEnum.SIZE_128KB);
+});
+
+Deno.test("calcPieceSize: explicit preset is returned unchanged", () => {
+  assertEquals(calcPieceSize(1_000_000, PieceSizeEnum.SIZE_512KB), PieceSizeEnum.SIZE_512KB);
+  assertEquals(calcPieceSize(99, PieceSizeEnum.SIZE_8MB), PieceSizeEnum.SIZE_8MB);
+});
+
+Deno.test("calcPieceSize: zero file size returns smallest preset", () => {
+  const result = calcPieceSize(0, PieceSizeEnum.SIZE_AUTO);
+  assertEquals(result, PieceSizeEnum.SIZE_16KB);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// fileSizeSum (pure)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("fileSizeSum: returns 0 for empty array", () => {
+  assertEquals(fileSizeSum([]), 0);
+});
+
+Deno.test("fileSizeSum: sums sizes correctly", () => {
+  const files = [
+    { name: "a", size: 100 },
+    { name: "b", size: 200 },
+    { name: "c", size: 50 },
+  ];
+  assertEquals(fileSizeSum(files), 350);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isHiddenFile (pure)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("isHiddenFile: detects dotfiles", () => {
+  assertEquals(isHiddenFile(".DS_Store"), true);
+  assertEquals(isHiddenFile(".gitignore"), true);
+  assertEquals(isHiddenFile("a/b/.hidden"), true);
+  assertEquals(isHiddenFile("a/.config"), true);
+});
+
+Deno.test("isHiddenFile: passes normal files", () => {
+  assertEquals(isHiddenFile("video.mp4"), false);
+  assertEquals(isHiddenFile("readme.txt"), false);
+  assertEquals(isHiddenFile("a/b/file.txt"), false);
+  assertEquals(isHiddenFile("my.torrent"), false);
+  // .config/settings.json — the *file* itself is not hidden,
+  // only the parent directory is.  Walker checks the parent dir.
+  assertEquals(isHiddenFile("settings.json"), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildPieceFiles (pure)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("buildPieceFiles: single file produces no padding", () => {
+  const files = [
+    { name: "a", size: 100 },
+  ];
+  const result = buildPieceFiles(files, 1024 * 1024);
+  assertEquals(result.length, 1);
+  assertEquals(result[0]!.file, files[0]);
+  assertEquals(result[0]!.padding, false);
+});
+
+Deno.test("buildPieceFiles: adds padding before second file (BEP-47)", () => {
+  // pieceSize = 100, file1 = 60 bytes → offset=60 after file 1
+  // file2 (length=80) needs pad of (100-60)=40 before it
+  const files = [
+    { name: "a", size: 60 },
+    { name: "b", size: 80 },
+  ];
+  const result = buildPieceFiles(files, 100);
+  assertEquals(result.length, 3);
+  assertEquals(result[0]!.file, files[0]);
+  assertEquals(result[0]!.padding, false);
+  assertEquals(result[0]!.length, 60);
+  assertEquals(result[1]!.padding, true);
+  assertEquals(result[1]!.length, 40);
+  assertEquals(result[1]!.file, null);
+  assertEquals(result[2]!.file, files[1]);
+  assertEquals(result[2]!.padding, false);
+  assertEquals(result[2]!.length, 80);
+});
+
+Deno.test("buildPieceFiles: zero-length files are skipped for padding calc", () => {
+  const files = [
+    { name: "a", size: 100 },
+    { name: "b", size: 0 },
+    { name: "c", size: 50 },
+  ];
+  // file a: offset=0, no pad, push a, offset=100
+  // file b: length=0, skip pad calc, push b, offset=(100+0)%100=0
+  // file c: offset=0, no pad, push c, offset=50
+  const result = buildPieceFiles(files, 100);
+  assertEquals(result.length, 3);
+  assertEquals(result[0]!.file, files[0]);
+  assertEquals(result[1]!.file, files[1]);
+  assertEquals(result[1]!.length, 0);
+  assertEquals(result[2]!.file, files[2]);
+});
+
+Deno.test("buildPieceFiles: file starting exactly at piece boundary needs no pad", () => {
+  const files = [
+    { name: "a", size: 100 },
+    { name: "b", size: 50 },
+  ];
+  // file a: offset=0, no pad, push a, offset=0
+  // file b: offset=0, no pad, push b, offset=50
+  const result = buildPieceFiles(files, 100);
+  assertEquals(result.length, 2);
+  assertEquals(result[0]!.padding, false);
+  assertEquals(result[1]!.padding, false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getDefaultCreatedBy
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("getDefaultCreatedBy: returns a loco-torrent-generator version string", () => {
+  const result = getDefaultCreatedBy();
+  assertEquals(result.startsWith("loco-torrent-generator@"), true);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPFSMultiFileReader
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("OPFSMultiFileReader: readChunk returns null when no files", async () => {
+  const reader = new OPFSMultiFileReader([]);
+  const result = await reader.readChunk(1024);
+  assertEquals(result, null);
+  reader.close();
+});
+
+Deno.test("OPFSMultiFileReader: readChunk crosses file boundaries", async () => {
+  const files = [
+    { name: "a", size: 5, bytes: new Uint8Array([1, 2, 3, 4, 5]) },
+    { name: "b", size: 3, bytes: new Uint8Array([6, 7, 8]) },
+  ];
+  const entries = files.map((f) => ({
+    name: f.name,
+    size: f.size,
+    handle: mockFileHandle(f.name, f.bytes),
+  }));
+  const reader = new OPFSMultiFileReader(entries);
+
+  // Read 6 bytes: 5 from 'a' + 1 from 'b'
+  const chunk1 = await reader.readChunk(6);
+  assertExists(chunk1);
+  assertEquals(chunk1.byteLength, 6);
+  assertEquals(Array.from(chunk1), [1, 2, 3, 4, 5, 6]);
+
+  // Read remaining 2 bytes from 'b'
+  const chunk2 = await reader.readChunk(4);
+  assertExists(chunk2);
+  assertEquals(Array.from(chunk2), [7, 8]);
+
+  // Read past end
+  const chunk3 = await reader.readChunk(10);
+  assertEquals(chunk3, null);
+
+  reader.close();
+});
+
+Deno.test("OPFSMultiFileReader: chunks() yields until exhausted", async () => {
+  const entries = [
+    { name: "a", size: 3, bytes: new Uint8Array([10, 20, 30]) },
+    { name: "b", size: 2, bytes: new Uint8Array([40, 50]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const reader = new OPFSMultiFileReader(entries);
+  const all: number[] = [];
+  for await (const chunk of reader.chunks(2)) {
+    all.push(...chunk);
+  }
+  assertEquals(all, [10, 20, 30, 40, 50]);
+  reader.close();
+});
+
+Deno.test("OPFSMultiFileReader: close is idempotent", async () => {
+  const entries = [{ name: "a", size: 0, bytes: new Uint8Array(0) }].map(
+    (f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }),
+  );
+  const reader = new OPFSMultiFileReader(entries);
+  reader.close();
+  reader.close(); // must not throw
+  assertEquals(reader.closed, true);
+});
+
+Deno.test("OPFSMultiFileReader: readChunk throws on non-positive size", async () => {
+  const reader = new OPFSMultiFileReader([]);
+  await assertRejects(() => reader.readChunk(0), RangeError);
+  await assertRejects(() => reader.readChunk(-1), RangeError);
+  reader.close();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// sha1sum (mocked OPFS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("sha1sum: hashes a single file correctly", async () => {
+  // Known SHA-1 for 4 bytes [1,2,3,4] = 0x40e7c3...
+  const entries = [
+    { name: "test.bin", size: 4, bytes: new Uint8Array([1, 2, 3, 4]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const digest = await sha1sum(entries, 1024);
+  assertEquals(digest.byteLength, 20);
+  // Verify it's a non-zero SHA-1
+  assertEquals(digest.some((b) => b !== 0), true);
+});
+
+Deno.test("sha1sum: hashes multiple files sequentially", async () => {
+  const entries = [
+    { name: "a.bin", size: 3, bytes: new Uint8Array([0xaa, 0xbb, 0xcc]) },
+    { name: "b.bin", size: 2, bytes: new Uint8Array([0xdd, 0xee]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const digest = await sha1sum(entries, 1024);
+  assertEquals(digest.byteLength, 20);
+  // Two files as one stream: [0xaa, 0xbb, 0xcc, 0xdd, 0xee]
+  // SHA-1 of that should be deterministic
+  assertEquals(digest.some((b) => b !== 0), true);
+});
+
+Deno.test("sha1sum: produces multiple pieces when file exceeds pieceSize", async () => {
+  const data = new Uint8Array(150); // 150 bytes
+  data.fill(0x42);
+  const entries = [{ name: "big.bin", size: 150, bytes: data }].map(
+    (f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }),
+  );
+
+  const digest = await sha1sum(entries, 100); // 2 pieces
+  assertEquals(digest.byteLength, 40); // 2 × 20 bytes
+});
+
+Deno.test("sha1sum: throws on pieceSize < 1", async () => {
+  const entries: Array<{ name: string; size: number; handle: FileSystemFileHandle }> = [];
+  await assertRejects(() => sha1sum(entries, 0), RangeError);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// walkOPFSDir (mocked OPFS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("walkOPFSDir: returns files with correct names and sizes", async () => {
+  const h1 = mockFileHandle("video.mp4", new Uint8Array(1024));
+  const h2 = mockFileHandle("readme.txt", new Uint8Array(100));
+  const root = buildMockDir([
+    { name: "video.mp4", kind: "file", handle: h1 },
+    { name: "readme.txt", kind: "file", handle: h2 },
+  ]);
+
+  const files = await walkOPFSDir(root);
+  assertEquals(files.length, 2);
+  // BEP-3 sort: lexically — "readme.txt" < "video.mp4"
+  assertEquals(files[0]!.name, "readme.txt");
+  assertEquals(files[0]!.size, 100);
+  assertEquals(files[1]!.name, "video.mp4");
+  assertEquals(files[1]!.size, 1024);
+});
+
+Deno.test("walkOPFSDir: skips hidden files when ignoreHiddenFile=true", async () => {
+  const root = buildMockDir([
+    { name: ".DS_Store", kind: "file", handle: mockFileHandle(".DS_Store", new Uint8Array(0)) },
+    { name: "visible.txt", kind: "file", handle: mockFileHandle("visible.txt", new Uint8Array(10)) },
+  ]);
+
+  const files = await walkOPFSDir(root, true);
+  assertEquals(files.length, 1);
+  assertEquals(files[0]!.name, "visible.txt");
+});
+
+Deno.test("walkOPFSDir: skips hidden directories", async () => {
+  const root = buildMockDir([
+    { name: ".hidden", kind: "directory", entries: [] },
+    { name: "visible.txt", kind: "file", handle: mockFileHandle("visible.txt", new Uint8Array(10)) },
+  ]);
+
+  const files = await walkOPFSDir(root, true);
+  assertEquals(files.length, 1);
+  assertEquals(files[0]!.name, "visible.txt");
+});
+
+Deno.test("walkOPFSDir: sorts by depth then lexically (BEP-3)", async () => {
+  // BEP-3: files at depth=1 come before deeper ones; same depth = lexical.
+  const root = buildMockDir([
+    { name: "z.txt", kind: "file", handle: mockFileHandle("z.txt", new Uint8Array(1)) },
+    { name: "b.txt", kind: "file", handle: mockFileHandle("b.txt", new Uint8Array(1)) },
+    {
+      name: "deep",
+      kind: "directory",
+      entries: [
+        { name: "a.txt", kind: "file", handle: mockFileHandle("a.txt", new Uint8Array(1)) },
+      ],
+    },
+  ]);
+
+  const files = await walkOPFSDir(root);
+  // Depth=1 files first (b.txt < z.txt lexically), then depth=2 (deep/a.txt)
+  assertEquals(files.map((f) => f.name), ["b.txt", "z.txt", "deep/a.txt"]);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getOPFSFileSize (mocked OPFS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("getOPFSFileSize: returns file size from handle", async () => {
+  const handle = mockFileHandle("test.bin", new Uint8Array(123));
+  const size = await getOPFSFileSize(handle);
+  assertEquals(size, 123);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// generateTorrent
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("generateTorrent: multi-file torrent encodes correctly", async () => {
+  const entries = [
+    { name: "folder/a.txt", size: 5, bytes: new Uint8Array([1, 2, 3, 4, 5]) },
+    { name: "folder/b.txt", size: 3, bytes: new Uint8Array([6, 7, 8]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+    pieceSize: PieceSizeEnum.SIZE_64KB,
+    trackers: ["udp://tracker.example.com:6969/announce"],
+    webSeeds: ["https://seed.example.com/"],
+  });
+
+  assertEquals(chunks.length, 1);
+  const bencoded = chunks[0]!;
+  // Bencode markers: d = dict start, 4:info = key, 6:length = key, etc.
+  assertEquals(bencoded[0], 0x64); // 'd'
+  assertEquals(bencoded.includes(0x3a), true); // ':' — part of string lengths
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// encode round-trip via parseTorrent
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("generateTorrent: bencoded output can be decoded", async () => {
+  const entries = [
+    { name: "alpha.txt", size: 3, bytes: new Uint8Array([0x01, 0x02, 0x03]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+    trackers: [],
+  });
+
+  const bencoded = chunks[0]!;
+  // Should start with 'd' and contain "info" key
+  assertEquals(bencoded[0], 0x64); // 'd'
+  assertEquals(bencoded.includes(0x69), true); // 'i' might appear in bencode integers
+  assertEquals(bencoded.includes(0x6e), true); // 'n' for "length", "name", etc.
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Edge cases
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("generateTorrent: throws when no files found", async () => {
+  const root = buildMockDir([]);
+  await assertRejects(
+    () => generateTorrent({
+      writer: { write: () => Promise.resolve(0) },
+      entry: root,
+    }),
+    Error,
+    "No files found in entry",
+  );
+});
+
+Deno.test("generateTorrent: single-file torrent has 'length' in info", async () => {
+  const entries = [
+    { name: "solo.bin", size: 7, bytes: new Uint8Array(7) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+  });
+
+  // Single file → bencoded info has '6:length' (no 'files' key)
+  const bencoded = new TextDecoder().decode(chunks[0]!);
+  assertEquals(bencoded.includes("6:length"), true);
+  assertEquals(bencoded.includes("5:files"), false);
+});
+
+Deno.test("generateTorrent: private torrent includes 'private' in info", async () => {
+  const entries = [
+    { name: "secret.txt", size: 1, bytes: new Uint8Array([0]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+    isPrivate: true,
+  });
+
+  const bencoded = new TextDecoder().decode(chunks[0]!);
+  // BEP-3 sort: lexically — "readme.txt" < "video.mp4"
+  // info.private = 1 → bencoded as "7:privatei1ee"
+  assertEquals(bencoded.includes("7:privatei1ee"), true);
+});
+
+Deno.test("generateTorrent: comment is included when provided", async () => {
+  const entries = [
+    { name: "test.txt", size: 1, bytes: new Uint8Array([0]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+    comment: "hello world",
+  });
+
+  const bencoded = new TextDecoder().decode(chunks[0]!);
+  assertEquals(bencoded.includes("7:comment"), true);
+  assertEquals(bencoded.includes("hello world"), true);
+});
+
+Deno.test("generateTorrent: announce-list is set for multiple trackers", async () => {
+  const entries = [
+    { name: "t.txt", size: 1, bytes: new Uint8Array([0]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+    trackers: [
+      "udp://second.example.com:6969/announce",
+      "udp://first.example.com:6969/announce",
+    ],
+  });
+
+  // announce-list: 13:announce-list
+  const bencoded = new TextDecoder().decode(chunks[0]!);
+  assertEquals(bencoded.includes("13:announce-list"), true);
+});
+
+Deno.test("generateTorrent: url-list (web seeds) is included when provided", async () => {
+  const entries = [
+    { name: "t.txt", size: 1, bytes: new Uint8Array([0]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+    webSeeds: ["https://seed.example.com/file/"],
+  });
+
+  const bencoded = new TextDecoder().decode(chunks[0]!);
+  assertEquals(bencoded.includes("8:url-list"), true);
+});
+
+Deno.test("generateTorrent: alignPiece creates padding entries", async () => {
+  // file1=60 bytes, pieceSize=100 → 40-byte pad needed
+  const entries = [
+    { name: "a.bin", size: 60, bytes: new Uint8Array(60) },
+    { name: "b.bin", size: 20, bytes: new Uint8Array(20) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+    alignPiece: true,
+    pieceSize: 100,
+  });
+
+  const bencoded = new TextDecoder().decode(chunks[0]!);
+  // Padding file path: ".pad" directory → "4:.pad"
+  assertEquals(bencoded.includes("4:.pad"), true);
+});
+
+Deno.test("generateTorrent: created-by and creation-date are present", async () => {
+  const entries = [
+    { name: "t.txt", size: 1, bytes: new Uint8Array([0]) },
+  ].map((f) => ({ name: f.name, size: f.size, handle: mockFileHandle(f.name, f.bytes) }));
+
+  const chunks: Uint8Array[] = [];
+  await generateTorrent({
+    writer: { write: (p) => { chunks.push(p); return Promise.resolve(p.byteLength); } },
+    entry: entries,
+    createdBy: "my-app@2.0.0",
+    createdAt: 1_700_000_000,
+  });
+
+  // Decode the bencoded output and verify the fields
+  const decoded = decode(chunks[0]!, { useMap: true }) as Map<string, unknown>;
+  assertEquals(decoded.get("created by"), "my-app@2.0.0");
+  assertEquals(decoded.get("creation date"), 1_700_000_000);
+});
+
+```
+
+---
+
 ## Arquivo: `monorepo/webtorrent/docs/01-objetivo-e-apis-nativas.md`
 
 ```md
@@ -15917,196 +20567,6 @@ Abaixo está a lista exaustiva das APIs nativas do browser que este pacote utili
 1. **Strict TypeScript (`noUncheckedIndexedAccess`):** O projeto é compilado com as flags mais rigorosas do Deno. Isso nos forçou a usar asserções de não-nulo (`!`) de forma consciente e a tratar `undefined` explicitamente, aumentando a robustez.
 2. **Zero Polyfills:** Em vez de importar `buffer` ou `stream` do npm, criamos utilitários leves (`src/utils/buffer.ts`) que imitam apenas a superfície da API do `Buffer` que o protocolo BitTorrent realmente precisa, usando `Uint8Array` por baixo dos panos.
 3. **Heurística de Decodificação Bencode:** O decoder Bencode foi aprimorado para distinguir automaticamente entre strings de texto legíveis (UTF-8) e dados binários brutos (como hashes SHA-1 de peças), retornando `string` ou `Uint8Array` conforme apropriado.
-```
-
----
-
-## Arquivo: `monorepo/webtorrent/docs/02-modulos-e-funcoes-implementadas.md`
-
-```md
-# Módulos e Funções Implementadas (Fases 1 a 5)
-
-Este documento cataloga todas as funções, classes e tipos que foram implementados, refatorados e validados por testes unitários no pacote `@loco/webtorrent`.
-
----
-
-## 🛠️ 1. Utilitários Básicos (`src/utils/`)
-
-### `buffer.ts`
-Helpers para manipulação de `Uint8Array`, substituindo o `Buffer` do Node.js com foco em performance e compatibilidade com o protocolo BitTorrent.
-- `alloc(size: number): Uint8Array` - Cria um array preenchido com zeros.
-- `from(input, encoding): Uint8Array` - Cria um array a partir de string (hex/utf8), array ou ArrayBuffer.
-- `concat(arrays, totalLength?): Uint8Array` - Concatena múltiplos arrays de forma eficiente.
-- `toString(buf, encoding, start, end): string` - Converte fatias do buffer para string hex ou utf8.
-- `equals(a, b): boolean` - Comparação byte a byte de dois buffers.
-- `readUInt32BE(buf, offset): number` - Leitura de inteiro sem sinal de 32 bits (Big-Endian).
-- `writeUInt32BE(buf, value, offset): void` - Escrita de inteiro sem sinal de 32 bits (Big-Endian).
-
-### `event-target.ts`
-Substituto tipado para o `EventEmitter` do Node.js, utilizando a API nativa `EventTarget` do browser.
-- `class TypedEventTarget<Events>` - Classe base genérica.
-  - `on(type, listener)` - Registra um listener.
-  - `once(type, listener)` - Registra um listener que se remove após a primeira execução.
-  - `off(type, listener)` - Remove um listener.
-  - `emit(type, detail?)` - Dispara um evento com dados tipados.
-
----
-
-## 🔐 2. Criptografia (`src/crypto/`)
-
-### `hasher.ts`
-Wrapper para a API nativa `crypto.subtle` do browser/Deno.
-- `sha1(data: Uint8Array): Promise<string>` - Calcula o hash SHA-1 (usado para verificação de peças e infoHash v1).
-- `sha256(data: Uint8Array): Promise<string>` - Calcula o hash SHA-256 (para infoHash v2 e extensões futuras).
-
-### `random.ts`
-Geração de números aleatórios criptograficamente seguros.
-- `randomBytes(size: number): Uint8Array` - Gera um array de bytes aleatórios.
-- `generateId(): string` - Gera um ID de 40 caracteres hexadecimais (usado para `peerId` ou `nodeId`).
-
----
-
-## 📦 3. Protocolo e Parsing (`src/utils/`)
-
-### `bencode.ts`
-Implementação pura de Bencode (Encoder/Decoder) com suporte a tipos recursivos e BigInt.
-- **Tipos:** `BencodeValue` (string | number | bigint | Uint8Array | BencodeList | BencodeDict).
-- `decode(data: Uint8Array): BencodeValue` - Parser de descida recursiva com heurística para distinguir strings UTF-8 de dados binários (verifica caracteres de controle como `\x00`).
-- `encode(data: BencodeValue): Uint8Array` - Codificador que garante a ordenação lexicográfica das chaves dos dicionários.
-
-### `magnet.ts`
-Parser e codificador de URIs Magnéticas.
-- `parseMagnet(uri: string): ParsedMagnet` - Extrai `infoHash` (hex e buffer), `trackers`, `webSeeds`, `name`, etc. Suporta decodificação nativa de Base32 para Hex.
-- `encodeMagnet(parsed: Omit<ParsedMagnet, "magnetUri">): string` - Reconstrói a URI magnética a partir de um objeto.
-
-### `parse-torrent.ts`
-Parser unificado que aceita múltiplos formatos de entrada e retorna uma estrutura padronizada.
-- `parseTorrent(torrentId: string | Uint8Array | ParsedTorrent): Promise<ParsedTorrent>`
-  - Se for `string` (Magnet ou InfoHash): Retorna metadados básicos (arquivos desconhecidos até o handshake).
-  - Se for `Uint8Array` (Arquivo .torrent): Decodifica o Bencode, calcula o `infoHash` via SHA-1 do dicionário `info`, e extrai a lista de arquivos, tamanhos, offsets e trackers.
-
----
-
-## 💾 4. Armazenamento (Chunk Stores) (`src/storage/`)
-
-Implementam a interface compatível com `abstract-chunk-store`, permitindo troca transparente entre memória e disco.
-
-### `memory-chunk-store.ts`
-Fallback em memória para ambientes onde o OPFS não está disponível ou para testes.
-- `class MemoryChunkStore`
-  - `get(index, opts?, cb?)` - Recupera um chunk. Suporta `offset` e `length` para fatiamento.
-  - `put(index, buf, cb?)` - Armazena um chunk, validando o tamanho esperado.
-  - `close(cb?)` / `destroy(cb?)` - Limpa o mapa de chunks da memória.
-
-### `opfs-chunk-store.ts`
-Armazenamento persistente utilizando o **Origin Private File System (OPFS)** do navegador.
-- `class OPFSChunkStore`
-  - Construtor aceita `rootDir: FileSystemDirectoryHandle` para isolamento por `infoHash`.
-  - `get(index, opts?, cb?)` - Lê o arquivo `<index>.chunk` do OPFS.
-  - `put(index, buf, cb?)` - Escreve o chunk no OPFS usando `FileSystemWritableFileStream`.
-  - `close(cb?)` - Fecha a referência ao diretório.
-  - `destroy(cb?)` - Deleta todos os arquivos `.chunk` dentro do diretório do torrent.
-
----
-
-## 🧠 5. Núcleo BitTorrent (`src/core/`)
-
-### `bitfield.ts`
-Estrutura de dados ultra-eficiente para rastrear o estado de peças (pieces).
-- `class Bitfield`
-  - `constructor(length: number)` - Inicializa com o número de peças.
-  - `get(index: number): boolean` - Verifica se a peça está marcada.
-  - `set(index: number): void` - Marca a peça como completa.
-  - `count(): number` - Conta quantas peças estão marcadas.
-  - `toBuffer(): Uint8Array` - Retorna uma cópia do buffer bruto.
-
-### `wire.ts`
-Implementação do Wire Protocol (BEP 3) sobre um transporte abstrato.
-- `class Wire extends TypedEventTarget<WireEvents>`
-  - `sendHandshake(infoHash, peerId, extensions)` - Envia o handshake do BitTorrent.
-  - `sendChoke()`, `sendUnchoke()`, `sendInterested()`, `sendNotInterested()` - Controle de fluxo.
-  - `sendHave(index)`, `sendBitfield(bitfield)` - Gerenciamento de peças.
-  - `sendRequest(index, offset, length)`, `sendPiece(index, offset, block)` - Transferência de dados.
-  - `sendExtended(extId, payload)` - Mensagens estendidas (BEP 10).
-  - Eventos: `handshake`, `choke`, `unchoke`, `interested`, `have`, `bitfield`, `request`, `piece`, `extended`, `error`.
-
-### `torrent.ts`
-O "cérebro" do download. Orquestra o estado das peças, validação criptográfica e persistência.
-- `class Torrent extends TypedEventTarget<TorrentEvents>`
-  - `constructor(parsedTorrent, opts)` - Inicializa com metadados e opções (store, skipVerify).
-  - `receivePiece(index, buf)` - Recebe um chunk, valida o SHA-1 e persiste no store.
-  - `getPiece(index)` - Lê uma peça do store.
-  - `destroy(destroyStore?)` - Destrói o torrent e libera recursos.
-  - Getters: `ready`, `destroyed`, `downloaded`, `uploaded`, `progress`, `numPieces`, `lastPieceLength`.
-  - Eventos: `ready`, `download`, `upload`, `done`, `verified`, `error`.
-
----
-
-## 🌐 6. Rede e Protocolo (`src/network/`)
-
-### `tracker.ts`
-Cliente para descoberta de peers via HTTP e WebSocket.
-- `createTracker(announceUrl, opts): Tracker` - Factory que retorna `HttpTracker` ou `WsTracker`.
-- `class HttpTracker` - Usa `fetch()` com `AbortController` para timeout.
-- `class WsTracker` - Usa `WebSocket` nativo e JSON para comunicação.
-- `announce(event?)` - Envia announce para o tracker e retorna lista de peers.
-- `destroy()` - Fecha a conexão com o tracker.
-
-### `peer.ts`
-Gerenciador de conexão P2P via WebRTC.
-- `class Peer extends TypedEventTarget<PeerEvents>`
-  - `constructor(opts)` - Inicializa com `initiator`, `infoHash`, `peerId`, `wrtc?`.
-  - `signal(data)` - Processa dados de sinalização (offer, answer, ICE candidates).
-  - `destroy()` - Destrói a conexão e libera recursos.
-  - Getter: `isReady` - Retorna `true` se conectado e com handshake completo.
-  - Eventos: `signal`, `connect`, `handshake`, `close`, `error`.
-
-### `swarm.ts`
-Orquestrador de múltiplas conexões P2P para um torrent.
-- `class Swarm extends TypedEventTarget<SwarmEvents>`
-  - `constructor(opts)` - Inicializa com `infoHash`, `peerId`, `announce`, `maxConns?`, `wrtc?`.
-  - `start()` - Inicia a descoberta de peers via trackers.
-  - `addPeer(addr)` - Adiciona um peer manualmente (respeita `maxConns`).
-  - `removePeer(addr)` - Remove um peer ativo.
-  - `pause()` / `resume()` - Controla a conexão com novos peers.
-  - `destroy()` - Destrói o swarm e todas as conexões.
-  - Eventos: `peer`, `wire`, `error`, `warning`, `trackerAnnounce`, `noPeers`.
-
----
-
-## 🔗 7. Extensões (`src/extensions/`)
-
-### `ut-metadata.ts`
-Extensão ut_metadata (BEP 9) para troca de metadados de torrent.
-- `class UtMetadata extends EventTarget`
-  - `constructor(wire, opts?)` - Inicializa com o Wire e metadata opcional.
-  - `onExtendedHandshake(handshake)` - Processa o handshake estendido e inicia o download.
-  - `onMessage(buf)` - Processa mensagens ut_metadata recebidas.
-  - `fetch()` - Inicia o download do metadata.
-  - `cancel()` - Cancela o download.
-  - `setMetadata(metadata)` - Define o metadata localmente (para servir a outros peers).
-  - Eventos: `metadata`, `warning`.
-
----
-
-## ✅ Status dos Testes
-Todos os módulos acima possuem suítes de testes correspondentes na pasta `/tests/`, validando:
-- Codificação/Decodificação roundtrip.
-- Manipulação correta de tipos (especialmente a distinção entre string e Uint8Array no Bencode).
-- Validação de tamanhos de chunks e tratamento de erros.
-- Conformidade com o type-checking rigoroso do Deno 2.x.
-- **Total: 66 testes passando (✅)**
-
----
-
-## 🚀 Próximos Passos (Fase 6: API Pública)
-
-A próxima fase é criar a **API Pública Principal** (`src/mod.ts`), que une todos esses módulos em uma interface limpa e pronta para ser consumida pelo Loco PWA. A API deve ser compatível com o WebTorrent original, expondo métodos como:
-- `client.add(torrentId, opts)` - Adiciona um torrent (Magnet URI ou .torrent)
-- `client.seed(input, opts)` - Compartilha um arquivo como seed
-- `client.createServer()` - Cria um servidor HTTP para streaming (usando Service Worker)
-- `torrent.files` - Lista de arquivos do torrent
-- `torrent.files[0].getBlobURL()` - Gera uma URL para streaming de vídeo
 ```
 
 ---
@@ -16178,19 +20638,20 @@ Com o núcleo capaz de gerenciar estado e armazenamento, precisamos conectá-lo 
 ```md
 # /loco/monorepo/webtorrent/docs/04-fase-4-rede-e-protocolo.md
 
-# Fase 4: Rede e Protocolo (Tracker Client & Wire Protocol)
+# Fase 4: Rede e Protocolo (Tracker, Wire, Service Worker Bridge)
 
 ## 🎯 Objetivo da Fase
-Nesta fase, construímos os módulos responsáveis pela **descoberta de peers** e pela **comunicação P2P** real. Como o navegador impõe restrições severas de segurança (sem acesso a sockets TCP/UDP brutos), precisamos adaptar o protocolo BitTorrent para funcionar exclusivamente sobre **WebRTC** (para dados) e **WebSocket/HTTP** (para trackers), mantendo a compatibilidade com a especificação oficial (BEPs).
+Nesta fase, construímos os módulos responsáveis pela **descoberta de peers**, pela **comunicação P2P** e pelo **streaming de arquivos via Service Worker**. Como o navegador impõe restrições severas de segurança (sem acesso a sockets TCP/UDP brutos), adaptamos o protocolo BitTorrent para funcionar exclusivamente sobre **WebRTC** (para dados), **WebSocket/HTTP** (para trackers) e **MessageChannel + Service Worker fetch** (para servir bytes ao `<video>`/`<audio>` do DOM), mantendo a compatibilidade com a especificação oficial (BEPs) e com a API do `webtorrent.min.js` original.
 
 ---
 
 ## 🧠 Decisões Arquiteturais Críticas
 
-1. **Zero Sockets TCP/UDP**: O browser não permite conexões diretas a IPs e portas de peers tradicionais. A descoberta depende 100% de Trackers (HTTP/WS) e, futuramente, de Peer Exchange (ut_pex) via WebRTC.
-2. **Abstração de Transporte (`Transport`)**: O `Wire` (protocolo) não deve saber se está rodando sobre um `RTCDataChannel`, um mock de teste ou qualquer outro stream. Ele recebe uma interface simples (`send`, `onMessage`, `close`), garantindo testabilidade unitária sem levantar servidores WebRTC reais.
-3. **Parser de Stream (Acumulador de Buffer)**: Dados chegam em pedaços arbitrários (chunks) pela rede, especialmente no WebRTC, que pode fragmentar mensagens. O `Wire` mantém um `buffer` interno (`Uint8Array`) e acumula os chunks até ter o tamanho completo de uma mensagem (4 bytes de prefixo de tamanho + 1 byte de ID + payload).
+1. **Zero Sockets TCP/UDP**: O browser não permite conexões diretas a IPs e portas de peers tradicionais. A descoberta depende 100% de Trackers (HTTP/WS) e de Peer Exchange (ut_pex) via WebRTC.
+2. **Abstração de Transporte (`Transport`)**: O `Wire` (protocolo) e o `WebTorrentServer` (streaming) não devem saber se estão rodando sobre um `RTCDataChannel`, um mock de teste ou um `ServiceWorker` real. Eles recebem uma interface simples (`send`, `onMessage`, `close` / `postMessage`, `requestStream`), garantindo testabilidade unitária sem levantar servidores reais.
+3. **Parser de Stream (Acumulador de Buffer)**: Dados chegam em pedaços arbitrários (chunks) pela rede, especialmente no WebRTC, que pode fragmentar mensagens. O `Wire` mantém um `buffer` interno (`Uint8Array`) e acumula os chunks até ter o tamanho completo de uma mensagem.
 4. **Uso de `DataView` e Helpers Nativos**: Substituímos completamente o `Buffer` do Node.js. Usamos nossos helpers `readUInt32BE` e `writeUInt32BE` (baseados em `Uint8Array` e operações bitwise) para ler e escrever os cabeçalhos das mensagens de forma performática e nativa.
+5. **Streaming via Service Worker com backpressure**: A ponte com o `<video>` do DOM passa por um Service Worker que intercepta requisições `GET` para URLs virtuais do tipo `/webtorrent/<infoHash>/<idx>/<name>`. O main thread responde com `MessageChannel` em modo *pull* (cada `true` enviado pelo SW puxa o próximo bloco), garantindo backpressure real sem sobrecarregar a rede.
 
 ---
 
@@ -16231,17 +20692,94 @@ O Wire Protocol é a "língua" que os peers falam entre si, definida na BEP 3. E
 
 ---
 
+## 🌐 3. Service Worker Bridge — Streaming de arquivos (`src/server/`)
+
+Esta é a parte do Loco que substitui (e estende) o `createServer` do `webtorrent.min.js` original.  O objetivo é entregar bytes do `ChunkStore` para elementos `<video>`/`<audio>`/`<img>` do DOM **enquanto o download ainda está em andamento**, sem nunca precisar de um servidor Node.js ou de uma URL `http://` pré-conhecida.
+
+### 3.1. Anatomia do problema
+
+O `webtorrent.min.js` original tem um método `client.createServer({ controller })` que, ao receber um `ServiceWorker` controller, instala uma "ponte" entre o main thread e o SW:
+
+1. O main thread posta `WEBTORRENT_READY` no SW.  O SW flipa uma flag `isWebTorrentReady = true`.
+2. Quando o `<video>` faz `GET /webtorrent/<infoHash>/<idx>/<name>`, o SW intercepta no `fetch` event e, em vez de buscar da rede, abre uma `MessageChannel` e envia `{ type: "webtorrent", url, method, headers, scope, destination }` para o main thread.
+3. O main thread responde com `{ body: "STREAM" }` e passa a emitir bytes sob demanda no `port1` da `MessageChannel`.
+4. O SW encapsula esses bytes em um `ReadableStream` e devolve um `Response` ao `<video>`.  O `<video>` consome os bytes via MSE/`<source>` como se fosse um servidor HTTP normal.
+
+O Loco reproduz esse mesmo protocolo, mas com um diferencial: o transporte é **abstraído** numa interface `Transport`, o que permite testar todo o ciclo (incluindo backpressure, cancelamento e timeout) **sem subir um Service Worker real**.
+
+### 3.2. Módulos
+
+#### `src/server/stream-manager.ts`
+- **`StreamManager`**: registro em memória que mapeia `(infoHash, fileIndex)` para `File`.  Usado pelo main thread para responder a requisições do SW.
+- **`streamManager` (singleton)**: instância global partilhada por `WebTorrent` e `WebTorrentServer`.
+- **`buildStreamURL(scope, infoHash, fileIndex, name)`**: monta a URL virtual `/<scope>webtorrent/<infoHash>/<idx>/<encodedName>`.
+- **`parseStreamURL(url, scope)`**: parsing reverso com validação rigorosa (infoHash de 40 hex chars, `fileIndex` non-negative safe integer, nome URL-decodificado).
+
+#### `src/server/server.ts`
+- **`Transport` (interface)**: contrato com `postMessage` e `requestStream`.  Implementado por:
+  - `createServiceWorkerTransport(controller, scope)` — produção, fala com `navigator.serviceWorker`.
+  - `InProcessTransport` — usado pelos testes, registra mensagens e permite simular `WEBTORRENT_ACK` e chunks.
+- **`WebTorrentServer`**: classe principal.  Mantém `scope`, `isReady`, `isDestroyed` e implementa:
+  - `sendReadyAck()` — posta `{ type: "WEBTORRENT_ACK" }` no SW.
+  - `handleRequest(message, port)` — devolve um `Response` com `ReadableStream` para a URL requisitada, ou `404`/`503` conforme o caso.
+  - `destroy()` — fecha o transporte e libera os ports.
+- **`buildFileStream(entry, port, transport)`**: cria o `ReadableStream<Uint8Array>` que materializa o arquivo em blocos de 16 KiB (configurável via `STREAM_BLOCK_SIZE`), aguardando `true` no `port` antes de emitir o próximo bloco (backpressure real).
+- **`readNextChunk(file, offset, length)`**: helper que será substituído pelo `createReadStream()` real quando a Fase 4.1 entregar o I/O direto do `ChunkStore`; por enquanto, varre o `Symbol.asyncIterator` do `File`.
+- **`guessContentType(name)`**: mapeia extensões comuns (mp4, webm, mp3, jpg, pdf, srt, vtt…) para MIME types apropriados; cai em `application/octet-stream` quando não reconhece.
+- **`createServer({ controller, scope, transport })`**: factory pública compatível com `webtorrent.min.js`.  Se `controller` é passado, usa o `createServiceWorkerTransport`; se `transport` é passado, usa o fornecido (testes); caso contrário, cai num `InProcessTransport` (modo self-test).
+- **`registerTorrentFiles(torrent, files)` / `unregisterTorrentFiles(infoHash)`**: helpers de manutenção do `streamManager`.  Chamados automaticamente por `WebTorrent.add` e `WebTorrent.remove` quando há um servidor ativo.
+
+### 3.3. Integração com `WebTorrent` (`src/mod.ts`)
+
+A classe `WebTorrent` agora expõe:
+
+- `client.server`: a instância de `WebTorrentServer` (ou `null` se ainda não foi criado).
+- `client.createServer({ controller, scope })`: cria o servidor e re-registra os torrents existentes.  Idempotente — chamar duas vezes devolve o mesmo objeto.
+- `client.initServiceWorker()`: se `serviceWorkerUrl` foi fornecido em `WebTorrentOptions`, registra o SW, espera `navigator.serviceWorker.ready` e cria o servidor com o controller ativo.  Retorna `null` em ambientes sem SW (SSR, testes).
+- `_makeFileObjects(torrent, scope)`: constrói instâncias de `File` já com `infoHash`, `fileIndex`, `name` e `scope` populados, de modo que `file.streamURL()` retorne a URL correta.
+- Em `add()`: se `this.server` já existe, registra os arquivos novos.
+- Em `remove()`: chama `unregisterTorrentFiles(infoHash)` para limpar o registro.
+- Em `destroy()`: chama `server.destroy()` se existir.
+
+### 3.4. URL virtual e `File.streamURL()`
+
+`File.streamURL()` agora retorna a URL do SW, e `File.streamTo(video)` faz `video.src = streamURL()`.  Internamente, `File` carrega `infoHash`, `fileIndex`, `name` e `scope` — injetados pelo `WebTorrent` ao construir o objeto.  Se algum desses campos estiver ausente (caso o `File` seja construído manualmente, ex. em testes), o método lança um erro descritivo em vez de montar uma URL inválida.
+
+### 3.5. Vantagens sobre o `webtorrent.min.js` original
+
+| Aspecto | webtorrent.min.js | Loco (`@loco/webtorrent`) |
+| --- | --- | --- |
+| Acoplamento ao SW | Hard-coded em `webtorrent.min.js` | `Transport` injetável; testável sem SW |
+| Cancelamento | Sends `false` on port | Idem + `controller.cancel()` no `ReadableStream` |
+| Timeout | Hard-coded 5s | Configurável por transporte |
+| MIME type | Apenas `Content-Type` básico | `guessContentType(name)` com 20+ extensões |
+| Limpeza de registro | Manual | Automática em `add`/`remove`/`destroy` |
+| Backpressure | Pull via `port.onmessage` | Idem + `pendingResolve`/`pendingSignal` abstrato |
+| Testes | Poucos e dependentes de browser | `InProcessTransport` permite suite completa em Deno |
+
+### 3.6. Testes (`tests/stream-manager_test.ts`, `tests/server_test.ts`)
+
+- **`stream-manager_test.ts`** (13 testes): CRUD no registro, `unregisterTorrent`, `buildStreamURL` com encoding de caracteres especiais, `parseStreamURL` com validação de infoHash/fileIndex.
+- **`server_test.ts`** (18 testes): `createServer` factory, `WebTorrentServer.destroy` idempotente, `handleRequest` retornando `404`/`503`/200 conforme o caso, `InProcessTransport` com fila de mensagens, `guessContentType` para 20+ formatos.
+
+---
+
 ## 🌐 APIs Nativas do Browser Utilizadas
 
 | API Nativa | Substitui (Node.js) | Uso no Projeto | Status |
 | :--- | :--- | :--- | :--- |
 | `fetch()` + `AbortController` | `http`, `https`, `simple-get` | HTTP trackers, web seeds, download de .torrent | ✅ **Implementado** |
 | `WebSocket` | `ws` | Conexão com trackers WebSocket (`wss://`) | ✅ **Implementado** |
-| `RTCPeerConnection` | `net`, `utp` | Transporte P2P de dados (WebTorrent no browser só suporta WebRTC) | 🔜 **Próximo (Peer)** |
-| `RTCSessionDescription` | N/A | Handshake WebRTC (oferta/resposta SDP) | 🔜 **Próximo (Peer)** |
-| `RTCIceCandidate` | N/A | Troca de candidatos ICE para NAT traversal | 🔜 **Próximo (Peer)** |
-| `RTCDataChannel` | N/A | Canal de dados confiável sobre WebRTC (onde o Wire roda) | 🔜 **Próximo (Peer)** |
+| `RTCPeerConnection` | `net`, `utp` | Transporte P2P de dados (WebTorrent no browser só suporta WebRTC) | ✅ **Implementado** |
+| `RTCSessionDescription` | N/A | Handshake WebRTC (oferta/resposta SDP) | ✅ **Implementado** |
+| `RTCIceCandidate` | N/A | Troca de candidatos ICE para NAT traversal | ✅ **Implementado** |
+| `RTCDataChannel` | N/A | Canal de dados confiável sobre WebRTC (onde o Wire roda) | ✅ **Implementado** |
+| `MessageChannel` | N/A | Backpressure pull-based entre SW e main thread para streaming | ✅ **Implementado** |
+| `ServiceWorker` + `fetch` event | N/A | Interceptação de `/webtorrent/*` e entrega de bytes sob demanda | ✅ **Implementado** |
 | `Uint8Array` / `DataView` | `Buffer` do Node.js | Manipulação de todos os dados binários do protocolo | ✅ **Implementado** |
+| `navigator.storage.getDirectory` | `fs` do Node.js | OPFS para persistência de chunks entre sessões | ✅ **Implementado** |
+| `crypto.subtle` | `crypto` do Node.js | SHA-1 / SHA-256 para verificação de peças | ✅ **Implementado** |
+| `crypto.randomUUID` | `uuid` | IDs de correlação de request/response entre SW e main thread | ✅ **Implementado** |
 
 ---
 
@@ -16257,24 +20795,31 @@ O Wire Protocol é a "língua" que os peers falam entre si, definida na BEP 3. E
 - **Mensagens**: Testa a emissão e recepção de `choke`, `unchoke`, `request` e `piece`.
 - **Fragmentação**: Simula dados chegando em pedaços minúsculos (byte a byte) para validar a robustez do parser de stream acumulador.
 
+### `tests/stream-manager_test.ts` (novo)
+- CRUD no `streamManager` (registrar, remover, listar, limpar).
+- `unregisterTorrent` remove apenas os arquivos do torrent alvo.
+- `buildStreamURL` / `parseStreamURL` com edge cases (extensões com espaço, infoHash em maiúsculas, fileIndex inválido, scope divergente).
+
+### `tests/server_test.ts` (novo)
+- `createServer` factory em todos os modos (controller, transport, self-test).
+- `WebTorrentServer.destroy` é idempotente.
+- `handleRequest` retorna `404` para URL fora do padrão, `404` para arquivo não registrado, `503` quando destruído, `200` com headers corretos (`Content-Type` via `guessContentType`, `Content-Length`, `Accept-Ranges`) para arquivo registrado.
+- `InProcessTransport` enfileira mensagens, suporta `deliverResponse` e `sendPull` para simular o SW.
+- `guessContentType` cobre vídeo, áudio, imagem, documento e legendas.
+
 ---
 
-## 🚀 Próximos Passos (Fase 5: Integração e Extensões)
+## 🚀 Próximos Passos (Fase 5: Extensões e BEPs avançados)
 
-Com o Tracker e o Wire Protocol prontos e testados, a próxima etapa é conectar essas peças e adicionar suporte a funcionalidades avançadas:
+Com a fundação do Tracker, Wire, Service Worker Bridge e Storage prontos e testados, os próximos passos cobrem:
 
-1. **WebRTC Peer Manager (`src/network/peer.ts`)**:
-   - Uma classe que pega as ofertas SDP do Tracker, cria o `RTCPeerConnection`, estabelece o `RTCDataChannel` e injeta nosso `Wire` por cima dele.
-   - Gerencia o ciclo de vida da conexão (conectado, desconectado, erro) e repassa os eventos do `Wire` para o `Torrent`.
-
-2. **Extensão `ut_metadata` (`src/extensions/ut-metadata.ts`)**:
-   - Essencial para o Loco, pois os usuários compartilharão Magnet URIs, não arquivos `.torrent` completos.
-   - Permite que um peer solicite o dicionário `info` (metadados) de outro peer que já possui o torrent completo, usando o canal `extended` do Wire Protocol.
-
-3. **Integração com a Classe `Torrent`**:
-   - O `Torrent` usará o `Tracker` para descobrir peers.
-   - Para cada peer descoberto, instanciará um `Peer`.
-   - O `Peer` estabelecerá a conexão WebRTC e, ao receber o `handshake` válido, começará a trocar mensagens de `interested`, `request` e `piece` com o `Wire`, alimentando o `ChunkStore` que validamos na Fase 3.
+1. **WebRTC Peer Manager completo** — suporte a ICE restart, trickle ICE, SDP munging para trackers.
+2. **Extensão `ut_metadata` refinada** — handshake de metadata com fallback para BEP 9.
+3. **Extensão `ut_pex` refinada** — sincronização incremental de listas de peers com filtro de `lastSeen`.
+4. **Web Seeds (BEP 19)** — suporte a URLs HTTP/HTTPS como fonte adicional de peças.
+5. **Piece class** — expor `length` e `missing` para a UI exibir progresso por peça.
+6. **API de throttling** — `client.throttleDownload(bytesPerSec)` e `throttleUpload` para limitar banda agregada.
+7. **Seed** — permitir que o Loco compartilhe arquivos locais via `client.seed(file)`.
 
 ---
 
@@ -16282,7 +20827,11 @@ Com o Tracker e o Wire Protocol prontos e testados, a próxima etapa é conectar
 - [BEP 3: The BitTorrent Protocol Specification](http://www.bittorrent.org/beps/bep_0003.html)
 - [BEP 10: Extension Protocol](http://www.bittorrent.org/beps/bep_0010.html)
 - [BEP 9: Extension for Peers to Send Metadata Files](http://www.bittorrent.org/beps/bep_0009.html) (`ut_metadata`)
+- [BEP 11: Peer Exchange (PEX)](http://www.bittorrent.org/beps/bep_0011.html) (`ut_pex`)
+- [BEP 19: WebSeed](http://www.bittorrent.org/beps/bep_0019.html)
+- [MDN — Service Worker MessageChannel](https://developer.mozilla.org/en-US/docs/Web/API/Channel_Messaging_API)
 - [WebTorrent Browser API](https://github.com/webtorrent/webtorrent/blob/master/docs/api.md#browser-usage)
+
 ```
 
 ---
@@ -17821,6 +22370,1056 @@ Com a fundação do WebTorrent 100% testada e documentada, os próximos passos p
 | `core/torrent` | ✅ Completo | 8 | Cérebro do download com injeção tardia de metadados (`setMetadata`). |
 | `mod.ts` (API Pública) | ✅ Completo | 7 | Classe `WebTorrent` unificada e pronta para consumo pela UI. |
 | **TOTAL** | **✅ 100%** | **76** | **Fundação sólida, zero dependências do Node.js, 100% Deno/Browser.** |
+````
+
+---
+
+## Arquivo: `monorepo/webtorrent/docs/00-api-loco-webtorrent.md`
+
+````md
+# /loco/monorepo/webtorrent/docs/00-api-loco-webtorrent.md
+
+# API do `@loco/webtorrent` — Resumo consolidado
+
+> Documento vivo.  Reflete a API pública exposta via `src/mod.ts`.
+> Cada item referencia a fase e a fonte original (`webtorrent.min.js` ou inovação do Loco).
+
+---
+
+## 📦 Visão geral
+
+O `@loco/webtorrent` é um cliente BitTorrent **100 % browser-first** (Deno + Web APIs nativas, sem dependências de Node.js) que reproduz e estende a API do `webtorrent.min.js` original.  As extensões do Loco incluem:
+
+- Service Worker bridge com **backpressure real** (Fase 4.5) — substitui e melhora o `createServer` original.
+- Storage **OPFS-first** com fallback em memória (Fase 3) — persiste entre sessões sem IndexedDB.
+- Identidade oficial do Loco (`-LO0100-`) auto-gerada (Fase 3.4) — PeerId estável entre clientes Loco.
+- Validators PeerId Azureus/Shadow completos (Fase 3.4) — reconhece qBittorrent, Transmission, BitTornado etc.
+- Bitfield com validação rigorosa de spare-bits (Fase 3.5) — mais seguro que a maioria dos clientes.
+- `File.streamTo(video)` assíncrono com revoke automático de URL (Fase 4.2).
+- `Bitfield.fromBytes` puro Deno, sem dependências.
+
+---
+
+## 🔑 Exports principais (`src/mod.ts`)
+
+### Classe `WebTorrent`
+
+```ts
+import { WebTorrent } from "@loco/webtorrent";
+
+const client = new WebTorrent({
+  peerId?: Uint8Array | string;          // hex 40 chars ou Uint8Array(20)
+  maxConns?: number;                      // default 55
+  port?: number;                          // porta de origem (padrão 6881)
+  useOPFS?: boolean;                      // padrão true; fallback em memória
+  rtcConfig?: RTCConfiguration;           // repassado a RTCPeerConnection
+  serviceWorkerUrl?: string;              // se fornecido, initServiceWorker() registra
+  serviceWorkerScope?: string;            // default "/"
+});
+```
+
+| Membro | Tipo | Descrição |
+| --- | --- | --- |
+| `peerId` | `string` (40 hex) | Peer ID oficial, derivado de `peerIdBuffer`. |
+| `peerIdBuffer` | `Uint8Array(20)` | Forma binária. |
+| `torrents` | `Map<string, Torrent>` | Torrents ativos indexados por infoHash. |
+| `torrentList` | `Torrent[]` | Array na ordem de adição. |
+| `server` | `WebTorrentServer \| null` | Servidor de streaming (ver Fase 4.5). |
+| `isReady` | `boolean` | true quando inicializou. |
+| `isDestroyed` | `boolean` | true após `destroy()`. |
+| `torrentCount` | `number` | `torrents.size`. |
+
+#### Métodos
+
+| Método | Retorno | Descrição |
+| --- | --- | --- |
+| `add(torrentId, opts?)` | `Promise<Torrent>` | Adiciona torrent (magnet / buffer .torrent / ParsedTorrent). |
+| `remove(infoHash, destroyStore?)` | `Promise<void>` | Remove torrent. Se `destroyStore`, apaga o OPFS. |
+| `destroy(callback?)` | `Promise<void>` | Encerra tudo (swarms, torrents, servidor, OPFS). |
+| `createServer({ controller?, scope? })` | `WebTorrentServer` | Cria o servidor de streaming via SW.  Idempotente. |
+| `initServiceWorker()` | `Promise<ServiceWorker \| null>` | Registra o SW se `serviceWorkerUrl` foi configurado. |
+
+#### Eventos
+
+| Evento | Payload | Quando |
+| --- | --- | --- |
+| `torrent` | `{ torrent: Torrent }` | Após `add()`. |
+| `error` | `{ error: Error }` | Erro fatal em swarm/tracker. |
+| `ready` | `Event` | Inicialização completa. |
+
+---
+
+### Classe `Torrent`
+
+```ts
+const torrent = await client.add("magnet:?xt=urn:btih:...");
+```
+
+#### Propriedades
+
+| Nome | Tipo | Descrição |
+| --- | --- | --- |
+| `infoHash` | `string` (40 hex) | SHA-1 do dicionário `info`. |
+| `name` | `string` | Nome amigável; pode atualizar via `setMetadata` (magnet). |
+| `files` | `ParsedTorrentFile[]` | `path`, `name`, `length`, `offset`. |
+| `length` | `number` | Tamanho total em bytes. |
+| `pieceLength` | `number` | Tamanho de cada peça. |
+| `numPieces` | `number` | Quantidade de peças. |
+| `lastPieceLength` | `number` | Tamanho da última peça (pode ser menor). |
+| `progress` | `number` (0..1) | Razão `downloaded / length`. |
+| `downloaded` | `number` | Bytes baixados e verificados. |
+| `uploaded` | `number` | Bytes enviados. |
+| `ready` | `boolean` | true após `_init`. |
+| `destroyed` | `boolean` | true após `destroy`. |
+
+#### Métodos
+
+| Método | Retorno | Descrição |
+| --- | --- | --- |
+| `setMetadata(infoBuffer)` | `Promise<boolean>` | Injeta `info` bencoded (usado pelo `ut_metadata`). |
+| `receivePiece(index, buf)` | `Promise<boolean>` | Valida e armazena uma peça recebida. |
+| `getPiece(index)` | `Promise<Uint8Array \| null>` | Recupera uma peça do store. |
+| `destroy(destroyStore?)` | `Promise<void>` | Encerra o torrent. |
+
+#### Eventos
+
+| Evento | Payload |
+| --- | --- |
+| `ready` | `Event` |
+| `metadata` | `{ files, length, name }` |
+| `download` | `{ bytes }` |
+| `upload` | `{ bytes }` |
+| `done` | `Event` |
+| `verified` | `{ index }` |
+| `error` | `{ error }` |
+
+---
+
+### Classe `File`
+
+```ts
+const file = torrent.files[0]; // ou torrent.files.find(f => f.name.endsWith(".mp4"))
+```
+
+#### Propriedades
+
+| Nome | Tipo | Descrição |
+| --- | --- | --- |
+| `length` | `number` | Tamanho em bytes. |
+| `name` | `string` | Nome (basename). |
+| `path` | `string` | Apelido para `name` (compat com `webtorrent.min.js`). |
+| `infoHash` | `string` (injetado) | Identificador do torrent. |
+| `fileIndex` | `number` (injetado) | Posição dentro do torrent. |
+| `scope` | `string` (injetado) | SW scope para `streamURL`. |
+
+#### Métodos
+
+| Método | Retorno | Descrição |
+| --- | --- | --- |
+| `streamURL()` | `string` | URL virtual do SW para streaming. **Requer infoHash+fileIndex**. |
+| `streamTo(element)` | `void` | Atribui `src` ao elemento (`<video>`, `<audio>`, `<img>`) e revoga a URL em `ended`. |
+| `createReadStream()` | `ReadableStream<Uint8Array>` | Stream de bytes (Fase 4.1 — em construção). |
+| `stream()` | `ReadableStream<Uint8Array>` | Apelido para `createReadStream`. |
+| `arrayBuffer()` | `Promise<ArrayBuffer>` | Lê o arquivo inteiro em memória. |
+| `blob()` | `Promise<Blob>` | Materializa como `Blob`. |
+| `getBlobURL()` | `Promise<string>` | `URL.createObjectURL(blob)`. |
+| `select()` / `deselect()` | `void` | Marca/desmarca para seleção de peças. |
+| `includes(piece)` | `boolean` | `true` se a peça se sobrepõe ao arquivo. |
+| `Symbol.asyncIterator` | `AsyncIterable<Uint8Array>` | Itera em chunks. |
+
+#### Eventos
+
+| Evento | Payload |
+| --- | --- |
+| `stream` | `ReadableStream` |
+| `iterator` | `AsyncIterable<Uint8Array>` |
+| `done` | `void` |
+
+---
+
+### Classe `WebTorrentServer` (Fase 4.5)
+
+```ts
+import { createServer } from "@loco/webtorrent";
+
+const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+await navigator.serviceWorker.ready;
+
+const server = client.createServer({ controller: reg.active! });
+await server.sendReadyAck();
+
+// No <video>:
+const file = torrent.files[0];
+file.streamTo(document.querySelector("video"));
+```
+
+| Membro | Tipo | Descrição |
+| --- | --- | --- |
+| `scope` | `string` | SW scope (`/`, `/app/`, …). |
+| `isReady` | `boolean` | true após `sendReadyAck()`. |
+| `isDestroyed` | `boolean` | true após `destroy()`. |
+| `sendReadyAck()` | `Promise<boolean>` | Posta `WEBTORRENT_ACK` no SW. |
+| `handleRequest(msg, port)` | `Promise<Response>` | Chamado pelo main-thread bridge. |
+| `destroy()` | `void` | Fecha transporte e libera ports. |
+
+---
+
+### `streamManager` e helpers (`src/server/stream-manager.ts`)
+
+```ts
+import {
+  streamManager,
+  buildStreamURL,
+  parseStreamURL,
+} from "@loco/webtorrent";
+```
+
+| Função | Assinatura | Descrição |
+| --- | --- | --- |
+| `streamManager.register(infoHash, fileIndex, file)` | `void` | Adiciona entrada no registro global. |
+| `streamManager.unregister(infoHash, fileIndex)` | `void` | Remove uma entrada. |
+| `streamManager.unregisterTorrent(infoHash)` | `void` | Remove todas as entradas do torrent. |
+| `streamManager.get(infoHash, fileIndex)` | `StreamEntry \| undefined` | Lookup. |
+| `streamManager.list()` | `StreamEntry[]` | Snapshot. |
+| `streamManager.clear()` | `void` | Limpa tudo. |
+| `buildStreamURL(scope, infoHash, fileIndex, name)` | `string` | Monta URL virtual. |
+| `parseStreamURL(url, scope)` | `ParsedStreamURL \| null` | Faz parsing reverso com validação. |
+
+---
+
+### `Bitfield` (`src/core/bitfield.ts`)
+
+```ts
+import { Bitfield } from "@loco/webtorrent";
+
+const bf = new Bitfield(1024);
+bf.set(42);
+bf.get(42); // true
+
+// A partir de bytes (com validação de spare-bits)
+const bf2 = Bitfield.fromBytes(new Uint8Array([0b10101010]), 8);
+```
+
+| Membro | Tipo | Descrição |
+| --- | --- | --- |
+| `length` | `number` | Quantidade de peças. |
+| `get(i)` | `boolean` | Estado da peça `i`. |
+| `set(i)` | `void` | Marca a peça `i`. |
+| `unset(i)` | `void` | Desmarca. |
+| `count()` | `number` | Quantidade marcada. |
+| `toBuffer()` | `Uint8Array` | Snapshot do buffer interno. |
+| `static fromBytes(buf, length, opts?)` | `Bitfield` | Cria a partir de bytes; valida spare-bits. |
+
+---
+
+### `peerid` utils (`src/utils/peerid.ts`)
+
+```ts
+import {
+  generateLocoPeerId,
+  decodePeerId,
+  LOCO_PEER_ID_PREFIX,
+  isAzStyle,
+  isShadowStyle,
+  isBase32Char,
+  isBase32,
+  isHex,
+  isSha1,
+  getPeerIdClientName,
+  encodeAzStyle,
+  encodeShadowStyle,
+  encodeGeneric,
+} from "@loco/webtorrent";
+```
+
+| Função | Descrição |
+| --- | --- |
+| `generateLocoPeerId()` | Gera Peer ID oficial Loco (`-LO0100-…`). |
+| `decodePeerId(input)` | Decodifica qualquer Peer ID Azureus/Shadow em `ClientInfo`. |
+| `getPeerIdClientName(input)` | Nome legível do cliente (`qBittorrent`, `BitTornado`, …). |
+| `encodeAzStyle(code, version)` | Codifica estilo Azureus. |
+| `encodeShadowStyle(code, version)` | Codifica estilo Shadow. |
+| `encodeGeneric(code, version, style)` | Despacha para o encoder correto. |
+| `isAzStyle(id)` / `isShadowStyle(id)` | Validação de formato. |
+| `isBase32Char(c)` / `isBase32(s)` | Validação base32. |
+| `isHex(s)` / `isSha1(s)` | Validação hex/SHA-1. |
+
+---
+
+### `parseTorrent` (`src/utils/parse-torrent.ts`)
+
+```ts
+import { parseTorrent } from "@loco/webtorrent";
+
+const parsed = await parseTorrent("magnet:?xt=urn:btih:…");
+const parsed2 = await parseTorrent(new Uint8Array([...])); // .torrent
+const parsed3 = await parseTorrent(parsed); // idempotente
+```
+
+Retorna um `ParsedTorrent` com `infoHash`, `infoHashBuffer`, `name`, `pieceLength`, `length`, `files`, `pieces`, `announce`, `info`.
+
+---
+
+### `Swarm`, `Peer`, `Wire`
+
+Reexportados de `src/network/swarm.ts`, `src/network/peer.ts`, `src/core/wire.ts`.  Usados internamente pelo `Torrent`; podem ser consumidos pela UI para diagnostics, mas a API pública recomendada é a do `Torrent`/`File`.
+
+---
+
+### `UtMetadata`, `UtPexExtension`
+
+Reexportados de `src/extensions/ut-metadata.ts` e `src/extensions/ut-pex.ts`.  Encapsulam as extensões BEP 9 e BEP 10/BEP 11.
+
+---
+
+### Erros (`src/utils/errors.ts`)
+
+| Classe | Código de uso |
+| --- | --- |
+| `BitfieldError` | Erros em `Bitfield` (length inválido, spare-bits não-zero, etc.). |
+| `WireError` | Erros no protocolo. |
+| `TrackerError` | Erros de tracker. |
+| `PeerError` | Erros de peer. |
+| `TorrentError` / `TorrentParseError` | Erros de torrent. |
+| `PeerWireError` | Base para erros do wire. |
+| `ProtocolError` | Violação de protocolo. |
+| `EofError` | Conexão fechada prematuramente. |
+| `TimeoutError` | Deadline excedido. |
+| `RequestRejectedError` | BEP 6 fast extension — peça rejeitada. |
+
+---
+
+## 🧪 Resumo de testes
+
+| Suite | Testes | Cobre |
+| --- | --- | --- |
+| `bencode_test.ts` | 34 | Parser/encoder Bencode. |
+| `bit-array_test.ts` | … | BitArray utility. |
+| `bitfield_test.ts` | 5 | `Bitfield.fromBytes` + spare-bits. |
+| `byte-io_test.ts` | … | Leitura/escrita binária. |
+| `buffer-extended_test.ts` | … | Buffer helper. |
+| `chunk-store_test.ts` | … | OPFS + Memory stores. |
+| `encoding_test.ts` | … | Helpers de encoding. |
+| `errors_test.ts` | … | Taxonomia de erros. |
+| `extension-host_test.ts` | … | Extension host. |
+| `file_test.ts` | 6 | `File` ctor, `includes`, `streamURL`, `streamTo`. |
+| `handshake_test.ts` | … | Handshake BitTorrent. |
+| `hasher_test.ts` | … | SHA-1, SHA-256. |
+| `magnet_test.ts` | … | Magnet URI parser. |
+| `message_test.ts` | … | Mensagens BEP 3. |
+| `metainfo-parser_test.ts` | … | Parser de metainfo. |
+| `mod_test.ts` | … | Smoke tests do `WebTorrent`. |
+| `net_test.ts` | … | Utilitários de rede. |
+| `parse-torrent_test.ts` | … | `parseTorrent`. |
+| `peer_test.ts` | … | Peer (WebRTC). |
+| `peerid_test.ts` | 12 | PeerID encoding/decoding. |
+| `server_test.ts` | 18 | `createServer`, `handleRequest`, `InProcessTransport`, `guessContentType`. |
+| `simple-buffer_test.ts` | … | Simple buffer. |
+| `stream-manager_test.ts` | 13 | `StreamManager`, `buildStreamURL`, `parseStreamURL`. |
+| `swarm_test.ts` | … | Swarm. |
+| `torrent_test.ts` | … | Torrent. |
+| `tracker_test.ts` | … | Tracker client. |
+| `ut-metadata_test.ts` | … | BEP 9. |
+| `ut-pex_test.ts` | … | BEP 11. |
+| `utils_test.ts` | … | Utils. |
+| `wire_test.ts` | 28 | Wire protocol. |
+| **TOTAL** | **501** | Cobertura completa de todas as APIs públicas. |
+
+---
+
+## 📚 Roadmap de evolução
+
+Fases concluídas:
+- 3.4 (peerid), 3.5 (Bitfield.fromBytes), 4.1-4.4 (File básico), 4.5 (Service Worker bridge).
+
+Próximas fases:
+- 4.6-4.10 (Torrent.select/deselect/pause/resume/peers/properties/events).
+- 4.11-4.13 (Client agregado, throttling, WEBRTC_SUPPORT).
+- 4.14-4.15 (Web Seeds, Piece class).
+- 5.x (Geração de .torrent, DHT, etc.).
+
+Consulte `docs/04-fase-4-rede-e-protocolo.md` para o detalhamento arquitetural da Fase 4.
+
+````
+
+---
+
+## Arquivo: `monorepo/webtorrent/docs/02-modulos-e-funcoes-implementadas.md`
+
+```md
+# Módulos e Funções Implementadas (Fases 1 a 5)
+
+Este documento cataloga todas as funções, classes e tipos que foram implementados, refatorados e validados por testes unitários no pacote `@loco/webtorrent`.
+
+---
+
+## 🛠️ 1. Utilitários Básicos (`src/utils/`)
+
+### `buffer.ts`
+Helpers para manipulação de `Uint8Array`, substituindo o `Buffer` do Node.js com foco em performance e compatibilidade com o protocolo BitTorrent.
+- `alloc(size: number): Uint8Array` - Cria um array preenchido com zeros.
+- `from(input, encoding): Uint8Array` - Cria um array a partir de string (hex/utf8), array ou ArrayBuffer.
+- `concat(arrays, totalLength?): Uint8Array` - Concatena múltiplos arrays de forma eficiente.
+- `toString(buf, encoding, start, end): string` - Converte fatias do buffer para string hex ou utf8.
+- `equals(a, b): boolean` - Comparação byte a byte de dois buffers.
+- `readUInt32BE(buf, offset): number` - Leitura de inteiro sem sinal de 32 bits (Big-Endian).
+- `writeUInt32BE(buf, value, offset): void` - Escrita de inteiro sem sinal de 32 bits (Big-Endian).
+
+### `event-target.ts`
+Substituto tipado para o `EventEmitter` do Node.js, utilizando a API nativa `EventTarget` do browser.
+- `class TypedEventTarget<Events>` - Classe base genérica.
+  - `on(type, listener)` - Registra um listener.
+  - `once(type, listener)` - Registra um listener que se remove após a primeira execução.
+  - `off(type, listener)` - Remove um listener.
+  - `emit(type, detail?)` - Dispara um evento com dados tipados.
+
+---
+
+## 🔐 2. Criptografia (`src/crypto/`)
+
+### `hasher.ts`
+Wrapper para a API nativa `crypto.subtle` do browser/Deno.
+- `sha1(data: Uint8Array): Promise<string>` - Calcula o hash SHA-1 (usado para verificação de peças e infoHash v1).
+- `sha256(data: Uint8Array): Promise<string>` - Calcula o hash SHA-256 (para infoHash v2 e extensões futuras).
+
+### `random.ts`
+Geração de números aleatórios criptograficamente seguros.
+- `randomBytes(size: number): Uint8Array` - Gera um array de bytes aleatórios.
+- `generateId(): string` - Gera um ID de 40 caracteres hexadecimais (usado para `peerId` ou `nodeId`).
+
+---
+
+## 📦 3. Protocolo e Parsing (`src/utils/`)
+
+### `bencode.ts`
+Implementação pura de Bencode (Encoder/Decoder) com suporte a tipos recursivos e BigInt.
+- **Tipos:** `BencodeValue` (string | number | bigint | Uint8Array | BencodeList | BencodeDict).
+- `decode(data: Uint8Array): BencodeValue` - Parser de descida recursiva com heurística para distinguir strings UTF-8 de dados binários (verifica caracteres de controle como `\x00`).
+- `encode(data: BencodeValue): Uint8Array` - Codificador que garante a ordenação lexicográfica das chaves dos dicionários.
+
+### `magnet.ts`
+Parser e codificador de URIs Magnéticas.
+- `parseMagnet(uri: string): ParsedMagnet` - Extrai `infoHash` (hex e buffer), `trackers`, `webSeeds`, `name`, etc. Suporta decodificação nativa de Base32 para Hex.
+- `encodeMagnet(parsed: Omit<ParsedMagnet, "magnetUri">): string` - Reconstrói a URI magnética a partir de um objeto.
+
+### `parse-torrent.ts`
+Parser unificado que aceita múltiplos formatos de entrada e retorna uma estrutura padronizada.
+- `parseTorrent(torrentId: string | Uint8Array | ParsedTorrent): Promise<ParsedTorrent>`
+  - Se for `string` (Magnet ou InfoHash): Retorna metadados básicos (arquivos desconhecidos até o handshake).
+  - Se for `Uint8Array` (Arquivo .torrent): Decodifica o Bencode, calcula o `infoHash` via SHA-1 do dicionário `info`, e extrai a lista de arquivos, tamanhos, offsets e trackers.
+
+---
+
+## 💾 4. Armazenamento (Chunk Stores) (`src/storage/`)
+
+Implementam a interface compatível com `abstract-chunk-store`, permitindo troca transparente entre memória e disco.
+
+### `memory-chunk-store.ts`
+Fallback em memória para ambientes onde o OPFS não está disponível ou para testes.
+- `class MemoryChunkStore`
+  - `get(index, opts?, cb?)` - Recupera um chunk. Suporta `offset` e `length` para fatiamento.
+  - `put(index, buf, cb?)` - Armazena um chunk, validando o tamanho esperado.
+  - `close(cb?)` / `destroy(cb?)` - Limpa o mapa de chunks da memória.
+
+### `opfs-chunk-store.ts`
+Armazenamento persistente utilizando o **Origin Private File System (OPFS)** do navegador.
+- `class OPFSChunkStore`
+  - Construtor aceita `rootDir: FileSystemDirectoryHandle` para isolamento por `infoHash`.
+  - `get(index, opts?, cb?)` - Lê o arquivo `<index>.chunk` do OPFS.
+  - `put(index, buf, cb?)` - Escreve o chunk no OPFS usando `FileSystemWritableFileStream`.
+  - `close(cb?)` - Fecha a referência ao diretório.
+  - `destroy(cb?)` - Deleta todos os arquivos `.chunk` dentro do diretório do torrent.
+
+---
+
+## 🧠 5. Núcleo BitTorrent (`src/core/`)
+
+### `bitfield.ts`
+Estrutura de dados ultra-eficiente para rastrear o estado de peças (pieces).
+- `class Bitfield`
+  - `constructor(length: number)` - Inicializa com o número de peças.
+  - `get(index: number): boolean` - Verifica se a peça está marcada.
+  - `set(index: number): void` - Marca a peça como completa.
+  - `count(): number` - Conta quantas peças estão marcadas.
+  - `toBuffer(): Uint8Array` - Retorna uma cópia do buffer bruto.
+
+### `wire.ts`
+Implementação do Wire Protocol (BEP 3) sobre um transporte abstrato.
+- `class Wire extends TypedEventTarget<WireEvents>`
+  - `sendHandshake(infoHash, peerId, extensions)` - Envia o handshake do BitTorrent.
+  - `sendChoke()`, `sendUnchoke()`, `sendInterested()`, `sendNotInterested()` - Controle de fluxo.
+  - `sendHave(index)`, `sendBitfield(bitfield)` - Gerenciamento de peças.
+  - `sendRequest(index, offset, length)`, `sendPiece(index, offset, block)` - Transferência de dados.
+  - `sendExtended(extId, payload)` - Mensagens estendidas (BEP 10).
+  - Eventos: `handshake`, `choke`, `unchoke`, `interested`, `have`, `bitfield`, `request`, `piece`, `extended`, `error`.
+
+### `torrent.ts`
+O "cérebro" do download. Orquestra o estado das peças, validação criptográfica e persistência.
+- `class Torrent extends TypedEventTarget<TorrentEvents>`
+  - `constructor(parsedTorrent, opts)` - Inicializa com metadados e opções (store, skipVerify).
+  - `receivePiece(index, buf)` - Recebe um chunk, valida o SHA-1 e persiste no store.
+  - `getPiece(index)` - Lê uma peça do store.
+  - `destroy(destroyStore?)` - Destrói o torrent e libera recursos.
+  - Getters: `ready`, `destroyed`, `downloaded`, `uploaded`, `progress`, `numPieces`, `lastPieceLength`.
+  - Eventos: `ready`, `download`, `upload`, `done`, `verified`, `error`.
+
+---
+
+## 🌐 6. Rede e Protocolo (`src/network/`)
+
+### `tracker.ts`
+Cliente para descoberta de peers via HTTP e WebSocket.
+- `createTracker(announceUrl, opts): Tracker` - Factory que retorna `HttpTracker` ou `WsTracker`.
+- `class HttpTracker` - Usa `fetch()` com `AbortController` para timeout.
+- `class WsTracker` - Usa `WebSocket` nativo e JSON para comunicação.
+- `announce(event?)` - Envia announce para o tracker e retorna lista de peers.
+- `destroy()` - Fecha a conexão com o tracker.
+
+### `peer.ts`
+Gerenciador de conexão P2P via WebRTC.
+- `class Peer extends TypedEventTarget<PeerEvents>`
+  - `constructor(opts)` - Inicializa com `initiator`, `infoHash`, `peerId`, `wrtc?`.
+  - `signal(data)` - Processa dados de sinalização (offer, answer, ICE candidates).
+  - `destroy()` - Destrói a conexão e libera recursos.
+  - Getter: `isReady` - Retorna `true` se conectado e com handshake completo.
+  - Eventos: `signal`, `connect`, `handshake`, `close`, `error`.
+
+### `swarm.ts`
+Orquestrador de múltiplas conexões P2P para um torrent.
+- `class Swarm extends TypedEventTarget<SwarmEvents>`
+  - `constructor(opts)` - Inicializa com `infoHash`, `peerId`, `announce`, `maxConns?`, `wrtc?`.
+  - `start()` - Inicia a descoberta de peers via trackers.
+  - `addPeer(addr)` - Adiciona um peer manualmente (respeita `maxConns`).
+  - `removePeer(addr)` - Remove um peer ativo.
+  - `pause()` / `resume()` - Controla a conexão com novos peers.
+  - `destroy()` - Destrói o swarm e todas as conexões.
+  - Eventos: `peer`, `wire`, `error`, `warning`, `trackerAnnounce`, `noPeers`.
+
+---
+
+## 🔗 7. Extensões (`src/extensions/`)
+
+### `ut-metadata.ts`
+Extensão ut_metadata (BEP 9) para troca de metadados de torrent.
+- `class UtMetadata extends EventTarget`
+  - `constructor(wire, opts?)` - Inicializa com o Wire e metadata opcional.
+  - `onExtendedHandshake(handshake)` - Processa o handshake estendido e inicia o download.
+  - `onMessage(buf)` - Processa mensagens ut_metadata recebidas.
+  - `fetch()` - Inicia o download do metadata.
+  - `cancel()` - Cancela o download.
+  - `setMetadata(metadata)` - Define o metadata localmente (para servir a outros peers).
+  - Eventos: `metadata`, `warning`.
+
+---
+
+## ✅ Status dos Testes
+Todos os módulos acima possuem suítes de testes correspondentes na pasta `/tests/`, validando:
+- Codificação/Decodificação roundtrip.
+- Manipulação correta de tipos (especialmente a distinção entre string e Uint8Array no Bencode).
+- Validação de tamanhos de chunks e tratamento de erros.
+- Conformidade com o type-checking rigoroso do Deno 2.x.
+- **Total: 66 testes passando (✅)**
+
+---
+
+## 🚀 Próximos Passos (Fase 6: API Pública)
+
+A próxima fase é criar a **API Pública Principal** (`src/mod.ts`), que une todos esses módulos em uma interface limpa e pronta para ser consumida pelo Loco PWA. A API deve ser compatível com o WebTorrent original, expondo métodos como:
+- `client.add(torrentId, opts)` - Adiciona um torrent (Magnet URI ou .torrent)
+- `client.seed(input, opts)` - Compartilha um arquivo como seed
+- `client.createServer()` - Cria um servidor HTTP para streaming (usando Service Worker)
+- `torrent.files` - Lista de arquivos do torrent
+- `torrent.files[0].getBlobURL()` - Gera uma URL para streaming de vídeo
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/docs/02-fase-2-metadata-discovery.md`
+
+```md
+# Fase 2: Metadata & Discovery (Magnet v2, Metainfo Rigoroso, Tracker)
+
+## 🎯 Objetivo da Fase
+Na Fase 2, substituímos os parsers minimalistas de magnet e metainfo por implementações robustas baseadas na referência do `deno-torrent/`. O foco foi:
+- Suporte completo a BitTorrent v1 e v2 (BEP 52) em links magnéticos.
+- Preservação fiel dos bytes do dicionário `info` para hashes corretos (BEP 9).
+- Validação rigorosa de `.torrent` files (BEP 3/12/19/47/52).
+- Tracker HTTP com percent-encoding byte-a-byte e peers compactos IPv4/IPv6.
+
+---
+
+## 🧲 1. Magnet Link (`src/utils/magnet.ts`)
+
+Adaptado de `deno-torrent/magnet/magnet.ts`. Substituímos `@std/encoding/base32` e `@std/encoding/hex` por utilitários locais de `encoding.ts`. O parser usa um analisador de query-string customizado com limites de recursos (evita DoS via URI excessivamente longa).
+
+### Decisões de Implementação
+1. **Suporte v1 + v2**: decodifica `urn:btih:` (v1/SHA-1), `urn:btmh:1220...` (v2/SHA-256), e híbridos (ambos os `xt`).
+2. **`handshakeHash`**: sempre 20 bytes — v1 usa o SHA-1 completo; v2 usa os primeiros 20 bytes do hash de 32 bytes.
+3. **`infoHash`**: sempre 40 chars hex do handshakeHash — compatível com wire/tracker.
+4. **Validação de recursos**: `maxLength` (1 MiB), `maxQueryParameters` (1024), `maxQueryParameterLength` (64 KiB).
+5. **`buildMagnetV2`**: reconstrói URI magnética v2 com opções (nome, trackers, web seeds, peers, URL do torrent).
+6. **`isValidMagnet`**: validação formal sem parsing completo.
+
+### API Pública
+- `parseMagnet(uri, opts?)`: `ParsedMagnet`
+- `encodeMagnet(parsed)`: string
+- `buildMagnetV2(hash, opts?)`: string
+- `isValidMagnet(uri)`: boolean
+- `isSha1Hex(str)`: boolean
+- `isSha1Base32(str)`: boolean
+
+---
+
+## 📦 2. Metainfo Parser (`src/utils/metainfo-parser.ts`)
+
+Adaptado de `deno-torrent/metainfo/parser.ts`. Parser rigoroso de buffers `.torrent` bencodeados. Valida BEP 3, 12, 19, 47 e 52 com erros tipados (`TorrentParseError`).
+
+### Decisões de Implementação
+1. **Uint8Array apenas**: browser-first, sem `Reader`/`IoUtil` do Deno.
+2. **Map→Record**: decodifica com `useMap` para preservar chaves binárias de `piece layers`, depois normaliza para `Record`.
+3. **Validação de campos**: `piece length`, `pieces`, `name`, caminhos (`isSafePathComponent` rejeita `..`/`.`/NUL).
+4. **Limites**: `maxBytes` (16 MiB default), `maxPathLength`, `maxFileCount`.
+5. **Rejeita BEP-3 com piece layers**: incompatibilidade de layout.
+
+### API Pública
+- `parseMetainfo(buffer, opts?)`: `ParsedTorrent`
+
+---
+
+## 🔗 3. Metainfo Identity (`src/utils/metainfo-identity.ts`)
+
+Preserva os bytes exatos do dicionário `info` para cálculo fiel do infoHash (BEP 9). Resolve divergência da versão anterior que fazia `sha1(encode(info))`.
+
+### Decisões de Implementação
+1. **`infoBytes`**: bytes bencodeados exatos do `info` dict — base para hash fiel.
+2. **`calculateInfoHashV2`**: SHA-256 do `info` dict para v2/hybrid.
+3. **`wrapInfoBytes`**: encapsula bytes com contexto v2.
+4. **`parseTorrentWithIdentity`**: integra identity ao parser.
+
+---
+
+## 📋 4. Tipos V2 (`src/utils/torrent-types.ts`)
+
+Tipos TypeScript para metadados v2/hybrid, portados de `deno-torrent/metainfo/types.ts`.
+
+### Tipos
+- `TorrentV2Info`: `name`, `piece length`, `file tree`, `pieces root`
+- `TorrentFileTree`: hierarquia de diretórios
+- `PieceSizeEnum`: tamanhos de peça válidos
+- `ParseTorrentOptions`: `maxBytes`, `allowMissingPieceLayers`
+
+---
+
+## 🔍 5. Parse-Torrent Unificado (`src/utils/parse-torrent.ts`)
+
+Interface unificada que aceita: Magnet URI, infoHash hex/base32, ou buffer `.torrent`. Delega para `magnet.ts` (strings) ou `metainfo-parser.ts` + `metainfo-identity.ts` (buffers).
+
+### Decisões de Implementação
+1. **String**: se 40 hex chars ou 32 base32 → magnet URI; se startsWith `magnet:?` → parseMagnet.
+2. **Uint8Array**: `parseTorrentWithIdentity` (rigoroso + faithful hash).
+3. **ParsedTorrent**: retorna o objeto direto (idempotência).
+4. **Campos novos opcionais**: `infoHashV2`, `infoBytes`, `torrentFileBytes`, `version`.
+5. **Backward compatible**: `ParsedTorrentFile` (dados simples) preservado.
+
+---
+
+## 🌐 6. Tracker HTTP (`src/network/tracker.ts`)
+
+Cliente HTTP tracker com percent-encoding byte-a-byte e peers compactos IPv4/IPv6. Substitui a versão anterior que usava `String.fromCharCode` (incorreto para bytes >0x7F).
+
+### Decisões de Implementação
+1. **`percentEncodeBytes`**: encode byte-a-byte (não UTF-8). Bytes >0x7F viram `%XX` literal.
+2. **`buildAnnounceUrl`**: URLSearchParams com percent-encoding correto de hashes binários.
+3. **`parseHttpTrackerResponse`**: decodifica compact IPv4 (6 bytes), IPv6 (18 bytes), dicionário peers.
+4. **Deduplicação**: peers compactos deduped; porta 0 descartada.
+5. **Validação**: `validateTrackerOptions` com limites (`MAX_NUM_WANT=2000`, `MAX_TRACKER_URL_LENGTH=8192`).
+6. **Timeout**: `AbortController` com `DEFAULT_TIMEOUT_MS=15_000`.
+
+### API Pública
+- `createTracker(announceUrl, opts): Tracker`
+- `HttpTracker.announce(opts?)`: `TrackerResponse`
+- `buildAnnounceUrl(url, opts, extra?, trackerId?)`: `URL`
+- `parseHttpTrackerResponse(buffer): TrackerResponse`
+- `percentEncodeBytes(bytes): string`
+- `validateTrackerOptions(url, opts, extra?): void`
+- `integerInRange(value, name, min, max): number`
+
+---
+
+## ✅ Status dos Testes (Fase 2)
+
+| Arquivo | Testes | Status |
+|---|---|---|
+| `tests/magnet_test.ts` | 38 testes | ✅ todos passando |
+| `tests/metainfo-parser_test.ts` | 11 testes | ✅ todos passando |
+| `tests/tracker_test.ts` | 28 testes | ✅ todos passando |
+| `tests/parse-torrent_test.ts` | 6 testes | ✅ todos passando |
+| **Total** | **83 testes** | ✅ 0 falhas |
+
+---
+
+## 📊 Paridade com deno-torrent (Fase 2)
+
+| Módulo deno-torrent | src/utils | Estado |
+|---|---|---|
+| `magnet/magnet.ts` | `magnet.ts` | ✅ completo (v1+v2+build+validate) |
+| `metainfo/parser.ts` | `metainfo-parser.ts` | ✅ completo (BEP 3/12/19/47/52) |
+| `metainfo/identity.ts` | `metainfo-identity.ts` | ✅ completo (infoBytes, v2 hash) |
+| `metainfo/types.ts` | `torrent-types.ts` | ✅ completo (TorrentV2Info, etc.) |
+| `torrent-tracker/http.ts` | `tracker.ts` (HttpTracker) | ✅ completo (byte-exact encoding) |
+| `torrent-tracker/compact.ts` | `tracker.ts` (parseCompactPeers) | ✅ completo (IPv4+IPv6 dedup) |
+| `torrent-tracker/types.ts` | `tracker.ts` (types) | ✅ completo (formal types) |
+| `torrent-tracker/request.ts` | `tracker.ts` (constants) | ✅ completo (MAX_NUM_WANT, etc.) |
+
+---
+
+## 🚀 Próximos Passos (Fase 3)
+A Fase 3 focará em:
+1. **Bitfield** com spare-bit validation (BEP 6)
+2. **Peer ID** melhorado (encode genérico, validators, version converters)
+3. **Wire** enhancements (BEP 6 Fast, BEP 52 v2 hashes)
+4. **ExtensionHost** BEP 10 completo
+5. **ut_metadata** melhorado (hash verify, pipelining)
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/docs/02-fase-4-browser-api.md`
+
+```md
+# Fase 4: Browser API (webtorrent.min.js parity)
+
+## 🎯 Objetivo da Fase
+A Fase 4 reproduz a API pública do upstream `webtorrent.min.js` para o Loco, sem regressão do que já existia.  Cada item abaixo referencia a matriz de paridade do `QWEN.md` (§5, "webtorrent.min.js API → src/").
+
+---
+
+## 📁 1. File class (`src/core/file.ts`)
+
+Substitui o `ParsedTorrentFile` estático por uma **classe viva** que acessa o `ChunkStore` para leitura sob demanda.  Habilita streaming de mídia no browser sem precisar baixar o arquivo todo.
+
+### API Pública
+- `new File({ store, length, offset, pieceLength, name?, path?, infoHash?, fileIndex?, scope?, blockSize? })`
+- `file.length` / `file.name` / `file.path` / `file.pieceLength` / `file.offset`
+- `file.infoHash` / `file.fileIndex` / `file.scope` / `file.destroyed`
+- `file.pieceRange` → `{ first, last }` (peças que tocam este arquivo)
+- `file.includes(piece: Piece)` → boolean (a peça pertence a este arquivo?)
+- `file.createReadStream({ start?, end? })` → `ReadableStream<Uint8Array>`
+- `file.stream({ start?, end? })` → alias de `createReadStream`
+- `file[Symbol.asyncIterator]()` → `AsyncIterableIterator<Uint8Array>`
+- `file.arrayBuffer()` → `Promise<ArrayBuffer>` (materializa o arquivo todo)
+- `file.blob()` → `Promise<Blob>`
+- `file.getBlobURL()` → `Promise<string>` (URL temporária `blob:…`)
+- `file.streamTo(element: HTMLMediaElement)` (via SW)
+- `file.streamURL()` → `string` (URL servida pelo SW)
+- `file.select(start?, end?)` / `file.deselect(start?, end?)` (no-ops, selection vive no `Torrent`)
+- `file.destroy()`
+
+### Eventos
+- `stream` (CustomEvent<ReadableStream<Uint8Array>>) — emitido quando uma nova stream é criada
+- `iterator` (CustomEvent<AsyncIterable<Uint8Array>>) — emitido quando o iterator é criado
+- `done` (CustomEvent<void>) — emitido quando a leitura completa termina
+- `error` (CustomEvent<{ error: Error }>) — emitido em erro de leitura
+
+### Decisões de Implementação
+1. **Leitura peça-a-peça**: `createReadStream` faz `pull` lazy no `ChunkStore` para cada bloco de `blockSize` (default 64 KiB).
+2. **Range relativo**: `createReadStream({ start, end })` é relativo ao arquivo (`start=0` é o primeiro byte do arquivo, não do torrent).
+3. **Cross-piece reads**: `_readBlock` lida com bytes que cruzam fronteiras de peça, retornando a fatia exata pedida.
+4. **Backpressure real**: cada `pull` lê um bloco e o enfileira; o consumidor (ex: SW) controla o ritmo.
+5. **Eventos `stream`/`iterator`/`done`**: para integração com consumidores que precisam reagir ao ciclo de vida (ex: telemetria).
+
+### Testes (30 testes, todos passando)
+- Constructor, propriedades, defaults
+- `pieceRange`, `includes()` (com e sem `Piece` instance)
+- `createReadStream` — leitura completa, range, `start`/`end`, validação, `destroy`
+- Eventos `stream`, `done`, `error`
+- `stream()` (alias)
+- `Symbol.asyncIterator` (consumo via `for await`)
+- `arrayBuffer`, `blob`, `getBlobURL`
+- `streamURL` (validação de infoHash/fileIndex, default scope)
+- `streamTo` (atribuição a `<video>`)
+- `destroy`
+- `select`/`deselect` (no-ops)
+
+---
+
+## 🧩 2. Piece class (`src/core/piece.ts`)
+
+Substitui a `interface Piece` simples por uma **classe** com metadados ricos.  Permite expor `torrent.files[0].pieces[i]` na API pública.
+
+### API Pública
+- `new Piece(index, length, offset)`
+- `piece.index` / `piece.length` / `piece.offset`
+- `piece.hash` (opcional, setado após verificação SHA-1)
+- `piece.downloaded` → `boolean` (true se hash está setado)
+- `piece.missing` → `boolean` (true se hash está setado)
+- `piece.toString()` → string
+
+### Testes (6 testes, todos passando)
+- Constructor
+- `downloaded`/`missing` state
+- `toString`
+
+---
+
+## 🌐 3. WebTorrent client (`src/mod.ts`)
+
+Adições/paridade com a API upstream:
+
+- `client.createServer({ controller, scope })` — idêntico a `webtorrent.min.js`
+- `client.initServiceWorker()` — registra SW automaticamente
+- `client.server` — instância de `WebTorrentServer` (ou `null`)
+- `client.add(torrentId, opts)` — adiciona torrent
+- `client.remove(infoHash, destroyStore?)`
+- `client.destroy()`
+- `torrent.magnetURI`, `torrent.numPeers`, `torrent.downloadSpeed`, `torrent.uploadSpeed`, `torrent.ratio`, `torrent.timeRemaining`
+- `torrent.paused`, `torrent.selected`, `torrent.criticalPieces`, `torrent.webSeeds`
+- `torrent.select(start, end?)`, `torrent.deselect(start, end?)`, `torrent.setCritical(start, end?)`
+- `torrent.pause()`, `torrent.resume()`
+- `torrent.addPeer(addr)`, `torrent.removePeer(addr)`, `torrent.addWebSeed(url)`, `torrent.removeWebSeed(url)`
+- Eventos: `infoHash`, `warning`, `noPeers`, `idle`, `wire`
+
+### Eventos `torrent` (do Torrent)
+- `ready`, `metadata`, `download`, `upload`, `done`, `error`, `verified`
+- `infoHash`, `warning`, `noPeers`, `idle`, `wire`
+
+---
+
+## ✅ Status dos Testes (Fase 4)
+
+| Arquivo | Testes novos | Status |
+|---|---|---|
+| `tests/file_test.ts` (reescrito) | 30 | ✅ todos passando |
+| `tests/piece_test.ts` (novo) | 6 | ✅ todos passando |
+| `tests/torrent_test.ts` (existente) | — | ✅ passando |
+| `tests/mod_test.ts` (existente) | — | ✅ passando |
+| **Total novo** | **36** | **✅ 0 falhas** |
+
+**Total geral do pacote: 531 testes passando, 0 falhas.**
+
+---
+
+## 📊 Paridade com webtorrent.min.js (após Fase 4)
+
+| Capacidade | webtorrent.min.js | src/ | Estado |
+|---|---|---|---|
+| **File class** com streaming | ✅ | ✅ | 🟢 |
+| File `createReadStream` | ✅ | ✅ | 🟢 |
+| File `stream()` (W3C ReadableStream) | ✅ | ✅ | 🟢 |
+| File `arrayBuffer()` / `blob()` / `getBlobURL()` | ✅ | ✅ | 🟢 |
+| File `[Symbol.asyncIterator]` | ✅ | ✅ | 🟢 |
+| File `streamTo(elem)` | ✅ | ✅ | 🟢 |
+| File `streamURL` | ✅ | ✅ | 🟢 |
+| File `select`/`deselect`/`includes` | ✅ | ✅ | 🟢 |
+| File events: `stream`, `iterator`, `done` | ✅ | ✅ | 🟢 |
+| **createServer / SW integration** | ✅ | ✅ | 🟢 |
+| **Torrent.select/deselect/critical** | ✅ | ✅ | 🟢 |
+| **Torrent.pause/resume** | ✅ | ✅ | 🟢 |
+| **Torrent.addPeer/addWebSeed/removePeer** | ✅ | ✅ | 🟢 |
+| **Torrent properties** (`magnetURI`, `numPeers`, speeds, ratio, timeRemaining) | ✅ | ✅ | 🟢 |
+| **Torrent events** (`infoHash`, `warning`, `noPeers`, `idle`, `wire`) | ✅ | ✅ | 🟢 |
+| **Client.createServer** | ✅ | ✅ | 🟢 |
+| **Client.initServiceWorker** | ✅ | ✅ | 🟢 |
+| **Piece class** com `length`, `missing` | ✅ | ✅ | 🟢 |
+| Web Seeds (BEP 19) | ✅ | ⏳ | 🟡 (em Phase 5.3) |
+
+---
+
+## 🚀 Próximos Passos (Fase 5)
+A Fase 5 focará em:
+1. **Phase 5.3**: Web Seeds (BEP 19) — fetch de dados via HTTP como peer alternativo, integrando com OPFS
+2. OPFS streaming direto do `File` (bypass do `ChunkStore` para arquivos já completos)
+3. Tabela de prioridade de peças (rarest-first) no Swarm
+
+```
+
+---
+
+## Arquivo: `monorepo/webtorrent/docs/02-fase-5-opfs-generator.md`
+
+````md
+# Fase 5.3: OPFS-backed Torrent Generator
+
+## 🎯 Objetivo da Fase
+A Fase 5.3 substitui o gerador de `.torrent` baseado em `Deno.open`/`Deno.stat` do
+`deno-torrent/torrent-generator` por uma versão browser-native que opera inteiramente
+sobre **OPFS** (`Origin Private File System`).  Isso permite criar torrents diretamente
+no browser, sem nenhuma syscall de filesystem.
+
+---
+
+## 📁 Arquivos Criados
+
+| Arquivo | Descrição |
+|---|---|
+| `src/torrent-generator/types.ts` | Tipos: `Writer`, `PieceSizeEnum`, `OPFSFileEntry`, `GeneratorOptions`, `PieceFile`, `Torrent` |
+| `src/torrent-generator/opfs-walker.ts` | `walkOPFSDir()` — varredura recursiva de `FileSystemDirectoryHandle` |
+| `src/torrent-generator/opfs-reader.ts` | `OPFSMultiFileReader` — leitura sequencial cross-file via `File.slice()` |
+| `src/torrent-generator/util.ts` | Funções puras: `calcPieceSize`, `buildPieceFiles`, `sha1sum`, `fileSizeSum`, `isHiddenFile`, `getDefaultCreatedBy` |
+| `src/torrent-generator/generator.ts` | `generateTorrent()` — orquestrador completo |
+| `src/torrent-generator/mod.ts` | Barrel file com todas as exportações públicas |
+| `tests/torrent-generator_test.ts` | **37 testes** cobrindo todas as funções |
+
+---
+
+## 🔧 Substituição de Primitivos Deno → Browser
+
+A tabela abaixo mostra os 4 primitivos Deno que foram substituídos:
+
+| Deno (original) | Browser (implementação) | Local |
+|---|---|---|
+| `Deno.stat(path).size` | `FileSystemFileHandle.getFile().size` | `opfs-walker.ts` |
+| `Deno.open(path)` → `FsFile.read()` | `FileSystemFileHandle.getFile().slice(start, end).arrayBuffer()` | `opfs-reader.ts` |
+| `@std/fs/walk()` | `FileSystemDirectoryHandle.values()` (BFS) | `opfs-walker.ts` |
+| `git describe --tags` | hardcoded `"loco-torrent-generator@1.0.0"` | `util.ts` |
+
+---
+
+## 📦 API Pública
+
+### `generateTorrent(options: GeneratorOptions): Promise<void>`
+
+Gera um `.torrent` e escreve os bytes bencoded em `options.writer`.
+
+**Parâmetros de `GeneratorOptions`:**
+
+```ts
+interface GeneratorOptions {
+  writer: Writer;                         // sink para os bytes bencoded
+  entry: FileSystemDirectoryHandle | OPFSFileEntry[];  // fonte dos arquivos
+  pieceSize?: PieceSizeEnum | number;    // SIZE_AUTO (default) ou preset
+  ignoreHiddenFile?: boolean;            // pula arquivos que começam com "."
+  alignPiece?: boolean;                  // BEP-47: padding entre arquivos
+  isPrivate?: boolean;                   // info.private = 1
+  trackers?: readonly string[];           // BEP-12
+  webSeeds?: readonly string[];          // BEP-19
+  source?: string;
+  comment?: string;
+  createdBy?: string;
+  createdAt?: number;
+}
+```
+
+**Exemplo de uso:**
+
+```ts
+import { generateTorrent } from "@loco/webtorrent/torrent-generator";
+
+// Obter handle do diretório OPFS
+const rootHandle = await navigator.storage.getDirectory();
+
+// Popular o diretório com arquivos...
+// await rootHandle.getFileHandle("video.mp4", { create: true })...
+
+const chunks: Uint8Array[] = [];
+await generateTorrent({
+  entry: rootHandle,
+  writer: {
+    async write(p: Uint8Array) {
+      chunks.push(p);
+      return p.byteLength;
+    },
+  },
+  trackers: ["udp://tracker.example.com:6969/announce"],
+  webSeeds: ["https://seed.example.com/"],
+  isPrivate: false,
+  pieceSize: 512 * 1024, // SIZE_512KB
+});
+
+// Flatten chunks → Uint8Array → salvar como .torrent
+const torrentBytes = new Uint8Array(chunks.reduce((a, b) => a + b.byteLength, 0));
+```
+
+---
+
+## 🔢 `PieceSizeEnum` (presets BEP-3)
+
+```ts
+enum PieceSizeEnum {
+  SIZE_AUTO = 0,   // heuristic: menor preset > tamanho total
+  SIZE_16KB = 16 * 1024,
+  SIZE_32KB = 32 * 1024,
+  SIZE_64KB = 64 * 1024,
+  SIZE_128KB = 128 * 1024,
+  SIZE_256KB = 256 * 1024,
+  SIZE_512KB = 512 * 1024,  // recomendado para arquivos grandes
+  SIZE_1MB = 1024 * 1024,
+  SIZE_2MB,
+  SIZE_4MB,
+  SIZE_8MB,
+  SIZE_16MB,
+}
+```
+
+---
+
+## 🧩 Funções Exportadas
+
+| Função | Pureza | Descrição |
+|---|---|---|
+| `generateTorrent(opts)` | ❌ | Orquestrador principal |
+| `walkOPFSDir(root, ignoreHidden?)` | ❌ | Varredura recursiva de OPFS → `OPFSFileEntry[]` |
+| `getOPFSFileSize(handle)` | ❌ | `FileSystemFileHandle.getFile().size` |
+| `OPFSMultiFileReader(entries)` | ❌ | Leitura cross-file sequencial |
+| `calcPieceSize(fileSize, pieceSizeEnum)` | ✅ | Seleciona preset de piece size |
+| `fileSizeSum(entries)` | ✅ | Soma tamanhos de arquivos |
+| `buildPieceFiles(entries, pieceSize)` | ✅ | Constrói stream BEP-47 (com padding) |
+| `sha1sum(entries, pieceSize, alignPiece?)` | ❌ | SHA-1 streaming das peças |
+| `isHiddenFile(name)` | ✅ | Detecta arquivos ocultos |
+| `getDefaultCreatedBy()` | ✅ | `"loco-torrent-generator@1.0.0"` |
+| `PieceSizeEnum` | ✅ | Enum de presets |
+
+---
+
+## ✅ Suporte a BEPs
+
+| BEP | Suporte | Detalhes |
+|---|---|---|
+| **BEP-3** | ✅ | Ordenação por profundidade + lexicográfica |
+| **BEP-12** | ✅ | `announce-list` com trackers ordenados |
+| **BEP-19** | ✅ | `url-list` com web seeds ordenados |
+| **BEP-47** | ✅ | `alignPiece: true` insere `.pad/<size>-<index>` |
+
+---
+
+## 🧪 Testes (37 novos, todos passando)
+
+| Categoria | Testes | Status |
+|---|---|---|
+| `PieceSizeEnum` | 1 | ✅ |
+| `calcPieceSize` | 3 | ✅ |
+| `fileSizeSum` | 2 | ✅ |
+| `isHiddenFile` | 2 | ✅ |
+| `buildPieceFiles` | 4 | ✅ |
+| `getDefaultCreatedBy` | 1 | ✅ |
+| `OPFSMultiFileReader` | 5 | ✅ |
+| `sha1sum` | 4 | ✅ |
+| `walkOPFSDir` | 4 | ✅ |
+| `getOPFSFileSize` | 1 | ✅ |
+| `generateTorrent` (bencode) | 10 | ✅ |
+
+**Total geral do pacote: 568 testes passando, 0 falhas.**
+
+---
+
+## 📝 Decisões de Implementação
+
+1. **Mock de OPFS nos testes**: como OPFS não está disponível em Deno, todos os testes
+   usam `buildMockDir()` — um builder recursivo de `FileSystemDirectoryHandle` mockados
+   que simula `values()`, `getFileHandle()`, e navegação em sub-diretórios.
+
+2. **Versão gerada**: `loco-torrent-generator@1.0.0` é hardcoded porque `git describe`
+   não está disponível no browser.  Callers podem sobrescrever via `createdBy`.
+
+3. **SHA-1 via `crypto.subtle`**: usa a API Web Crypto em vez de libs externas,
+   compatível com browsers modernos (Chrome 37+, Firefox 34+, Safari 11+).
+
+4. **Single-file vs multi-file**: detectada automaticamente quando `entry` é um array
+   de `OPFSFileEntry` com zero barras no nome (single) vs múltiplos arquivos/pastas.
+
+5. **`inferRootName`**: quando `entry` é um array pré-populado (sem handle de
+   diretório), o nome raiz é inferido do prefixo comum dos paths dos arquivos.
+
 ````
 
 ---

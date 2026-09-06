@@ -33,6 +33,8 @@ export interface PeerOptions {
   config?: RTCConfiguration;
   /** Nome do canal (padrão: "webtorrent") */
   channelName?: string;
+  /** Endereço do peer (usado para stats `remoteAddress`/`remotePort`). */
+  addr?: string;
 }
 
 // ============================================================================
@@ -50,6 +52,7 @@ export class Peer extends TypedEventTarget<PeerEvents> {
   private opts: PeerOptions;
   
   public destroyed = false;
+  public addr = "";
   private connected = false;
   private handshakeCompleted = false;
   
@@ -60,6 +63,7 @@ export class Peer extends TypedEventTarget<PeerEvents> {
     super();
     this.opts = opts;
     this.id = "unknown";
+    this.addr = opts.addr ?? "";
 
     // 🔥 CORREÇÃO: Fallback seguro para ambiente de teste ou browser
     const RTCPeerConnectionCtor = opts.wrtc || globalThis.RTCPeerConnection;
@@ -254,6 +258,12 @@ export class Peer extends TypedEventTarget<PeerEvents> {
     };
 
     this.wire = new Wire(transport);
+    // Expor o endereço do peer nos stats do Wire.
+    if (this.opts.addr) {
+      const parts = this.opts.addr.split(":");
+      this.wire.remoteAddress = parts[0] ?? "";
+      this.wire.remotePort = parseInt(parts[1] ?? "0", 10) || 0;
+    }
 
     // Listener do Handshake do BitTorrent
     this.wire.on("handshake", (e: CustomEvent<{ peerId: Uint8Array; extensions: Uint8Array }>) => {

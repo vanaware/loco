@@ -164,6 +164,25 @@ export class Wire extends TypedEventTarget<WireEvents> {
   public downloadedBytes: number = 0;
   public lastActivityAt: number = Date.now();
 
+  // ── Speed tracking (bytes/s) ─────────────────────────────────────────
+  private _downloadSpeed: number = 0;
+  private _uploadSpeed: number = 0;
+  private _lastSpeedSample: number = Date.now();
+  private _lastDownloaded: number = 0;
+  private _lastUploaded: number = 0;
+  private _speedInterval?: ReturnType<typeof setInterval>;
+
+  /** Upload speed in bytes/s (rolling 1-second average). */
+  get uploadSpeed(): number { return this._uploadSpeed; }
+
+  /** Download speed in bytes/s (rolling 1-second average). */
+  get downloadSpeed(): number { return this._downloadSpeed; }
+
+  // ── Peer address ────────────────────────────────────────────────────
+  /** Set by Peer when the DataChannel opens. */
+  public remoteAddress: string = "";
+  public remotePort: number = 0;
+
   // ── BEP 6 Fast sets ────────────────────────────────────────────────
   public readonly localAllowedFast: Set<number> = new Set();
   public readonly remoteAllowedFast: Set<number> = new Set();
@@ -1049,7 +1068,27 @@ export class Wire extends TypedEventTarget<WireEvents> {
       }
       this.#resetKeepAlive();
       this.#resetIdleTimeout();
+      this._startSpeedTracking();
     }
+  }
+
+  private _startSpeedTracking(): void {
+    this._lastSpeedSample = Date.now();
+    this._lastDownloaded = this.downloadedBytes;
+    this._lastUploaded = this.uploadedBytes;
+    this._speedInterval = setInterval(() => {
+      if (this.isDestroyed) return;
+      const now = Date.now();
+      const dt = (now - this._lastSpeedSample) / 1000;
+      if (dt <= 0) return;
+      const dl = this.downloadedBytes - this._lastDownloaded;
+      const ul = this.uploadedBytes - this._lastUploaded;
+      this._downloadSpeed = Math.round(dl / dt);
+      this._uploadSpeed = Math.round(ul / dt);
+      this._lastSpeedSample = now;
+      this._lastDownloaded = this.downloadedBytes;
+      this._lastUploaded = this.uploadedBytes;
+    }, 1000);
   }
 
   private _touchActivity(): void {
@@ -1065,6 +1104,10 @@ export class Wire extends TypedEventTarget<WireEvents> {
     if (this.#handshakeTimer !== undefined) clearTimeout(this.#handshakeTimer);
     if (this.#keepAliveTimer !== undefined) clearTimeout(this.#keepAliveTimer);
     if (this.#idleTimer !== undefined) clearTimeout(this.#idleTimer);
+    if (this._speedInterval !== undefined) {
+      clearInterval(this._speedInterval);
+      this._speedInterval = undefined;
+    }
 
     this.extensionHost.close(reason);
     this.#pendingRequests.clear();

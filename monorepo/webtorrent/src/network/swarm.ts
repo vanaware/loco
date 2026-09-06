@@ -51,6 +51,10 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
 
   public destroyed = false;
   private paused = false;
+  /** Download rate limit in bytes/s (0 = unlimited). */
+  private _downloadLimit: number = 0;
+  /** Upload rate limit in bytes/s (0 = unlimited). */
+  private _uploadLimit: number = 0;
 
   constructor(opts: SwarmOptions) {
     super();
@@ -121,6 +125,42 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
   public resume(): void {
     this.paused = false;
     this._drain();
+  }
+
+  // ==========================================================================
+  // THROTTLE
+  // ==========================================================================
+
+  /** Currently configured download rate limit (bytes/s). */
+  get downloadLimit(): number { return this._downloadLimit; }
+
+  /** Currently configured upload rate limit (bytes/s). */
+  get uploadLimit(): number { return this._uploadLimit; }
+
+  /**
+   * Set the download rate limit for this swarm's wires.
+   * @param rate bytes/s; `0` removes the limit.
+   */
+  throttleDownload(rate: number): void {
+    this._downloadLimit = Math.max(0, rate);
+    for (const peer of this.peers.values()) {
+      if (peer.wire && !(peer.wire as any).isDestroyed) {
+        (peer.wire as any).throttleDownload?.(this._downloadLimit);
+      }
+    }
+  }
+
+  /**
+   * Set the upload rate limit for this swarm's wires.
+   * @param rate bytes/s; `0` removes the limit.
+   */
+  throttleUpload(rate: number): void {
+    this._uploadLimit = Math.max(0, rate);
+    for (const peer of this.peers.values()) {
+      if (peer.wire && !(peer.wire as any).isDestroyed) {
+        (peer.wire as any).throttleUpload?.(this._uploadLimit);
+      }
+    }
   }
 
   // ==========================================================================
@@ -202,6 +242,7 @@ export class Swarm extends TypedEventTarget<SwarmEvents> {
       infoHash: this.infoHash,
       peerId: this.peerId,
       wrtc: this.wrtc,
+      addr,
     });
 
     this.peers.set(addr, peer);

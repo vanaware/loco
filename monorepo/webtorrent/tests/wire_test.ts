@@ -855,3 +855,86 @@ Deno.test("wire: dispatches new BEP 52 events when negotiated", async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   assertEquals(hashRejectReceived, true);
 });
+
+// ============================================================================
+// PHASE 6: uploadSpeed / downloadSpeed getters
+// ============================================================================
+
+Deno.test("wire: uploadSpeed starts at 0", () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  assertEquals(wire.uploadSpeed, 0);
+});
+
+Deno.test("wire: downloadSpeed starts at 0", () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  assertEquals(wire.downloadSpeed, 0);
+});
+
+Deno.test("wire: uploadSpeed and downloadSpeed are writable for testing", () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  // Internal fields are accessible via the instance
+  (wire as any)._uploadSpeed = 12345;
+  (wire as any)._downloadSpeed = 67890;
+  assertEquals(wire.uploadSpeed, 12345);
+  assertEquals(wire.downloadSpeed, 67890);
+});
+
+// ============================================================================
+// PHASE 6: remoteAddress / remotePort
+// ============================================================================
+
+Deno.test("wire: remoteAddress defaults to empty string", () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  assertEquals(wire.remoteAddress, "");
+});
+
+Deno.test("wire: remotePort defaults to 0", () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  assertEquals(wire.remotePort, 0);
+});
+
+Deno.test("wire: remoteAddress and remotePort are settable", () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  wire.remoteAddress = "192.168.1.100";
+  wire.remotePort = 51413;
+  assertEquals(wire.remoteAddress, "192.168.1.100");
+  assertEquals(wire.remotePort, 51413);
+});
+
+Deno.test("wire: remoteAddress and remotePort can be updated after construction", () => {
+  const wire = new Wire({
+    send: () => {},
+    onMessage: () => {},
+    close: () => {},
+  });
+  wire.remoteAddress = "10.0.0.1";
+  wire.remotePort = 6881;
+  wire.remoteAddress = "10.0.0.2";
+  wire.remotePort = 6882;
+  assertEquals(wire.remoteAddress, "10.0.0.2");
+  assertEquals(wire.remotePort, 6882);
+});

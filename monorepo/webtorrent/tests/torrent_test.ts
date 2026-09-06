@@ -259,3 +259,273 @@ Deno.test("torrent: integration - setMetadata handles multi-file torrents correc
   assertEquals(torrent.files[1]!.offset, 500);
   assertEquals(torrent.files[1]!.length, 1500);
 });
+
+// ============================================================================
+// PHASE 6: received / done
+// ============================================================================
+
+Deno.test("torrent: received is an alias of downloaded", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.received, 0);
+  assertEquals(torrent.received, torrent.downloaded);
+});
+
+Deno.test("torrent: done is false when progress < 1", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.done, false);
+});
+
+Deno.test("torrent: done is true when all pieces received", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  const piece1 = new Uint8Array(parsed.pieceLength).fill(1);
+  const piece2 = new Uint8Array(parsed.pieceLength).fill(2);
+
+  assertEquals(torrent.done, false);
+
+  await torrent.receivePiece(0, piece1);
+  assertEquals(torrent.done, false);
+
+  await torrent.receivePiece(1, piece2);
+  assertEquals(torrent.done, true);
+});
+
+// ============================================================================
+// PHASE 6: created / createdBy / comment / torrentFile / torrentFileBlob / announce / maxWebConns
+// ============================================================================
+
+Deno.test("torrent: created returns Date from creation date", async () => {
+  const parsed: ParsedTorrent = {
+    ...await createFakeParsedTorrent(),
+    info: {
+      name: "fake.bin",
+      length: 2048,
+      "piece length": 1024,
+      pieces: new Uint8Array(40).fill(0),
+      "creation date": 1700000000, // 2023-11-14T22:13:20Z
+    },
+  };
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.created instanceof Date, true);
+  assertEquals(torrent.created!.getTime(), 1700000000 * 1000);
+});
+
+Deno.test("torrent: created returns undefined when no creation date", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.created, undefined);
+});
+
+Deno.test("torrent: createdBy returns the creator string", async () => {
+  const parsed: ParsedTorrent = {
+    ...await createFakeParsedTorrent(),
+    createdBy: "loco-torrent-generator/1.0.0",
+  };
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.createdBy, "loco-torrent-generator/1.0.0");
+});
+
+Deno.test("torrent: createdBy returns undefined when not set", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.createdBy, undefined);
+});
+
+Deno.test("torrent: comment returns the comment string", async () => {
+  const parsed: ParsedTorrent = {
+    ...await createFakeParsedTorrent(),
+    comment: "This is a test torrent",
+  };
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.comment, "This is a test torrent");
+});
+
+Deno.test("torrent: comment returns undefined when not set", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.comment, undefined);
+});
+
+Deno.test("torrent: announce returns the tracker list", async () => {
+  const parsed: ParsedTorrent = {
+    ...await createFakeParsedTorrent(),
+    announce: ["udp://tracker.example.com:6969/announce", "http://tracker2.example:8080/announce"],
+  };
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.announce.length, 2);
+  assertEquals(torrent.announce[0], "udp://tracker.example.com:6969/announce");
+  assertEquals(torrent.announce[1], "http://tracker2.example:8080/announce");
+});
+
+Deno.test("torrent: announce returns empty array when no trackers", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(Array.isArray(torrent.announce), true);
+});
+
+Deno.test("torrent: torrentFile returns undefined when not set (magnet-only)", async () => {
+  const magnetParsed = createFakeMagnetParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: 16384, length: 0 });
+  const torrent = new Torrent(magnetParsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.torrentFile, undefined);
+  assertEquals(torrent.torrentFileBlob, undefined);
+});
+
+Deno.test("torrent: torrentFile returns Uint8Array when set", async () => {
+  const torrentBytes = new Uint8Array([0x64, 0x38, 0x3a, 0x69, 0x6e, 0x66, 0x6f, 0x65, 0x64, 0x34, 0x3a, 0x6c, 0x65, 0x6e, 0x67, 0x69, 0x32, 0x30, 0x34, 0x38, 0x65, 0x31, 0x3a, 0x6e, 0x61, 0x6d, 0x65, 0x38, 0x3a, 0x66, 0x61, 0x6b, 0x65, 0x2e, 0x62, 0x69, 0x6e, 0x65, 0x65, 0x65]); // bencoded
+  const parsed: ParsedTorrent = {
+    ...await createFakeParsedTorrent(),
+    torrentFileBytes: torrentBytes,
+  };
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.torrentFile instanceof Uint8Array, true);
+  assertEquals(torrent.torrentFile!.length, torrentBytes.length);
+});
+
+Deno.test("torrent: torrentFileBlob returns Blob matching torrentFile", async () => {
+  const torrentBytes = new Uint8Array([0x64, 0x38, 0x3a, 0x69, 0x6e, 0x66, 0x6f, 0x65, 0x64, 0x34, 0x3a, 0x6c, 0x65, 0x6e, 0x67, 0x69, 0x32, 0x30, 0x34, 0x38, 0x65, 0x31, 0x3a, 0x6e, 0x61, 0x6d, 0x65, 0x38, 0x3a, 0x66, 0x61, 0x6b, 0x65, 0x2e, 0x62, 0x69, 0x6e, 0x65, 0x65, 0x65]);
+  const parsed: ParsedTorrent = {
+    ...await createFakeParsedTorrent(),
+    torrentFileBytes: torrentBytes,
+  };
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  assertEquals(torrent.torrentFileBlob instanceof Blob, true);
+  assertEquals(torrent.torrentFileBlob!.size, torrentBytes.length);
+});
+
+// ============================================================================
+// PHASE 6: rescanFiles()
+// ============================================================================
+
+Deno.test("torrent: rescanFiles() returns a Promise and resolves without error", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  // rescanFiles without pre-existing pieces — should resolve cleanly
+  const result = torrent.rescanFiles();
+  assertEquals(result instanceof Promise, true);
+  await result; // must not throw
+});
+
+Deno.test("torrent: rescanFiles() accepts optional callback", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  let callbackCalled = false;
+  torrent.rescanFiles((err) => {
+    assertEquals(err, null);
+    callbackCalled = true;
+  });
+  // Give callback time to fire
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assertEquals(callbackCalled, true);
+});
+
+Deno.test("torrent: rescanFiles() returns a Promise and resolves without error", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  const result = torrent.rescanFiles();
+  assertEquals(result instanceof Promise, true);
+  await result; // must not throw
+});
+
+Deno.test("torrent: rescanFiles() accepts optional callback", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  let callbackCalled = false;
+  torrent.rescanFiles((err) => {
+    assertEquals(err, null);
+    callbackCalled = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assertEquals(callbackCalled, true);
+});
+
+Deno.test("torrent: rescanFiles() does not double-count pieces", async () => {
+  const parsed = await createFakeParsedTorrent();
+  const store = new MemoryChunkStore({ chunkLength: parsed.pieceLength, length: parsed.length });
+  const torrent = new Torrent(parsed, { store, skipVerify: true });
+
+  await new Promise<void>((resolve) => torrent.on("ready", () => resolve()));
+
+  const piece1 = new Uint8Array(parsed.pieceLength).fill(1);
+  await torrent.receivePiece(0, piece1);
+  assertEquals(torrent.pieces.get(0), true);
+  assertEquals(torrent.progress, 0.5);
+
+  // rescanFiles should not reset already-verified pieces (idempotent)
+  await torrent.rescanFiles();
+  assertEquals(torrent.pieces.get(0), true);
+  assertEquals(torrent.progress, 0.5);
+});

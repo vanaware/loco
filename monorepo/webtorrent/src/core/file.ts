@@ -4,6 +4,44 @@ import { TypedEventTarget } from "../utils/event-target.ts";
 import { Piece } from "./piece.ts";
 import { buildStreamURL } from "../server/stream-manager.ts";
 import type { ChunkStore } from "../storage/opfs-chunk-store.ts";
+import type { Torrent } from "./torrent.ts";
+
+/**
+ * Minimal MIME type map for common file extensions encountered in torrents.
+ * Falls back to `"application/octet-stream"`.
+ */
+const MIME_MAP: Record<string, string> = {
+  mp4: "video/mp4",
+  mkv: "video/x-matroska",
+  webm: "video/webm",
+  avi: "video/x-msvideo",
+  mov: "video/quicktime",
+  mp3: "audio/mpeg",
+  flac: "audio/flac",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  pdf: "application/pdf",
+  zip: "application/zip",
+  rar: "application/vnd.rar",
+  "7z": "application/x-7z-compressed",
+  tar: "application/x-tar",
+  gz: "application/gzip",
+  txt: "text/plain",
+  html: "text/html",
+  htm: "text/html",
+  css: "text/css",
+  js: "application/javascript",
+  json: "application/json",
+  xml: "application/xml",
+  md: "text/markdown",
+  iso: "application/x-iso9660-image",
+};
 
 /**
  * Browser-first File class — the "live" view of a file inside a torrent.
@@ -42,6 +80,8 @@ export interface FileOptions {
   scope?: string;
   /** Default block size for streaming (defaults to 64 KiB). */
   blockSize?: number;
+  /** Owning torrent (used for per-file downloaded/progress tracking). */
+  torrent?: Torrent;
 }
 
 export interface FileEvents {
@@ -53,6 +93,10 @@ export interface FileEvents {
   done: CustomEvent<void>;
   /** Emitido em erro durante leitura. */
   error: CustomEvent<{ error: Error }>;
+  /** Emitido quando bytes deste arquivo específico são baixados. */
+  download: CustomEvent<{ bytes: number }>;
+  /** Emitido quando bytes deste arquivo são enviados a peers. */
+  upload: CustomEvent<{ bytes: number }>;
 }
 
 /**
@@ -73,6 +117,7 @@ export class File extends TypedEventTarget<FileEvents> {
   private _scope: string;
   private _blockSize: number;
   private _destroyed = false;
+  private _torrent?: Torrent;
 
   constructor(options: FileOptions) {
     super();
@@ -86,6 +131,7 @@ export class File extends TypedEventTarget<FileEvents> {
     this._fileIndex = options.fileIndex;
     this._scope = options.scope ?? "/";
     this._blockSize = options.blockSize ?? 64 * 1024;
+    this._torrent = options.torrent;
   }
 
   get length(): number {
@@ -122,6 +168,46 @@ export class File extends TypedEventTarget<FileEvents> {
 
   get destroyed(): boolean {
     return this._destroyed;
+  }
+
+  /**
+   * MIME type inferred from the file name extension.
+   *
+   * Mirrors the upstream `webtorrent.min.js` `file.type`.
+   */
+  get type(): string {
+    const ext = this._name.toLowerCase().split(".").pop() ?? "";
+    return MIME_MAP[ext] ?? "application/octet-stream";
+  }
+
+  /**
+   * Número de bytes baixados deste arquivo específico.
+   * Calculado a partir do bitfield do torrent.
+   */
+  get downloaded(): number {
+    const torrent = this._torrent;
+    if (!torrent) return 0;
+    const { first, last } = this.pieceRange;
+    const bitfield = (torrent as any).pieces as { get(i: number): boolean } | undefined;
+    if (!bitfield) return 0;
+    const pieceLength = this._pieceLength;
+    let downloaded = 0;
+    for (let i = first; i <= last; i++) {
+      if (bitfield.get(i)) {
+        downloaded += i === last
+          ? Math.min(pieceLength, this._offset + this._length - i * pieceLength)
+          : pieceLength;
+      }
+    }
+    return Math.min(downloaded, this._length);
+  }
+
+  /**
+   * Progress de download deste arquivo específico (0..1).
+   */
+  get progress(): number {
+    if (this._length === 0) return 0;
+    return this.downloaded / this._length;
   }
 
   /**

@@ -81,6 +81,8 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   private readonly _IDLE_TIMEOUT_MS = 30000;
   /** Intervals de velocidade por wire */
   private readonly _speedIntervals: Set<ReturnType<typeof setInterval>> = new Set();
+  /** File objects registrados pelo cliente (para forward de eventos). */
+  private _registeredFiles: unknown[] = [];
 
   constructor(parsedTorrent: ParsedTorrent, opts: TorrentOptions) {
     super();
@@ -172,6 +174,49 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   /** Lista de Web Seeds. */
   get webSeeds(): string[] { return [...this._webSeeds]; }
 
+  // ── webtorrent.min.js parity ─────────────────────────────────────────
+
+  /** Alias de `downloaded`. */
+  get received(): number { return this._downloaded; }
+
+  /** `true` quando `progress === 1`. */
+  get done(): boolean { return this.progress >= 1; }
+
+  /** Data de criação do torrent (de `creation date`). */
+  get created(): Date | undefined {
+    const ts = this.parsedTorrent.info["creation date"];
+    return typeof ts === "number" ? new Date(ts * 1000) : undefined;
+  }
+
+  /** Campo `created by` do torrent. */
+  get createdBy(): string | undefined { return this.parsedTorrent.createdBy; }
+
+  /** Campo `comment` do torrent. */
+  get comment(): string | undefined { return this.parsedTorrent.comment; }
+
+  /**
+   * Bencode bytes do arquivo `.torrent` completo.
+   * `undefined` se o torrent foi adicionado via magnet (sem arquivo `.torrent`).
+   */
+  get torrentFile(): Uint8Array | undefined {
+    return this.parsedTorrent.torrentFileBytes;
+  }
+
+  /**
+   * Blob do arquivo `.torrent`. Útil para download pelo usuário.
+   * `undefined` se o torrent foi adicionado via magnet.
+   */
+  get torrentFileBlob(): Blob | undefined {
+    const bytes = this.torrentFile;
+    return bytes ? new Blob([new Uint8Array(bytes)]) : undefined;
+  }
+
+  /** Lista de trackers do torrent. */
+  get announce(): string[] { return this.parsedTorrent.announce; }
+
+  /** Máximo de conexões Web Seed simultâneas. */
+  get maxWebConns(): number { return this._swarm?.maxConns ?? 10; }
+
   // ==========================================================================
   // SELEÇÃO DE PEÇAS
   // ==========================================================================
@@ -180,7 +225,7 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
    * Marca interesse em peças [startPiece, endPiece] e envia `interested` nos wires.
    * Se endPiece for omitido, seleciona até o fim.
    */
-  select(startPiece: number, endPiece?: number): void {
+  select(startPiece: number, endPiece?: number, _priority = 0, _notify = false): void {
     const end = endPiece ?? this.numPieces - 1;
     for (let i = startPiece; i <= end; i++) {
       this._selected.set(i);
@@ -214,6 +259,25 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
     for (let i = startPiece; i <= end; i++) {
       this._swarm?._sendSuggestPiece(i);
     }
+  }
+
+  // ==========================================================================
+  // RESCAN FILES
+  // ==========================================================================
+
+  /**
+   * Re-verifica todas as peças existentes no store.
+   * Útil quando o store foi manipulado externamente.
+   *
+   * @param cb - Callback chamado com `(err, res)` quando a varredura termina.
+   *             Se omitido, retorna uma Promise.
+   */
+  rescanFiles(cb?: (err: Error | null) => void): void | Promise<void> {
+    const task = this._verifyExistingPieces()
+      .then(() => { cb?.(null); })
+      .catch((err) => { cb?.(err instanceof Error ? err : new Error(String(err))); });
+
+    if (!cb) return task;
   }
 
   // ==========================================================================
@@ -412,6 +476,7 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
 
       this.emit("verified", new CustomEvent("verified", { detail: { index } }));
       this.emit("download", new CustomEvent("download", { detail: { bytes: pieceLen } }));
+      this._forwardToFiles("download", index, pieceLen);
 
       if (this.progress >= 1) {
         this.emit("done");
@@ -419,6 +484,33 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Registra `File` instances para receberem os eventos `download`/`upload`.
+   * Chamado pelo {@link WebTorrent} após criar os `File`s.
+   */
+  _registerFiles(files: { emit: (type: string, ev: Event) => void }[]): void {
+    this._registeredFiles = files;
+  }
+
+  /**
+   * Emite um evento de download/upload nos Files cujo `pieceRange` contém `index`.
+   */
+  private _forwardToFiles(
+    type: "download" | "upload",
+    index: number,
+    bytes: number,
+  ): void {
+    for (const f of this._registeredFiles) {
+      const file = f as {
+        pieceRange: { first: number; last: number };
+        emit: (type: string, ev: Event) => void;
+      };
+      if (index >= file.pieceRange.first && index <= file.pieceRange.last) {
+        file.emit(type, new CustomEvent(type, { detail: { bytes } }));
+      }
     }
   }
 
