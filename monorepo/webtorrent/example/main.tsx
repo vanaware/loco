@@ -53,8 +53,11 @@ async function establishSWConnection() {
     if (msg?.type !== "webtorrent-request") return;
 
     const { url, method, headers, scope, destination } = msg;
-    // Porta transferida do SW para streaming (port1 no SW = recebe chunks)
-    const streamPort: MessagePort = e.ports[0]!;
+    // SW transfere 2 portas:
+    //   e.ports[0] = chunkPort2 (main envia chunks por aqui)
+    //   e.ports[1] = requestPort1 (main recebe requests do SW)
+    const chunkPort = e.ports[0]!;       // main → SW: chunks
+    const requestPort = e.ports[1]!;     // SW → main: requests (não usado aqui, mas mantido)
 
     console.log("[main] SW request:", method, url);
 
@@ -62,18 +65,26 @@ async function establishSWConnection() {
       // Parse URL → (infoHash, fileIndex)
       const parsed = parseStreamURL(url, scope || "/");
       if (!parsed) {
-        streamPort.postMessage({ status: 404, body: "Not Found" });
-        streamPort.postMessage(null);
-        streamPort.close();
+        chunkPort.postMessage({ status: 404, body: "Not Found" });
+        chunkPort.postMessage(null);
+        chunkPort.close();
         return;
       }
 
       // Lookup file via streamManager
       const entry = streamManager.get(parsed.infoHash, parsed.fileIndex);
       if (!entry) {
-        streamPort.postMessage({ status: 404, body: "File not registered" });
-        streamPort.postMessage(null);
-        streamPort.close();
+        console.log(
+          "[main] streamManager MISS — looking for:",
+          parsed.infoHash,
+          "idx:",
+          parsed.fileIndex,
+          "\n  Registered entries:",
+          streamManager.list().map((e) => `${e.infoHash}:${e.fileIndex} (${e.file.name})`),
+        );
+        chunkPort.postMessage({ status: 404, body: "File not registered" });
+        chunkPort.postMessage(null);
+        chunkPort.close();
         return;
       }
 
@@ -98,15 +109,34 @@ async function establishSWConnection() {
         respHeaders["Content-Length"] = String(file.length);
       }
 
-      // ── Instalar handler ANTES de enviar response metadata ──────────────
-      // (seguindo o padrão do webtorrent.min.js original)
+      // ── Tracking de offset para leitura progressiva ─────────────────
+      const rangeStart = range?.start ?? 0;
+      const rangeEnd = range?.end ?? (file.length - 1);
+      let currentOffset = rangeStart;
+
+      let fileStream: ReadableStream<Uint8Array> | null = null;
+      let fileIterator: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
+      function ensureStream() {
+        if (!fileStream) {
+          console.log("[main] ensureStream: creating ReadableStream, start:", rangeStart, "end:", rangeEnd);
+          fileStream = file.createReadStream({ start: rangeStart, end: rangeEnd });
+          fileIterator = fileStream.getReader();
+          console.log("[main] ensureStream: stream created, file.length:", file.length);
+        }
+      }
+
+      // ── Instalar handler no chunkPort ANTES de enviar metadata ─────
       let closed = false;
       const cleanup = () => {
         closed = true;
-        streamPort.close();
+        fileIterator = null;
+        fileStream = null;
+        chunkPort.close();
       };
 
-      streamPort.onmessage = async (ev: MessageEvent) => {
+      chunkPort.onmessage = async (ev: MessageEvent) => {
+        console.log("[main] chunkPort.onmessage FIRED, data:", ev.data, "closed:", closed);
         if (closed) return;
         const data = ev.data;
 
@@ -115,38 +145,52 @@ async function establishSWConnection() {
           return;
         }
 
-        // data === true → SW está pedindo o próximo chunk
         if (data === true) {
-          const chunk = await readNextChunk(file, range?.start ?? 0, range?.end ?? (file.length - 1));
-          if (closed) return;
-
-          if (chunk.byteLength === 0) {
-            streamPort.postMessage(null);
+          console.log("[main] SW wants chunk, currentOffset:", currentOffset, "rangeEnd:", rangeEnd);
+          if (currentOffset > rangeEnd) {
+            console.log("[main] all bytes sent, sending null");
+            chunkPort.postMessage(null);
             cleanup();
             return;
           }
 
-          streamPort.postMessage(chunk);
+          ensureStream();
+          console.log("[main] reading chunk from fileIterator...");
+
+          const { value, done } = await fileIterator!.read();
+          console.log("[main] fileIterator.read() returned, done:", done, "value:", value?.byteLength ?? "null");
+          if (closed) return;
+
+          if (done || !value || value.byteLength === 0) {
+            console.log("[main] stream done, sending null, read bytes:", currentOffset - rangeStart, "/", rangeEnd - rangeStart + 1);
+            chunkPort.postMessage(null);
+            cleanup();
+            return;
+          }
+
+          currentOffset += value.byteLength;
+          console.log("[main] → chunk to SW:", value.byteLength, "bytes, offset:", currentOffset, "/", rangeEnd + 1);
+          chunkPort.postMessage(value);
         }
       };
 
-      streamPort.start?.();
+      chunkPort.start?.();
+      console.log("[main] chunkPort started, readyState:", chunkPort.readyState);
 
-      // ── Enviar metadata da resposta PRIMEIRO ───────────────────────────
-      // (seguindo o padrão do webtorrent.min.js)
-      streamPort.postMessage({
+      // ── Enviar metadata da resposta via requestPort ──────────────
+      requestPort.postMessage({
         status,
         statusText,
         headers: respHeaders,
         body: "STREAM",
       });
 
-      console.log("[main] Response sent, body=STREAM");
+      console.log("[main] Response metadata sent, body=STREAM, range:", rangeStart, "-", rangeEnd);
     } catch (err) {
       console.error("[main] Error:", err);
-      streamPort.postMessage({ status: 500, body: String(err) });
-      streamPort.postMessage(null);
-      streamPort.close();
+      chunkPort.postMessage({ status: 500, body: String(err) });
+      chunkPort.postMessage(null);
+      chunkPort.close();
     }
   };
 }

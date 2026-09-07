@@ -1,4 +1,21 @@
 {
+  "$schema": "https://raw.githubusercontent.com/QwenLM/qwen-code/main/schemas/settings.json",
+  "modelProviders": {
+    "openai": [
+    {
+        "id": "openrouter/free",
+        "name": "[OpenRouter] openrouter/free",
+        "baseUrl": "https://openrouter.ai/api/v1",
+        "envKey": "OPENROUTER_API_KEY",
+        "generationConfig": {
+          "customHeaders": {
+            "HTTP-Referer": "https://github.com/QwenLM/qwen-code.git",
+            "X-OpenRouter-Title": "Qwen Code"
+          }
+        }
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Agent",

@@ -265,6 +265,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
 
     for (const torrent of this.torrents.values()) {
       const files = this._makeFileObjects(torrent, scope);
+      console.log("[mod] createServer init: registering", files.length, "files for", torrent.infoHash);
       registerTorrentFiles(torrent, files);
       (torrent as any)._registerFiles?.(files);
     }
@@ -272,6 +273,7 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
     this.on("torrent", (e: any) => {
       const torrent: Torrent = e.detail.torrent;
       const files = this._makeFileObjects(torrent, scope);
+      console.log("[mod] torrent event: registering", files.length, "files for", torrent.infoHash);
       registerTorrentFiles(torrent, files);
       (torrent as any)._registerFiles?.(files);
     });

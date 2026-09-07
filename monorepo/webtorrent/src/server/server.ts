@@ -669,6 +669,7 @@ export function registerTorrentFiles(
   const registered: StreamEntry[] = [];
   for (let i = 0; i < files.length; i++) {
     const file = files[i]!;
+    console.log("[server] registerTorrentFiles:", infoHash, "fileIndex:", i, "name:", file.name);
     streamManager.register(infoHash, i, file);
     registered.push({ infoHash, fileIndex: i, file });
   }
