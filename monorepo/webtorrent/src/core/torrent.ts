@@ -7,6 +7,7 @@ import { Bitfield } from "./bitfield.ts";
 import { sha1 } from "../crypto/hasher.ts";
 import { decode, type BencodeDict } from "../utils/bencode.ts";
 import type { Wire } from "./wire.ts";
+import type { File } from "./file.ts";
 
 // ============================================================================
 // TIPOS DE EVENTOS
@@ -48,7 +49,10 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   public name: string;
   public pieceLength: number;
   public length: number;
-  public files: ParsedTorrentFile[];
+  /** Returns enriched {@link File} instances (with `streamTo`, `createReadStream`, etc.) when the client has registered them, or the raw metadata file descriptors otherwise. */
+  public get files(): File[] | ParsedTorrentFile[] { return this._registeredFiles.length > 0 ? this._registeredFiles : this._rawFiles; }
+  /** Raw file descriptors from parsed metadata — used as fallback until the client registers enriched File instances. */
+  private _rawFiles: ParsedTorrentFile[] = [];
 
   private parsedTorrent: ParsedTorrent;
   private store: ChunkStore;
@@ -82,7 +86,7 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
   /** Intervals de velocidade por wire */
   private readonly _speedIntervals: Set<ReturnType<typeof setInterval>> = new Set();
   /** File objects registrados pelo cliente (para forward de eventos). */
-  private _registeredFiles: unknown[] = [];
+  private _registeredFiles: File[] = [];
 
   constructor(parsedTorrent: ParsedTorrent, opts: TorrentOptions) {
     super();
@@ -94,7 +98,7 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
     this.name = parsedTorrent.name || "Unknown";
     this.pieceLength = parsedTorrent.pieceLength;
     this.length = parsedTorrent.length;
-    this.files = parsedTorrent.files;
+    this._rawFiles = parsedTorrent.files;
 
     const numPieces = parsedTorrent.pieces.length;
     this.bitfield = new Bitfield(numPieces);
@@ -400,7 +404,7 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
 
       this.pieceLength = pieceLength;
       this.length = totalLength;
-      this.files = newFiles;
+      this._rawFiles = newFiles;
       this.expectedPieces = newExpectedPieces;
 
       const nameRaw = info["name"];
@@ -491,7 +495,7 @@ export class Torrent extends TypedEventTarget<TorrentEvents> {
    * Registra `File` instances para receberem os eventos `download`/`upload`.
    * Chamado pelo {@link WebTorrent} após criar os `File`s.
    */
-  _registerFiles(files: { emit: (type: string, ev: Event) => void }[]): void {
+  _registerFiles(files: File[]): void {
     this._registeredFiles = files;
   }
 

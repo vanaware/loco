@@ -457,8 +457,84 @@ export class WebTorrent extends TypedEventTarget<WebTorrentEvents> {
       (torrent as any).length = length;
     }
 
+    // 4. Popula o OPFSChunkStore com os dados do arquivo original (para streaming)
+    // Sem isso, o streaming falha com "Chunk N not found"
+    const store = (torrent as any).store;
+    console.log("[seed] store available:", !!store, "put?", typeof store?.put, "entry?", !!entry, "pieceLength:", torrent.pieceLength);
+    if (store && typeof store.put === "function" && entry) {
+      console.log("[seed] Populating chunk store with", Array.isArray(entry) ? entry.length + " files" : "directory");
+      await this._populateChunkStoreFromOPFSEntry(entry, store, torrent.pieceLength);
+      console.log("[seed] Chunk store populated successfully");
+    } else {
+      console.log("[seed] Skipping chunk store population: store=" + !!store, "put=" + typeof store?.put, "entry=" + !!entry);
+    }
+
     if (cb) cb(torrent);
     return torrent;
+  }
+
+  /**
+   * Populates an OPFSChunkStore by reading from OPFS file entries.
+   * This is needed because the seed writes files as a single OPFS file,
+   * but OPFSChunkStore expects pieces as separate N.chunk files.
+   */
+  private async _populateChunkStoreFromOPFSEntry(
+    entry: FileSystemDirectoryHandle | OPFSFileEntry[],
+    store: { put(index: number, buf: Uint8Array): Promise<void> },
+    pieceLength: number,
+  ): Promise<void> {
+    let files: OPFSFileEntry[];
+    if (Array.isArray(entry)) {
+      files = entry;
+    } else {
+      const { walkOPFSDir } = await import("./torrent-generator/mod.ts");
+      files = await walkOPFSDir(entry, false);
+    }
+    console.log("[_populateChunkStore] Starting with", files.length, "files, pieceLength:", pieceLength);
+
+    // Read all files sequentially and write pieces to the chunk store
+    const PIECE_SIZE = pieceLength || 16384;
+    let pieceIndex = 0;
+    let pieceBuffer = new Uint8Array(PIECE_SIZE);
+    let pieceOffset = 0;
+    let totalWritten = 0;
+
+    for (const fileEntry of files) {
+      if (!fileEntry.handle) {
+        console.warn("[_populateChunkStore] Skipping file without handle:", fileEntry.name);
+        continue;
+      }
+      const file = await fileEntry.handle.getFile();
+      console.log("[_populateChunkStore] Reading file:", fileEntry.name, "size:", file.size);
+      let fileOffset = 0;
+
+      while (fileOffset < file.size) {
+        const want = Math.min(PIECE_SIZE - pieceOffset, file.size - fileOffset);
+        const blob = file.slice(fileOffset, fileOffset + want);
+        const buf = new Uint8Array(await blob.arrayBuffer());
+
+        pieceBuffer.set(buf, pieceOffset);
+        pieceOffset += buf.byteLength;
+        fileOffset += buf.byteLength;
+
+        if (pieceOffset === PIECE_SIZE) {
+          await store.put(pieceIndex, pieceBuffer);
+          totalWritten += pieceBuffer.length;
+          pieceIndex++;
+          pieceBuffer = new Uint8Array(PIECE_SIZE);
+          pieceOffset = 0;
+        }
+      }
+    }
+
+    // Write any remaining partial piece
+    if (pieceOffset > 0) {
+      const partial = pieceBuffer.slice(0, pieceOffset);
+      await store.put(pieceIndex, partial);
+      totalWritten += partial.length;
+      console.log("[_populateChunkStore] Wrote final piece", pieceIndex, "size:", pieceOffset);
+    }
+    console.log("[_populateChunkStore] Done. Total pieces:", pieceIndex + (pieceOffset > 0 ? 1 : 0), "bytes written:", totalWritten);
   }
 
   /**
@@ -649,7 +725,7 @@ export { UtPexExtension, encodePexUpdate, decodePexUpdate, PexPeerFlag } from ".
 export type { ParsedTorrent } from "./utils/parse-torrent.ts";
 export type { ClientInfo } from "./utils/peerid.ts";
 export type { PexPeer, PexUpdate, UtPexOptions } from "./extensions/ut-pex.ts";
-export { createServer, type WebTorrentServer } from "./server/server.ts";
+export { createServer, WebTorrentServer, type StreamRequestMessage } from "./server/server.ts";
 export { streamManager, buildStreamURL, parseStreamURL } from "./server/stream-manager.ts";
 // Phase 5.3: OPFS-based torrent generator
 export {

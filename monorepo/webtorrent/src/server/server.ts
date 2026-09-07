@@ -453,6 +453,8 @@ export function buildFileStream(
 
         fileOffset += chunk.byteLength;
         controller.enqueue(chunk);
+        // Send the chunk back through the port so the SW can forward it
+        port.postMessage(chunk);
       } catch (err) {
         controller.error(err);
         port.removeEventListener("message", onMessage as EventListener);

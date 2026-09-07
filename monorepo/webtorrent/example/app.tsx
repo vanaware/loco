@@ -6,19 +6,38 @@ import { useSignal } from "@preact/signals";
 import { SeederPanel } from "./components/seeder-panel.tsx";
 import { LeecherPanel } from "./components/leecher-panel.tsx";
 import { PlayerPanel } from "./components/player-panel.tsx";
-import { modeSignal, errorSignal, cleanup, peersSignal } from "./torrent-context.tsx";
+import { DebugPanel } from "./components/debug-panel.tsx";
+import {
+  modeSignal,
+  errorSignal,
+  cleanup,
+  peersSignal,
+  debugSignal,
+  initClient,
+} from "./torrent-context.tsx";
+
+function dbg(...args: unknown[]) {
+  const msg = args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
+  const ts = new Date().toISOString().split("T")[1]!.slice(0, 8);
+  console.log(`[APP ${ts}]`, msg);
+  debugSignal.value = [...debugSignal.value.slice(-99), `[${ts}] APP: ${msg}`];
+}
 
 export function App() {
   const wtEnabled = useSignal(false);
   const mode = modeSignal.value;
   const error = errorSignal.value;
 
-  const handleToggle = () => {
+  const handleToggle = async () => {
     if (wtEnabled.value) {
+      dbg("WebTorrent OFF — calling cleanup");
       cleanup();
       wtEnabled.value = false;
     } else {
+      dbg("WebTorrent ON — initializing client...");
       wtEnabled.value = true;
+      await initClient();
+      dbg("WebTorrent ready");
     }
   };
 
@@ -91,6 +110,9 @@ export function App() {
           </nav>
           <PlayerPanel />
         </article>
+
+        {/* Card 4: Debug Log */}
+        <DebugPanel />
       </main>
     </>
   );

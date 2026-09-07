@@ -1,13 +1,30 @@
 /**
  * @file test_trackers.ts
- * @description Utilitário para testar a saúde e resposta de trackers WebTorrent (WebSocket).
+ * @description Utilitário para testar a saúde e resposta de trackers WebTorrent (WebSocket)
  * @stack Deno 2.x, TypeScript, Web Crypto API, jsr:@std/encoding
+ * 
+ * Fontes pesquisadas:
+ * - Documentação oficial webtorrent.io
+ * - Repositório ngosang/trackerslist (issue #257)
+ * - Projeto bitvid (js/constants.js)
+ * - Instâncias PeerTube
  */
 
 import { encodeBase64 } from "jsr:@std/encoding/base64";
 
 /**
+ * Lista expandida de trackers WebTorrent candidatos
+ */
+const TRACKER_CANDIDATES = [
+  "wss://tracker.webtorrent.dev:443",
+  "wss://tracker.openwebtorrent.com:443",
+  "wss://open.ftorrent.com:443",
+  "wss://video.blender.org/tracker/socket",
+];
+
+/**
  * Gera uma string Base64 de 20 bytes aleatórios, simulando info_hash ou peer_id.
+ * Usa a Web Crypto API nativa do Deno.
  */
 function generateRandom20BytesBase64(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(20));
@@ -15,31 +32,37 @@ function generateRandom20BytesBase64(): string {
 }
 
 /**
- * Testa um único tracker WebTorrent.
+ * Testa um único tracker WebTorrent enviando um payload de announce válido.
  * @param url A URL do tracker (ws:// ou wss://)
  * @param timeoutMs Tempo máximo de espera em milissegundos (padrão: 3000ms)
- * @returns Promise<boolean> true se o tracker respondeu ao announce, false caso contrário.
+ * @returns Promise<{success: boolean, timeMs: number, error?: string}>
  */
-async function testTracker(url: string, timeoutMs = 3000): Promise<boolean> {
+async function testTracker(
+  url: string,
+  timeoutMs = 3000
+): Promise<{ success: boolean; timeMs: number; error?: string }> {
+  const startTime = performance.now();
+  
   return new Promise((resolve) => {
     let resolved = false;
     let ws: WebSocket | null = null;
 
-    const cleanup = () => {
+    const cleanup = (success: boolean, error?: string) => {
       if (!resolved) {
         resolved = true;
+        const timeMs = Math.round(performance.now() - startTime);
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.close(1000, "Teste concluído");
+          ws.close(1000, success ? "Resposta recebida" : "Teste concluído");
         }
-        resolve(false);
+        resolve({ success, timeMs, error });
       }
     };
 
     try {
       ws = new WebSocket(url);
     } catch (error) {
-      console.error(`❌ Falha ao instanciar WebSocket para ${url}:`, error);
-      resolve(false);
+      const errorMsg = error instanceof Error ? error.message : "Erro desconhecido";
+      cleanup(false, `Falha ao instanciar WebSocket: ${errorMsg}`);
       return;
     }
 
@@ -57,35 +80,43 @@ async function testTracker(url: string, timeoutMs = 3000): Promise<boolean> {
         };
         ws!.send(JSON.stringify(payload));
       } catch (error) {
-        console.error(`❌ Erro ao enviar payload para ${url}:`, error);
-        cleanup();
+        const errorMsg = error instanceof Error ? error.message : "Erro desconhecido";
+        cleanup(false, `Erro ao enviar payload: ${errorMsg}`);
       }
     };
 
-    ws.onmessage = () => {
+    ws.onmessage = (event) => {
       if (!resolved) {
-        resolved = true;
-        ws!.close(1000, "Resposta recebida com sucesso");
-        resolve(true); // O tracker está vivo e processando mensagens
+        // Verifica se a resposta contém estrutura válida
+        try {
+          const response = JSON.parse(event.data);
+          if (response && typeof response === "object") {
+            cleanup(true);
+          } else {
+            cleanup(false, "Resposta inválida");
+          }
+        } catch {
+          // Mesmo que não seja JSON válido, se recebemos algo, é positivo
+          cleanup(true);
+        }
       }
     };
 
-    ws.onerror = () => {
-      cleanup();
+    ws.onerror = (event) => {
+      const errorMsg = event instanceof ErrorEvent ? event.message : "Erro desconhecido";
+      cleanup(false, `WebSocket error: ${errorMsg}`);
     };
 
-    ws.onclose = () => {
-      cleanup();
+    ws.onclose = (event) => {
+      if (!resolved) {
+        cleanup(false, `Conexão fechada: ${event.reason || "Sem razão"}`);
+      }
     };
 
     // Mecanismo de timeout para evitar conexões "penduradas"
     setTimeout(() => {
       if (!resolved) {
-        resolved = true;
-        if (ws) {
-          ws.close(1000, "Timeout atingido");
-        }
-        resolve(false);
+        cleanup(false, "Timeout atingido");
       }
     }, timeoutMs);
   });
@@ -95,46 +126,53 @@ async function testTracker(url: string, timeoutMs = 3000): Promise<boolean> {
  * Executa o teste em massa e exibe um relatório formatado no console.
  */
 async function runTrackerDiagnostics() {
-  const trackersToTest = [
-    "wss://tracker.webtorrent.dev:443",
-    "wss://tracker.openwebtorrent.com:443",
-    "wss://open.ftorrent.com:443",
-    "wss://tracker.files.fm:7073/announce",
-    "ws://tracker.files.fm:7072/announce",
-    "wss://tracker.btorrent.xyz:443",
-    "wss://tracker.novage.com.ua:443",
-  ];
-
   console.log("🚀 Iniciando diagnóstico de Trackers WebTorrent...\n");
-  console.log(`| ${"Tracker".padEnd(45)} | ${"Status".padEnd(10)} | ${"Tempo"} |`);
-  console.log(`|${"-".repeat(47)}|${"-".repeat(12)}|${"-".repeat(9)}|`);
+  console.log(`| ${"Tracker".padEnd(50)} | ${"Status".padEnd(10)} | ${"Tempo".padEnd(8)} | ${"Detalhes"}`);
+  console.log(`|${"-".repeat(52)}|${"-".repeat(12)}|${"-".repeat(10)}|${"-".repeat(20)}|`);
 
-  const results: { url: string; isAlive: boolean; timeMs: number }[] = [];
+  const results: { url: string; success: boolean; timeMs: number; error?: string }[] = [];
 
-  for (const url of trackersToTest) {
-    const startTime = performance.now();
-    const isAlive = await testTracker(url, 3000);
-    const timeMs = Math.round(performance.now() - startTime);
-    
-    results.push({ url, isAlive, timeMs });
+  for (const url of TRACKER_CANDIDATES) {
+    const result = await testTracker(url, 3000);
+    results.push({ url, ...result });
 
-    const statusIcon = isAlive ? "✅ ATIVO" : "❌ FALHOU";
+    const statusIcon = result.success ? "✅ ATIVO" : "❌ FALHOU";
     const statusPadded = statusIcon.padEnd(10);
-    const urlPadded = url.padEnd(45);
-    const timePadded = `${timeMs}ms`.padEnd(7);
+    const urlPadded = url.padEnd(50);
+    const timePadded = `${result.timeMs}ms`.padEnd(8);
+    const details = result.error || "OK";
 
-    console.log(`| ${urlPadded} | ${statusPadded} | ${timePadded} |`);
+    console.log(`| ${urlPadded} | ${statusPadded} | ${timePadded} | ${details}`);
   }
 
-  console.log(`\n📊 Resumo: ${results.filter((r) => r.isAlive).length} de ${results.length} trackers estão operacionais.`);
+  console.log(`\n📊 Resumo: ${results.filter((r) => r.success).length} de ${results.length} trackers estão operacionais.`);
   
   // Sugestão de ação: Filtrar apenas os vivos para uso em produção
-  const healthyTrackers = results.filter((r) => r.isAlive).map((r) => r.url);
+  const healthyTrackers = results.filter((r) => r.success).map((r) => r.url);
   if (healthyTrackers.length > 0) {
     console.log("\n💡 Lista saudável recomendada para o array PUBLIC_TRACKERS:");
     console.log(JSON.stringify(healthyTrackers, null, 2));
   } else {
     console.warn("\n⚠️ Nenhum tracker respondeu. Verifique sua conexão de rede ou firewall.");
+  }
+
+  // Estatísticas adicionais
+  const avgTime = results
+    .filter((r) => r.success)
+    .reduce((sum, r) => sum + r.timeMs, 0) / (healthyTrackers.length || 1);
+  
+  console.log(`\n⏱️  Tempo médio de resposta: ${Math.round(avgTime)}ms`);
+  
+  // Classificação por velocidade
+  const sorted = results
+    .filter((r) => r.success)
+    .sort((a, b) => a.timeMs - b.timeMs);
+  
+  if (sorted.length > 0) {
+    console.log("\n🏆 Trackers mais rápidos:");
+    sorted.slice(0, 5).forEach((r, i) => {
+      console.log(`  ${i + 1}. ${r.url} (${r.timeMs}ms)`);
+    });
   }
 }
 
@@ -142,3 +180,5 @@ async function runTrackerDiagnostics() {
 if (import.meta.main) {
   runTrackerDiagnostics();
 }
+
+export { TRACKER_CANDIDATES, testTracker, runTrackerDiagnostics };

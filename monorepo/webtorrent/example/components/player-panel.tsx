@@ -5,13 +5,20 @@ import { useSignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import {
   torrentSignal,
-  clientSignal,
   peersSignal,
   modeSignal,
   downSpeedSignal,
   upSpeedSignal,
+  debugSignal,
 } from "../torrent-context.tsx";
-import { buildStreamURL } from "@loco/webtorrent";
+import { buildStreamURL, type File } from "@loco/webtorrent";
+
+function dbg(...args: unknown[]) {
+  const msg = args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
+  const ts = new Date().toISOString().split("T")[1]!.slice(0, 8);
+  console.log(`[PLAYER ${ts}]`, msg);
+  debugSignal.value = [...debugSignal.value.slice(-99), `[${ts}] PLAYER: ${msg}`];
+}
 
 function formatSpeed(bps: number): string {
   if (bps < 1024) return `${bps} B/s`;
@@ -28,49 +35,100 @@ function formatSize(bytes: number): string {
 
 export function PlayerPanel() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamUrl = useSignal<string | null>(null);
   const isPlaying = useSignal(false);
-  const updateInterval = useSignal<number | null>(null);
 
+  // Reads signal value (re-runs on change).  We poll torrentSignal
+  // and call streamTo when we have a file and a video element ready.
   const torrent = torrentSignal.value;
   const mode = modeSignal.value;
   const peers = peersSignal.value;
   const isActive = mode !== "idle";
 
-  // Atualiza speeds periodicamente
+  // Polling interval: watches for a torrent with files + a video element
+  // and wires them together via file.streamTo(videoElement).  Polling
+  // because Preact signals don't trigger useEffect — we trigger manually
+  // when torrentSignal changes (see useEffect below).
+  const setupIntervalRef = useRef<number | null>(null);
+
   useEffect(() => {
-    const id = setInterval(() => {
+    dbg("effect: torrent:", torrent?.infoHash, "files:", torrent?.files?.length, "video:", !!videoRef.current);
+
+    if (setupIntervalRef.current) {
+      clearInterval(setupIntervalRef.current);
+      setupIntervalRef.current = null;
+    }
+
+    if (!torrent || torrent.files.length === 0) {
+      dbg("effect: no torrent or no files, waiting...");
+      setupIntervalRef.current = setInterval(() => {
+        const t = torrentSignal.value;
+        if (t && t.files.length > 0 && videoRef.current) {
+          dbg("poll: torrent ready with files, calling streamTo");
+          const file = t.files[0]! as File;
+          try {
+            file.streamTo(videoRef.current);
+            dbg("poll: streamTo done, src =", videoRef.current.src);
+          } catch (err) {
+            dbg("poll: streamTo error:", String(err));
+          }
+          if (setupIntervalRef.current) {
+            clearInterval(setupIntervalRef.current);
+            setupIntervalRef.current = null;
+          }
+        }
+      }, 200) as unknown as number;
+      return;
+    }
+
+    // torrent has files immediately
+    if (videoRef.current) {
+      const file = torrent.files[0]! as File;
+      dbg("effect: immediate streamTo, file:", file.name);
+      try {
+        file.streamTo(videoRef.current);
+        dbg("effect: streamTo done");
+      } catch (err) {
+        dbg("effect: streamTo error:", String(err));
+      }
+    } else {
+      // video element not yet mounted — wait for next render
+      dbg("effect: video ref not ready, polling...");
+      setupIntervalRef.current = setInterval(() => {
+        const t = torrentSignal.value;
+        if (t && t.files.length > 0 && videoRef.current) {
+          dbg("poll: video ready, calling streamTo");
+          const file = t.files[0]! as File;
+          try {
+            file.streamTo(videoRef.current);
+            dbg("poll: streamTo done, src =", videoRef.current.src);
+          } catch (err) {
+            dbg("poll: streamTo error:", String(err));
+          }
+          if (setupIntervalRef.current) {
+            clearInterval(setupIntervalRef.current);
+            setupIntervalRef.current = null;
+          }
+        }
+      }, 200) as unknown as number;
+    }
+
+    // Periodically update speeds
+    const speedInterval = setInterval(() => {
       const t = torrentSignal.value;
       if (t) {
         downSpeedSignal.value = t.downloadSpeed;
         upSpeedSignal.value = t.uploadSpeed;
       }
-    }, 500) as unknown as number;
+    }, 500);
 
-    updateInterval.value = id;
-    return () => clearInterval(id);
-  }, []);
-
-  // Reconstrói stream URL quando torrent está pronto
-  useEffect(() => {
-    if (!torrent || !clientSignal.value) return;
-
-    const file = torrent.files[0];
-    if (!file) return;
-
-    const client = clientSignal.value;
-    const server = client.server;
-    if (!server) return;
-
-    const url = buildStreamURL("/", torrent.infoHash, 0, file.name);
-    streamUrl.value = url;
-
-    // Conecta stream ao <video> via client._makeFileObjects()
-    if (videoRef.current) {
-      const files = (client as any)._makeFileObjects(torrent, "/");
-      files[0]?.streamTo(videoRef.current);
-    }
-  }, [torrent?.infoHash, clientSignal.value?.server]);
+    return () => {
+      clearInterval(speedInterval);
+      if (setupIntervalRef.current) {
+        clearInterval(setupIntervalRef.current);
+        setupIntervalRef.current = null;
+      }
+    };
+  }, [torrent?.infoHash, torrent?.files?.length, mode]);
 
   const handleCanPlay = () => {
     isPlaying.value = true;
@@ -85,10 +143,17 @@ export function PlayerPanel() {
     return /\.(mp4|webm|mkv|avi|mov)$/i.test(name);
   })();
 
+  const displayUrl = (() => {
+    if (!torrent || !isActive) return null;
+    const file = torrent.files[0];
+    if (!file) return null;
+    return buildStreamURL("/", torrent.infoHash, 0, file.name);
+  })();
+
   return (
     <div class="field">
       {/* Video/Audio player */}
-      {isActive && streamUrl.value && isVideo && (
+      {isActive && isVideo && (
         <video
           ref={videoRef}
           controls
@@ -107,21 +172,22 @@ export function PlayerPanel() {
         </div>
       )}
 
-      {isActive && streamUrl.value && (
+      {isActive && displayUrl && (
         <div class="field label suffix border">
           <input
             type="text"
-            value={streamUrl.value}
+            value={displayUrl}
             readonly
             onClick={(e) => {
               (e.target as HTMLInputElement).select();
-              navigator.clipboard.writeText(streamUrl.value!);
+              navigator.clipboard.writeText(displayUrl);
             }}
           />
           <label>Stream URL</label>
           <button
+            type="button"
             class="transparent front"
-            onClick={() => navigator.clipboard.writeText(streamUrl.value!)}
+            onClick={() => navigator.clipboard.writeText(displayUrl)}
             title="Copiar URL"
           >
             <i class="material-symbols small">content_copy</i>
